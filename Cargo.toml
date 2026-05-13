@@ -1,0 +1,106 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gate-core",
+    "crates/gate-storage",
+    "crates/gate-crypto",
+    "crates/gate-auth",
+    "crates/gate-server",
+    "crates/kgctl",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-only"
+repository = "https://github.com/telagod/kooix-gate"
+authors = ["telagod"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = "0.7"
+tokio-stream = "0.1"
+futures = "0.3"
+async-trait = "0.1"
+
+# Web
+axum = { version = "0.7", features = ["macros", "ws"] }
+tower = { version = "0.5", features = ["util", "timeout", "limit"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip", "request-id"] }
+hyper = "1"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "http2"] }
+
+# Database
+sqlx = { version = "0.8", default-features = false, features = [
+    "postgres", "runtime-tokio-rustls", "uuid", "chrono", "json",
+    "macros", "migrate", "rust_decimal", "ipnetwork"
+] }
+
+# Cache
+fred = { version = "9", default-features = false, features = ["enable-rustls", "i-all", "i-scripts"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+simd-json = "0.13"
+
+# IDs & time
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+ulid = { version = "1", features = ["serde", "uuid"] }
+
+# Numbers
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+
+# Errors & logging
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = "0.27"
+opentelemetry-otlp = "0.27"
+tracing-opentelemetry = "0.28"
+
+# Crypto
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hmac = "0.12"
+jsonwebtoken = "9"
+aes-gcm = "0.10"
+zeroize = { version = "1", features = ["derive"] }
+
+# Config
+figment = { version = "0.10", features = ["toml", "env"] }
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# OIDC / OAuth
+openidconnect = { version = "3", default-features = false, features = ["reqwest", "rustls-tls"] }
+oauth2 = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+url = { version = "2", features = ["serde"] }
+base64 = "0.22"
+subtle = "2"
+hex = "0.4"
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid", "decimal"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = 1

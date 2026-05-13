@@ -1,0 +1,31 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE
+/.idea
+/.vscode
+*.iml
+.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+.sqlx/
+
+# Build artifacts
+/dist
+/build
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
