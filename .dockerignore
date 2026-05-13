@@ -1,0 +1,12 @@
+target/
+.git/
+node_modules/
+web/node_modules/
+web/.svelte-kit/
+*.md
+.claude/
+.env
+.env.*
+*.pem
+*.key
+secrets/
