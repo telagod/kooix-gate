@@ -1,12 +1,21 @@
 //! kgctl: Kooix Gate 部署/运维 CLI
 //!
-//! 当前能力：
-//!   kgctl init           生成首次部署所需的全部密钥（master + jwt）
-//!   kgctl key master     仅生成 master key (base64 32B)
-//!   kgctl key jwt        仅生成 JWT secret (base64 64B)
-//!   kgctl env            打印部署必需的环境变量清单（含说明）
+//! 子命令：
+//!   kgctl init               生成首次部署所需的全部密钥（master + jwt）
+//!   kgctl key master         仅生成 master key (base64 32B)
+//!   kgctl key jwt            仅生成 JWT secret (base64 64B)
+//!   kgctl env                打印部署必需的环境变量清单（含说明）
+//!   kgctl migrate            连 DB 跑 migrations（--dry-run 仅列出 pending）
+//!   kgctl admin create       创建 platform super_admin 账号
+//!   kgctl doctor             一键体检：env / DB / Redis 可达性
+//!   kgctl seed-pricing       写入主流模型默认定价（幂等）
 
 use clap::{Parser, Subcommand};
+
+mod admin;
+mod doctor;
+mod migrate;
+mod pricing;
 
 #[derive(Parser)]
 #[command(name = "kgctl", version, about = "Kooix Gate 部署/运维工具", long_about = None)]
@@ -26,6 +35,21 @@ enum Cmd {
     },
     /// 打印部署所需环境变量清单
     Env,
+    /// 跑 PostgreSQL 数据库迁移
+    Migrate {
+        /// 仅列出待执行的 migration 不实际执行
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// 平台级账号管理
+    Admin {
+        #[command(subcommand)]
+        sub: AdminCmd,
+    },
+    /// 部署体检：env 完整性 + DB / Redis 可达性
+    Doctor,
+    /// 写入主流模型的默认计费定价（幂等）
+    SeedPricing,
 }
 
 #[derive(Subcommand)]
@@ -36,17 +60,63 @@ enum KeyCmd {
     Jwt,
 }
 
-fn main() -> anyhow::Result<()> {
+#[derive(Subcommand)]
+enum AdminCmd {
+    /// 创建 super_admin 账号（首次部署后用一次）
+    Create {
+        /// 登录邮箱（CITEXT 唯一）
+        #[arg(long)]
+        email: String,
+        /// 初始密码；不传则自动生成 24-byte base64url 随机密码并打印一次
+        #[arg(long)]
+        password: Option<String>,
+    },
+}
+
+fn main() {
     let cli = Cli::parse();
-    match cli.cmd {
-        Cmd::Init => print_init(),
+    let result: anyhow::Result<()> = match cli.cmd {
+        Cmd::Init => {
+            print_init();
+            Ok(())
+        }
         Cmd::Key {
             which: KeyCmd::Master,
-        } => print_master(),
-        Cmd::Key { which: KeyCmd::Jwt } => print_jwt(),
-        Cmd::Env => print_env(),
+        } => {
+            print_master();
+            Ok(())
+        }
+        Cmd::Key { which: KeyCmd::Jwt } => {
+            print_jwt();
+            Ok(())
+        }
+        Cmd::Env => {
+            print_env();
+            Ok(())
+        }
+        Cmd::Migrate { dry_run } => run_async(migrate::run(dry_run)),
+        Cmd::Admin {
+            sub: AdminCmd::Create { email, password },
+        } => run_async(admin::create(email, password)),
+        Cmd::Doctor => run_async(doctor::run()),
+        Cmd::SeedPricing => run_async(pricing::seed()),
+    };
+
+    if let Err(e) = result {
+        // 红色错误 + 非零退出
+        eprintln!("\x1b[31merror:\x1b[0m {e:#}");
+        std::process::exit(1);
     }
-    Ok(())
+}
+
+fn run_async<F>(fut: F) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = anyhow::Result<()>>,
+{
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(fut)
 }
 
 fn print_master() {
@@ -82,7 +152,7 @@ fn print_env() {
         (
             "KOOIX_JWT_SECRET",
             "必填",
-            "JWT HS256 secret，base64 64B。kgctl key jwt 生成。",
+            "JWT HS256 secret，base64 ≥32B。kgctl key jwt 生成。",
         ),
         (
             "KOOIX_DATABASE_URL",
@@ -105,6 +175,11 @@ fn print_env() {
             "KOOIX_TOKEN_REFRESH_TTL_DAY",
             "可选",
             "Refresh token TTL（天），默认 30",
+        ),
+        (
+            "KOOIX_OIDC_DEFAULT_REDIRECT",
+            "可选",
+            "SSO 登录成功后默认跳转 URL（未带 redirect 参数时使用）",
         ),
         ("RUST_LOG", "可选", "日志级别，建议 info,gate=debug"),
     ];
