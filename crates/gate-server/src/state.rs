@@ -2,6 +2,7 @@
 //!
 //! 用 Arc 实现 Clone 廉价化。
 
+use crate::audit::AuditEmitter;
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
 use gate_billing::{OutboxRepo, PricingRepo};
@@ -9,7 +10,7 @@ use gate_cache::{QuotaCounter, RateLimiter};
 use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
-    ApiKeyRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, IdentityProviderRepo,
+    ApiKeyRepo, AuditRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, IdentityProviderRepo,
     MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, UsageRepo,
     UserIdentityRepo, UserRepo,
 };
@@ -46,6 +47,8 @@ pub struct AppState {
     /// 配额预扣/查询计数器（Redis 后端）。
     /// 未配置时 quota middleware 对 budget 维度走 fail-open，仅 rate 维度仍可生效（走 rate_limiter）。
     pub quota_counter: Option<Arc<QuotaCounter>>,
+    /// 审计发射器（G2 新增）。用 repos.audit 初始化，非阻塞写入。
+    pub audit: AuditEmitter,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -91,13 +94,15 @@ pub struct Repos {
     pub quotas: Arc<dyn QuotaRepo>,
     /// 模型别名（F5 追加）—— router 做 alias → target_model 解析。
     pub model_aliases: Arc<dyn ModelAliasRepo>,
+    /// 审计日志（G2 追加）—— 关键操作落 audit_logs 表。
+    pub audit: Arc<dyn AuditRepo>,
 }
 
 impl Repos {
     /// 从一个 PgPool 批量构造全部 Pg 实现。
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
-            PgApiKeyRepo, PgChannelGroupRepo, PgChannelKeyRepo, PgChannelRepo,
+            PgApiKeyRepo, PgAuditRepo, PgChannelGroupRepo, PgChannelKeyRepo, PgChannelRepo,
             PgIdentityProviderRepo, PgMembershipRepo, PgModelAliasRepo, PgOidcStateRepo,
             PgOrgRepo, PgProjectRepo, PgQuotaRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo,
         };
@@ -115,17 +120,19 @@ impl Repos {
             oidc_states: Arc::new(PgOidcStateRepo::new(pool.clone())),
             usage: Arc::new(PgUsageRepo::new(pool.clone())),
             quotas: Arc::new(PgQuotaRepo::new(pool.clone())),
-            model_aliases: Arc::new(PgModelAliasRepo::new(pool)),
+            model_aliases: Arc::new(PgModelAliasRepo::new(pool.clone())),
+            audit: Arc::new(PgAuditRepo::new(pool)),
         }
     }
 
     /// 内存版（dev 模式 / 测试用）。
     pub fn in_memory() -> Self {
         use gate_storage::{
-            InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
-            InMemoryChannelRepo, InMemoryIdentityProviderRepo, InMemoryMembershipRepo,
-            InMemoryModelAliasRepo, InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo,
-            InMemoryQuotaRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryChannelGroupRepo,
+            InMemoryChannelKeyRepo, InMemoryChannelRepo, InMemoryIdentityProviderRepo,
+            InMemoryMembershipRepo, InMemoryModelAliasRepo, InMemoryOidcStateRepo,
+            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryUsageRepo,
+            InMemoryUserIdentityRepo, InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -142,12 +149,14 @@ impl Repos {
             usage: Arc::new(InMemoryUsageRepo::new()),
             quotas: Arc::new(InMemoryQuotaRepo::new()),
             model_aliases: Arc::new(InMemoryModelAliasRepo::new()),
+            audit: Arc::new(InMemoryAuditRepo::new()),
         }
     }
 }
 
 impl AppState {
     pub fn new(jwt: JwtIssuer, loader: Arc<dyn AuthContextLoader>, repos: Repos) -> Self {
+        let audit = AuditEmitter::new(repos.audit.clone());
         Self {
             jwt: Arc::new(jwt),
             loader,
@@ -162,6 +171,7 @@ impl AppState {
             outbox: None,
             pricing: None,
             quota_counter: None,
+            audit,
         }
     }
 

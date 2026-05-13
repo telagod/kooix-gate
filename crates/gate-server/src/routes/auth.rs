@@ -123,6 +123,23 @@ async fn login(
 
     let (refresh_token, _) = app.jwt.issue_refresh(*user.id.as_uuid(), session_id, jti)?;
 
+    // 审计：登录成功
+    let audit_ctx = gate_auth::AuthContext::user(
+        user.id,
+        session_id,
+        Default::default(),
+        Default::default(),
+        None,
+        None,
+    );
+    app.audit.emit(
+        &audit_ctx,
+        "user.login",
+        "user",
+        Some(*user.id.as_uuid()),
+        Some(serde_json::json!({"method": "password"})),
+    );
+
     Ok(Json(LoginResponse {
         access_token,
         refresh_token,

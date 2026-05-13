@@ -276,6 +276,7 @@ fn build_repos(
         usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
     }
 }
 
@@ -512,4 +513,104 @@ async fn header_org_switch_denied_if_not_member() {
         .unwrap();
     let resp = f.router.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+/// 集成测试：创建 API key 后 audit_logs 表应有一条 `api_key.create` 记录。
+#[tokio::test]
+async fn create_apikey_emits_audit_record() {
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let org_a = OrgId::new();
+    let proj_a = ProjectId::new();
+    let user_dev = UserId::new();
+
+    let loader = Arc::new(InMemoryLoader::new());
+    {
+        let mut orgs = HashMap::new();
+        orgs.insert(org_a, OrgRole::Member);
+        let mut projs = HashMap::new();
+        projs.insert((org_a, proj_a), ProjectRole::Developer);
+        loader.add_user(
+            user_dev,
+            UserRecord {
+                orgs,
+                projects: projs,
+                platform: None,
+            },
+        );
+    }
+
+    let now = Utc::now();
+    let projects = Arc::new(InMemoryProjectRepo::new());
+    projects.seed(Project {
+        id: proj_a,
+        org_id: org_a,
+        name: "main".into(),
+        slug: "main".into(),
+        status: ProjectStatus::Active,
+        default_group_id: None,
+        created_at: now,
+        updated_at: now,
+    });
+
+    let audit_repo = Arc::new(gate_storage::InMemoryAuditRepo::new());
+
+    let repos = Repos {
+        users: Arc::new(InMemoryUserRepo::new()),
+        orgs: Arc::new(InMemoryOrgRepo::new()),
+        projects,
+        memberships: Arc::new(InMemoryMembershipRepo::new()),
+        api_keys: Arc::new(InMemoryApiKeyRepo::new()),
+        channels: Arc::new(gate_storage::InMemoryChannelRepo::new()),
+        channel_groups: Arc::new(gate_storage::InMemoryChannelGroupRepo::new()),
+        channel_keys: Arc::new(gate_storage::InMemoryChannelKeyRepo::new()),
+        identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
+        user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
+        oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),
+        usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
+        model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: audit_repo.clone(),
+    };
+
+    let state = AppState::new(jwt.clone(), loader, repos);
+    let router = build_router(state);
+
+    let tok = jwt_for(&jwt, user_dev, Some(org_a), false);
+    let url = format!(
+        "/v1/orgs/{}/projects/{}/api-keys",
+        org_a.as_uuid(),
+        proj_a.as_uuid()
+    );
+    let (status, body) = call(
+        &router,
+        "POST",
+        &url,
+        Some(&tok),
+        Some(serde_json::json!({"name": "audit-test-key"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["plaintext"].as_str().unwrap().starts_with("sk-kg-"));
+
+    // Audit is spawned — give it a moment to land
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let logs = audit_repo.all();
+    assert_eq!(logs.len(), 1, "expected exactly 1 audit record");
+    assert_eq!(logs[0].action, "api_key.create");
+    assert_eq!(logs[0].resource_kind, "api_key");
+    assert_eq!(logs[0].actor_kind, "user");
+    assert_eq!(logs[0].actor_id, Some(*user_dev.as_uuid()));
+    assert_eq!(logs[0].org_id, Some(*org_a.as_uuid()));
+    assert_eq!(logs[0].outcome, "success");
 }

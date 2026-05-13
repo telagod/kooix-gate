@@ -109,6 +109,14 @@ async fn create(
         )
         .await?;
 
+    app.audit.emit(
+        &ctx,
+        "api_key.create",
+        "api_key",
+        Some(*id.as_uuid()),
+        Some(serde_json::json!({"name": req.name, "project_id": project_id.to_string()})),
+    );
+
     Ok(Json(CreateApiKeyResponse {
         id: id.as_uuid().to_string(),
         name: req.name,
@@ -184,6 +192,14 @@ async fn revoke(
         .api_keys
         .revoke(ApiKeyId::from(key_id), user_id, None)
         .await?;
+
+    app.audit.emit(
+        &ctx,
+        "api_key.revoke",
+        "api_key",
+        Some(key_id),
+        None,
+    );
 
     Ok(Json(serde_json::json!({"revoked": true})))
 }
