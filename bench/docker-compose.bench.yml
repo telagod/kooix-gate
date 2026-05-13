@@ -1,0 +1,88 @@
+# docker-compose.bench.yml — Full load-testing stack
+#
+# Usage:
+#   docker compose -f docker-compose.bench.yml up -d postgres redis mock-llm gate-server
+#   docker compose -f docker-compose.bench.yml run k6
+#
+# Or all-in-one:
+#   docker compose -f docker-compose.bench.yml up --abort-on-container-exit k6
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: gate
+      POSTGRES_PASSWORD: gate_dev
+      POSTGRES_DB: gate
+    tmpfs: /var/lib/postgresql/data   # RAM disk — no fsync overhead
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gate"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no  # no persistence
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  mock-llm:
+    build:
+      context: .
+      dockerfile: bench/Dockerfile.mock
+    command: ["--port", "9999", "--latency", "${MOCK_LATENCY:-50}"]
+    ports:
+      - "9999:9999"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9999/health')"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  gate-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://gate:gate_dev@postgres:5432/gate
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: "info,gate_server=debug"
+      KOOIX_JWT_SECRET: bench-jwt-secret-at-least-32-chars-long
+      KOOIX_API_KEY: sk-kg-test-key
+      KOOIX_PROVIDER_BASE_URL: http://mock-llm:9999
+      KOOIX_LISTEN_ADDR: "0.0.0.0:8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-llm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+  k6:
+    image: grafana/k6:0.54.0
+    volumes:
+      - ./bench/k6:/scripts:ro
+      - ./bench/results:/results
+    environment:
+      API_URL: http://gate-server:8080
+      API_KEY: sk-kg-test-key
+    command: >
+      run
+      --out json=/results/docker_run.json
+      /scripts/chat_load.js
+    depends_on:
+      gate-server:
+        condition: service_healthy

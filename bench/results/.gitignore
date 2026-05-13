@@ -1,0 +1,4 @@
+# bench/results/ — load test output (not tracked in git)
+*
+!.gitkeep
+!.gitignore

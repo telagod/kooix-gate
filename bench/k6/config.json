@@ -1,0 +1,23 @@
+{
+  "api_url": "http://localhost:8080",
+  "api_key": "sk-kg-test-key",
+  "target_rpm": 50000,
+  "ramp_up_duration": "30s",
+  "sustained_duration": "2m",
+  "cool_down_duration": "30s",
+  "thresholds": {
+    "p95_ms": 500,
+    "p99_ms": 1000,
+    "error_rate": 0.01
+  },
+  "mock_upstream": {
+    "port": 9999,
+    "latency_ms": 50
+  },
+  "message_templates": [
+    { "weight": 40, "type": "short",  "tokens_approx": 20 },
+    { "weight": 35, "type": "medium", "tokens_approx": 100 },
+    { "weight": 20, "type": "long",   "tokens_approx": 500 },
+    { "weight": 5,  "type": "code",   "tokens_approx": 200 }
+  ]
+}
