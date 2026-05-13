@@ -12,6 +12,7 @@ pub mod chat;
 pub mod health;
 pub mod me;
 pub mod projects;
+pub mod sso;
 
 use crate::state::AppState;
 use axum::Router;
@@ -30,5 +31,6 @@ pub fn v1_router() -> Router<AppState> {
         .merge(api_keys::router())
         .merge(chat::router())
         .merge(auth::router())
+        .merge(sso::router())
         .nest("/admin", admin::router())
 }

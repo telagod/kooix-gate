@@ -53,6 +53,13 @@ figment.workspace = true
 # Validation
 validator.workspace = true
 
+# SSO state hash + base64
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+rand.workspace = true
+openidconnect.workspace = true
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "macros"] }
 tower = { version = "0.5", features = ["util"] }
@@ -63,3 +70,6 @@ testcontainers-modules = { version = "0.15", features = ["postgres", "redis"] }
 fred.workspace = true
 wiremock = "0.6"
 futures.workspace = true
+gate-crypto = { path = "../gate-crypto" }
+sha2.workspace = true
+hex.workspace = true
