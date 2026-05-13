@@ -19,6 +19,7 @@ thiserror.workspace = true
 tracing.workspace = true
 bytes = "1"
 parking_lot = "0.12"
+rand.workspace = true
 
 [dev-dependencies]
 chrono.workspace = true

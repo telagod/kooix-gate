@@ -15,7 +15,7 @@ pub mod router;
 pub mod types;
 
 pub use error::{ProviderError, ProviderResult};
-pub use router::{ProviderRouter, RoutedProvider};
+pub use router::{InflightTracker, ProviderRouter, RoutedProvider};
 pub use types::{
     ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk, FinishReason, Role, Usage,
 };

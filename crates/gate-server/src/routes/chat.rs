@@ -41,6 +41,7 @@ use gate_auth::AuthError;
 use gate_auth::context::Subject;
 use gate_core::id::ProjectId;
 use gate_providers::{ChatRequest, ChatResponse, Provider, Usage};
+use gate_core::id::ChannelId;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
@@ -87,6 +88,10 @@ async fn chat_completions(
         let app_for_billing = app.clone();
         let billing_ctx_clone = billing_ctx.clone();
 
+        // least_conn release: stream 结束后释放 inflight 计数
+        let router_for_release = app.provider_router.clone();
+        let release_channel_id = channel_id.map(ChannelId::from);
+
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
         let wrapped = upstream.inspect(move |item| {
             if let Ok(chunk) = item
@@ -100,6 +105,11 @@ async fn chat_completions(
         // 副作用流自身不吐 chunk，只在被 poll 时 spawn emit 任务后返回 None。
         let trigger = futures::stream::once(async move {
             let usage = captured_usage.lock().unwrap().take();
+
+            // 释放 inflight 计数（least_conn 策略）
+            if let (Some(router), Some(ch_id)) = (&router_for_release, release_channel_id) {
+                router.release_channel(ch_id);
+            }
 
             // 结算 inflight guards（F3）
             if let Some(ref u) = usage
@@ -143,6 +153,11 @@ async fn chat_completions(
             .into_response())
     } else {
         let resp: ChatResponse = provider.chat(req).await?;
+
+        // 释放 inflight 计数（least_conn 策略）
+        if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
+            router.release_channel(ChannelId::from(ch_uuid));
+        }
 
         // 结算 inflight guards（F3）
         if let Some(Extension(ref g)) = guards {
