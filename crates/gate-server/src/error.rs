@@ -21,6 +21,9 @@ pub enum AppError {
     #[error(transparent)]
     Loader(#[from] crate::loader::LoaderError),
 
+    #[error(transparent)]
+    Db(#[from] gate_storage::DbError),
+
     #[error("bad request: {0}")]
     BadRequest(String),
 
@@ -94,6 +97,15 @@ impl IntoResponse for AppError {
             }
             AppError::Loader(crate::loader::LoaderError::ApiKeyIpDenied) => {
                 (StatusCode::FORBIDDEN, "api_key_ip_denied", self.to_string())
+            }
+            AppError::Db(gate_storage::DbError::NotFound) => {
+                (StatusCode::NOT_FOUND, "not_found", "resource not found".into())
+            }
+            AppError::Db(gate_storage::DbError::Conflict(_)) => {
+                (StatusCode::CONFLICT, "conflict", self.to_string())
+            }
+            AppError::Db(gate_storage::DbError::Constraint(_)) => {
+                (StatusCode::BAD_REQUEST, "constraint_violation", self.to_string())
             }
             AppError::BadRequest(_) => {
                 (StatusCode::BAD_REQUEST, "bad_request", self.to_string())

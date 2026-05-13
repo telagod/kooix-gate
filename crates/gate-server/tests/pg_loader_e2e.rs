@@ -15,6 +15,7 @@ use chrono::Duration as ChronoDuration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_core::id::*;
 use gate_core::identity::{OrgRole, ProjectRole};
+use gate_server::state::Repos;
 use gate_server::{build_router, AppState, PgLoader};
 use gate_storage::{
     ApiKeyRepo, MembershipRepo, OrgRepo, PgApiKeyRepo, PgMembershipRepo, PgOrgRepo,
@@ -102,8 +103,9 @@ async fn fixture() -> Fixture {
         },
     )
     .unwrap();
-    let loader = Arc::new(PgLoader::new(pool));
-    let state = AppState::new(jwt, loader);
+    let loader = Arc::new(PgLoader::new(pool.clone()));
+    let repos = Repos::from_pg(pool);
+    let state = AppState::new(jwt, loader, repos);
     let jwt_arc = state.jwt.clone();
     let router = build_router(state);
 

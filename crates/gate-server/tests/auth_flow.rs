@@ -14,11 +14,19 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Duration as ChronoDuration;
+use chrono::Utc;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_core::id::*;
-use gate_core::identity::{OrgRole, PlatformRole, ProjectRole};
+use gate_core::identity::{
+    OrgRole, OrgStatus, Organization, PlatformRole, Project, ProjectRole, ProjectStatus,
+};
 use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
+use gate_server::state::Repos;
 use gate_server::{build_router, AppState};
+use gate_storage::{
+    ApiKeyRecord as RepoApiKey, InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo,
+    InMemoryProjectRepo, InMemoryUserRepo,
+};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -132,7 +140,7 @@ fn fixture() -> Fixture {
         },
     );
 
-    let state = AppState::new(jwt, loader);
+    let state = AppState::new(jwt, loader, build_repos(org_a, org_b, proj_a, user_dev, &api_key_plain, &api_key_revoked));
     let jwt_arc = state.jwt.clone();
     let router = build_router(state);
 
@@ -148,6 +156,91 @@ fn fixture() -> Fixture {
         user_other,
         api_key_plain,
         api_key_revoked,
+    }
+}
+
+fn build_repos(
+    org_a: OrgId,
+    org_b: OrgId,
+    proj_a: ProjectId,
+    user_dev: UserId,
+    api_key_plain: &str,
+    api_key_revoked: &str,
+) -> Repos {
+    let now = Utc::now();
+    let users = Arc::new(InMemoryUserRepo::new());
+    let orgs = Arc::new(InMemoryOrgRepo::new());
+    let projects = Arc::new(InMemoryProjectRepo::new());
+    let memberships = Arc::new(InMemoryMembershipRepo::new());
+    let api_keys = Arc::new(InMemoryApiKeyRepo::new());
+
+    orgs.seed(Organization {
+        id: org_a,
+        name: "Acme".into(),
+        slug: "acme".into(),
+        owner_user_id: user_dev,
+        status: OrgStatus::Active,
+        billing_email: None,
+        created_at: now,
+        updated_at: now,
+    });
+    orgs.seed(Organization {
+        id: org_b,
+        name: "Beta".into(),
+        slug: "beta".into(),
+        owner_user_id: user_dev,
+        status: OrgStatus::Active,
+        billing_email: None,
+        created_at: now,
+        updated_at: now,
+    });
+    projects.seed(Project {
+        id: proj_a,
+        org_id: org_a,
+        name: "main".into(),
+        slug: "main".into(),
+        status: ProjectStatus::Active,
+        default_group_id: None,
+        created_at: now,
+        updated_at: now,
+    });
+
+    // 两把 API key 也塞进 Repo（供 list / revoke 走真 Repo）
+    api_keys.seed(
+        &gate_auth::api_key::hash(api_key_plain),
+        RepoApiKey {
+            api_key_id: ApiKeyId::new(),
+            project_id: proj_a,
+            org_id: org_a,
+            name: "active".into(),
+            allowed_ips: vec![],
+            allowed_models: vec![],
+            allowed_groups: vec![],
+            expires_at: None,
+            revoked_at: None,
+        },
+    );
+    api_keys.seed(
+        &gate_auth::api_key::hash(api_key_revoked),
+        RepoApiKey {
+            api_key_id: ApiKeyId::new(),
+            project_id: proj_a,
+            org_id: org_a,
+            name: "revoked".into(),
+            allowed_ips: vec![],
+            allowed_models: vec![],
+            allowed_groups: vec![],
+            expires_at: None,
+            revoked_at: Some(now),
+        },
+    );
+
+    Repos {
+        users,
+        orgs,
+        projects,
+        memberships,
+        api_keys,
     }
 }
 

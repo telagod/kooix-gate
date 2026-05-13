@@ -11,6 +11,7 @@ use anyhow::Context;
 use chrono::Duration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_server::loader::{AuthContextLoader, InMemoryLoader};
+use gate_server::state::Repos;
 use gate_server::{build_router, AppState, Config, PgLoader};
 use std::sync::Arc;
 
@@ -31,10 +32,10 @@ async fn main() -> anyhow::Result<()> {
         },
     )?;
 
-    let loader: Arc<dyn AuthContextLoader> =
+    let (loader, repos): (Arc<dyn AuthContextLoader>, Repos) =
         if std::env::var("KOOIX_DEV_INMEMORY").as_deref() == Ok("1") {
             tracing::warn!("KOOIX_DEV_INMEMORY=1 — using InMemoryLoader (NOT for production)");
-            Arc::new(InMemoryLoader::new())
+            (Arc::new(InMemoryLoader::new()), Repos::in_memory())
         } else {
             tracing::info!(url = %redact_db_url(&cfg.database_url), "connecting postgres");
             let pool = gate_storage::connect(&cfg.database_url, 16)
@@ -44,10 +45,13 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("run migrations")?;
             tracing::info!("migrations applied");
-            Arc::new(PgLoader::new(pool))
+            (
+                Arc::new(PgLoader::new(pool.clone())),
+                Repos::from_pg(pool),
+            )
         };
 
-    let state = AppState::new(jwt, loader);
+    let state = AppState::new(jwt, loader, repos);
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
