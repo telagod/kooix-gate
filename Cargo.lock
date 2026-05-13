@@ -1639,6 +1639,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "chrono",
  "futures",
  "gate-core",
  "gate-storage",
@@ -1650,6 +1651,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "uuid",
  "wiremock",
 ]
 
