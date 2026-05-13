@@ -4,7 +4,7 @@
 //! 设计要点：
 //! - 加载 quota 行的主体扇区（apikey: api_key + project + org；user: user + org）
 //! - rpm/tpm 走 [`RateLimiter`](gate_cache::RateLimiter) 滑窗（window_seconds 来自 quota.window_seconds）
-//! - budget 类只读判断（peek）：chat 请求事前不知道 cost，路径上不预扣；只过滤已超额
+//! - budget 类走 pre-debit（debit 预估费用 → handler 完成后 settle 修正）
 //! - 任意维度超限 → 429 + `quota_exceeded` + `Retry-After`
 //! - fail-open：
 //!   * RateLimiter 未配置 → 跳过 rate 维度
@@ -16,14 +16,18 @@
 //! 与 rate_limit middleware 的关系：rate_limit 是「单一全局桶」按 subject 分；
 //! 这里是「显式配置的多维度配额」，两者叠加生效（rate_limit 在外层先拦）。
 
+use crate::cost_estimate::{DEFAULT_RATE_PER_TOKEN_MICROS, estimate_cost_micros};
+use crate::inflight::{InflightGuard, InflightGuards};
 use crate::state::AppState;
 use axum::Json;
+use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use gate_auth::{AuthContext, Subject};
-use gate_cache::RateLimiter;
+use gate_cache::{QuotaCounter, RateLimiter};
+use gate_providers::ChatRequest;
 use gate_storage::QuotaRecord;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -138,33 +142,46 @@ async fn check_rate(limiter: &Arc<RateLimiter>, q: &QuotaRecord) -> Decision {
     }
 }
 
-/// 检查单条 budget 类 quota（daily/monthly_budget_usd）。
+/// 检查单条 budget 类 quota（daily/monthly_budget_usd）—— **pre-debit**。
 ///
-/// **不预扣** —— 仅 peek 当前用量与 limit 比较：
-/// - current_micros < limit * 1_000_000 → 放行
-/// - 否则 429
-///
-/// 用 micros（百万分之一 USD）做单位是为了在 Lua/Redis 里走整数路径
-/// （和 D4 计费 outbox 的 cost_micros 对齐）。
-async fn check_budget(qc: &Arc<gate_cache::QuotaCounter>, q: &QuotaRecord) -> Decision {
+/// 用 `debit()` 原子预扣 estimated_micros：
+/// - 预扣成功 → 返回 InflightGuard（handler 完成后 settle 修正）
+/// - 预扣失败（超额）→ 429
+/// - Redis 出错 → fail-open（不返 guard）
+async fn check_budget_predebit(
+    qc: &Arc<QuotaCounter>,
+    q: &QuotaRecord,
+    estimated_micros: i64,
+) -> (Decision, Option<InflightGuard>) {
     let limit_micros = match (q.limit_value * Decimal::from(1_000_000)).to_i64() {
         Some(n) if n >= 0 => n,
         _ => {
             tracing::warn!(quota_id = %q.id, "budget quota limit invalid; fail-open");
-            return Decision::Allowed;
+            return (Decision::Allowed, None);
         }
     };
+    let ttl = if q.dimension == "monthly_budget_usd" {
+        30 * 86400
+    } else {
+        86400
+    };
     let key = budget_key(q);
-    match qc.peek(&key).await {
-        Ok(used) if used < limit_micros => Decision::Allowed,
-        Ok(_) => Decision::Denied {
-            dimension: q.dimension.clone(),
-            // budget 不像 rate 有明确恢复时间——给一个保守的 1h 回退建议
-            retry_after_ms: 60 * 60 * 1000,
-        },
+    match qc.debit(&key, estimated_micros, limit_micros, ttl).await {
+        Ok(outcome) if outcome.ok => {
+            let guard = InflightGuard::new(qc.clone(), key, estimated_micros);
+            (Decision::Allowed, Some(guard))
+        }
+        Ok(_) => (
+            Decision::Denied {
+                dimension: q.dimension.clone(),
+                // budget 不像 rate 有明确恢复时间——给一个保守的 1h 回退建议
+                retry_after_ms: 60 * 60 * 1000,
+            },
+            None,
+        ),
         Err(e) => {
-            tracing::warn!(error = %e, quota_id = %q.id, "budget quota peek failed; fail-open");
-            Decision::Allowed
+            tracing::warn!(error = %e, quota_id = %q.id, "budget quota debit failed; fail-open");
+            (Decision::Allowed, None)
         }
     }
 }
@@ -213,7 +230,40 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         return next.run(req).await;
     }
 
-    // 逐条评估
+    // 检查是否有 budget 类 quota —— 若有则需要从 body 估算费用
+    let has_budget = quotas.iter().any(|q| {
+        matches!(
+            q.dimension.as_str(),
+            "daily_budget_usd" | "monthly_budget_usd"
+        )
+    });
+
+    // 若有 budget quota，尝试从 body 解析 ChatRequest 以估算费用
+    // 失败不阻断——用默认估值
+    let (estimated_micros, body) = if has_budget {
+        let bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
+            Ok(b) => b,
+            Err(_) => {
+                // body 读取失败，fail-open
+                let req = Request::from_parts(parts, Body::empty());
+                return next.run(req).await;
+            }
+        };
+        let est = match serde_json::from_slice::<ChatRequest>(&bytes) {
+            Ok(chat_req) => estimate_cost_micros(&chat_req, DEFAULT_RATE_PER_TOKEN_MICROS),
+            Err(_) => {
+                // 非 ChatRequest 格式（可能是其他 endpoint）—— 用保守默认值
+                // 4096 tokens × 3 micros = 12_288
+                4096 * DEFAULT_RATE_PER_TOKEN_MICROS
+            }
+        };
+        (est, Body::from(bytes))
+    } else {
+        (0, body)
+    };
+
+    // 逐条评估 + 收集 guards
+    let mut guards: Vec<InflightGuard> = Vec::new();
     for q in &quotas {
         let decision = match q.dimension.as_str() {
             "rpm" | "tpm" => match &state.rate_limiter {
@@ -221,7 +271,13 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
                 None => Decision::Allowed,
             },
             "daily_budget_usd" | "monthly_budget_usd" => match &state.quota_counter {
-                Some(qc) => check_budget(qc, q).await,
+                Some(qc) => {
+                    let (d, guard) = check_budget_predebit(qc, q, estimated_micros).await;
+                    if let Some(g) = guard {
+                        guards.push(g);
+                    }
+                    d
+                }
                 None => Decision::Allowed,
             },
             // 其他维度（concurrent / lifetime_tokens）暂不在此层执行
@@ -232,8 +288,16 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
             retry_after_ms,
         } = decision
         {
+            // 被拒绝时，需要退还已成功的 guard（本请求不会走到 handler）
+            // Drop 自动退还
+            drop(guards);
             return quota_exceeded_response(&dimension, retry_after_ms).into_response();
         }
+    }
+
+    // 把 guards 通过 extension 传给 handler
+    if !guards.is_empty() {
+        parts.extensions.insert(InflightGuards::new(guards));
     }
 
     // 把已解析的 AuthContext 写进 extension，让下游 extractor 跳过重复解析

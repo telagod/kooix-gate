@@ -79,8 +79,8 @@ impl QuotaCounter {
 
     /// 只读当前用量（不增加、不预扣）。
     ///
-    /// 用于 budget 类配额的「能否放行」判断：chat 请求成本要事后才知道，
-    /// 没法在路径上预扣，因此先用这个方法判断当前用量是否已超额。
+    /// 用于诊断 / 调试 / 仪表盘读取当前计数器值。
+    /// 业务热路径已切换到 pre-debit（debit → settle），此方法仅保留做辅助查询。
     /// key 不存在视为 0。
     pub async fn peek(&self, key: &str) -> CacheResult<i64> {
         let v: RedisValue = self.pool.next().get(key.to_string()).await?;
