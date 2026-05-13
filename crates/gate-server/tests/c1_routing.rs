@@ -182,6 +182,7 @@ async fn full_chain_api_key_to_upstream() {
         oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),
         usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
+        model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);

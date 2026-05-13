@@ -163,6 +163,7 @@ fn build_fixture() -> Fixture {
         oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
         usage,
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
+        model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos);

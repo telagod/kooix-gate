@@ -24,6 +24,9 @@ pub use repo::memory::{
     InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,
     InMemoryUserRepo,
 };
+pub use repo::model_alias::{
+    InMemoryModelAliasRepo, ModelAliasRecord, ModelAliasRepo, PgModelAliasRepo,
+};
 pub use repo::org::{OrgRepo, PgOrgRepo};
 pub use repo::project::{PgProjectRepo, ProjectRepo};
 pub use repo::quota::{InMemoryQuotaRepo, PgQuotaRepo, QuotaRecord, QuotaRepo, QuotaUpsert};
