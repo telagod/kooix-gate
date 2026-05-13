@@ -4,7 +4,7 @@
 
 use crate::error::{DbError, DbResult};
 use crate::repo::{
-    api_key::{ApiKeyRecord, ApiKeyRepo},
+    api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord},
     membership::{MembershipRepo, UserMemberships},
     org::OrgRepo,
     project::ProjectRepo,
@@ -445,6 +445,27 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
             .values()
             .filter(|r| r.project_id == project_id && !r.is_revoked())
             .cloned()
+            .collect())
+    }
+
+    async fn list_summaries(&self, project_id: ProjectId) -> DbResult<Vec<ApiKeySummaryRecord>> {
+        Ok(self
+            .inner
+            .read()
+            .unwrap()
+            .by_hash
+            .values()
+            .filter(|r| r.project_id == project_id)
+            .map(|r| ApiKeySummaryRecord {
+                api_key_id: r.api_key_id,
+                name: r.name.clone(),
+                prefix: String::new(),
+                last4: String::new(),
+                allowed_models: r.allowed_models.clone(),
+                created_at: Utc::now(),
+                last_used_at: None,
+                revoked_at: r.revoked_at,
+            })
             .collect())
     }
 

@@ -27,6 +27,19 @@ pub struct ApiKeyRecord {
     pub revoked_at: Option<DateTime<Utc>>,
 }
 
+/// 概要视图 — 列表展示用，含 prefix/last4 等展示字段。
+#[derive(Debug, Clone)]
+pub struct ApiKeySummaryRecord {
+    pub api_key_id: ApiKeyId,
+    pub name: String,
+    pub prefix: String,
+    pub last4: String,
+    pub allowed_models: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
 impl ApiKeyRecord {
     pub fn is_revoked(&self) -> bool {
         self.revoked_at.is_some()
@@ -56,6 +69,9 @@ pub trait ApiKeyRepo: Send + Sync + 'static {
     ) -> DbResult<ApiKeyId>;
 
     async fn list_in_project(&self, project_id: ProjectId) -> DbResult<Vec<ApiKeyRecord>>;
+
+    /// 概要列表（含 prefix/last4/created_at/last_used_at），控制台展示用。
+    async fn list_summaries(&self, project_id: ProjectId) -> DbResult<Vec<ApiKeySummaryRecord>>;
 
     async fn revoke(&self, id: ApiKeyId, by: UserId, reason: Option<&str>) -> DbResult<()>;
 
@@ -156,6 +172,34 @@ impl ApiKeyRepo for PgApiKeyRepo {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_record).collect()
+    }
+
+    async fn list_summaries(&self, project_id: ProjectId) -> DbResult<Vec<ApiKeySummaryRecord>> {
+        let rows = sqlx::query(
+            "SELECT k.id, k.name, k.key_prefix, k.key_last4, k.allowed_models, \
+                    k.created_at, k.last_used_at, k.revoked_at \
+             FROM api_keys k \
+             WHERE k.project_id = $1 \
+             ORDER BY k.created_at DESC",
+        )
+        .bind(project_id.as_uuid())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| {
+                let id: Uuid = r.try_get("id")?;
+                Ok(ApiKeySummaryRecord {
+                    api_key_id: ApiKeyId::from(id),
+                    name: r.try_get("name")?,
+                    prefix: r.try_get("key_prefix")?,
+                    last4: r.try_get("key_last4")?,
+                    allowed_models: r.try_get("allowed_models")?,
+                    created_at: r.try_get("created_at")?,
+                    last_used_at: r.try_get("last_used_at")?,
+                    revoked_at: r.try_get("revoked_at")?,
+                })
+            })
+            .collect()
     }
 
     async fn revoke(&self, id: ApiKeyId, by: UserId, reason: Option<&str>) -> DbResult<()> {

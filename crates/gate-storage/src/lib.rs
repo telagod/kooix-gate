@@ -8,10 +8,11 @@ pub mod migrations;
 pub mod repo;
 
 pub use error::{DbError, DbResult};
-pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, PgApiKeyRepo};
+pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord, PgApiKeyRepo};
 pub use repo::channel::{
     ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelRecord, ChannelRepo,
-    InMemoryChannelGroupRepo, InMemoryChannelRepo, PgChannelGroupRepo, PgChannelRepo,
+    CreateChannel, InMemoryChannelGroupRepo, InMemoryChannelRepo, PgChannelGroupRepo,
+    PgChannelRepo, UpdateChannel,
 };
 pub use repo::identity::{
     IdentityProviderRecord, IdentityProviderRepo, InMemoryIdentityProviderRepo,
