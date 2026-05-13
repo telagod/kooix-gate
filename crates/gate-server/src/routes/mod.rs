@@ -7,6 +7,7 @@
 
 pub mod admin;
 pub mod api_keys;
+pub mod auth;
 pub mod chat;
 pub mod health;
 pub mod me;
@@ -28,5 +29,6 @@ pub fn v1_router() -> Router<AppState> {
         .merge(projects::router())
         .merge(api_keys::router())
         .merge(chat::router())
+        .merge(auth::router())
         .nest("/admin", admin::router())
 }
