@@ -1,0 +1,15 @@
+[package]
+name = "kgctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kgctl"
+path = "src/main.rs"
+
+[dependencies]
+gate-crypto = { path = "../gate-crypto" }
+gate-auth = { path = "../gate-auth" }
+clap.workspace = true
+anyhow.workspace = true
