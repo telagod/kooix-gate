@@ -5,9 +5,11 @@
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
 use gate_cache::RateLimiter;
+use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
-    ApiKeyRepo, ChannelGroupRepo, ChannelRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo,
+    ApiKeyRepo, ChannelGroupRepo, ChannelRepo, IdentityProviderRepo, MembershipRepo, OidcStateRepo,
+    OrgRepo, ProjectRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -24,6 +26,15 @@ pub struct AppState {
     /// 多 Provider 路由器（C1 新增）。优先于 provider 字段使用。
     /// 未配置时退化为 provider 字段。
     pub provider_router: Option<Arc<ProviderRouter>>,
+    /// Envelope KMS：解密 `client_secret_enc` 等机密。SSO 路径必填，未配置则
+    /// 回调阶段返 500，避免误用未加密 secret。
+    pub crypto: Option<Arc<EnvelopeKms>>,
+    /// OIDC HTTP 客户端注入位。生产为 None（走默认 RealOidcClient），
+    /// 测试时通过 `with_oidc_client` 注桩绕开真实 IdP。
+    pub oidc_client: Option<Arc<dyn crate::routes::sso::OidcClient>>,
+    /// 公网入口前缀，用于拼 OIDC redirect_uri 等绝对 URL（e.g. `https://gate.example.com`）。
+    /// 未配置时回落到 `http://localhost:8080`（仅 dev 用）。
+    pub public_origin: Option<String>,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -57,14 +68,19 @@ pub struct Repos {
     /// Channel repos（C1 新增，路由用）
     pub channels: Arc<dyn ChannelRepo>,
     pub channel_groups: Arc<dyn ChannelGroupRepo>,
+    /// SSO/OIDC 相关（D2 追加）。
+    pub identity_providers: Arc<dyn IdentityProviderRepo>,
+    pub user_identities: Arc<dyn UserIdentityRepo>,
+    pub oidc_states: Arc<dyn OidcStateRepo>,
 }
 
 impl Repos {
     /// 从一个 PgPool 批量构造全部 Pg 实现。
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
-            PgApiKeyRepo, PgChannelGroupRepo, PgChannelRepo, PgMembershipRepo, PgOrgRepo,
-            PgProjectRepo, PgUserRepo,
+            PgApiKeyRepo, PgChannelGroupRepo, PgChannelRepo, PgIdentityProviderRepo,
+            PgMembershipRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgUserIdentityRepo,
+            PgUserRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -73,7 +89,10 @@ impl Repos {
             memberships: Arc::new(PgMembershipRepo::new(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepo::new(pool.clone())),
             channels: Arc::new(PgChannelRepo::new(pool.clone())),
-            channel_groups: Arc::new(PgChannelGroupRepo::new(pool)),
+            channel_groups: Arc::new(PgChannelGroupRepo::new(pool.clone())),
+            identity_providers: Arc::new(PgIdentityProviderRepo::new(pool.clone())),
+            user_identities: Arc::new(PgUserIdentityRepo::new(pool.clone())),
+            oidc_states: Arc::new(PgOidcStateRepo::new(pool)),
         }
     }
 
@@ -81,7 +100,8 @@ impl Repos {
     pub fn in_memory() -> Self {
         use gate_storage::{
             InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
-            InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserRepo,
+            InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryOidcStateRepo,
+            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -91,6 +111,9 @@ impl Repos {
             api_keys: Arc::new(InMemoryApiKeyRepo::new()),
             channels: Arc::new(InMemoryChannelRepo::new()),
             channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
+            identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
+            user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
+            oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
         }
     }
 }
@@ -105,6 +128,9 @@ impl AppState {
             rate_limit_cfg: RateLimitCfg::default(),
             provider: None,
             provider_router: None,
+            crypto: None,
+            oidc_client: None,
+            public_origin: None,
         }
     }
 
@@ -127,6 +153,18 @@ impl AppState {
     /// 挂载 ProviderRouter（C1 新增）。
     pub fn with_provider_router(mut self, router: ProviderRouter) -> Self {
         self.provider_router = Some(Arc::new(router));
+        self
+    }
+
+    /// 挂载 Envelope KMS（SSO 回调解密 client_secret）。
+    pub fn with_crypto(mut self, kms: EnvelopeKms) -> Self {
+        self.crypto = Some(Arc::new(kms));
+        self
+    }
+
+    /// 设置公网入口前缀（用于 OIDC redirect_uri 等绝对 URL）。
+    pub fn with_public_origin(mut self, origin: impl Into<String>) -> Self {
+        self.public_origin = Some(origin.into());
         self
     }
 }
