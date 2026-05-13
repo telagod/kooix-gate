@@ -24,6 +24,9 @@ pub enum AppError {
     #[error(transparent)]
     Db(#[from] gate_storage::DbError),
 
+    #[error(transparent)]
+    Provider(#[from] gate_providers::ProviderError),
+
     #[error("bad request: {0}")]
     BadRequest(String),
 
@@ -106,6 +109,25 @@ impl IntoResponse for AppError {
             }
             AppError::Db(gate_storage::DbError::Constraint(_)) => {
                 (StatusCode::BAD_REQUEST, "constraint_violation", self.to_string())
+            }
+            AppError::Provider(gate_providers::ProviderError::Auth(_)) => {
+                (StatusCode::BAD_GATEWAY, "upstream_auth_failed", "upstream auth failed".into())
+            }
+            AppError::Provider(gate_providers::ProviderError::RateLimited { .. }) => {
+                (StatusCode::TOO_MANY_REQUESTS, "upstream_rate_limited", self.to_string())
+            }
+            AppError::Provider(gate_providers::ProviderError::Network(_)) => {
+                (StatusCode::BAD_GATEWAY, "upstream_unreachable", self.to_string())
+            }
+            AppError::Provider(gate_providers::ProviderError::Decode(_)) => {
+                (StatusCode::BAD_GATEWAY, "upstream_decode", self.to_string())
+            }
+            AppError::Provider(gate_providers::ProviderError::Upstream { status, .. }) => {
+                let s = StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY);
+                (s, "upstream_error", self.to_string())
+            }
+            AppError::Provider(_) => {
+                (StatusCode::BAD_GATEWAY, "upstream_error", self.to_string())
             }
             AppError::BadRequest(_) => {
                 (StatusCode::BAD_REQUEST, "bad_request", self.to_string())

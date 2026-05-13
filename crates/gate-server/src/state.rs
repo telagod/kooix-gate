@@ -5,6 +5,7 @@
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
 use gate_cache::RateLimiter;
+use gate_providers::Provider;
 use gate_storage::{ApiKeyRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo};
 use std::sync::Arc;
 
@@ -16,6 +17,8 @@ pub struct AppState {
     /// 可选的限流器：未配置 Redis 时为 None，middleware 走 fail-open。
     pub rate_limiter: Option<Arc<RateLimiter>>,
     pub rate_limit_cfg: RateLimitCfg,
+    /// 默认 Provider — 现阶段单一 OpenAI 兼容。后续拓展为路由表。
+    pub provider: Option<Arc<dyn Provider>>,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -91,6 +94,7 @@ impl AppState {
             repos,
             rate_limiter: None,
             rate_limit_cfg: RateLimitCfg::default(),
+            provider: None,
         }
     }
 
@@ -102,6 +106,11 @@ impl AppState {
 
     pub fn with_rate_limit_cfg(mut self, cfg: RateLimitCfg) -> Self {
         self.rate_limit_cfg = cfg;
+        self
+    }
+
+    pub fn with_provider<P: Provider>(mut self, provider: P) -> Self {
+        self.provider = Some(Arc::new(provider));
         self
     }
 }

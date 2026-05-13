@@ -70,6 +70,24 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("KOOIX_REDIS_URL not set; rate limiter disabled");
     }
 
+    // Provider: 现阶段简单接 OpenAI 兼容上游
+    if let (Ok(base), Ok(key)) = (
+        std::env::var("KOOIX_OPENAI_BASE_URL"),
+        std::env::var("KOOIX_OPENAI_API_KEY"),
+    ) {
+        match gate_providers::openai::OpenAiProvider::new(base, key) {
+            Ok(p) => {
+                state = state.with_provider(p);
+                tracing::info!("openai provider active");
+            }
+            Err(e) => tracing::warn!(error = %e, "openai provider init failed"),
+        }
+    } else {
+        tracing::warn!(
+            "KOOIX_OPENAI_BASE_URL / KOOIX_OPENAI_API_KEY not set; /v1/chat/completions will 400"
+        );
+    }
+
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
