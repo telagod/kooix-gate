@@ -54,7 +54,23 @@ kooix-gate/
 └── web/                        # SvelteKit 控制台
 ```
 
-## 快速开始
+## Quick Start (Docker)
+
+```bash
+# 一键部署（构建镜像 + 起 PG / Redis / 迁移 / 服务）
+docker compose up -d
+
+# 仅起基础设施（本地开发用，自己编译运行后端）
+docker compose -f docker-compose.dev.yml up -d
+cargo run -p gate-server
+```
+
+服务启动后访问 `http://localhost:8000`。
+
+> **生产部署**：务必替换 `docker-compose.yml` 中的 `KOOIX_JWT_SECRET`、`KOOIX_MASTER_KEY` 和 `POSTGRES_PASSWORD`。
+> 可用 `kgctl init` 生成安全密钥。
+
+## 快速开始（手动）
 
 ### 1. 起依赖
 

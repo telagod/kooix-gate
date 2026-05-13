@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: gate
+      POSTGRES_PASSWORD: gate_dev
+      POSTGRES_DB: gate
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gate"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    build: .
+    command: ["kgctl", "migrate"]
+    environment:
+      KOOIX_DATABASE_URL: postgres://gate:gate_dev@postgres:5432/gate
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  server:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      KOOIX_DATABASE_URL: postgres://gate:gate_dev@postgres:5432/gate
+      KOOIX_REDIS_URL: redis://redis:6379/0
+      KOOIX_JWT_SECRET: ZGV2LWp3dC1zZWNyZXQtY2hhbmdlLWluLXByb2QhISE=
+      KOOIX_MASTER_KEY: ZGV2LW1hc3Rlci1rZXktMzItYnl0ZXMtcGFkZGluZyE=
+      KOOIX_LISTEN_ADDR: "0.0.0.0:8000"
+      KOOIX_PUBLIC_URL: http://localhost:8000
+      RUST_LOG: info,gate_server=debug
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
