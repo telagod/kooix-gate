@@ -16,3 +16,9 @@ rust_decimal.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
+
+[dev-dependencies]
+gate-auth = { path = "../gate-auth" }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
+tokio = { version = "1", features = ["full", "macros"] }
