@@ -1,0 +1,20 @@
+//! gate-crypto: envelope encryption + KMS 抽象
+//!
+//! 设计：
+//! - 每条密文用一把全新随机 DEK (32B AES-256-GCM key) 加密
+//! - DEK 通过 KMS trait wrap 后与密文一同存储
+//! - 主密钥（KEK）永不直接接触业务数据，便于轮换
+//! - AAD 绑定上下文（如 channel_id），防止密文移植攻击
+//!
+//! 二进制格式：
+//!   [1B version=1][12B wrap_nonce][48B wrapped_dek][12B data_nonce][N+16B ciphertext+tag]
+//! 固定 89B 头部 + 明文长度。
+
+pub mod error;
+pub mod envelope;
+pub mod kms;
+pub mod aad;
+
+pub use error::{CryptoError, Result};
+pub use envelope::{Sealer, HEADER_LEN, VERSION};
+pub use kms::{EnvKms, Kms};
