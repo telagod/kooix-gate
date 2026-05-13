@@ -1642,6 +1642,7 @@ dependencies = [
  "chrono",
  "futures",
  "gate-core",
+ "gate-crypto",
  "gate-storage",
  "parking_lot",
  "reqwest 0.12.28",

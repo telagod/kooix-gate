@@ -15,6 +15,9 @@ pub use repo::channel::{
     CreateChannel, InMemoryChannelGroupRepo, InMemoryChannelRepo, PgChannelGroupRepo,
     PgChannelRepo, UpdateChannel,
 };
+pub use repo::channel_key::{
+    ChannelKeyRecord, ChannelKeyRepo, InMemoryChannelKeyRepo, PgChannelKeyRepo,
+};
 pub use repo::identity::{
     IdentityProviderRecord, IdentityProviderRepo, InMemoryIdentityProviderRepo,
     InMemoryOidcStateRepo, InMemoryUserIdentityRepo, OidcStateRecord, OidcStateRepo,

@@ -7,9 +7,10 @@
 //!    - priority（默认）：取 priority 数值最小的那条
 //!    - 其余 strategy 在 C2 实现，当前退化为 priority
 //! 4. 用 channel.provider_type 构造对应的 Provider（openai / anthropic / gemini）
-//! 5. 找不到 channel_group 或 channel → 返回 None，调用方 fallback 到 AppState.provider
-//!
-//! **channel_keys 表暂不读取**（C1 阶段 Provider 用 env 占位）。
+//! 5. API key 来源策略（G1）：
+//!    a. 优先从 channel_keys 表取 active key → 用 EnvelopeKms 解密
+//!    b. 若 DB 无 key 或 repo 未配置 → 回退 env var
+//! 6. 找不到 channel_group 或 channel → 返回 None，调用方 fallback 到 AppState.provider
 
 use crate::Provider;
 use crate::anthropic::AnthropicProvider;
@@ -17,7 +18,8 @@ use crate::error::{ProviderError, ProviderResult};
 use crate::gemini::GeminiProvider;
 use crate::openai::OpenAiProvider;
 use gate_core::id::{ChannelId, ProjectId};
-use gate_storage::{ChannelGroupRepo, ChannelRepo, ModelAliasRepo};
+use gate_crypto::EnvelopeKms;
+use gate_storage::{ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
 use std::sync::Arc;
 
 /// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）+ 实际使用的 model。
@@ -29,7 +31,7 @@ pub struct RoutedProvider {
     pub resolved_model: String,
 }
 
-/// API key 来源策略（C1 阶段只看 env）。
+/// API key 来源策略（env 回退，DB 优先路径在 route_for_model 内）。
 ///
 /// 优先级：
 /// 1. 环境变量 `KOOIX_CH_<CODE>_KEY`（code 大写，非字母替换为 _）
@@ -68,6 +70,10 @@ pub struct ProviderRouter {
     channel_repo: Arc<dyn ChannelRepo>,
     group_repo: Arc<dyn ChannelGroupRepo>,
     model_alias_repo: Option<Arc<dyn ModelAliasRepo>>,
+    /// G1: channel_keys 表读取（加密 key 存储）。
+    channel_key_repo: Option<Arc<dyn ChannelKeyRepo>>,
+    /// G1: 解密 channel key 的 envelope KMS。
+    crypto: Option<Arc<EnvelopeKms>>,
 }
 
 impl ProviderRouter {
@@ -76,12 +82,26 @@ impl ProviderRouter {
             channel_repo,
             group_repo,
             model_alias_repo: None,
+            channel_key_repo: None,
+            crypto: None,
         }
     }
 
     /// 挂载 ModelAliasRepo，启用 alias 解析。
     pub fn with_model_alias_repo(mut self, repo: Arc<dyn ModelAliasRepo>) -> Self {
         self.model_alias_repo = Some(repo);
+        self
+    }
+
+    /// 挂载 ChannelKeyRepo，启用 DB 密钥读取。
+    pub fn with_channel_key_repo(mut self, repo: Arc<dyn ChannelKeyRepo>) -> Self {
+        self.channel_key_repo = Some(repo);
+        self
+    }
+
+    /// 挂载 EnvelopeKms，用于解密 DB 中的 channel key。
+    pub fn with_crypto(mut self, kms: Arc<EnvelopeKms>) -> Self {
+        self.crypto = Some(kms);
         self
     }
 
@@ -234,7 +254,8 @@ impl ProviderRouter {
         );
 
         // Step 4: 根据 provider_type 构造对应 Provider
-        let api_key = resolve_api_key_for_channel(&selected.channel.code);
+        // G1: 优先从 DB 取 channel key → 解密；无则 fallback env
+        let api_key = self.resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code).await?;
         let provider: Arc<dyn Provider> = match selected.channel.provider_type.as_str() {
             "anthropic" => {
                 let p = AnthropicProvider::new(selected.channel.base_url.clone(), api_key)
@@ -259,6 +280,64 @@ impl ProviderRouter {
             channel_id: selected.channel.channel_id,
             resolved_model: model.to_string(),
         }))
+    }
+
+    /// G1: 从 DB 取 channel key → 解密；无则 fallback env var。
+    async fn resolve_key_for_channel(
+        &self,
+        channel_id: ChannelId,
+        channel_code: &str,
+    ) -> ProviderResult<String> {
+        // 如果 repo 未配置，直接走 env
+        let Some(repo) = &self.channel_key_repo else {
+            return Ok(resolve_api_key_for_channel(channel_code));
+        };
+
+        // 尝试从 DB 取 active key
+        match repo.find_active_for_channel(channel_id).await {
+            Ok(record) => {
+                // 有 key 记录，需要 crypto 来解密
+                let Some(crypto) = &self.crypto else {
+                    tracing::warn!(
+                        channel_id = %channel_id,
+                        "channel key found in DB but crypto not configured, falling back to env"
+                    );
+                    return Ok(resolve_api_key_for_channel(channel_code));
+                };
+                // AAD = channel_key(channel_id) — 与 admin handler 加密时一致
+                let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+                let plaintext = crypto
+                    .open(&record.key_enc, &aad)
+                    .await
+                    .map_err(|e| {
+                        ProviderError::Config(format!(
+                            "decrypt channel key {}: {e}",
+                            record.id
+                        ))
+                    })?;
+                Ok(String::from_utf8(plaintext.to_vec()).map_err(|e| {
+                    ProviderError::Config(format!("channel key is not valid UTF-8: {e}"))
+                })?)
+            }
+            Err(gate_storage::DbError::NotFound) => {
+                // DB 里没有 key，走 env
+                tracing::debug!(
+                    channel_id = %channel_id,
+                    channel_code = channel_code,
+                    "no channel key in DB, falling back to env"
+                );
+                Ok(resolve_api_key_for_channel(channel_code))
+            }
+            Err(e) => {
+                // DB 查询出错，warn + fallback env
+                tracing::warn!(
+                    channel_id = %channel_id,
+                    error = %e,
+                    "channel key lookup failed, falling back to env"
+                );
+                Ok(resolve_api_key_for_channel(channel_code))
+            }
+        }
     }
 }
 
@@ -300,9 +379,9 @@ mod tests {
         assert_eq!(fallback_models("claude-3-sonnet"), &["claude-3-haiku"]);
     }
 
-    // ---- helpers for model-filter routing tests ----
+    // ---- helpers for model-filter routing tests (G7) ----
 
-    fn make_channel(code: &str, provider_type: &str, models: Vec<String>) -> ChannelRecord {
+    fn make_channel_with_models(code: &str, provider_type: &str, models: Vec<String>) -> ChannelRecord {
         let now = Utc::now();
         ChannelRecord {
             channel_id: ChannelId::from(Uuid::now_v7()),
@@ -342,7 +421,7 @@ mod tests {
         group_repo.seed_default(project_id, group_id);
 
         for (code, provider_type, models, priority) in channels_spec {
-            let ch = make_channel(code, provider_type, models.clone());
+            let ch = make_channel_with_models(code, provider_type, models.clone());
             let ch_id = ch.channel_id;
             channel_repo.seed_channel(ch);
             channel_repo.seed_binding(group_id, ch_id, *priority, 1);
@@ -351,8 +430,6 @@ mod tests {
         let router = ProviderRouter::new(channel_repo, group_repo);
         (project_id, router)
     }
-
-    // ---- model-filter routing tests ----
 
     #[tokio::test]
     async fn model_filter_matching_channel_selected() {
@@ -372,7 +449,6 @@ mod tests {
         ]);
         let result = router.route(pid, "claude-3").await.unwrap();
         assert!(result.is_some(), "channel B should match claude-3");
-        // The selected channel should be ch-claude (the only compatible one)
         let routed = result.unwrap();
         assert_eq!(routed.resolved_model, "claude-3");
     }
@@ -399,23 +475,17 @@ mod tests {
 
     #[tokio::test]
     async fn model_filter_priority_respected_among_compatible() {
-        // Two channels both support gpt-4o; lower priority number wins.
         let (pid, router) = setup_fixtures(&[
             ("ch-low-prio", "openai", vec!["gpt-4o".into()], 10),
             ("ch-high-prio", "openai", vec!["gpt-4o".into()], 1),
         ]);
         let result = router.route(pid, "gpt-4o").await.unwrap();
         let routed = result.expect("should route");
-        // The router picks the lowest priority number → ch-high-prio.
-        // We verify by checking the channel_id matches the one with priority=1.
-        // Since we can't directly inspect the code, verify it resolved correctly.
         assert_eq!(routed.resolved_model, "gpt-4o");
     }
 
     #[tokio::test]
     async fn model_filter_wildcard_lower_priority_than_specific() {
-        // Specific channel (priority 1) supports the model; wildcard (priority 2) also matches.
-        // Priority 1 should win.
         let (pid, router) = setup_fixtures(&[
             ("ch-specific", "openai", vec!["gpt-4o".into()], 1),
             ("ch-wildcard", "openai", vec![], 2),
@@ -426,12 +496,168 @@ mod tests {
 
     #[tokio::test]
     async fn model_filter_fallback_model_also_filtered() {
-        // Only channel supports gpt-4o-mini (fallback for gpt-4o), not gpt-4o itself.
         let (pid, router) = setup_fixtures(&[
             ("ch-mini", "openai", vec!["gpt-4o-mini".into()], 1),
         ]);
         let result = router.route(pid, "gpt-4o").await.unwrap();
         assert!(result.is_some(), "should fallback to gpt-4o-mini");
         assert_eq!(result.unwrap().resolved_model, "gpt-4o-mini");
+    }
+
+    // ---- G1: channel key resolution tests ----
+
+    use gate_core::id::ChannelKeyId;
+    use gate_storage::{ChannelKeyRecord, InMemoryChannelKeyRepo};
+
+    fn make_channel_simple(code: &str) -> (ChannelId, ChannelRecord) {
+        let id = ChannelId::from(Uuid::now_v7());
+        let now = Utc::now();
+        let rec = ChannelRecord {
+            channel_id: id,
+            code: code.to_string(),
+            name: code.to_string(),
+            provider_type: "openai".to_string(),
+            base_url: "https://api.example.com".to_string(),
+            supported_models: vec!["gpt-4o".to_string()],
+            status: "active".to_string(),
+            health: "healthy".to_string(),
+            timeout_ms: 60000,
+            max_retries: 2,
+            created_at: now,
+            updated_at: now,
+        };
+        (id, rec)
+    }
+
+    async fn build_router_with_key(
+        secret: &str,
+    ) -> (ProviderRouter, ChannelId, ProjectId) {
+        use gate_crypto::kms::{EnvKms, generate_master_key_b64};
+
+        let (ch_id, ch_rec) = make_channel_simple("test-ch");
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(gate_storage::ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let kms = EnvKms::from_b64(&generate_master_key_b64(), "test").unwrap();
+        let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+
+        let aad = gate_crypto::aad::channel_key(*ch_id.as_uuid());
+        let key_enc = sealer.seal(secret.as_bytes(), &aad).await.unwrap();
+
+        let ck_repo = Arc::new(InMemoryChannelKeyRepo::new());
+        let now = Utc::now();
+        ck_repo.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("test-key".to_string()),
+            key_enc: key_enc.clone(),
+            key_fingerprint: "fp-test".to_string(),
+            weight: 1,
+            health: "healthy".to_string(),
+            created_at: now,
+            updated_at: now,
+        });
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(ck_repo)
+            .with_crypto(sealer);
+
+        (router, ch_id, project_id)
+    }
+
+    #[tokio::test]
+    async fn router_prefers_db_key_over_env() {
+        let (router, _ch_id, project_id) =
+            build_router_with_key("sk-from-database-secret").await;
+        let result = router.route(project_id, "gpt-4o").await.unwrap();
+        assert!(result.is_some());
+        let routed = result.unwrap();
+        assert_eq!(routed.resolved_model, "gpt-4o");
+    }
+
+    #[tokio::test]
+    async fn router_fallback_env_when_no_db_key() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let (ch_id, ch_rec) = make_channel_simple("env-test-ch");
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(gate_storage::ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let ck_repo = Arc::new(InMemoryChannelKeyRepo::new());
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(ck_repo);
+
+        let result = router.route(project_id, "gpt-4o").await.unwrap();
+        assert!(result.is_some(), "should fallback to env var and still route");
+    }
+
+    #[tokio::test]
+    async fn router_fallback_env_when_no_repo_configured() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let (ch_id, ch_rec) = make_channel_simple("no-repo-ch");
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(gate_storage::ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let router = ProviderRouter::new(ch_repo, grp_repo);
+
+        let result = router.route(project_id, "gpt-4o").await.unwrap();
+        assert!(result.is_some(), "should use env var when no key repo");
+    }
+
+    #[tokio::test]
+    async fn router_db_key_decrypt_roundtrip() {
+        let secret = "sk-real-api-key-12345";
+        let (router, ch_id, _project_id) = build_router_with_key(secret).await;
+
+        let resolved = router
+            .resolve_key_for_channel(ch_id, "test-ch")
+            .await
+            .unwrap();
+        assert_eq!(resolved, secret);
     }
 }

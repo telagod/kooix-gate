@@ -23,10 +23,10 @@ use gate_server::routes::sso::{OidcClient, StartArtifacts};
 use gate_server::state::Repos;
 use gate_server::{AppState, build_router};
 use gate_storage::{
-    IdentityProviderRecord, InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
-    InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryOidcStateRepo, InMemoryOrgRepo,
-    InMemoryProjectRepo, InMemoryUserIdentityRepo, InMemoryUserRepo, MembershipRepo, OidcStateRepo,
-    UserIdentityRepo, UserRepo,
+    IdentityProviderRecord, InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
+    InMemoryChannelRepo, InMemoryIdentityProviderRepo, InMemoryMembershipRepo,
+    InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserIdentityRepo,
+    InMemoryUserRepo, MembershipRepo, OidcStateRepo, UserIdentityRepo, UserRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -131,6 +131,7 @@ async fn build_fixture(
         api_keys: Arc::new(InMemoryApiKeyRepo::new()),
         channels: Arc::new(InMemoryChannelRepo::new()),
         channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
+        channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: idp_repo_concrete.clone(),
         user_identities: user_identities.clone(),
         oidc_states: oidc_states.clone(),
