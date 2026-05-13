@@ -81,16 +81,15 @@ impl RlsContext {
         let mut tx = pool.begin().await?;
 
         if let Some(org_id) = &self.org_id {
-            sqlx::query("SET LOCAL app.current_org_id = $1")
-                .bind(org_id.as_uuid().to_string())
-                .execute(&mut *tx)
-                .await?;
+            let stmt = format!("SET LOCAL app.current_org_id = '{}'", org_id.as_uuid());
+            sqlx::query(&stmt).execute(&mut *tx).await?;
         }
         if let Some(project_id) = &self.project_id {
-            sqlx::query("SET LOCAL app.current_project_id = $1")
-                .bind(project_id.as_uuid().to_string())
-                .execute(&mut *tx)
-                .await?;
+            let stmt = format!(
+                "SET LOCAL app.current_project_id = '{}'",
+                project_id.as_uuid()
+            );
+            sqlx::query(&stmt).execute(&mut *tx).await?;
         }
         if self.is_platform_admin {
             sqlx::query("SET LOCAL app.is_platform_admin = 'true'")

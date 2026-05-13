@@ -282,10 +282,11 @@ async fn api_key_create_list_revoke_full_chain() {
     assert_eq!(s, StatusCode::OK);
     assert_eq!(body["revoked"], true);
 
-    // 6. list 应空
+    // 6. list 仍返回 1 条（包含 revoked），但标记 revoked=true
     let (s, body) = call(&f.router, "GET", &keys_url, Some(&tok), None).await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(body.as_array().unwrap().len(), 0);
+    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body[0]["revoked"], true);
 
     // 7. 撤销后明文 key 应 403
     let (s, body) = call(&f.router, "GET", "/v1/me", Some(&plaintext), None).await;

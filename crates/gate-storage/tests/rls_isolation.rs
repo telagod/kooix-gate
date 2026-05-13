@@ -49,10 +49,11 @@ async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId) {
     .unwrap();
 
     // org
-    sqlx::query("INSERT INTO organizations (id, name, slug, status) VALUES ($1, $2, $3, 'active')")
+    sqlx::query("INSERT INTO organizations (id, name, slug, owner_user_id, status) VALUES ($1, $2, $3, $4, 'active')")
         .bind(org_id.as_uuid())
         .bind(format!("org-{}", org_id.as_uuid()))
-        .bind(format!("slug-{}", &org_id.as_uuid().to_string()[..8]))
+        .bind(format!("slug-{}", org_id.as_uuid()))
+        .bind(user_id)
         .execute(pool)
         .await
         .unwrap();
@@ -75,7 +76,7 @@ async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId) {
     .bind(proj_id.as_uuid())
     .bind(org_id.as_uuid())
     .bind(format!("proj-{}", proj_id.as_uuid()))
-    .bind(format!("p-{}", &proj_id.as_uuid().to_string()[..8]))
+    .bind(format!("p-{}", proj_id.as_uuid()))
     .execute(pool)
     .await
     .unwrap();
@@ -213,8 +214,8 @@ async fn rls_isolates_usage_records() {
     // Insert usage records for both orgs
     for (org, proj) in [(&org_a, &proj_a), (&org_b, &proj_b)] {
         sqlx::query(
-            "INSERT INTO usage_records (org_id, project_id, model, prompt_tokens, completion_tokens, total_tokens, cost_micros)
-             VALUES ($1, $2, 'gpt-4', 100, 50, 150, 1500)",
+            "INSERT INTO usage_records (ts, request_id, org_id, project_id, api_key_id, channel_id, model_requested, model_actual, tokens_in, tokens_out, cost_usd, status)
+             VALUES (NOW(), gen_random_uuid(), $1, $2, gen_random_uuid(), gen_random_uuid(), 'gpt-4', 'gpt-4', 100, 50, 0.0015, 200)",
         )
         .bind(org.as_uuid())
         .bind(proj.as_uuid())
