@@ -5,12 +5,15 @@
 //! - 每个上游一个模块（`openai`/`anthropic`/...），实现 trait
 //! - 协议归一：对外 OpenAI 兼容；上游差异在 provider 内吸收
 //! - 错误经 [`ProviderError`] 收口，给 server 层映射 4xx/5xx
+//! - [`ProviderRouter`] 按 project_id + model 动态选路
 
 pub mod error;
 pub mod openai;
+pub mod router;
 pub mod types;
 
 pub use error::{ProviderError, ProviderResult};
+pub use router::ProviderRouter;
 pub use types::{
     ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk, FinishReason, Role,
     Usage,

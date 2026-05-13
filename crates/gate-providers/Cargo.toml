@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 gate-core = { path = "../gate-core" }
+gate-storage = { path = "../gate-storage" }
 reqwest.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
