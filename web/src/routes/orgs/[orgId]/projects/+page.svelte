@@ -67,9 +67,9 @@
 	}
 </script>
 
-<div class="min-h-screen bg-zinc-50">
-	<!-- Navbar -->
-	<nav class="bg-white border-b border-zinc-200 px-6 py-3 flex items-center gap-3">
+<div>
+	<!-- 子导航：面包屑 -->
+	<div class="bg-white border-b border-zinc-200 px-6 py-2 flex items-center gap-3">
 		<button
 			onclick={() => goto('/orgs')}
 			class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors"
@@ -78,7 +78,7 @@
 		</button>
 		<span class="text-zinc-300">/</span>
 		<span class="text-sm font-medium text-zinc-900 font-mono">{orgId}</span>
-	</nav>
+	</div>
 
 	<div class="max-w-4xl mx-auto p-6">
 		<div class="flex items-center justify-between mb-6">

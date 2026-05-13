@@ -1,7 +1,7 @@
-<!-- /login — 邮箱密码登录表单 -->
+<!-- /login — 邮箱密码登录表单 + SSO 入口 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { login } from '$lib/api.js';
+	import { login, ssoStart } from '$lib/api.js';
 	import { saveTokens, currentUser } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
@@ -11,6 +11,7 @@
 	let password = $state('');
 	let error = $state('');
 	let loading = $state(false);
+	let ssoLoading = $state(false);
 
 	async function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
@@ -36,6 +37,24 @@
 			loading = false;
 		}
 	}
+
+	async function handleSso() {
+		ssoLoading = true;
+		error = '';
+		try {
+			const redirectTo =
+				typeof window !== 'undefined' ? `${window.location.origin}/orgs` : undefined;
+			const { authorize_url } = await ssoStart('google', redirectTo);
+			window.location.href = authorize_url;
+		} catch (err: any) {
+			if (err?.status === 404) {
+				error = 'SSO 未配置（找不到 google IdP）';
+			} else {
+				error = err?.message ?? 'SSO 启动失败';
+			}
+			ssoLoading = false;
+		}
+	}
 </script>
 
 <div class="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
@@ -53,7 +72,7 @@
 					type="email"
 					placeholder="you@example.com"
 					bind:value={email}
-					disabled={loading}
+					disabled={loading || ssoLoading}
 					autocomplete="email"
 				/>
 			</div>
@@ -65,7 +84,7 @@
 					type="password"
 					placeholder="••••••••"
 					bind:value={password}
-					disabled={loading}
+					disabled={loading || ssoLoading}
 					autocomplete="current-password"
 				/>
 			</div>
@@ -74,9 +93,24 @@
 				<p class="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{error}</p>
 			{/if}
 
-			<Button type="submit" disabled={loading} class="w-full">
+			<Button type="submit" disabled={loading || ssoLoading} class="w-full">
 				{loading ? '登录中...' : '登录'}
 			</Button>
 		</form>
+
+		<div class="my-6 flex items-center gap-3">
+			<div class="flex-1 h-px bg-zinc-200"></div>
+			<span class="text-xs text-zinc-400 uppercase tracking-wider">或</span>
+			<div class="flex-1 h-px bg-zinc-200"></div>
+		</div>
+
+		<Button
+			variant="outline"
+			class="w-full"
+			disabled={loading || ssoLoading}
+			onclick={handleSso}
+		>
+			{ssoLoading ? '正在跳转...' : '使用 Google SSO 登录'}
+		</Button>
 	</Card>
 </div>

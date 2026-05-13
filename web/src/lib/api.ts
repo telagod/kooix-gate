@@ -132,4 +132,67 @@ export async function createProject(orgId: string, name: string, slug: string): 
 	});
 }
 
+// ── Usage ───────────────────────────────────────────
+
+export interface UsagePoint {
+	key: string;
+	cost_usd: number;
+	tokens_in: number;
+	tokens_out: number;
+}
+
+export interface UsageResponse {
+	range: string;
+	group_by: string;
+	from: string;
+	to: string;
+	total_cost_usd: number;
+	total_tokens_in: number;
+	total_tokens_out: number;
+	series: UsagePoint[];
+}
+
+export async function getUsage(
+	orgId: string | null,
+	range: '7d' | '30d' = '7d',
+	groupBy: 'day' | 'model' | 'channel' = 'day'
+): Promise<UsageResponse> {
+	const params = new URLSearchParams({ range, group_by: groupBy });
+	const headers: Record<string, string> = {};
+	if (orgId) headers['X-Kooix-Org'] = orgId;
+	return apiFetch<UsageResponse>(`/v1/usage?${params}`, { headers });
+}
+
+// ── Channels (only listing) ─────────────────────────
+
+export interface Channel {
+	id: string;
+	code: string;
+	name: string;
+	provider_type: string;
+	status: string;
+	health: string;
+	updated_at: string;
+}
+
+export async function listChannels(orgId: string): Promise<Channel[]> {
+	return apiFetch<Channel[]>(`/v1/orgs/${orgId}/channels`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+// ── SSO ─────────────────────────────────────────────
+
+export interface SsoStartResponse {
+	authorize_url: string;
+	state: string;
+}
+
+export async function ssoStart(slug: string, redirectTo?: string): Promise<SsoStartResponse> {
+	const params = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
+	return apiFetch<SsoStartResponse>(`/v1/auth/sso/${slug}/start${params}`, {
+		skipAuth: true
+	});
+}
+
 export { getToken, clearToken, ApiError };
