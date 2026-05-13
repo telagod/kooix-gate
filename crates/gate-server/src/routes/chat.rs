@@ -12,8 +12,15 @@
 //!
 //! 限流：走 /v1 layer middleware，此处无需重复处理。
 //! 流式：SSE 透传，每个 chunk 序列化为 `data: {json}\n\n`，结束 `data: [DONE]\n\n`。
+//!
+//! 计费（D4）：
+//! - 仅 ApiKey 主体计费（User 主体直调没有 api_key 归属）
+//! - 非流式：response 拿到后 spawn 一个 task 推 usage_event 到 outbox
+//! - 流式：包装 upstream stream，捕获最后一帧的 usage；stream 结束后 spawn 推送
+//! - outbox / pricing 任一未挂 → warn-only，不阻断请求
 
 use crate::auth::Authed;
+use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use axum::extract::State;
@@ -26,9 +33,9 @@ use futures::stream::StreamExt;
 use gate_auth::AuthError;
 use gate_auth::context::Subject;
 use gate_core::id::ProjectId;
-use gate_providers::{ChatRequest, ChatResponse, Provider};
+use gate_providers::{ChatRequest, ChatResponse, Provider, Usage};
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/chat/completions", post(chat_completions))
@@ -41,10 +48,54 @@ async fn chat_completions(
     Json(req): Json<ChatRequest>,
 ) -> AppResult<axum::response::Response> {
     let provider = resolve_provider(&app, &ctx, &headers, &req).await?;
+    // 计费上下文：仅 ApiKey 主体生成；channel_id 当前 D4 阶段未拿到（None 走全局 pricing）
+    // TODO(D5+): 把 ProviderRouter 选到的 channel_id 传出来给计费
+    let billing_ctx = BillingCtx::from_auth(&ctx, None, &req.model);
+    let model = req.model.clone();
 
     if req.stream {
         let upstream = provider.chat_stream(req).await?;
-        let sse_stream = upstream.map(|item| {
+
+        // 累积流式 usage：包装 stream，inspect 每个 chunk，记下最后含 usage 的那个
+        let captured_usage: Arc<Mutex<Option<Usage>>> = Arc::new(Mutex::new(None));
+        let captured_clone = captured_usage.clone();
+
+        let app_for_billing = app.clone();
+        let billing_ctx_clone = billing_ctx.clone();
+
+        // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
+        let wrapped = upstream.inspect(move |item| {
+            if let Ok(chunk) = item
+                && let Some(u) = chunk.usage
+            {
+                *captured_clone.lock().unwrap() = Some(u);
+            }
+        });
+
+        // 用 StreamExt::chain 在 upstream 流尾巴接一段 trigger emit 的「副作用」流。
+        // 副作用流自身不吐 chunk，只在被 poll 时 spawn emit 任务后返回 None。
+        let trigger = futures::stream::once(async move {
+            let usage = captured_usage.lock().unwrap().take();
+            if let (Some(usage), Some(bctx)) = (usage, billing_ctx_clone) {
+                let outbox = app_for_billing.outbox.clone();
+                let pricing = app_for_billing.pricing.clone();
+                tokio::spawn(async move {
+                    emit_usage(outbox, pricing, bctx, usage, 200).await;
+                });
+            } else {
+                tracing::debug!(
+                    model = %model,
+                    "stream finished without usage frame; skipping billing"
+                );
+            }
+            // 占位返回值，会被 filter_map 过滤掉
+            None::<gate_providers::ProviderResult<gate_providers::ChatStreamChunk>>
+        })
+        .filter_map(|x| async move { x });
+
+        let combined = wrapped.chain(trigger);
+
+        let sse_stream = combined.map(|item| {
             let payload = match item {
                 Ok(chunk) => serde_json::to_string(&chunk)
                     .unwrap_or_else(|_| "{\"error\":\"encode\"}".into()),
@@ -58,6 +109,15 @@ async fn chat_completions(
             .into_response())
     } else {
         let resp: ChatResponse = provider.chat(req).await?;
+        // 非流式：response 立刻拿到 usage，spawn 一个 task 推 outbox（不阻塞返回）
+        if let Some(bctx) = billing_ctx {
+            let usage = resp.usage;
+            let outbox = app.outbox.clone();
+            let pricing = app.pricing.clone();
+            tokio::spawn(async move {
+                emit_usage(outbox, pricing, bctx, usage, 200).await;
+            });
+        }
         Ok(Json(resp).into_response())
     }
 }

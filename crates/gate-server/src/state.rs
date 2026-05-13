@@ -4,6 +4,7 @@
 
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
+use gate_billing::{OutboxRepo, PricingRepo};
 use gate_cache::RateLimiter;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
@@ -24,6 +25,12 @@ pub struct AppState {
     /// 多 Provider 路由器（C1 新增）。优先于 provider 字段使用。
     /// 未配置时退化为 provider 字段。
     pub provider_router: Option<Arc<ProviderRouter>>,
+    /// 计费 outbox：handler 把 UsageEvent 推到这里，由 Consumer 异步落 usage_records。
+    /// 未配置时 chat handler 不计费（warn-only，不阻断请求）。
+    pub outbox: Option<Arc<dyn OutboxRepo>>,
+    /// 计费定价表：handler 拿 (channel_id, model, at) 查单价用。
+    /// 未配置时 chat handler 不计费（warn-only，不阻断请求）。
+    pub pricing: Option<Arc<dyn PricingRepo>>,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -105,6 +112,8 @@ impl AppState {
             rate_limit_cfg: RateLimitCfg::default(),
             provider: None,
             provider_router: None,
+            outbox: None,
+            pricing: None,
         }
     }
 
@@ -127,6 +136,18 @@ impl AppState {
     /// 挂载 ProviderRouter（C1 新增）。
     pub fn with_provider_router(mut self, router: ProviderRouter) -> Self {
         self.provider_router = Some(Arc::new(router));
+        self
+    }
+
+    /// 挂载计费 outbox（D4 新增）。未挂载时计费走 warn-only 路径。
+    pub fn with_outbox(mut self, outbox: Arc<dyn OutboxRepo>) -> Self {
+        self.outbox = Some(outbox);
+        self
+    }
+
+    /// 挂载计费 pricing 仓库（D4 新增）。未挂载时计费走 warn-only 路径。
+    pub fn with_pricing(mut self, pricing: Arc<dyn PricingRepo>) -> Self {
+        self.pricing = Some(pricing);
         self
     }
 }
