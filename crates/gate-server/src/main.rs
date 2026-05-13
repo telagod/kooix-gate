@@ -5,7 +5,8 @@
 //! 2. 连接 PostgreSQL + 跑迁移
 //! 3. 初始化 JwtIssuer (from KOOIX_JWT_SECRET base64)
 //! 4. 装配 PgLoader（生产）/ InMemoryLoader（仅当 KOOIX_DEV_INMEMORY=1）
-//! 5. 启动 Axum
+//! 5. 初始化 Prometheus metrics + 可选 OpenTelemetry OTLP
+//! 6. 启动 Axum
 
 use anyhow::Context;
 use chrono::Duration;
@@ -17,7 +18,14 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    // Phase 1: basic tracing (env filter + fmt)
+    // Phase 2: if OTEL_EXPORTER_OTLP_ENDPOINT is set, add OpenTelemetry layer
+    let otel_provider = gate_server::telemetry::init_telemetry("gate-server");
+
+    init_tracing(&otel_provider);
+
+    // Install Prometheus metrics recorder (must be before any metrics::* calls)
+    gate_server::metrics::install_recorder();
 
     let cfg = Config::load().context("loading config (set KOOIX_* env vars)")?;
     tracing::info!(addr = %cfg.listen_addr, "starting");
@@ -96,19 +104,61 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await
     .context("serve loop")?;
+
+    // Graceful shutdown: flush OTLP spans
+    if let Some(provider) = otel_provider {
+        tracing::info!("shutting down OpenTelemetry tracer");
+        if let Err(e) = provider.shutdown() {
+            tracing::warn!(error = %e, "OpenTelemetry shutdown error");
+        }
+    }
+
     Ok(())
 }
 
-fn init_tracing() {
+fn init_tracing(otel_provider: &Option<opentelemetry_sdk::trace::TracerProvider>) {
     use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,gate=debug"));
+
+    let otel_layer = otel_provider
+        .as_ref()
+        .map(gate_server::telemetry::otel_layer);
+
     tracing_subscriber::registry()
-        .with(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,gate=debug")),
-        )
+        .with(env_filter)
         .with(fmt::layer())
+        .with(otel_layer)
         .init();
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    tracing::info!("shutdown signal received");
 }
 
 /// 日志里脱敏 password 段：`postgres://user:****@host/db`

@@ -6,6 +6,7 @@
 pub mod error;
 pub mod migrations;
 pub mod repo;
+pub mod rls;
 
 pub use error::{DbError, DbResult};
 pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, PgApiKeyRepo};
@@ -35,6 +36,7 @@ pub use repo::usage::{
     UsageTotals,
 };
 pub use repo::user::{PgUserRepo, UserRepo};
+pub use rls::RlsContext;
 pub use sqlx::PgPool;
 
 pub async fn connect(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
