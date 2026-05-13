@@ -100,3 +100,103 @@ impl OutboxRepo for PgOutboxRepo {
         Ok(())
     }
 }
+
+// ============================================================================
+// InMemoryOutboxRepo — 测试 / dev 用
+// ============================================================================
+
+use std::sync::Mutex;
+
+#[derive(Debug, Clone)]
+struct InMemoryRow {
+    id: OutboxId,
+    event: UsageEvent,
+    processed: bool,
+    retry_count: i32,
+    last_error: Option<String>,
+}
+
+#[derive(Default)]
+pub struct InMemoryOutboxRepo {
+    inner: Mutex<InMemoryInner>,
+}
+
+#[derive(Default)]
+struct InMemoryInner {
+    rows: Vec<InMemoryRow>,
+    next_id: OutboxId,
+}
+
+impl InMemoryOutboxRepo {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 测试辅助：拿到全部 enqueue 过的事件（不分 processed / pending）。
+    pub fn snapshot(&self) -> Vec<UsageEvent> {
+        self.inner
+            .lock()
+            .unwrap()
+            .rows
+            .iter()
+            .map(|r| r.event.clone())
+            .collect()
+    }
+
+    /// 测试辅助：未处理事件数。
+    pub fn pending_count(&self) -> usize {
+        self.inner
+            .lock()
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|r| !r.processed && r.retry_count < 3)
+            .count()
+    }
+}
+
+#[async_trait]
+impl OutboxRepo for InMemoryOutboxRepo {
+    async fn enqueue(&self, event: &UsageEvent) -> BillingResult<OutboxId> {
+        let mut g = self.inner.lock().unwrap();
+        g.next_id += 1;
+        let id = g.next_id;
+        g.rows.push(InMemoryRow {
+            id,
+            event: event.clone(),
+            processed: false,
+            retry_count: 0,
+            last_error: None,
+        });
+        Ok(id)
+    }
+
+    async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
+        let g = self.inner.lock().unwrap();
+        let out: Vec<_> = g
+            .rows
+            .iter()
+            .filter(|r| !r.processed && r.retry_count < 3)
+            .take(limit.max(0) as usize)
+            .map(|r| (r.id, r.event.clone()))
+            .collect();
+        Ok(out)
+    }
+
+    async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
+        let mut g = self.inner.lock().unwrap();
+        if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
+            r.processed = true;
+        }
+        Ok(())
+    }
+
+    async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
+        let mut g = self.inner.lock().unwrap();
+        if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
+            r.retry_count += 1;
+            r.last_error = Some(error.to_string());
+        }
+        Ok(())
+    }
+}

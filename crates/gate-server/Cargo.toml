@@ -18,6 +18,7 @@ gate-crypto    = { path = "../gate-crypto" }
 gate-storage   = { path = "../gate-storage" }
 gate-cache     = { path = "../gate-cache" }
 gate-providers = { path = "../gate-providers" }
+gate-billing   = { path = "../gate-billing" }
 
 # DB pool 类型透传
 sqlx.workspace = true

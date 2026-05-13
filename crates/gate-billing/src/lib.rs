@@ -3,15 +3,22 @@
 //! 主要组件：
 //! - [`UsageEvent`] — 用量事件结构，与 usage_records 表对齐
 //! - [`OutboxRepo`] — outbox_events 表读写 trait
-//! - [`PgOutboxRepo`] — Pg 实现
+//! - [`PgOutboxRepo`] / [`InMemoryOutboxRepo`] — 持久 / 内存实现
+//! - [`PricingRepo`] — model_pricing 查询 trait
+//! - [`PgPricingRepo`] / [`InMemoryPricingRepo`] — 持久 / 内存实现
+//! - [`compute_cost_micros`] — usage × pricing → cost_micros
 //! - [`Consumer`] — 消费循环：拉批 → commit_usage → mark_done
 
 pub mod consumer;
 pub mod outbox;
+pub mod pricing;
 pub mod types;
 
 pub use consumer::Consumer;
-pub use outbox::{OutboxRepo, PgOutboxRepo};
+pub use outbox::{InMemoryOutboxRepo, OutboxRepo, PgOutboxRepo};
+pub use pricing::{
+    InMemoryPricingRepo, ModelPricing, PgPricingRepo, PricingRepo, compute_cost_micros,
+};
 pub use types::UsageEvent;
 
 #[derive(Debug, thiserror::Error)]

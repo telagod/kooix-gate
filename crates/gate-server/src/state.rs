@@ -4,6 +4,7 @@
 
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
+use gate_billing::{OutboxRepo, PricingRepo};
 use gate_cache::RateLimiter;
 use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
@@ -35,6 +36,12 @@ pub struct AppState {
     /// 公网入口前缀，用于拼 OIDC redirect_uri 等绝对 URL（e.g. `https://gate.example.com`）。
     /// 未配置时回落到 `http://localhost:8080`（仅 dev 用）。
     pub public_origin: Option<String>,
+    /// 计费 outbox：handler 把 UsageEvent 推到这里，由 Consumer 异步落 usage_records。
+    /// 未配置时 chat handler 不计费（warn-only，不阻断请求）。
+    pub outbox: Option<Arc<dyn OutboxRepo>>,
+    /// 计费定价表：handler 拿 (channel_id, model, at) 查单价用。
+    /// 未配置时 chat handler 不计费（warn-only，不阻断请求）。
+    pub pricing: Option<Arc<dyn PricingRepo>>,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -131,6 +138,8 @@ impl AppState {
             crypto: None,
             oidc_client: None,
             public_origin: None,
+            outbox: None,
+            pricing: None,
         }
     }
 
@@ -165,6 +174,18 @@ impl AppState {
     /// 设置公网入口前缀（用于 OIDC redirect_uri 等绝对 URL）。
     pub fn with_public_origin(mut self, origin: impl Into<String>) -> Self {
         self.public_origin = Some(origin.into());
+        self
+    }
+
+    /// 挂载计费 outbox（D4 新增）。未挂载时计费走 warn-only 路径。
+    pub fn with_outbox(mut self, outbox: Arc<dyn OutboxRepo>) -> Self {
+        self.outbox = Some(outbox);
+        self
+    }
+
+    /// 挂载计费 pricing 仓库（D4 新增）。未挂载时计费走 warn-only 路径。
+    pub fn with_pricing(mut self, pricing: Arc<dyn PricingRepo>) -> Self {
+        self.pricing = Some(pricing);
         self
     }
 }
