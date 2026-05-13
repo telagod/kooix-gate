@@ -1,4 +1,5 @@
 //! GET /health — 无 auth 探活
+//! GET /metrics — Prometheus exposition format
 
 use crate::state::AppState;
 use axum::{Json, Router, routing::get};
@@ -11,7 +12,9 @@ struct Health {
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/health", get(health))
+    Router::new()
+        .route("/health", get(health))
+        .route("/metrics", get(crate::metrics::metrics_handler))
 }
 
 async fn health() -> Json<Health> {

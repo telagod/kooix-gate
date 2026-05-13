@@ -1,12 +1,12 @@
 //! `build_router(state)` — 组装完整 Router，供 bin 与测试共用。
 
 use crate::middleware::{
-    quota_enforce, rate_limit_by_subject, request_id_layers, rls_inject, trace_layer,
+    metrics_layer, quota_enforce, rate_limit_by_subject, request_id_layers, rls_inject, trace_layer,
 };
 use crate::routes;
 use crate::state::AppState;
 use axum::Router;
-use axum::middleware::from_fn_with_state;
+use axum::middleware::{from_fn, from_fn_with_state};
 use tower_http::cors::CorsLayer;
 
 pub fn build_router(state: AppState) -> Router {
@@ -26,6 +26,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/v1", v1)
         .with_state(state)
         .layer(propagate_id)
+        .layer(from_fn(metrics_layer)) // metrics: outermost business layer, captures all requests
         .layer(trace_layer())
         .layer(set_id)
         .layer(CorsLayer::permissive()) // 生产按域名收紧
