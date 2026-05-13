@@ -10,7 +10,7 @@ use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, ChannelGroupRepo, ChannelRepo, IdentityProviderRepo, MembershipRepo, OidcStateRepo,
-    OrgRepo, ProjectRepo, UserIdentityRepo, UserRepo,
+    OrgRepo, ProjectRepo, UsageRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -79,6 +79,8 @@ pub struct Repos {
     pub identity_providers: Arc<dyn IdentityProviderRepo>,
     pub user_identities: Arc<dyn UserIdentityRepo>,
     pub oidc_states: Arc<dyn OidcStateRepo>,
+    /// 用量聚合（E2 追加）—— 控制台 /v1/usage 仪表盘读它。
+    pub usage: Arc<dyn UsageRepo>,
 }
 
 impl Repos {
@@ -86,8 +88,8 @@ impl Repos {
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
             PgApiKeyRepo, PgChannelGroupRepo, PgChannelRepo, PgIdentityProviderRepo,
-            PgMembershipRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgUserIdentityRepo,
-            PgUserRepo,
+            PgMembershipRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgUsageRepo,
+            PgUserIdentityRepo, PgUserRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -99,7 +101,8 @@ impl Repos {
             channel_groups: Arc::new(PgChannelGroupRepo::new(pool.clone())),
             identity_providers: Arc::new(PgIdentityProviderRepo::new(pool.clone())),
             user_identities: Arc::new(PgUserIdentityRepo::new(pool.clone())),
-            oidc_states: Arc::new(PgOidcStateRepo::new(pool)),
+            oidc_states: Arc::new(PgOidcStateRepo::new(pool.clone())),
+            usage: Arc::new(PgUsageRepo::new(pool)),
         }
     }
 
@@ -108,7 +111,8 @@ impl Repos {
         use gate_storage::{
             InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
             InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryOidcStateRepo,
-            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo,
+            InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -121,6 +125,7 @@ impl Repos {
             identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
             user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
             oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
+            usage: Arc::new(InMemoryUsageRepo::new()),
         }
     }
 }

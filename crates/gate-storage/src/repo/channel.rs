@@ -56,6 +56,10 @@ pub trait ChannelRepo: Send + Sync + 'static {
         &self,
         group_id: ChannelGroupId,
     ) -> DbResult<Vec<ChannelBinding>>;
+
+    /// 列出全部 channels（admin 视图，含未健康/disabled）。
+    /// 控制台只读用，不返回密钥/config 字段。
+    async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>>;
 }
 
 pub struct PgChannelRepo {
@@ -131,6 +135,18 @@ impl ChannelRepo for PgChannelRepo {
                 })
             })
             .collect()
+    }
+
+    async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>> {
+        let rows = sqlx::query(
+            "SELECT id, code, name, provider_type, base_url, supported_models, \
+                    status, health, timeout_ms, max_retries, created_at, updated_at \
+             FROM channels WHERE deleted_at IS NULL \
+             ORDER BY created_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_channel).collect()
     }
 }
 
@@ -309,6 +325,13 @@ impl ChannelRepo for InMemoryChannelRepo {
 
         result.sort_by_key(|b| b.priority);
         Ok(result)
+    }
+
+    async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>> {
+        let inner = self.inner.read().unwrap();
+        let mut out: Vec<ChannelRecord> = inner.channels.values().cloned().collect();
+        out.sort_by_key(|c| c.created_at);
+        Ok(out)
     }
 }
 
