@@ -18,17 +18,24 @@
 //! - 非流式：response 拿到后 spawn 一个 task 推 usage_event 到 outbox
 //! - 流式：包装 upstream stream，捕获最后一帧的 usage；stream 结束后 spawn 推送
 //! - outbox / pricing 任一未挂 → warn-only，不阻断请求
+//!
+//! 配额结算（F3）：
+//! - pre-debit guards 通过 request extension 传入
+//! - 非流式：response 后立即 settle
+//! - 流式：stream 结束后在 trigger 闭包里 settle
 
 use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
+use crate::cost_estimate::DEFAULT_RATE_PER_TOKEN_MICROS;
 use crate::error::{AppError, AppResult};
+use crate::inflight::InflightGuards;
 use crate::state::AppState;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::post;
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use futures::stream::StreamExt;
 use gate_auth::AuthError;
 use gate_auth::context::Subject;
@@ -41,10 +48,28 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/chat/completions", post(chat_completions))
 }
 
+/// 按实际 usage 计算结算费用（micros）。
+///
+/// 使用与 pre-debit 相同的 rate，确保预扣和结算口径一致。
+fn actual_cost_from_usage(usage: &Usage) -> i64 {
+    let total = usage.prompt_tokens as i64 + usage.completion_tokens as i64;
+    total * DEFAULT_RATE_PER_TOKEN_MICROS
+}
+
+/// 结算所有 inflight guards。
+async fn settle_guards(guards: &InflightGuards, usage: &Usage) {
+    let actual = actual_cost_from_usage(usage);
+    let mut taken = guards.take();
+    for g in &mut taken {
+        g.settle(actual).await;
+    }
+}
+
 async fn chat_completions(
     State(app): State<AppState>,
     Authed(ctx): Authed,
     headers: HeaderMap,
+    guards: Option<Extension<InflightGuards>>,
     Json(req): Json<ChatRequest>,
 ) -> AppResult<axum::response::Response> {
     let (provider, channel_id) = resolve_provider(&app, &ctx, &headers, &req).await?;
@@ -75,6 +100,16 @@ async fn chat_completions(
         // 副作用流自身不吐 chunk，只在被 poll 时 spawn emit 任务后返回 None。
         let trigger = futures::stream::once(async move {
             let usage = captured_usage.lock().unwrap().take();
+
+            // 结算 inflight guards（F3）
+            if let Some(ref u) = usage
+                && let Some(Extension(ref g)) = guards
+            {
+                settle_guards(g, u).await;
+            }
+            // 没有 usage 帧 + 有 guard → Drop 会自动全额退还（guards 移入此闭包，
+            // 闭包结束时 Drop）
+
             if let (Some(usage), Some(bctx)) = (usage, billing_ctx_clone) {
                 let outbox = app_for_billing.outbox.clone();
                 let pricing = app_for_billing.pricing.clone();
@@ -108,6 +143,12 @@ async fn chat_completions(
             .into_response())
     } else {
         let resp: ChatResponse = provider.chat(req).await?;
+
+        // 结算 inflight guards（F3）
+        if let Some(Extension(ref g)) = guards {
+            settle_guards(g, &resp.usage).await;
+        }
+
         // 非流式：response 立刻拿到 usage，spawn 一个 task 推 outbox（不阻塞返回）
         if let Some(bctx) = billing_ctx {
             let usage = resp.usage;
