@@ -11,5 +11,25 @@ path = "src/main.rs"
 [dependencies]
 gate-crypto = { path = "../gate-crypto" }
 gate-auth = { path = "../gate-auth" }
+gate-storage = { path = "../gate-storage" }
+gate-cache = { path = "../gate-cache" }
+
 clap.workspace = true
 anyhow.workspace = true
+tokio.workspace = true
+sqlx.workspace = true
+fred.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+base64.workspace = true
+rand.workspace = true
+rust_decimal.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres", "redis"] }
+tokio = { version = "1", features = ["full", "macros"] }
+sqlx = { workspace = true }
+gate-storage = { path = "../gate-storage" }

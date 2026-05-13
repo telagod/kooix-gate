@@ -32,5 +32,10 @@ pub async fn connect(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Er
 }
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
-    sqlx::migrate!("./migrations").run(pool).await
+    migrator().run(pool).await
+}
+
+/// 取得编译期内嵌的迁移器。kgctl 用它做 dry-run / 版本号读取。
+pub fn migrator() -> sqlx::migrate::Migrator {
+    sqlx::migrate!("./migrations")
 }
