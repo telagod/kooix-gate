@@ -5,9 +5,9 @@
 //! - 失败 >= MAX_RETRIES 后 mark_failed（不再重试）
 //! - commit_usage 走幂等写（ON CONFLICT DO NOTHING on (ts, request_id)）
 
+use crate::BillingResult;
 use crate::outbox::{OutboxId, OutboxRepo};
 use crate::types::UsageEvent;
-use crate::BillingResult;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -91,9 +91,8 @@ impl Consumer {
 
 /// 把 UsageEvent 写到 usage_records 表（幂等：ON CONFLICT DO NOTHING）。
 ///
-/// channel_id 为 None 时使用 Uuid::nil() 占位（usage_records.channel_id NOT NULL）。
+/// channel_id 为 None 时直接写 NULL（fallback provider 路径无 channel 归属）。
 pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()> {
-    let channel_id = event.channel_id.unwrap_or_else(uuid::Uuid::nil);
     sqlx::query(
         "INSERT INTO usage_records \
          (ts, request_id, org_id, project_id, api_key_id, channel_id, \
@@ -106,9 +105,9 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     .bind(event.org_id)
     .bind(event.project_id)
     .bind(event.api_key_id)
-    .bind(channel_id)
+    .bind(event.channel_id) // Option<Uuid> → NULL when None
     .bind(&event.model)
-    .bind(&event.model)  // model_actual = model_requested（C1 阶段无别名翻译）
+    .bind(&event.model) // model_actual = model_requested（C1 阶段无别名翻译）
     .bind(event.prompt_tokens)
     .bind(event.completion_tokens)
     .bind(event.cost_micros)
