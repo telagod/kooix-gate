@@ -6,6 +6,7 @@ members = [
     "crates/gate-crypto",
     "crates/gate-auth",
     "crates/gate-cache",
+    "crates/gate-providers",
     "crates/gate-server",
     "crates/kgctl",
 ]
