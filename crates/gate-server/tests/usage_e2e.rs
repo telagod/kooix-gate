@@ -162,6 +162,7 @@ fn build_fixture() -> Fixture {
         user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
         oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
         usage,
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos);

@@ -13,6 +13,7 @@ pub mod chat;
 pub mod health;
 pub mod me;
 pub mod projects;
+pub mod quotas;
 pub mod sso;
 pub mod usage;
 
@@ -36,5 +37,6 @@ pub fn v1_router() -> Router<AppState> {
         .merge(sso::router())
         .merge(usage::router())
         .merge(channels::router())
+        .merge(quotas::router())
         .nest("/admin", admin::router())
 }

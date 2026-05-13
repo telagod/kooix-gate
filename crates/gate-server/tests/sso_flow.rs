@@ -135,6 +135,7 @@ async fn build_fixture(
         user_identities: user_identities.clone(),
         oidc_states: oidc_states.clone(),
         usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
     };
 
     let jwt = JwtIssuer::new(

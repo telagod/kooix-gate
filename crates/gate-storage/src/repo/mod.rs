@@ -16,5 +16,6 @@ pub mod membership;
 pub mod memory;
 pub mod org;
 pub mod project;
+pub mod quota;
 pub mod usage;
 pub mod user;

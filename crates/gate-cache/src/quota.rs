@@ -2,7 +2,7 @@
 
 use crate::error::{CacheError, CacheResult};
 use fred::clients::RedisPool;
-use fred::interfaces::LuaInterface;
+use fred::interfaces::{KeysInterface, LuaInterface};
 use fred::types::RedisValue;
 
 const DEBIT: &str = include_str!("../scripts/quota_debit.lua");
@@ -75,6 +75,21 @@ impl QuotaCounter {
         Ok(RefundOutcome {
             current_used: current,
         })
+    }
+
+    /// 只读当前用量（不增加、不预扣）。
+    ///
+    /// 用于 budget 类配额的「能否放行」判断：chat 请求成本要事后才知道，
+    /// 没法在路径上预扣，因此先用这个方法判断当前用量是否已超额。
+    /// key 不存在视为 0。
+    pub async fn peek(&self, key: &str) -> CacheResult<i64> {
+        let v: RedisValue = self.pool.next().get(key.to_string()).await?;
+        match v {
+            RedisValue::Null => Ok(0),
+            other => other.as_i64().ok_or_else(|| {
+                CacheError::Shape(format!("expected int from GET {key}, got {other:?}"))
+            }),
+        }
     }
 }
 

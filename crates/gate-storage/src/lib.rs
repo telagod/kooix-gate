@@ -26,6 +26,7 @@ pub use repo::memory::{
 };
 pub use repo::org::{OrgRepo, PgOrgRepo};
 pub use repo::project::{PgProjectRepo, ProjectRepo};
+pub use repo::quota::{InMemoryQuotaRepo, PgQuotaRepo, QuotaRecord, QuotaRepo, QuotaUpsert};
 pub use repo::usage::{
     GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, UsageBucket, UsageRepo, UsageSeed,
     UsageTotals,
