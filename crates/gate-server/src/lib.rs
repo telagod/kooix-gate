@@ -17,8 +17,10 @@ pub mod middleware;
 pub mod routes;
 pub mod app;
 pub mod loader;
+pub mod pg_loader;
 
 pub use app::build_router;
+pub use pg_loader::PgLoader;
 pub use config::Config;
 pub use error::AppError;
 pub use state::AppState;

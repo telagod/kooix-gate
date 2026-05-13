@@ -2,15 +2,16 @@
 //!
 //! 启动流程：
 //! 1. 加载配置 (KOOIX_* env + kooix-gate.toml 可选)
-//! 2. 初始化 JwtIssuer (from KOOIX_JWT_SECRET base64)
-//! 3. 初始化 AuthContextLoader (待 storage Repo 就绪后替换为 PG 实现)
-//! 4. 启动 Axum
+//! 2. 连接 PostgreSQL + 跑迁移
+//! 3. 初始化 JwtIssuer (from KOOIX_JWT_SECRET base64)
+//! 4. 装配 PgLoader（生产）/ InMemoryLoader（仅当 KOOIX_DEV_INMEMORY=1）
+//! 5. 启动 Axum
 
 use anyhow::Context;
 use chrono::Duration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
-use gate_server::{build_router, AppState, Config};
-use gate_server::loader::InMemoryLoader;
+use gate_server::loader::{AuthContextLoader, InMemoryLoader};
+use gate_server::{build_router, AppState, Config, PgLoader};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -30,8 +31,21 @@ async fn main() -> anyhow::Result<()> {
         },
     )?;
 
-    // TODO: 替换为 PgLoader 用真实 DB
-    let loader = Arc::new(InMemoryLoader::new());
+    let loader: Arc<dyn AuthContextLoader> =
+        if std::env::var("KOOIX_DEV_INMEMORY").as_deref() == Ok("1") {
+            tracing::warn!("KOOIX_DEV_INMEMORY=1 — using InMemoryLoader (NOT for production)");
+            Arc::new(InMemoryLoader::new())
+        } else {
+            tracing::info!(url = %redact_db_url(&cfg.database_url), "connecting postgres");
+            let pool = gate_storage::connect(&cfg.database_url, 16)
+                .await
+                .context("connect postgres")?;
+            gate_storage::run_migrations(&pool)
+                .await
+                .context("run migrations")?;
+            tracing::info!("migrations applied");
+            Arc::new(PgLoader::new(pool))
+        };
 
     let state = AppState::new(jwt, loader);
     let app = build_router(state);
@@ -56,4 +70,16 @@ fn init_tracing() {
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,gate=debug")))
         .with(fmt::layer())
         .init();
+}
+
+/// 日志里脱敏 password 段：`postgres://user:****@host/db`
+fn redact_db_url(url: &str) -> String {
+    if let Some((scheme, rest)) = url.split_once("://") {
+        if let Some((auth, host)) = rest.split_once('@') {
+            if let Some((user, _pw)) = auth.split_once(':') {
+                return format!("{scheme}://{user}:****@{host}");
+            }
+        }
+    }
+    url.to_string()
 }
