@@ -1,0 +1,23 @@
+# 默认行尾归一为 LF（避免 Windows 同事提交 CRLF 污染 diff）
+* text=auto eol=lf
+
+# Rust / SQL / Markdown 强制 LF
+*.rs    text eol=lf diff=rust
+*.toml  text eol=lf
+*.sql   text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+
+# Lock 文件标记为生成，PR 不展开 diff
+Cargo.lock linguist-generated=true -diff
+
+# 二进制
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.pdf   binary
+
+# 脚本保 LF（Windows 拉下来也能在 WSL 跑）
+*.sh    text eol=lf
