@@ -1515,6 +1515,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-billing"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "gate-core",
+ "gate-storage",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "testcontainers-modules",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "gate-cache"
 version = "0.1.0"
 dependencies = [
@@ -1571,6 +1590,7 @@ dependencies = [
  "bytes",
  "futures",
  "gate-core",
+ "gate-storage",
  "parking_lot",
  "reqwest 0.12.28",
  "serde",
@@ -1624,6 +1644,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "gate-auth",
  "gate-core",
  "rust_decimal",

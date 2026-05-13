@@ -8,6 +8,7 @@ members = [
     "crates/gate-cache",
     "crates/gate-providers",
     "crates/gate-server",
+    "crates/gate-billing",
     "crates/kgctl",
 ]
 
