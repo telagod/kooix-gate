@@ -7,6 +7,12 @@
 //! - POST   /channels         — 创建 channel
 //! - PUT    /channels/:id     — 更新 channel
 //! - DELETE /channels/:id     — 软删除 channel
+//!
+//! Channel Keys:
+//! - GET    /channels/:id/keys        — 列出 key 元数据（不含明文）
+//! - POST   /channels/:id/keys        — 添加 key（服务端加密）
+//! - POST   /channels/:id/keys/rotate — 轮转 key
+//! - DELETE /channels/:id/keys/:key_id — 撤销 key
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
@@ -15,7 +21,7 @@ use axum::extract::{Path, State};
 use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
-use gate_core::id::ChannelId;
+use gate_core::id::{ChannelId, ChannelKeyId};
 use gate_core::rbac::{Permission, Scope};
 use gate_storage::{CreateChannel, UpdateChannel};
 use serde::{Deserialize, Serialize};
@@ -64,6 +70,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/channels/:id",
             axum::routing::put(update_channel).delete(delete_channel),
+        )
+        .route(
+            "/channels/:id/keys",
+            get(list_channel_keys).post(create_channel_key),
+        )
+        .route(
+            "/channels/:id/keys/rotate",
+            axum::routing::post(rotate_channel_key),
+        )
+        .route(
+            "/channels/:id/keys/:key_id",
+            axum::routing::delete(revoke_channel_key),
         )
 }
 
@@ -188,4 +206,169 @@ async fn delete_channel(
     app.repos.channels.soft_delete(channel_id).await?;
 
     Ok(Json(serde_json::json!({"deleted": true})))
+}
+
+// ============================================================================
+// Channel Keys
+// ============================================================================
+
+/// Key 摘要（不含 key_enc）。
+#[derive(Serialize)]
+pub struct ChannelKeySummary {
+    pub id: String,
+    pub channel_id: String,
+    pub label: Option<String>,
+    pub fingerprint: String,
+    pub weight: i32,
+    pub health: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateKeyRequest {
+    /// 明文 API key，服务端加密后存储。
+    pub secret: String,
+    #[serde(default)]
+    pub alias: Option<String>,
+}
+
+/// 计算 key fingerprint：SHA-256 前 16 字节 hex。
+fn key_fingerprint(secret: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(secret.as_bytes());
+    hex::encode(&hash[..16])
+}
+
+async fn list_channel_keys(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<Vec<ChannelKeySummary>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
+
+    let channel_id = ChannelId::from(id);
+    let records = app.repos.channel_keys.list_by_channel(channel_id).await?;
+    Ok(Json(
+        records
+            .into_iter()
+            .map(|r| ChannelKeySummary {
+                id: r.id.as_uuid().to_string(),
+                channel_id: r.channel_id.as_uuid().to_string(),
+                label: r.label,
+                fingerprint: r.key_fingerprint,
+                weight: r.weight,
+                health: r.health,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
+}
+
+async fn create_channel_key(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<CreateKeyRequest>,
+) -> AppResult<Json<ChannelKeySummary>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
+
+    if req.secret.is_empty() {
+        return Err(AppError::BadRequest("secret is required".into()));
+    }
+
+    let crypto = app.crypto.as_ref().ok_or_else(|| {
+        AppError::Internal("crypto (EnvelopeKms) not configured; cannot encrypt channel key".into())
+    })?;
+
+    let channel_id = ChannelId::from(id);
+    // 先确认 channel 存在
+    let _ = app.repos.channels.find_by_id(channel_id).await?;
+
+    let fingerprint = key_fingerprint(&req.secret);
+
+    // AAD 用 channel_id：同 channel 的所有 key 共享 AAD context，
+    // 防止密文跨 channel 移植，同时避免先有 key_id 再加密的鸡生蛋问题。
+    let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+    let key_enc = crypto.seal(req.secret.as_bytes(), &aad).await.map_err(|e| {
+        AppError::Internal(format!("encrypt channel key failed: {e}"))
+    })?;
+
+    let key_id = app
+        .repos
+        .channel_keys
+        .create(channel_id, &key_enc, &fingerprint, req.alias.as_deref())
+        .await?;
+
+    Ok(Json(ChannelKeySummary {
+        id: key_id.as_uuid().to_string(),
+        channel_id: channel_id.as_uuid().to_string(),
+        label: req.alias,
+        fingerprint,
+        weight: 1,
+        health: "healthy".to_string(),
+        created_at: Utc::now(),
+    }))
+}
+
+async fn rotate_channel_key(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<CreateKeyRequest>,
+) -> AppResult<Json<ChannelKeySummary>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
+
+    if req.secret.is_empty() {
+        return Err(AppError::BadRequest("secret is required".into()));
+    }
+
+    let crypto = app.crypto.as_ref().ok_or_else(|| {
+        AppError::Internal("crypto (EnvelopeKms) not configured; cannot encrypt channel key".into())
+    })?;
+
+    let channel_id = ChannelId::from(id);
+    let _ = app.repos.channels.find_by_id(channel_id).await?;
+
+    let fingerprint = key_fingerprint(&req.secret);
+    let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+    let key_enc = crypto.seal(req.secret.as_bytes(), &aad).await.map_err(|e| {
+        AppError::Internal(format!("encrypt channel key failed: {e}"))
+    })?;
+
+    let key_id = app
+        .repos
+        .channel_keys
+        .rotate(channel_id, &key_enc, &fingerprint, req.alias.as_deref())
+        .await?;
+
+    Ok(Json(ChannelKeySummary {
+        id: key_id.as_uuid().to_string(),
+        channel_id: channel_id.as_uuid().to_string(),
+        label: req.alias,
+        fingerprint,
+        weight: 1,
+        health: "healthy".to_string(),
+        created_at: Utc::now(),
+    }))
+}
+
+async fn revoke_channel_key(
+    State(app): State<AppState>,
+    Path((id, key_id)): Path<(Uuid, Uuid)>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
+
+    // 验证 channel 存在
+    let channel_id = ChannelId::from(id);
+    let _ = app.repos.channels.find_by_id(channel_id).await?;
+
+    let ck_id = ChannelKeyId::from(key_id);
+    app.repos.channel_keys.revoke(ck_id).await?;
+
+    Ok(Json(serde_json::json!({"revoked": true})))
 }

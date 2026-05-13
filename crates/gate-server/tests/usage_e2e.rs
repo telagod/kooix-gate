@@ -19,9 +19,10 @@ use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
 use gate_server::{AppState, build_router};
 use gate_storage::{
-    ChannelRecord, InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
-    InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryOidcStateRepo, InMemoryOrgRepo,
-    InMemoryProjectRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+    ChannelRecord, InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
+    InMemoryChannelRepo, InMemoryIdentityProviderRepo, InMemoryMembershipRepo,
+    InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUsageRepo,
+    InMemoryUserIdentityRepo, InMemoryUserRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -158,6 +159,7 @@ fn build_fixture() -> Fixture {
         api_keys: Arc::new(InMemoryApiKeyRepo::new()),
         channels: channels_repo,
         channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
+        channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
         oidc_states: Arc::new(InMemoryOidcStateRepo::new()),

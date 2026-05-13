@@ -23,8 +23,8 @@ use gate_server::loader::{InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
 use gate_server::{AppState, build_router};
 use gate_storage::{
-    ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
-    InMemoryProjectRepo,
+    ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
+    InMemoryChannelRepo, InMemoryProjectRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -187,6 +187,7 @@ async fn fixture() -> Fixture {
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
         oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),

@@ -269,6 +269,7 @@ fn build_repos(
         api_keys,
         channels: Arc::new(gate_storage::InMemoryChannelRepo::new()),
         channel_groups: Arc::new(gate_storage::InMemoryChannelGroupRepo::new()),
+        channel_keys: Arc::new(gate_storage::InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
         oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),

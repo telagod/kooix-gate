@@ -9,9 +9,9 @@ use gate_cache::{QuotaCounter, RateLimiter};
 use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
-    ApiKeyRepo, ChannelGroupRepo, ChannelRepo, IdentityProviderRepo, MembershipRepo,
-    ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, UsageRepo, UserIdentityRepo,
-    UserRepo,
+    ApiKeyRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, IdentityProviderRepo,
+    MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, UsageRepo,
+    UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -79,6 +79,8 @@ pub struct Repos {
     /// Channel repos（C1 新增，路由用）
     pub channels: Arc<dyn ChannelRepo>,
     pub channel_groups: Arc<dyn ChannelGroupRepo>,
+    /// Channel key 池（G1 新增，加密 API key 存储/轮转）
+    pub channel_keys: Arc<dyn ChannelKeyRepo>,
     /// SSO/OIDC 相关（D2 追加）。
     pub identity_providers: Arc<dyn IdentityProviderRepo>,
     pub user_identities: Arc<dyn UserIdentityRepo>,
@@ -95,9 +97,9 @@ impl Repos {
     /// 从一个 PgPool 批量构造全部 Pg 实现。
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
-            PgApiKeyRepo, PgChannelGroupRepo, PgChannelRepo, PgIdentityProviderRepo,
-            PgMembershipRepo, PgModelAliasRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo,
-            PgQuotaRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo,
+            PgApiKeyRepo, PgChannelGroupRepo, PgChannelKeyRepo, PgChannelRepo,
+            PgIdentityProviderRepo, PgMembershipRepo, PgModelAliasRepo, PgOidcStateRepo,
+            PgOrgRepo, PgProjectRepo, PgQuotaRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -107,6 +109,7 @@ impl Repos {
             api_keys: Arc::new(PgApiKeyRepo::new(pool.clone())),
             channels: Arc::new(PgChannelRepo::new(pool.clone())),
             channel_groups: Arc::new(PgChannelGroupRepo::new(pool.clone())),
+            channel_keys: Arc::new(PgChannelKeyRepo::new(pool.clone())),
             identity_providers: Arc::new(PgIdentityProviderRepo::new(pool.clone())),
             user_identities: Arc::new(PgUserIdentityRepo::new(pool.clone())),
             oidc_states: Arc::new(PgOidcStateRepo::new(pool.clone())),
@@ -119,10 +122,10 @@ impl Repos {
     /// 内存版（dev 模式 / 测试用）。
     pub fn in_memory() -> Self {
         use gate_storage::{
-            InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
-            InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryModelAliasRepo,
-            InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo,
-            InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
+            InMemoryChannelRepo, InMemoryIdentityProviderRepo, InMemoryMembershipRepo,
+            InMemoryModelAliasRepo, InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo,
+            InMemoryQuotaRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -132,6 +135,7 @@ impl Repos {
             api_keys: Arc::new(InMemoryApiKeyRepo::new()),
             channels: Arc::new(InMemoryChannelRepo::new()),
             channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
+            channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
             identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
             user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
             oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
