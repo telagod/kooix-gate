@@ -1,8 +1,8 @@
 //! gate-cache 集成测试：起 redis 容器跑 Lua 脚本。
 
 use gate_cache::{QuotaCounter, RateLimiter};
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::redis::Redis;
 
 async fn start() -> (

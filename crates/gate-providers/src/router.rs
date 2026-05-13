@@ -10,9 +10,9 @@
 //!
 //! **channel_keys 表暂不读取**（C1 阶段 Provider 用 env 占位）。
 
+use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::openai::OpenAiProvider;
-use crate::Provider;
 use gate_core::id::ProjectId;
 use gate_storage::{ChannelGroupRepo, ChannelRepo};
 use std::sync::Arc;
@@ -45,10 +45,7 @@ pub struct ProviderRouter {
 }
 
 impl ProviderRouter {
-    pub fn new(
-        channel_repo: Arc<dyn ChannelRepo>,
-        group_repo: Arc<dyn ChannelGroupRepo>,
-    ) -> Self {
+    pub fn new(channel_repo: Arc<dyn ChannelRepo>, group_repo: Arc<dyn ChannelGroupRepo>) -> Self {
         Self {
             channel_repo,
             group_repo,
@@ -78,7 +75,7 @@ impl ProviderRouter {
             Err(e) => {
                 return Err(ProviderError::Config(format!(
                     "channel_group lookup failed: {e}"
-                )))
+                )));
             }
         };
 

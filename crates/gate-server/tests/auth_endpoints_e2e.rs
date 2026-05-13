@@ -12,13 +12,13 @@ use axum::http::{Request, StatusCode};
 use chrono::Duration as ChronoDuration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState, PgLoader};
+use gate_server::{AppState, PgLoader, build_router};
 use gate_storage::{PgUserRepo, UserRepo};
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tower::ServiceExt;
 
@@ -191,7 +191,11 @@ async fn login_too_many_failures_returns_423() {
         last_code = body["error"]["code"].as_str().unwrap_or("").to_string();
     }
     // 第 6 次（failed_logins >= 5）→ too_many_failures → HTTP 429
-    assert_eq!(last_status, StatusCode::TOO_MANY_REQUESTS, "last code={last_code}");
+    assert_eq!(
+        last_status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "last code={last_code}"
+    );
     assert_eq!(last_code, "too_many_failures");
 }
 

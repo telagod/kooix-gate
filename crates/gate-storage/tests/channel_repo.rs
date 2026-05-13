@@ -5,8 +5,8 @@ use gate_storage::{
     ChannelGroupRepo, ChannelRepo, OrgRepo, PgChannelGroupRepo, PgChannelRepo, PgOrgRepo,
     PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
 };
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use uuid::Uuid;
 
@@ -93,10 +93,7 @@ async fn find_default_for_project() {
 
     let owner = users.create("owner@grp.com", None, None).await.unwrap();
     let org = orgs.create("GrpOrg", "grporg", owner.id).await.unwrap();
-    let proj = projects
-        .create(org.id, "GrpProj", "grpproj")
-        .await
-        .unwrap();
+    let proj = projects.create(org.id, "GrpProj", "grpproj").await.unwrap();
 
     // 插入 group
     let group_id: Uuid = sqlx::query_scalar(
@@ -115,10 +112,7 @@ async fn find_default_for_project() {
         .unwrap();
 
     let group_repo = PgChannelGroupRepo::new(pool.clone());
-    let found = group_repo
-        .find_default_for_project(proj.id)
-        .await
-        .unwrap();
+    let found = group_repo.find_default_for_project(proj.id).await.unwrap();
     assert_eq!(found.group_id, ChannelGroupId::from(group_id));
     assert_eq!(found.name, "proj-group");
 }

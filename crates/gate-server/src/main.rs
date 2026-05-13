@@ -12,7 +12,7 @@ use chrono::Duration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_server::loader::{AuthContextLoader, InMemoryLoader};
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState, Config, PgLoader};
+use gate_server::{AppState, Config, PgLoader, build_router};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -45,10 +45,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("run migrations")?;
             tracing::info!("migrations applied");
-            (
-                Arc::new(PgLoader::new(pool.clone())),
-                Repos::from_pg(pool),
-            )
+            (Arc::new(PgLoader::new(pool.clone())), Repos::from_pg(pool))
         };
 
     let mut state = AppState::new(jwt, loader, repos);
@@ -105,21 +102,22 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn init_tracing() {
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt, prelude::*};
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,gate=debug")))
+        .with(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,gate=debug")),
+        )
         .with(fmt::layer())
         .init();
 }
 
 /// 日志里脱敏 password 段：`postgres://user:****@host/db`
 fn redact_db_url(url: &str) -> String {
-    if let Some((scheme, rest)) = url.split_once("://") {
-        if let Some((auth, host)) = rest.split_once('@') {
-            if let Some((user, _pw)) = auth.split_once(':') {
-                return format!("{scheme}://{user}:****@{host}");
-            }
-        }
+    if let Some((scheme, rest)) = url.split_once("://")
+        && let Some((auth, host)) = rest.split_once('@')
+        && let Some((user, _pw)) = auth.split_once(':')
+    {
+        return format!("{scheme}://{user}:****@{host}");
     }
     url.to_string()
 }

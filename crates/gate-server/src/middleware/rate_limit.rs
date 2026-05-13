@@ -7,11 +7,11 @@
 //!   - 宁可放行也不阻断全站；后续可在 Config 里加开关切 fail-closed
 
 use crate::state::AppState;
+use axum::Json;
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use gate_auth::{AuthContext, Subject};
 
 /// 按 subject 分桶限流。
@@ -38,7 +38,8 @@ pub async fn rate_limit_by_subject(
             let headers = resp.headers_mut();
             headers.insert(
                 "x-ratelimit-remaining",
-                HeaderValue::from_str(&d.remaining.to_string()).unwrap_or(HeaderValue::from_static("0")),
+                HeaderValue::from_str(&d.remaining.to_string())
+                    .unwrap_or(HeaderValue::from_static("0")),
             );
             resp
         }
@@ -96,7 +97,7 @@ struct ErrDetail<'a> {
 }
 
 fn rate_limited_response(retry_after_ms: u64) -> impl IntoResponse {
-    let secs = ((retry_after_ms + 999) / 1000).max(1);
+    let secs = retry_after_ms.div_ceil(1000).max(1);
     let body = Json(ErrBody {
         error: ErrDetail {
             code: "rate_limited",

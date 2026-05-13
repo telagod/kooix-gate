@@ -96,11 +96,10 @@ impl MembershipRepo for PgMembershipRepo {
         let uid = user_id.as_uuid();
 
         // Org memberships
-        let org_rows =
-            sqlx::query("SELECT org_id, role FROM org_memberships WHERE user_id = $1")
-                .bind(uid)
-                .fetch_all(&self.pool)
-                .await?;
+        let org_rows = sqlx::query("SELECT org_id, role FROM org_memberships WHERE user_id = $1")
+            .bind(uid)
+            .fetch_all(&self.pool)
+            .await?;
         let mut orgs = HashMap::with_capacity(org_rows.len());
         for r in &org_rows {
             let id: Uuid = r.try_get("org_id")?;
@@ -130,11 +129,10 @@ impl MembershipRepo for PgMembershipRepo {
         }
 
         // Platform role
-        let platform_row =
-            sqlx::query("SELECT role FROM platform_admins WHERE user_id = $1")
-                .bind(uid)
-                .fetch_optional(&self.pool)
-                .await?;
+        let platform_row = sqlx::query("SELECT role FROM platform_admins WHERE user_id = $1")
+            .bind(uid)
+            .fetch_optional(&self.pool)
+            .await?;
         let platform = platform_row
             .and_then(|r| r.try_get::<String, _>("role").ok())
             .and_then(|s| parse_platform_role(&s));

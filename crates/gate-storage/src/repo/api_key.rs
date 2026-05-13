@@ -57,12 +57,7 @@ pub trait ApiKeyRepo: Send + Sync + 'static {
 
     async fn list_in_project(&self, project_id: ProjectId) -> DbResult<Vec<ApiKeyRecord>>;
 
-    async fn revoke(
-        &self,
-        id: ApiKeyId,
-        by: UserId,
-        reason: Option<&str>,
-    ) -> DbResult<()>;
+    async fn revoke(&self, id: ApiKeyId, by: UserId, reason: Option<&str>) -> DbResult<()>;
 
     /// 热路径后置：记录最近使用。允许忽略错误（日志即可）。
     async fn touch_used(
@@ -163,12 +158,7 @@ impl ApiKeyRepo for PgApiKeyRepo {
         rows.iter().map(row_to_record).collect()
     }
 
-    async fn revoke(
-        &self,
-        id: ApiKeyId,
-        by: UserId,
-        reason: Option<&str>,
-    ) -> DbResult<()> {
+    async fn revoke(&self, id: ApiKeyId, by: UserId, reason: Option<&str>) -> DbResult<()> {
         sqlx::query(
             "UPDATE api_keys SET revoked_at = NOW(), revoked_by = $2, revoked_reason = $3 \
              WHERE id = $1 AND revoked_at IS NULL",

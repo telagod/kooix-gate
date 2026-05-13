@@ -15,8 +15,7 @@ pub mod types;
 pub use error::{ProviderError, ProviderResult};
 pub use router::ProviderRouter;
 pub use types::{
-    ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk, FinishReason, Role,
-    Usage,
+    ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk, FinishReason, Role, Usage,
 };
 
 use async_trait::async_trait;

@@ -5,9 +5,9 @@
 //! - CoreError 区分 NotFound/Invalid/Conflict
 //! - 其他错误统一 500
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -74,12 +74,16 @@ impl IntoResponse for AppError {
             AppError::Core(gate_core::CoreError::PermissionDenied { .. }) => {
                 (StatusCode::FORBIDDEN, "forbidden", self.to_string())
             }
-            AppError::Core(gate_core::CoreError::QuotaExceeded { .. }) => {
-                (StatusCode::PAYMENT_REQUIRED, "quota_exceeded", self.to_string())
-            }
-            AppError::Core(gate_core::CoreError::RateLimited { .. }) => {
-                (StatusCode::TOO_MANY_REQUESTS, "rate_limited", self.to_string())
-            }
+            AppError::Core(gate_core::CoreError::QuotaExceeded { .. }) => (
+                StatusCode::PAYMENT_REQUIRED,
+                "quota_exceeded",
+                self.to_string(),
+            ),
+            AppError::Core(gate_core::CoreError::RateLimited { .. }) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                self.to_string(),
+            ),
             AppError::Core(gate_core::CoreError::NotFound(_)) => {
                 (StatusCode::NOT_FOUND, "not_found", self.to_string())
             }
@@ -89,36 +93,50 @@ impl IntoResponse for AppError {
             AppError::Core(gate_core::CoreError::Conflict(_)) => {
                 (StatusCode::CONFLICT, "conflict", self.to_string())
             }
-            AppError::Loader(crate::loader::LoaderError::UserUnavailable) => {
-                (StatusCode::UNAUTHORIZED, "user_unavailable", self.to_string())
-            }
-            AppError::Loader(crate::loader::LoaderError::ApiKeyInvalid) => {
-                (StatusCode::UNAUTHORIZED, "api_key_invalid", self.to_string())
-            }
+            AppError::Loader(crate::loader::LoaderError::UserUnavailable) => (
+                StatusCode::UNAUTHORIZED,
+                "user_unavailable",
+                self.to_string(),
+            ),
+            AppError::Loader(crate::loader::LoaderError::ApiKeyInvalid) => (
+                StatusCode::UNAUTHORIZED,
+                "api_key_invalid",
+                self.to_string(),
+            ),
             AppError::Loader(crate::loader::LoaderError::ApiKeyRevoked) => {
                 (StatusCode::FORBIDDEN, "api_key_revoked", self.to_string())
             }
             AppError::Loader(crate::loader::LoaderError::ApiKeyIpDenied) => {
                 (StatusCode::FORBIDDEN, "api_key_ip_denied", self.to_string())
             }
-            AppError::Db(gate_storage::DbError::NotFound) => {
-                (StatusCode::NOT_FOUND, "not_found", "resource not found".into())
-            }
+            AppError::Db(gate_storage::DbError::NotFound) => (
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "resource not found".into(),
+            ),
             AppError::Db(gate_storage::DbError::Conflict(_)) => {
                 (StatusCode::CONFLICT, "conflict", self.to_string())
             }
-            AppError::Db(gate_storage::DbError::Constraint(_)) => {
-                (StatusCode::BAD_REQUEST, "constraint_violation", self.to_string())
-            }
-            AppError::Provider(gate_providers::ProviderError::Auth(_)) => {
-                (StatusCode::BAD_GATEWAY, "upstream_auth_failed", "upstream auth failed".into())
-            }
-            AppError::Provider(gate_providers::ProviderError::RateLimited { .. }) => {
-                (StatusCode::TOO_MANY_REQUESTS, "upstream_rate_limited", self.to_string())
-            }
-            AppError::Provider(gate_providers::ProviderError::Network(_)) => {
-                (StatusCode::BAD_GATEWAY, "upstream_unreachable", self.to_string())
-            }
+            AppError::Db(gate_storage::DbError::Constraint(_)) => (
+                StatusCode::BAD_REQUEST,
+                "constraint_violation",
+                self.to_string(),
+            ),
+            AppError::Provider(gate_providers::ProviderError::Auth(_)) => (
+                StatusCode::BAD_GATEWAY,
+                "upstream_auth_failed",
+                "upstream auth failed".into(),
+            ),
+            AppError::Provider(gate_providers::ProviderError::RateLimited { .. }) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "upstream_rate_limited",
+                self.to_string(),
+            ),
+            AppError::Provider(gate_providers::ProviderError::Network(_)) => (
+                StatusCode::BAD_GATEWAY,
+                "upstream_unreachable",
+                self.to_string(),
+            ),
             AppError::Provider(gate_providers::ProviderError::Decode(_)) => {
                 (StatusCode::BAD_GATEWAY, "upstream_decode", self.to_string())
             }
@@ -126,16 +144,18 @@ impl IntoResponse for AppError {
                 let s = StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY);
                 (s, "upstream_error", self.to_string())
             }
-            AppError::Provider(_) => {
-                (StatusCode::BAD_GATEWAY, "upstream_error", self.to_string())
-            }
-            AppError::BadRequest(_) => {
-                (StatusCode::BAD_REQUEST, "bad_request", self.to_string())
-            }
-            AppError::NotFound => {
-                (StatusCode::NOT_FOUND, "not_found", "resource not found".into())
-            }
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal", "internal error".into()),
+            AppError::Provider(_) => (StatusCode::BAD_GATEWAY, "upstream_error", self.to_string()),
+            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request", self.to_string()),
+            AppError::NotFound => (
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "resource not found".into(),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal error".into(),
+            ),
         };
 
         // 5xx 写日志，4xx 静默

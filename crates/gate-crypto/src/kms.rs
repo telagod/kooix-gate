@@ -5,11 +5,11 @@
 
 use crate::error::{CryptoError, Result};
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit, Payload},
 };
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use rand::RngCore;
 use zeroize::Zeroizing;
 
@@ -51,8 +51,11 @@ impl EnvKms {
                 got: raw.len(),
             });
         }
-        let cipher = Aes256Gcm::new_from_slice(&raw)
-            .map_err(|_| CryptoError::InvalidKeyLength { expected: DEK_LEN, got: raw.len() })?;
+        let cipher =
+            Aes256Gcm::new_from_slice(&raw).map_err(|_| CryptoError::InvalidKeyLength {
+                expected: DEK_LEN,
+                got: raw.len(),
+            })?;
         // raw 出作用域自动清零靠不住——这里立刻覆盖
         Ok(Self {
             cipher,
@@ -82,7 +85,13 @@ impl Kms for EnvKms {
 
         let ct = self
             .cipher
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: dek, aad: b"dek-wrap" })
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: dek,
+                    aad: b"dek-wrap",
+                },
+            )
             .map_err(|_| CryptoError::AeadFailed)?;
         debug_assert_eq!(ct.len(), WRAPPED_DEK_LEN);
 
@@ -94,14 +103,22 @@ impl Kms for EnvKms {
 
     async fn unwrap(&self, wrapped: &[u8]) -> Result<Zeroizing<[u8; DEK_LEN]>> {
         if wrapped.len() != WRAP_TOTAL_LEN {
-            return Err(CryptoError::InvalidCiphertext("wrapped DEK length mismatch"));
+            return Err(CryptoError::InvalidCiphertext(
+                "wrapped DEK length mismatch",
+            ));
         }
         let nonce = &wrapped[..WRAP_NONCE_LEN];
         let ct = &wrapped[WRAP_NONCE_LEN..];
 
         let pt = self
             .cipher
-            .decrypt(Nonce::from_slice(nonce), Payload { msg: ct, aad: b"dek-wrap" })
+            .decrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: ct,
+                    aad: b"dek-wrap",
+                },
+            )
             .map_err(|_| CryptoError::AeadFailed)?;
         if pt.len() != DEK_LEN {
             return Err(CryptoError::InvalidCiphertext("decrypted DEK length"));

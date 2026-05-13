@@ -6,7 +6,7 @@
 //! - 校验时 hash 后 constant-time 比较
 
 use crate::error::{AuthError, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64URL, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64URL};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -77,10 +77,12 @@ pub fn verify(plaintext: &str, expected_hash_hex: &str) -> Result<()> {
 /// 接受 `Bearer sk-kg-...` 或裸 `sk-kg-...`。
 pub fn extract_from_header(value: &str) -> Option<&str> {
     let v = value.trim();
-    if let Some(rest) = v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")) {
-        if rest.starts_with(PREFIX) {
-            return Some(rest);
-        }
+    if let Some(rest) = v
+        .strip_prefix("Bearer ")
+        .or_else(|| v.strip_prefix("bearer "))
+        && rest.starts_with(PREFIX)
+    {
+        return Some(rest);
     }
     if v.starts_with(PREFIX) {
         return Some(v);
@@ -114,7 +116,10 @@ mod tests {
         let k = generate();
         let bearer = format!("Bearer {}", &*k.plaintext);
         assert_eq!(extract_from_header(&bearer), Some(k.plaintext.as_str()));
-        assert_eq!(extract_from_header(&k.plaintext), Some(k.plaintext.as_str()));
+        assert_eq!(
+            extract_from_header(&k.plaintext),
+            Some(k.plaintext.as_str())
+        );
         assert_eq!(extract_from_header("Bearer something-else"), None);
     }
 }

@@ -13,8 +13,8 @@ use crate::error::{AuthError, Result};
 use gate_core::id::{ApiKeyId, OrgId, ProjectId, UserId};
 use gate_core::identity::{OrgRole, PlatformRole, ProjectRole};
 use gate_core::rbac::{
-    permissions_of_org_role, permissions_of_platform_role, permissions_of_project_role,
-    Permission, Scope,
+    Permission, Scope, permissions_of_org_role, permissions_of_platform_role,
+    permissions_of_project_role,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -144,7 +144,7 @@ impl AuthContext {
 
     /// 当前激活的 Org（控制台 + API key 都适用）
     pub fn current_org(&self) -> Option<OrgId> {
-        self.current_org.or_else(|| match self.subject {
+        self.current_org.or(match self.subject {
             Some(Subject::ApiKey { org_id, .. }) => Some(org_id),
             _ => None,
         })
@@ -247,13 +247,25 @@ mod tests {
     #[test]
     fn developer_can_create_apikey() {
         let (ctx, org, proj) = make_ctx();
-        assert!(ctx.can(Permission::ApiKeyCreate, Scope::Project { org: &org, project: &proj }));
+        assert!(ctx.can(
+            Permission::ApiKeyCreate,
+            Scope::Project {
+                org: &org,
+                project: &proj
+            }
+        ));
     }
 
     #[test]
     fn developer_cannot_change_quota() {
         let (ctx, org, proj) = make_ctx();
-        assert!(!ctx.can(Permission::QuotaWrite, Scope::Project { org: &org, project: &proj }));
+        assert!(!ctx.can(
+            Permission::QuotaWrite,
+            Scope::Project {
+                org: &org,
+                project: &proj
+            }
+        ));
     }
 
     #[test]
@@ -263,19 +275,27 @@ mod tests {
         let other_org = OrgId::new();
         assert!(!ctx.can(
             Permission::ProjectRead,
-            Scope::Project { org: &other_org, project: &proj }
+            Scope::Project {
+                org: &other_org,
+                project: &proj
+            }
         ));
         // 即使有 Project::Developer 也不行
         assert!(!ctx.can(
             Permission::ApiKeyCreate,
-            Scope::Project { org: &other_org, project: &proj }
+            Scope::Project {
+                org: &other_org,
+                project: &proj
+            }
         ));
     }
 
     #[test]
     fn super_admin_short_circuits() {
-        let mut ctx = AuthContext::default();
-        ctx.platform_role = Some(PlatformRole::SuperAdmin);
+        let ctx = AuthContext {
+            platform_role: Some(PlatformRole::SuperAdmin),
+            ..AuthContext::default()
+        };
         let org = OrgId::new();
         assert!(ctx.can(Permission::OrgDelete, Scope::Org(&org)));
     }

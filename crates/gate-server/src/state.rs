@@ -6,7 +6,9 @@ use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
 use gate_cache::RateLimiter;
 use gate_providers::{Provider, ProviderRouter};
-use gate_storage::{ApiKeyRepo, ChannelGroupRepo, ChannelRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo};
+use gate_storage::{
+    ApiKeyRepo, ChannelGroupRepo, ChannelRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo,
+};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -94,11 +96,7 @@ impl Repos {
 }
 
 impl AppState {
-    pub fn new(
-        jwt: JwtIssuer,
-        loader: Arc<dyn AuthContextLoader>,
-        repos: Repos,
-    ) -> Self {
+    pub fn new(jwt: JwtIssuer, loader: Arc<dyn AuthContextLoader>, repos: Repos) -> Self {
         Self {
             jwt: Arc::new(jwt),
             loader,

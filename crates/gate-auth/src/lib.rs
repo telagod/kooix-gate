@@ -10,12 +10,12 @@
 //!
 //! Axum 抽取器留给 gate-server 层接入，不在这里耦合 HTTP。
 
-pub mod error;
-pub mod password;
-pub mod jwt;
 pub mod api_key;
-pub mod oidc;
 pub mod context;
+pub mod error;
+pub mod jwt;
+pub mod oidc;
+pub mod password;
 pub mod permit;
 
 pub use context::{AuthContext, Subject};

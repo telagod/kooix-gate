@@ -9,18 +9,18 @@
 //! - [`middleware`] request_id / trace / cors / panic_catcher
 //! - [`app`]       `build_router(state)` —— 单一入口，便于测试
 
-pub mod config;
-pub mod state;
-pub mod error;
-pub mod auth;
-pub mod middleware;
-pub mod routes;
 pub mod app;
+pub mod auth;
+pub mod config;
+pub mod error;
 pub mod loader;
+pub mod middleware;
 pub mod pg_loader;
+pub mod routes;
+pub mod state;
 
 pub use app::build_router;
-pub use pg_loader::PgLoader;
 pub use config::Config;
 pub use error::AppError;
+pub use pg_loader::PgLoader;
 pub use state::AppState;

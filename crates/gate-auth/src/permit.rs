@@ -25,9 +25,7 @@ macro_rules! require {
 /// 仅判断不抛错，返回 bool。
 #[macro_export]
 macro_rules! can {
-    ($ctx:expr, $perm:expr, $scope:expr) => {{
-        $ctx.can($perm, $scope)
-    }};
+    ($ctx:expr, $perm:expr, $scope:expr) => {{ $ctx.can($perm, $scope) }};
 }
 
 /// 限定 subject 必须是 User（拒绝 API key 调用）—— 管理类端点必备。

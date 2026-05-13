@@ -22,7 +22,7 @@ use gate_core::identity::{
 };
 use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState};
+use gate_server::{AppState, build_router};
 use gate_storage::{
     ApiKeyRecord as RepoApiKey, InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo,
     InMemoryProjectRepo, InMemoryUserRepo,
@@ -77,7 +77,14 @@ fn fixture() -> Fixture {
         orgs.insert(org_a, OrgRole::Member);
         let mut projs = HashMap::new();
         projs.insert((org_a, proj_a), ProjectRole::Developer);
-        loader.add_user(user_dev, UserRecord { orgs, projects: projs, platform: None });
+        loader.add_user(
+            user_dev,
+            UserRecord {
+                orgs,
+                projects: projs,
+                platform: None,
+            },
+        );
     }
 
     // user_orgowner: Org A 的 Owner
@@ -87,7 +94,11 @@ fn fixture() -> Fixture {
         orgs.insert(org_a, OrgRole::Owner);
         loader.add_user(
             user_orgowner,
-            UserRecord { orgs, projects: HashMap::new(), platform: None },
+            UserRecord {
+                orgs,
+                projects: HashMap::new(),
+                platform: None,
+            },
         );
     }
 
@@ -109,7 +120,11 @@ fn fixture() -> Fixture {
         orgs.insert(org_b, OrgRole::Owner);
         loader.add_user(
             user_other,
-            UserRecord { orgs, projects: HashMap::new(), platform: None },
+            UserRecord {
+                orgs,
+                projects: HashMap::new(),
+                platform: None,
+            },
         );
     }
 
@@ -140,7 +155,18 @@ fn fixture() -> Fixture {
         },
     );
 
-    let state = AppState::new(jwt, loader, build_repos(org_a, org_b, proj_a, user_dev, &api_key_plain, &api_key_revoked));
+    let state = AppState::new(
+        jwt,
+        loader,
+        build_repos(
+            org_a,
+            org_b,
+            proj_a,
+            user_dev,
+            &api_key_plain,
+            &api_key_revoked,
+        ),
+    );
     let jwt_arc = state.jwt.clone();
     let router = build_router(state);
 
@@ -248,7 +274,12 @@ fn build_repos(
 
 fn jwt_for(jwt: &JwtIssuer, user: UserId, org: Option<OrgId>, is_super: bool) -> String {
     let (tok, _) = jwt
-        .issue_access(*user.as_uuid(), Uuid::now_v7(), org.map(|o| *o.as_uuid()), is_super)
+        .issue_access(
+            *user.as_uuid(),
+            Uuid::now_v7(),
+            org.map(|o| *o.as_uuid()),
+            is_super,
+        )
         .unwrap();
     tok
 }
@@ -409,14 +440,7 @@ async fn create_apikey_denied_when_not_member() {
 #[tokio::test]
 async fn revoked_api_key_rejected() {
     let f = fixture();
-    let (status, body) = call(
-        &f.router,
-        "GET",
-        "/v1/me",
-        Some(&f.api_key_revoked),
-        None,
-    )
-    .await;
+    let (status, body) = call(&f.router, "GET", "/v1/me", Some(&f.api_key_revoked), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["error"]["code"], "api_key_revoked");
 }

@@ -5,17 +5,15 @@
 //!         改为：enqueue 一条 payload 损坏的 JSON → fetch_batch 会 serde_json 失败
 //!         另两条正常 → 另两条仍成功写入
 
-use gate_billing::{
-    consumer::commit_usage,
-    outbox::PgOutboxRepo,
-    Consumer, OutboxRepo, UsageEvent,
-};
 use chrono::Utc;
+use gate_billing::{
+    Consumer, OutboxRepo, UsageEvent, consumer::commit_usage, outbox::PgOutboxRepo,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use uuid::Uuid;
 
@@ -150,7 +148,10 @@ async fn one_failure_doesnt_affect_others() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(count, 4, "expected 4 usage_records (2 direct + 2 from consumer)");
+    assert_eq!(
+        count, 4,
+        "expected 4 usage_records (2 direct + 2 from consumer)"
+    );
 }
 
 // Stub——本测试里不需要，但为了让 FailingOutboxRepo 名字不报 dead_code 加 allow

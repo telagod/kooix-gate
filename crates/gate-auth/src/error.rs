@@ -55,8 +55,11 @@ impl AuthError {
         use AuthError::*;
         match self {
             MissingCredentials | InvalidCredentials | TokenExpired | TokenInvalid(_) => 401,
-            Forbidden { .. } | AccountSuspended | ApiKeyRevoked
-            | ApiKeyModelNotAllowed(_) | ApiKeyIpNotAllowed => 403,
+            Forbidden { .. }
+            | AccountSuspended
+            | ApiKeyRevoked
+            | ApiKeyModelNotAllowed(_)
+            | ApiKeyIpNotAllowed => 403,
             TooManyFailures => 429,
             PasswordTooWeak | Invalid(_) => 400,
             Hash(_) | Crypto(_) | Jwt(_) | Oidc(_) | Internal(_) => 500,

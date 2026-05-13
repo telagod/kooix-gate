@@ -10,11 +10,11 @@
 //!   [1B version=1][12B wrap_nonce][48B wrapped_dek][12B data_nonce][N+16B ciphertext+tag]
 //! 固定 89B 头部 + 明文长度。
 
-pub mod error;
-pub mod envelope;
-pub mod kms;
 pub mod aad;
+pub mod envelope;
+pub mod error;
+pub mod kms;
 
+pub use envelope::{HEADER_LEN, Sealer, VERSION};
 pub use error::{CryptoError, Result};
-pub use envelope::{Sealer, HEADER_LEN, VERSION};
 pub use kms::{EnvKms, Kms};

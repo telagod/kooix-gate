@@ -26,8 +26,11 @@ pub trait AuthContextLoader: Send + Sync + 'static {
     ) -> Result<AuthContext, LoaderError>;
 
     /// API key 明文校验。返回 AuthContext + 必要的 ApiKey 元信息（用于配额检查、IP 白名单等）
-    async fn load_api_key(&self, plaintext: &str, client_ip: Option<std::net::IpAddr>)
-        -> Result<AuthContext, LoaderError>;
+    async fn load_api_key(
+        &self,
+        plaintext: &str,
+        client_ip: Option<std::net::IpAddr>,
+    ) -> Result<AuthContext, LoaderError>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -100,7 +103,10 @@ impl AuthContextLoader for InMemoryLoader {
         current_org: Option<OrgId>,
     ) -> Result<AuthContext, LoaderError> {
         let inner = self.inner.read().unwrap();
-        let rec = inner.users.get(&user_id).ok_or(LoaderError::UserUnavailable)?;
+        let rec = inner
+            .users
+            .get(&user_id)
+            .ok_or(LoaderError::UserUnavailable)?;
         Ok(AuthContext::user(
             user_id,
             session_id,
@@ -118,7 +124,10 @@ impl AuthContextLoader for InMemoryLoader {
     ) -> Result<AuthContext, LoaderError> {
         let hash = gate_auth::api_key::hash(plaintext);
         let inner = self.inner.read().unwrap();
-        let rec = inner.api_keys.get(&hash).ok_or(LoaderError::ApiKeyInvalid)?;
+        let rec = inner
+            .api_keys
+            .get(&hash)
+            .ok_or(LoaderError::ApiKeyInvalid)?;
         if rec.revoked {
             return Err(LoaderError::ApiKeyRevoked);
         }
@@ -128,6 +137,10 @@ impl AuthContextLoader for InMemoryLoader {
                 _ => return Err(LoaderError::ApiKeyIpDenied),
             }
         }
-        Ok(AuthContext::api_key(rec.api_key_id, rec.project_id, rec.org_id))
+        Ok(AuthContext::api_key(
+            rec.api_key_id,
+            rec.project_id,
+            rec.org_id,
+        ))
     }
 }

@@ -16,16 +16,16 @@ use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_core::id::*;
 use gate_core::identity::{OrgRole, ProjectRole};
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState, PgLoader};
+use gate_server::{AppState, PgLoader, build_router};
 use gate_storage::{
-    ApiKeyRepo, MembershipRepo, OrgRepo, PgApiKeyRepo, PgMembershipRepo, PgOrgRepo,
-    PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
+    ApiKeyRepo, MembershipRepo, OrgRepo, PgApiKeyRepo, PgMembershipRepo, PgOrgRepo, PgProjectRepo,
+    PgUserRepo, ProjectRepo, UserRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
 use std::sync::Arc;
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -90,7 +90,10 @@ async fn fixture() -> Fixture {
         .create(proj.id, "old", &h2, &k2.prefix, &k2.last4, owner.id, &[])
         .await
         .unwrap();
-    api_keys.revoke(id2, owner.id, Some("rotated")).await.unwrap();
+    api_keys
+        .revoke(id2, owner.id, Some("rotated"))
+        .await
+        .unwrap();
 
     // 装路由
     let jwt = JwtIssuer::new(
@@ -131,7 +134,11 @@ async fn call(
     if let Some(t) = auth {
         req = req.header("authorization", format!("Bearer {t}"));
     }
-    let resp = router.clone().oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+    let resp = router
+        .clone()
+        .oneshot(req.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: Value = if bytes.is_empty() {
@@ -147,7 +154,12 @@ async fn me_works_with_pg_loader() {
     let f = fixture().await;
     let (tok, _) = f
         .jwt
-        .issue_access(*f.user.as_uuid(), Uuid::now_v7(), Some(*f.org.as_uuid()), false)
+        .issue_access(
+            *f.user.as_uuid(),
+            Uuid::now_v7(),
+            Some(*f.org.as_uuid()),
+            false,
+        )
         .unwrap();
     let (status, body) = call(&f.router, "GET", "/v1/me", Some(&tok)).await;
     assert_eq!(status, StatusCode::OK, "body={body}");
@@ -176,7 +188,12 @@ async fn cross_org_blocked_by_pg_loader() {
     let f = fixture().await;
     let (tok, _) = f
         .jwt
-        .issue_access(*f.user.as_uuid(), Uuid::now_v7(), Some(*f.org.as_uuid()), false)
+        .issue_access(
+            *f.user.as_uuid(),
+            Uuid::now_v7(),
+            Some(*f.org.as_uuid()),
+            false,
+        )
         .unwrap();
     let url = format!("/v1/orgs/{}/projects", f.other_org.as_uuid());
     let (status, _) = call(&f.router, "GET", &url, Some(&tok)).await;

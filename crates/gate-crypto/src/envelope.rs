@@ -10,10 +10,10 @@
 //! ```
 
 use crate::error::{CryptoError, Result};
-use crate::kms::{Kms, DEK_LEN, WRAP_TOTAL_LEN};
+use crate::kms::{DEK_LEN, Kms, WRAP_TOTAL_LEN};
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit, Payload},
 };
 use rand::RngCore;
 use zeroize::Zeroizing;
@@ -47,13 +47,22 @@ impl<K: Kms> Sealer<K> {
         debug_assert_eq!(wrapped.len(), WRAP_TOTAL_LEN);
 
         // 3. 用 DEK 加密明文
-        let cipher = Aes256Gcm::new_from_slice(&*dek)
-            .map_err(|_| CryptoError::InvalidKeyLength { expected: DEK_LEN, got: dek.len() })?;
+        let cipher =
+            Aes256Gcm::new_from_slice(&*dek).map_err(|_| CryptoError::InvalidKeyLength {
+                expected: DEK_LEN,
+                got: dek.len(),
+            })?;
         let mut data_nonce = [0u8; DATA_NONCE_LEN];
         rand::thread_rng().fill_bytes(&mut data_nonce);
 
         let ciphertext = cipher
-            .encrypt(Nonce::from_slice(&data_nonce), Payload { msg: plaintext, aad })
+            .encrypt(
+                Nonce::from_slice(&data_nonce),
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::AeadFailed)?;
 
         // 4. 拼装
@@ -80,11 +89,20 @@ impl<K: Kms> Sealer<K> {
         let ciphertext = &sealed[HEADER_LEN..];
 
         let dek = self.kms.unwrap(wrapped).await?;
-        let cipher = Aes256Gcm::new_from_slice(&*dek)
-            .map_err(|_| CryptoError::InvalidKeyLength { expected: DEK_LEN, got: dek.len() })?;
+        let cipher =
+            Aes256Gcm::new_from_slice(&*dek).map_err(|_| CryptoError::InvalidKeyLength {
+                expected: DEK_LEN,
+                got: dek.len(),
+            })?;
 
         let plaintext = cipher
-            .decrypt(Nonce::from_slice(data_nonce), Payload { msg: ciphertext, aad })
+            .decrypt(
+                Nonce::from_slice(data_nonce),
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::AeadFailed)?;
         Ok(Zeroizing::new(plaintext))
     }
@@ -93,7 +111,7 @@ impl<K: Kms> Sealer<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kms::{generate_master_key_b64, EnvKms};
+    use crate::kms::{EnvKms, generate_master_key_b64};
 
     #[tokio::test]
     async fn seal_open_roundtrip() {

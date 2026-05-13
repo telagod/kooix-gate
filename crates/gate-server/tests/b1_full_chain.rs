@@ -10,15 +10,13 @@ use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_core::id::*;
 use gate_core::identity::OrgRole;
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState, PgLoader};
-use gate_storage::{
-    MembershipRepo, OrgRepo, PgMembershipRepo, PgOrgRepo, PgUserRepo, UserRepo,
-};
+use gate_server::{AppState, PgLoader, build_router};
+use gate_storage::{MembershipRepo, OrgRepo, PgMembershipRepo, PgOrgRepo, PgUserRepo, UserRepo};
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -115,7 +113,11 @@ async fn call(
         }
         None => Body::empty(),
     };
-    let resp = router.clone().oneshot(req.body(body).unwrap()).await.unwrap();
+    let resp = router
+        .clone()
+        .oneshot(req.body(body).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: Value = if bytes.is_empty() {
@@ -243,7 +245,11 @@ async fn api_key_create_list_revoke_full_chain() {
         Some(json!({"name": "ci"})),
     )
     .await;
-    assert_eq!(s, StatusCode::FORBIDDEN, "dev not project member yet; body={body}");
+    assert_eq!(
+        s,
+        StatusCode::FORBIDDEN,
+        "dev not project member yet; body={body}"
+    );
 
     // owner 建 key
     let (s, body) = call(

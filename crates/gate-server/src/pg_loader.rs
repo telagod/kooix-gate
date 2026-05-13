@@ -65,14 +65,10 @@ impl AuthContextLoader for PgLoader {
         current_org: Option<OrgId>,
     ) -> Result<AuthContext, LoaderError> {
         // 1. 拉用户行 — 不存在或软删 → UserUnavailable
-        let user = self
-            .users
-            .find_by_id(user_id)
-            .await
-            .map_err(|e| match e {
-                DbError::NotFound => LoaderError::UserUnavailable,
-                other => LoaderError::Internal(other.to_string()),
-            })?;
+        let user = self.users.find_by_id(user_id).await.map_err(|e| match e {
+            DbError::NotFound => LoaderError::UserUnavailable,
+            other => LoaderError::Internal(other.to_string()),
+        })?;
 
         // suspended / pending / deleted 都不应能登录
         if !matches!(user.status, gate_core::identity::UserStatus::Active) {

@@ -2,10 +2,10 @@
 //!
 //! 这一层不依赖任何 I/O，纯类型和 trait。
 
+pub mod error;
 pub mod id;
 pub mod identity;
-pub mod rbac;
 pub mod quota;
-pub mod error;
+pub mod rbac;
 
 pub use error::{CoreError, Result};

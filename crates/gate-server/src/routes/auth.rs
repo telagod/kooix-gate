@@ -8,7 +8,7 @@ use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use axum::extract::State;
-use axum::{routing::post, Json, Router};
+use axum::{Json, Router, routing::post};
 use chrono::{DateTime, Utc};
 use gate_auth::AuthError;
 use gate_storage::DbError;
@@ -75,15 +75,15 @@ async fn login(
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<LoginResponse>> {
     // 1. 查凭证 — NotFound 也映射成 invalid_credentials
-    let (user, pw_hash) = app
-        .repos
-        .users
-        .find_credentials(&req.email)
-        .await
-        .map_err(|e| match e {
-            DbError::NotFound => AppError::Auth(AuthError::InvalidCredentials),
-            other => AppError::Db(other),
-        })?;
+    let (user, pw_hash) =
+        app.repos
+            .users
+            .find_credentials(&req.email)
+            .await
+            .map_err(|e| match e {
+                DbError::NotFound => AppError::Auth(AuthError::InvalidCredentials),
+                other => AppError::Db(other),
+            })?;
 
     // 2. SSO 用户没有密码 → invalid_credentials
     let Some(hash) = pw_hash else {
@@ -91,7 +91,7 @@ async fn login(
     };
 
     // 3. 校验密码
-    if let Err(_) = gate_auth::password::verify(&req.password, &hash) {
+    if gate_auth::password::verify(&req.password, &hash).is_err() {
         // 登录失败 +1，超过 5 次给 too_many_failures
         let count = app
             .repos
@@ -117,13 +117,11 @@ async fn login(
     let session_id = Uuid::now_v7();
     let jti = Uuid::now_v7();
 
-    let (access_token, expires_at) = app
-        .jwt
-        .issue_access(*user.id.as_uuid(), session_id, None, false)?;
+    let (access_token, expires_at) =
+        app.jwt
+            .issue_access(*user.id.as_uuid(), session_id, None, false)?;
 
-    let (refresh_token, _) = app
-        .jwt
-        .issue_refresh(*user.id.as_uuid(), session_id, jti)?;
+    let (refresh_token, _) = app.jwt.issue_refresh(*user.id.as_uuid(), session_id, jti)?;
 
     Ok(Json(LoginResponse {
         access_token,
@@ -148,16 +146,14 @@ async fn refresh(
         .jwt
         .parse_refresh(&req.refresh_token)
         .map_err(|e| match e {
-            AuthError::TokenExpired => AppError::Auth(AuthError::TokenInvalid(
-                "refresh token expired".into(),
-            )),
+            AuthError::TokenExpired => {
+                AppError::Auth(AuthError::TokenInvalid("refresh token expired".into()))
+            }
             other => AppError::Auth(other),
         })?;
 
     // 签发新 access token，session_id 继承
-    let (access_token, expires_at) =
-        app.jwt
-            .issue_access(claims.sub, claims.sid, None, false)?;
+    let (access_token, expires_at) = app.jwt.issue_access(claims.sub, claims.sid, None, false)?;
 
     Ok(Json(RefreshResponse {
         access_token,

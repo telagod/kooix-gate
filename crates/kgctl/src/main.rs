@@ -40,7 +40,9 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Init => print_init(),
-        Cmd::Key { which: KeyCmd::Master } => print_master(),
+        Cmd::Key {
+            which: KeyCmd::Master,
+        } => print_master(),
         Cmd::Key { which: KeyCmd::Jwt } => print_jwt(),
         Cmd::Env => print_env(),
     }
@@ -72,14 +74,38 @@ fn print_init() {
 
 fn print_env() {
     let entries: &[(&str, &str, &str)] = &[
-        ("KOOIX_MASTER_KEY", "必填", "envelope encryption 的 KEK，base64 32B。kgctl key master 生成。"),
-        ("KOOIX_JWT_SECRET", "必填", "JWT HS256 secret，base64 64B。kgctl key jwt 生成。"),
-        ("KOOIX_DATABASE_URL", "必填", "PostgreSQL，格式 postgres://user:pass@host/db"),
+        (
+            "KOOIX_MASTER_KEY",
+            "必填",
+            "envelope encryption 的 KEK，base64 32B。kgctl key master 生成。",
+        ),
+        (
+            "KOOIX_JWT_SECRET",
+            "必填",
+            "JWT HS256 secret，base64 64B。kgctl key jwt 生成。",
+        ),
+        (
+            "KOOIX_DATABASE_URL",
+            "必填",
+            "PostgreSQL，格式 postgres://user:pass@host/db",
+        ),
         ("KOOIX_REDIS_URL", "必填", "Redis，格式 redis://host:6379/0"),
         ("KOOIX_LISTEN_ADDR", "可选", "监听地址，默认 0.0.0.0:8000"),
-        ("KOOIX_PUBLIC_URL", "必填", "对外可访问的根 URL，用于 OIDC redirect_uri 构造"),
-        ("KOOIX_TOKEN_ACCESS_TTL_MIN", "可选", "Access token TTL（分钟），默认 15"),
-        ("KOOIX_TOKEN_REFRESH_TTL_DAY", "可选", "Refresh token TTL（天），默认 30"),
+        (
+            "KOOIX_PUBLIC_URL",
+            "必填",
+            "对外可访问的根 URL，用于 OIDC redirect_uri 构造",
+        ),
+        (
+            "KOOIX_TOKEN_ACCESS_TTL_MIN",
+            "可选",
+            "Access token TTL（分钟），默认 15",
+        ),
+        (
+            "KOOIX_TOKEN_REFRESH_TTL_DAY",
+            "可选",
+            "Refresh token TTL（天），默认 30",
+        ),
         ("RUST_LOG", "可选", "日志级别，建议 info,gate=debug"),
     ];
 

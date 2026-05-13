@@ -68,7 +68,10 @@ fn parse(v: RedisValue) -> CacheResult<RateLimitDecision> {
         other => return Err(CacheError::Shape(format!("expected array, got {other:?}"))),
     };
     if arr.len() != 4 {
-        return Err(CacheError::Shape(format!("expected 4 elements, got {}", arr.len())));
+        return Err(CacheError::Shape(format!(
+            "expected 4 elements, got {}",
+            arr.len()
+        )));
     }
     let to_u64 = |v: &RedisValue| -> CacheResult<u64> {
         v.as_i64()

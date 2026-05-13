@@ -156,10 +156,8 @@ pub trait ChannelGroupRepo: Send + Sync + 'static {
     async fn find_by_id(&self, id: ChannelGroupId) -> DbResult<ChannelGroupRecord>;
 
     /// 查 Project 的默认分组（通过 projects.default_group_id）。
-    async fn find_default_for_project(
-        &self,
-        project_id: ProjectId,
-    ) -> DbResult<ChannelGroupRecord>;
+    async fn find_default_for_project(&self, project_id: ProjectId)
+    -> DbResult<ChannelGroupRecord>;
 }
 
 pub struct PgChannelGroupRepo {

@@ -303,13 +303,7 @@ impl InMemoryMembershipRepo {
     pub fn seed_platform(&self, user: UserId, role: PlatformRole) {
         self.inner.write().unwrap().platform.insert(user, role);
     }
-    pub fn seed_project(
-        &self,
-        org: OrgId,
-        project: ProjectId,
-        user: UserId,
-        role: ProjectRole,
-    ) {
+    pub fn seed_project(&self, org: OrgId, project: ProjectId, user: UserId, role: ProjectRole) {
         self.inner
             .write()
             .unwrap()
@@ -454,12 +448,7 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
             .collect())
     }
 
-    async fn revoke(
-        &self,
-        id: ApiKeyId,
-        _by: UserId,
-        _reason: Option<&str>,
-    ) -> DbResult<()> {
+    async fn revoke(&self, id: ApiKeyId, _by: UserId, _reason: Option<&str>) -> DbResult<()> {
         let mut g = self.inner.write().unwrap();
         let hash = g.by_id.get(&id).cloned().ok_or(DbError::NotFound)?;
         if let Some(rec) = g.by_hash.get_mut(&hash) {

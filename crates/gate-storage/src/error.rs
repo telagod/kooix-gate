@@ -28,9 +28,7 @@ impl From<sqlx::Error> for DbError {
                 // PostgreSQL 23505 = unique violation, 23503 = FK violation
                 match db.code().as_deref() {
                     Some("23505") => Self::Conflict(db.message().to_string()),
-                    Some("23503" | "23502" | "23514") => {
-                        Self::Constraint(db.message().to_string())
-                    }
+                    Some("23503" | "23502" | "23514") => Self::Constraint(db.message().to_string()),
                     _ => Self::Internal(e.to_string()),
                 }
             }

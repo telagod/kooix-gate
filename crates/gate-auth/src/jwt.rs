@@ -7,9 +7,9 @@
 //! - JWT 里只放 user_id + session_id + 当前 org，权限/角色每次实时查库
 
 use crate::error::{AuthError, Result};
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use chrono::{DateTime, Duration, Utc};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -21,8 +21,8 @@ pub const RECOMMENDED_SECRET_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessClaims {
-    pub sub: Uuid,           // user_id
-    pub sid: Uuid,           // session_id
+    pub sub: Uuid, // user_id
+    pub sid: Uuid, // session_id
     pub iss: String,
     pub aud: String,
     pub iat: i64,
@@ -103,8 +103,8 @@ impl JwtIssuer {
         audience: impl Into<String>,
         ttl: TokenLifetimes,
     ) -> Result<Self> {
-        let raw = std::env::var(var)
-            .map_err(|_| AuthError::Invalid(format!("env {var} missing")))?;
+        let raw =
+            std::env::var(var).map_err(|_| AuthError::Invalid(format!("env {var} missing")))?;
         let bytes = B64
             .decode(raw.trim())
             .map_err(|e| AuthError::Invalid(format!("env {var} not base64: {e}")))?;
@@ -160,8 +160,8 @@ impl JwtIssuer {
         v.set_issuer(&[&self.issuer]);
         v.set_audience(&[&self.audience]);
         v.leeway = 5;
-        let data = decode::<AccessClaims>(token, &self.decoding, &v)
-            .map_err(|e| match e.kind() {
+        let data =
+            decode::<AccessClaims>(token, &self.decoding, &v).map_err(|e| match e.kind() {
                 jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
                 _ => AuthError::TokenInvalid(e.to_string()),
             })?;
@@ -173,13 +173,23 @@ impl JwtIssuer {
         v.set_issuer(&[&self.issuer]);
         v.set_audience(&[&format!("{}#refresh", self.audience)]);
         v.leeway = 5;
-        let data = decode::<RefreshClaims>(token, &self.decoding, &v)
-            .map_err(|e| match e.kind() {
+        let data =
+            decode::<RefreshClaims>(token, &self.decoding, &v).map_err(|e| match e.kind() {
                 jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
                 _ => AuthError::TokenInvalid(e.to_string()),
             })?;
         Ok(data.claims)
     }
+}
+
+/// 生成 64 字节随机 secret，base64 编码返回。
+///
+/// 部署时把这个值写到 `KOOIX_JWT_SECRET` 环境变量，永久保存。
+/// 轮换会让所有现有会话失效。
+pub fn generate_secret_b64() -> String {
+    let mut buf = [0u8; RECOMMENDED_SECRET_BYTES];
+    rand::thread_rng().fill_bytes(&mut buf);
+    B64.encode(buf)
 }
 
 #[cfg(test)]
@@ -188,8 +198,13 @@ mod tests {
 
     fn issuer() -> JwtIssuer {
         // 32 字节 ASCII 测试用 secret
-        JwtIssuer::new(b"test-secret-32-bytes-minimum-ok!", "kg", "console", Default::default())
-            .expect("32 bytes ok")
+        JwtIssuer::new(
+            b"test-secret-32-bytes-minimum-ok!",
+            "kg",
+            "console",
+            Default::default(),
+        )
+        .expect("32 bytes ok")
     }
 
     #[test]
@@ -226,14 +241,4 @@ mod tests {
         assert_eq!(bytes.len(), RECOMMENDED_SECRET_BYTES);
         assert!(JwtIssuer::new(&bytes, "kg", "c", Default::default()).is_ok());
     }
-}
-
-/// 生成 64 字节随机 secret，base64 编码返回。
-///
-/// 部署时把这个值写到 `KOOIX_JWT_SECRET` 环境变量，永久保存。
-/// 轮换会让所有现有会话失效。
-pub fn generate_secret_b64() -> String {
-    let mut buf = [0u8; RECOMMENDED_SECRET_BYTES];
-    rand::thread_rng().fill_bytes(&mut buf);
-    B64.encode(buf)
 }

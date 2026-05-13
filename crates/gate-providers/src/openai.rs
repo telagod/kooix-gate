@@ -7,9 +7,9 @@
 //! - `api_key`：透传 Bearer
 //! - `timeout`：默认 60s（流式场景请求建立超时，不限响应总长）
 
+use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::types::{ChatRequest, ChatResponse, ChatStreamChunk};
-use crate::Provider;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
@@ -114,9 +114,7 @@ fn check_status(resp: &reqwest::Response) -> ProviderResult<()> {
 /// data: {"id":..., "choices":[{"delta":{"content":"hi"}}]}\n\n
 /// data: [DONE]\n\n
 /// ```
-fn sse_to_chunks<S>(
-    byte_stream: S,
-) -> impl futures::Stream<Item = ProviderResult<ChatStreamChunk>>
+fn sse_to_chunks<S>(byte_stream: S) -> impl futures::Stream<Item = ProviderResult<ChatStreamChunk>>
 where
     S: futures::Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
@@ -155,9 +153,7 @@ fn drain_events(buf: &mut Vec<u8>) -> Vec<ProviderResult<ChatStreamChunk>> {
             }
             match serde_json::from_str::<ChatStreamChunk>(data) {
                 Ok(chunk) => out.push(Ok(chunk)),
-                Err(e) => out.push(Err(ProviderError::Decode(format!(
-                    "line {data:?}: {e}"
-                )))),
+                Err(e) => out.push(Err(ProviderError::Decode(format!("line {data:?}: {e}")))),
             }
         }
     }

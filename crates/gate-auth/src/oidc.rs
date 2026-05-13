@@ -10,9 +10,7 @@
 //! 因为该 client 默认跟随重定向。生产可换成自定义 client（禁用 redirect + 限定 host）。
 
 use crate::error::{AuthError, Result};
-use openidconnect::core::{
-    CoreAuthenticationFlow, CoreClient, CoreProviderMetadata,
-};
+use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
 use openidconnect::reqwest::async_http_client;
 use openidconnect::{
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,

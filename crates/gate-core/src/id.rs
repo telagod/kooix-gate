@@ -20,6 +20,12 @@ macro_rules! typed_id {
             pub const PREFIX: &'static str = $prefix;
         }
 
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}_{}", $prefix, self.0.simple())

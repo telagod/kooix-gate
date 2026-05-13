@@ -14,9 +14,9 @@ use gate_core::id::UserId;
 use gate_providers::openai::OpenAiProvider;
 use gate_server::loader::{InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState};
+use gate_server::{AppState, build_router};
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -156,7 +156,12 @@ async fn chat_completions_stream_passthrough() {
         .unwrap();
     let resp = router.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(ct.starts_with("text/event-stream"), "ct={ct}");
 
     // 收集所有 body
@@ -164,10 +169,7 @@ async fn chat_completions_stream_passthrough() {
     let text = String::from_utf8(bytes.to_vec()).unwrap();
 
     // 应有 3 个 data: 行（最后一个 [DONE] 由 provider 层吃掉）
-    let data_lines: Vec<&str> = text
-        .lines()
-        .filter(|l| l.starts_with("data: "))
-        .collect();
+    let data_lines: Vec<&str> = text.lines().filter(|l| l.starts_with("data: ")).collect();
     assert_eq!(data_lines.len(), 3, "got lines={data_lines:?}");
 
     // 累计 content == "hello"
@@ -187,7 +189,9 @@ async fn chat_completions_upstream_auth_failure_maps_to_502() {
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(401).set_body_json(json!({"error": {"message": "bad key"}})))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(json!({"error": {"message": "bad key"}})),
+        )
         .mount(&upstream)
         .await;
 

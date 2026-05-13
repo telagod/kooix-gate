@@ -5,7 +5,7 @@
 use crate::auth::Authed;
 use crate::error::AppResult;
 use crate::state::AppState;
-use axum::{routing::get, Json, Router};
+use axum::{Json, Router, routing::get};
 use gate_auth::{require, require_user};
 use gate_core::rbac::{Permission, Scope};
 use serde::Serialize;

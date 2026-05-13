@@ -105,13 +105,14 @@ where
         .await?;
 
     // 防越权：header 指定的 Org 必须在用户可访问列表中（SuperAdmin 例外）
-    if let Some(req_org) = header_org {
-        if !ctx.is_super_admin() && !ctx.accessible_orgs().contains(&req_org) {
-            return Err(AppError::Auth(AuthError::Forbidden {
-                action: "switch_org".into(),
-                resource: format!("org:{req_org}"),
-            }));
-        }
+    if let Some(req_org) = header_org
+        && !ctx.is_super_admin()
+        && !ctx.accessible_orgs().contains(&req_org)
+    {
+        return Err(AppError::Auth(AuthError::Forbidden {
+            action: "switch_org".into(),
+            resource: format!("org:{req_org}"),
+        }));
     }
 
     Ok(ctx)
@@ -121,17 +122,19 @@ where
 /// 反向代理场景：Nginx 需要配 `proxy_set_header X-Forwarded-For $remote_addr`。
 fn extract_client_ip(parts: &Parts) -> Option<IpAddr> {
     // X-Forwarded-For 取第一个
-    if let Some(v) = parts.headers.get("x-forwarded-for").and_then(|h| h.to_str().ok()) {
-        if let Some(first) = v.split(',').next().map(str::trim) {
-            if let Ok(ip) = first.parse::<IpAddr>() {
-                return Some(ip);
-            }
-        }
+    if let Some(v) = parts
+        .headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        && let Some(first) = v.split(',').next().map(str::trim)
+        && let Ok(ip) = first.parse::<IpAddr>()
+    {
+        return Some(ip);
     }
-    if let Some(v) = parts.headers.get("x-real-ip").and_then(|h| h.to_str().ok()) {
-        if let Ok(ip) = v.trim().parse::<IpAddr>() {
-            return Some(ip);
-        }
+    if let Some(v) = parts.headers.get("x-real-ip").and_then(|h| h.to_str().ok())
+        && let Ok(ip) = v.trim().parse::<IpAddr>()
+    {
+        return Some(ip);
     }
     // axum ConnectInfo
     parts

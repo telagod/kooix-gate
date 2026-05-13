@@ -8,11 +8,11 @@
 use chrono::Utc;
 use gate_core::identity::{OrgRole, ProjectRole};
 use gate_storage::{
-    ApiKeyRepo, MembershipRepo, OrgRepo, PgApiKeyRepo, PgMembershipRepo, PgOrgRepo,
-    PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
+    ApiKeyRepo, MembershipRepo, OrgRepo, PgApiKeyRepo, PgMembershipRepo, PgOrgRepo, PgProjectRepo,
+    PgUserRepo, ProjectRepo, UserRepo,
 };
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 async fn start_pg() -> (testcontainers::ContainerAsync<Postgres>, sqlx::PgPool) {
@@ -119,14 +119,14 @@ async fn membership_roundtrip_includes_cross_org_key() {
 
     let snap = memberships.load_for_user(dev.id).await.unwrap();
     assert_eq!(snap.orgs.get(&org_a.id), Some(&OrgRole::Member));
-    assert!(snap.orgs.get(&org_b.id).is_none());
+    assert!(!snap.orgs.contains_key(&org_b.id));
     assert_eq!(
         snap.projects.get(&(org_a.id, p_a.id)),
         Some(&ProjectRole::Developer)
     );
 
     // 复合键意图：(org_b, p_a) 不应命中（即便 p_a 被攻击者借去）
-    assert!(snap.projects.get(&(org_b.id, p_a.id)).is_none());
+    assert!(!snap.projects.contains_key(&(org_b.id, p_a.id)));
     assert!(snap.platform.is_none());
 }
 
@@ -145,15 +145,7 @@ async fn api_key_revoke_and_lookup() {
     let key = gate_auth::api_key::generate();
     let hash = gate_auth::api_key::hash(&key.plaintext);
     let id = keys
-        .create(
-            proj.id,
-            "ci",
-            &hash,
-            &key.prefix,
-            &key.last4,
-            owner.id,
-            &[],
-        )
+        .create(proj.id, "ci", &hash, &key.prefix, &key.last4, owner.id, &[])
         .await
         .unwrap();
 

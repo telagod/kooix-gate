@@ -32,7 +32,9 @@ fn parse_status(s: &str) -> DbResult<ProjectStatus> {
         "active" => Ok(ProjectStatus::Active),
         "archived" => Ok(ProjectStatus::Archived),
         "deleted" => Ok(ProjectStatus::Deleted),
-        other => Err(DbError::Internal(format!("unknown project status: {other}"))),
+        other => Err(DbError::Internal(format!(
+            "unknown project status: {other}"
+        ))),
     }
 }
 

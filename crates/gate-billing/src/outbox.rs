@@ -7,8 +7,8 @@
 //!
 //! topic 固定为 'usage'，payload 为 UsageEvent JSON。
 
-use crate::types::UsageEvent;
 use crate::BillingResult;
+use crate::types::UsageEvent;
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 
@@ -80,12 +80,10 @@ impl OutboxRepo for PgOutboxRepo {
     }
 
     async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
-        sqlx::query(
-            "UPDATE outbox_events SET processed_at = NOW() WHERE id = $1",
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE outbox_events SET processed_at = NOW() WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

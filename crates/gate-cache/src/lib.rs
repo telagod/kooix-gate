@@ -33,6 +33,8 @@ pub async fn connect(url: &str, pool_size: usize) -> CacheResult<RedisPool> {
         .set_policy(ReconnectPolicy::new_exponential(0, 100, 5_000, 2))
         .build_pool(pool_size)
         .map_err(|e| CacheError::Connect(e.to_string()))?;
-    pool.init().await.map_err(|e| CacheError::Connect(e.to_string()))?;
+    pool.init()
+        .await
+        .map_err(|e| CacheError::Connect(e.to_string()))?;
     Ok(pool)
 }

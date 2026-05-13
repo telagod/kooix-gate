@@ -1,7 +1,7 @@
 //! 配置加载：env (KOOIX_*) + 可选 kooix-gate.toml
 
-use figment::providers::{Env, Format, Toml};
 use figment::Figment;
+use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -23,17 +23,26 @@ pub struct Config {
     pub token_refresh_ttl_day: i64,
 }
 
-fn default_jwt_issuer() -> String { "kooix-gate".into() }
-fn default_jwt_audience() -> String { "kooix-gate-console".into() }
-fn default_access_ttl_min() -> i64 { 15 }
-fn default_refresh_ttl_day() -> i64 { 30 }
+fn default_jwt_issuer() -> String {
+    "kooix-gate".into()
+}
+fn default_jwt_audience() -> String {
+    "kooix-gate-console".into()
+}
+fn default_access_ttl_min() -> i64 {
+    15
+}
+fn default_refresh_ttl_day() -> i64 {
+    30
+}
 
 impl Config {
     /// 加载顺序：默认值 → kooix-gate.toml (可选) → KOOIX_* 环境变量
-    pub fn load() -> Result<Self, figment::Error> {
+    pub fn load() -> Result<Self, Box<figment::Error>> {
         Figment::new()
             .merge(Toml::file("kooix-gate.toml"))
             .merge(Env::prefixed("KOOIX_"))
             .extract()
+            .map_err(Box::new)
     }
 }

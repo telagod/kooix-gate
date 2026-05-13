@@ -1,7 +1,7 @@
 //! GET /health — 无 auth 探活
 
 use crate::state::AppState;
-use axum::{routing::get, Json, Router};
+use axum::{Json, Router, routing::get};
 use serde::Serialize;
 
 #[derive(Serialize)]

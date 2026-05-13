@@ -12,12 +12,12 @@ use gate_core::id::{ApiKeyId, ChannelGroupId, ChannelId, OrgId, ProjectId};
 use gate_providers::ProviderRouter;
 use gate_server::loader::InMemoryLoader;
 use gate_server::state::Repos;
-use gate_server::{build_router, AppState};
+use gate_server::{AppState, build_router};
 use gate_storage::{
     ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
 };
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 use wiremock::matchers::{method, path};
@@ -46,15 +46,23 @@ fn make_channel(id: ChannelId, code: &str, base_url: &str) -> ChannelRecord {
 async fn provider_router_selects_highest_priority() {
     let group_id = ChannelGroupId::new();
     let ch_high = ChannelId::new(); // priority=10
-    let ch_low = ChannelId::new();  // priority=20
+    let ch_low = ChannelId::new(); // priority=20
 
     let ch_repo = Arc::new(InMemoryChannelRepo::new());
     let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
 
     // 高优先级 channel（priority=10）
-    ch_repo.seed_channel(make_channel(ch_high, "high-prio", "https://placeholder.example.com/v1"));
+    ch_repo.seed_channel(make_channel(
+        ch_high,
+        "high-prio",
+        "https://placeholder.example.com/v1",
+    ));
     // 低优先级 channel（priority=20）
-    ch_repo.seed_channel(make_channel(ch_low, "low-prio", "https://placeholder2.example.com/v1"));
+    ch_repo.seed_channel(make_channel(
+        ch_low,
+        "low-prio",
+        "https://placeholder2.example.com/v1",
+    ));
 
     // 先 seed 高优先级，再 seed 低优先级
     ch_repo.seed_binding(group_id, ch_high, 10, 1);
@@ -168,8 +176,7 @@ async fn full_chain_api_key_to_upstream() {
         channel_groups: grp_repo,
     };
 
-    let state = AppState::new(jwt, loader, repos)
-        .with_provider_router(provider_router);
+    let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
     // 不挂 fallback provider，验证 router 独立工作
     let router = build_router(state);
 
@@ -188,7 +195,11 @@ async fn full_chain_api_key_to_upstream() {
         .unwrap();
 
     let resp = router.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK, "expected 200 from routed upstream");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "expected 200 from routed upstream"
+    );
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["choices"][0]["message"]["content"], "routed!");
