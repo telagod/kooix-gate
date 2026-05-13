@@ -5,8 +5,8 @@
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
 use gate_cache::RateLimiter;
-use gate_providers::Provider;
-use gate_storage::{ApiKeyRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo};
+use gate_providers::{Provider, ProviderRouter};
+use gate_storage::{ApiKeyRepo, ChannelGroupRepo, ChannelRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -19,6 +19,9 @@ pub struct AppState {
     pub rate_limit_cfg: RateLimitCfg,
     /// 默认 Provider — 现阶段单一 OpenAI 兼容。后续拓展为路由表。
     pub provider: Option<Arc<dyn Provider>>,
+    /// 多 Provider 路由器（C1 新增）。优先于 provider 字段使用。
+    /// 未配置时退化为 provider 字段。
+    pub provider_router: Option<Arc<ProviderRouter>>,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -49,28 +52,34 @@ pub struct Repos {
     pub projects: Arc<dyn ProjectRepo>,
     pub memberships: Arc<dyn MembershipRepo>,
     pub api_keys: Arc<dyn ApiKeyRepo>,
+    /// Channel repos（C1 新增，路由用）
+    pub channels: Arc<dyn ChannelRepo>,
+    pub channel_groups: Arc<dyn ChannelGroupRepo>,
 }
 
 impl Repos {
     /// 从一个 PgPool 批量构造全部 Pg 实现。
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
-            PgApiKeyRepo, PgMembershipRepo, PgOrgRepo, PgProjectRepo, PgUserRepo,
+            PgApiKeyRepo, PgChannelGroupRepo, PgChannelRepo, PgMembershipRepo, PgOrgRepo,
+            PgProjectRepo, PgUserRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
             orgs: Arc::new(PgOrgRepo::new(pool.clone())),
             projects: Arc::new(PgProjectRepo::new(pool.clone())),
             memberships: Arc::new(PgMembershipRepo::new(pool.clone())),
-            api_keys: Arc::new(PgApiKeyRepo::new(pool)),
+            api_keys: Arc::new(PgApiKeyRepo::new(pool.clone())),
+            channels: Arc::new(PgChannelRepo::new(pool.clone())),
+            channel_groups: Arc::new(PgChannelGroupRepo::new(pool)),
         }
     }
 
     /// 内存版（dev 模式 / 测试用）。
     pub fn in_memory() -> Self {
         use gate_storage::{
-            InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,
-            InMemoryUserRepo,
+            InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+            InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -78,6 +87,8 @@ impl Repos {
             projects: Arc::new(InMemoryProjectRepo::new()),
             memberships: Arc::new(InMemoryMembershipRepo::new()),
             api_keys: Arc::new(InMemoryApiKeyRepo::new()),
+            channels: Arc::new(InMemoryChannelRepo::new()),
+            channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
         }
     }
 }
@@ -95,6 +106,7 @@ impl AppState {
             rate_limiter: None,
             rate_limit_cfg: RateLimitCfg::default(),
             provider: None,
+            provider_router: None,
         }
     }
 
@@ -111,6 +123,12 @@ impl AppState {
 
     pub fn with_provider<P: Provider>(mut self, provider: P) -> Self {
         self.provider = Some(Arc::new(provider));
+        self
+    }
+
+    /// 挂载 ProviderRouter（C1 新增）。
+    pub fn with_provider_router(mut self, router: ProviderRouter) -> Self {
+        self.provider_router = Some(Arc::new(router));
         self
     }
 }

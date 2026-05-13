@@ -9,6 +9,10 @@ pub mod repo;
 
 pub use error::{DbError, DbResult};
 pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, PgApiKeyRepo};
+pub use repo::channel::{
+    ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelRecord, ChannelRepo,
+    InMemoryChannelGroupRepo, InMemoryChannelRepo, PgChannelGroupRepo, PgChannelRepo,
+};
 pub use repo::membership::{MembershipRepo, PgMembershipRepo, UserMemberships};
 pub use repo::memory::{
     InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,
