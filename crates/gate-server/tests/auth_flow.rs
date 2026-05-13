@@ -241,6 +241,8 @@ fn build_repos(
         projects,
         memberships,
         api_keys,
+        channels: Arc::new(gate_storage::InMemoryChannelRepo::new()),
+        channel_groups: Arc::new(gate_storage::InMemoryChannelGroupRepo::new()),
     }
 }
 
