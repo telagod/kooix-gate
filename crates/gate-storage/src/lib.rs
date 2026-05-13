@@ -26,6 +26,10 @@ pub use repo::memory::{
 };
 pub use repo::org::{OrgRepo, PgOrgRepo};
 pub use repo::project::{PgProjectRepo, ProjectRepo};
+pub use repo::usage::{
+    GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, UsageBucket, UsageRepo, UsageSeed,
+    UsageTotals,
+};
 pub use repo::user::{PgUserRepo, UserRepo};
 pub use sqlx::PgPool;
 
