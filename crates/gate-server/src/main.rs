@@ -51,7 +51,25 @@ async fn main() -> anyhow::Result<()> {
             )
         };
 
-    let state = AppState::new(jwt, loader, repos);
+    let mut state = AppState::new(jwt, loader, repos);
+
+    // 限流：Redis 配置可选，未提供则跳过（middleware fail-open）
+    if !cfg.redis_url.is_empty() {
+        tracing::info!(url = %redact_redis_url(&cfg.redis_url), "connecting redis");
+        match gate_cache::connect(&cfg.redis_url, 4).await {
+            Ok(pool) => {
+                let rl = gate_cache::RateLimiter::new(pool);
+                state = state.with_rate_limiter(rl);
+                tracing::info!("rate limiter active");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "redis connect failed; running without rate limiter");
+            }
+        }
+    } else {
+        tracing::warn!("KOOIX_REDIS_URL not set; rate limiter disabled");
+    }
+
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
@@ -86,4 +104,9 @@ fn redact_db_url(url: &str) -> String {
         }
     }
     url.to_string()
+}
+
+/// 同 [`redact_db_url`]，复用——Redis URL 可能也带 password。
+fn redact_redis_url(url: &str) -> String {
+    redact_db_url(url)
 }

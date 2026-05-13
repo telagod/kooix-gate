@@ -4,6 +4,7 @@
 
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
+use gate_cache::RateLimiter;
 use gate_storage::{ApiKeyRepo, MembershipRepo, OrgRepo, ProjectRepo, UserRepo};
 use std::sync::Arc;
 
@@ -12,6 +13,25 @@ pub struct AppState {
     pub jwt: Arc<JwtIssuer>,
     pub loader: Arc<dyn AuthContextLoader>,
     pub repos: Repos,
+    /// 可选的限流器：未配置 Redis 时为 None，middleware 走 fail-open。
+    pub rate_limiter: Option<Arc<RateLimiter>>,
+    pub rate_limit_cfg: RateLimitCfg,
+}
+
+/// 限流参数。可未来按 plan/api-key 维度差异化。
+#[derive(Clone, Copy, Debug)]
+pub struct RateLimitCfg {
+    pub window_ms: u64,
+    pub capacity: u64,
+}
+
+impl Default for RateLimitCfg {
+    fn default() -> Self {
+        Self {
+            window_ms: 60_000,
+            capacity: 600,
+        }
+    }
 }
 
 /// 业务 handler 用到的所有 Repo 聚合。
@@ -69,6 +89,19 @@ impl AppState {
             jwt: Arc::new(jwt),
             loader,
             repos,
+            rate_limiter: None,
+            rate_limit_cfg: RateLimitCfg::default(),
         }
+    }
+
+    /// 带限流器构造（生产路径）。
+    pub fn with_rate_limiter(mut self, rl: RateLimiter) -> Self {
+        self.rate_limiter = Some(Arc::new(rl));
+        self
+    }
+
+    pub fn with_rate_limit_cfg(mut self, cfg: RateLimitCfg) -> Self {
+        self.rate_limit_cfg = cfg;
+        self
     }
 }

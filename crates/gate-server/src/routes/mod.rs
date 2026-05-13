@@ -20,7 +20,8 @@ pub fn router() -> Router<AppState> {
         .nest("/v1", v1_router())
 }
 
-fn v1_router() -> Router<AppState> {
+/// 公开 v1 router 让 `build_router` 单独给它叠限流 middleware。
+pub fn v1_router() -> Router<AppState> {
     Router::new()
         .merge(me::router())
         .merge(projects::router())

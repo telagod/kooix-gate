@@ -16,6 +16,7 @@ gate-core    = { path = "../gate-core" }
 gate-auth    = { path = "../gate-auth" }
 gate-crypto  = { path = "../gate-crypto" }
 gate-storage = { path = "../gate-storage" }
+gate-cache   = { path = "../gate-cache" }
 
 # DB pool 类型透传
 sqlx.workspace = true
@@ -57,4 +58,5 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 testcontainers = "0.27"
-testcontainers-modules = { version = "0.15", features = ["postgres"] }
+testcontainers-modules = { version = "0.15", features = ["postgres", "redis"] }
+fred.workspace = true
