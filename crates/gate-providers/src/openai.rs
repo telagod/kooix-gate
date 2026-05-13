@@ -67,6 +67,10 @@ impl Provider for OpenAiProvider {
         mut req: ChatRequest,
     ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
         req.stream = true;
+        // 强制注入 stream_options.include_usage=true，
+        // 这样上游会在最后一帧吐 usage（用于计费）。
+        // 如果调用方已经传了 stream_options，仅补齐 include_usage 字段，不覆盖其他键。
+        inject_include_usage(&mut req);
         let resp = self
             .client
             .post(self.chat_url())
@@ -79,6 +83,27 @@ impl Provider for OpenAiProvider {
         let byte_stream = resp.bytes_stream();
         let parsed = sse_to_chunks(byte_stream);
         Ok(parsed.boxed())
+    }
+}
+
+/// 把 `stream_options.include_usage = true` 注入到 ChatRequest.extra。
+///
+/// 已存在 stream_options（任何类型）：
+/// - 若它是 object，覆盖 `include_usage = true`，其它字段保留
+/// - 若它不是 object（脏数据），整体替换为 `{include_usage: true}`
+fn inject_include_usage(req: &mut ChatRequest) {
+    use serde_json::{Value, json};
+    let entry = req
+        .extra
+        .entry("stream_options".to_string())
+        .or_insert_with(|| json!({}));
+    match entry {
+        Value::Object(map) => {
+            map.insert("include_usage".to_string(), Value::Bool(true));
+        }
+        slot => {
+            *slot = json!({ "include_usage": true });
+        }
     }
 }
 
@@ -162,4 +187,80 @@ fn drain_events(buf: &mut Vec<u8>) -> Vec<ProviderResult<ChatStreamChunk>> {
 
 fn find_double_newline(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ChatMessage, Role};
+    use serde_json::{Value, json};
+
+    fn make_stream_req() -> ChatRequest {
+        ChatRequest {
+            model: "gpt-4o-mini".into(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: "hi".into(),
+                name: None,
+            }],
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stream: true,
+            extra: Default::default(),
+        }
+    }
+
+    #[test]
+    fn inject_when_absent() {
+        let mut req = make_stream_req();
+        inject_include_usage(&mut req);
+        let so = req.extra.get("stream_options").unwrap();
+        assert_eq!(so["include_usage"], Value::Bool(true));
+    }
+
+    #[test]
+    fn inject_preserves_other_stream_options_fields() {
+        let mut req = make_stream_req();
+        req.extra
+            .insert("stream_options".into(), json!({"foo": "bar"}));
+        inject_include_usage(&mut req);
+        let so = req.extra.get("stream_options").unwrap();
+        assert_eq!(so["include_usage"], Value::Bool(true));
+        assert_eq!(so["foo"], Value::String("bar".into()));
+    }
+
+    #[test]
+    fn inject_overrides_existing_include_usage_false() {
+        let mut req = make_stream_req();
+        req.extra
+            .insert("stream_options".into(), json!({"include_usage": false}));
+        inject_include_usage(&mut req);
+        let so = req.extra.get("stream_options").unwrap();
+        assert_eq!(so["include_usage"], Value::Bool(true));
+    }
+
+    #[test]
+    fn inject_replaces_non_object_value() {
+        let mut req = make_stream_req();
+        req.extra.insert("stream_options".into(), json!("garbage"));
+        inject_include_usage(&mut req);
+        let so = req.extra.get("stream_options").unwrap();
+        assert!(so.is_object());
+        assert_eq!(so["include_usage"], Value::Bool(true));
+    }
+
+    #[test]
+    fn drain_parses_usage_in_final_frame() {
+        // 模拟带 usage 的最后一帧（OpenAI include_usage 行为）
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n");
+        let evs = drain_events(&mut buf);
+        assert_eq!(evs.len(), 1);
+        let chunk = evs.into_iter().next().unwrap().unwrap();
+        let u = chunk.usage.expect("usage should be present");
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 5);
+        assert_eq!(u.total_tokens, 15);
+    }
 }
