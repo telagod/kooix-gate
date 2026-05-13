@@ -161,6 +161,7 @@ async fn make_fixture() -> Fix {
         usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
     };
 
     // user 也作为 owner 对该 Org 拥有 Owner role（用于跑 REST endpoint 鉴权）

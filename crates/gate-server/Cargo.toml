@@ -63,6 +63,9 @@ figment.workspace = true
 # Validation
 validator.workspace = true
 
+# CSV export
+csv = "1"
+
 # SSO state hash + base64
 sha2.workspace = true
 hex.workspace = true
