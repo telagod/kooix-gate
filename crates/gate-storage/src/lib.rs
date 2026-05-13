@@ -10,6 +10,10 @@ pub mod repo;
 pub use error::{DbError, DbResult};
 pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, PgApiKeyRepo};
 pub use repo::membership::{MembershipRepo, PgMembershipRepo, UserMemberships};
+pub use repo::memory::{
+    InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,
+    InMemoryUserRepo,
+};
 pub use repo::org::{OrgRepo, PgOrgRepo};
 pub use repo::project::{PgProjectRepo, ProjectRepo};
 pub use repo::user::{PgUserRepo, UserRepo};

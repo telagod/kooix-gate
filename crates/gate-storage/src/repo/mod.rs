@@ -9,6 +9,7 @@
 
 pub mod api_key;
 pub mod membership;
+pub mod memory;
 pub mod org;
 pub mod project;
 pub mod user;
