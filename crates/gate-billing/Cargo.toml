@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 gate-core = { path = "../gate-core" }
 gate-storage = { path = "../gate-storage" }
+gate-providers = { path = "../gate-providers" }
 sqlx.workspace = true
 tokio.workspace = true
 serde.workspace = true
