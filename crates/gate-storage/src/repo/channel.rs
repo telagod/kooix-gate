@@ -46,6 +46,26 @@ pub struct ChannelBinding {
     pub weight: i32,
 }
 
+/// 创建 Channel 的入参。
+#[derive(Debug, Clone)]
+pub struct CreateChannel {
+    pub code: String,
+    pub name: String,
+    pub provider_type: String,
+    pub base_url: String,
+    pub supported_models: Vec<String>,
+    pub enabled: bool,
+}
+
+/// 更新 Channel 的入参（全部可选，None 表示不改）。
+#[derive(Debug, Clone)]
+pub struct UpdateChannel {
+    pub name: Option<String>,
+    pub base_url: Option<String>,
+    pub supported_models: Option<Vec<String>>,
+    pub enabled: Option<bool>,
+}
+
 #[async_trait]
 pub trait ChannelRepo: Send + Sync + 'static {
     /// 按 ID 查渠道。
@@ -60,6 +80,15 @@ pub trait ChannelRepo: Send + Sync + 'static {
     /// 列出全部 channels（admin 视图，含未健康/disabled）。
     /// 控制台只读用，不返回密钥/config 字段。
     async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>>;
+
+    /// 创建新 channel（admin 操作）。
+    async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord>;
+
+    /// 更新 channel 字段（admin 操作）。
+    async fn update(&self, id: ChannelId, input: UpdateChannel) -> DbResult<ChannelRecord>;
+
+    /// 软删除（设 deleted_at + status='disabled'）。
+    async fn soft_delete(&self, id: ChannelId) -> DbResult<()>;
 }
 
 pub struct PgChannelRepo {
@@ -147,6 +176,77 @@ impl ChannelRepo for PgChannelRepo {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_channel).collect()
+    }
+
+    async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
+        let status = if input.enabled { "active" } else { "disabled" };
+        let row = sqlx::query(
+            "INSERT INTO channels (code, name, provider_type, base_url, supported_models, \
+                                   config_enc, status) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+             RETURNING id, code, name, provider_type, base_url, supported_models, \
+                       status, health, timeout_ms, max_retries, created_at, updated_at",
+        )
+        .bind(&input.code)
+        .bind(&input.name)
+        .bind(&input.provider_type)
+        .bind(&input.base_url)
+        .bind(&input.supported_models)
+        .bind(b"" as &[u8]) // config_enc placeholder — 后续加密配置另走
+        .bind(status)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.constraint().is_some() => {
+                DbError::Conflict(format!("channel code '{}' already exists", input.code))
+            }
+            _ => DbError::from(e),
+        })?;
+        row_to_channel(&row)
+    }
+
+    async fn update(&self, id: ChannelId, input: UpdateChannel) -> DbResult<ChannelRecord> {
+        // 先确认存在
+        let _ = self.find_by_id(id).await?;
+
+        let status_fragment = match input.enabled {
+            Some(true) => ", status = 'active'",
+            Some(false) => ", status = 'disabled'",
+            None => "",
+        };
+
+        let row = sqlx::query(&format!(
+            "UPDATE channels SET \
+                name = COALESCE($2, name), \
+                base_url = COALESCE($3, base_url), \
+                supported_models = COALESCE($4, supported_models) \
+                {status_fragment} \
+             WHERE id = $1 AND deleted_at IS NULL \
+             RETURNING id, code, name, provider_type, base_url, supported_models, \
+                       status, health, timeout_ms, max_retries, created_at, updated_at"
+        ))
+        .bind(id.as_uuid())
+        .bind(input.name.as_deref())
+        .bind(input.base_url.as_deref())
+        .bind(input.supported_models.as_deref())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        row_to_channel(&row)
+    }
+
+    async fn soft_delete(&self, id: ChannelId) -> DbResult<()> {
+        let res = sqlx::query(
+            "UPDATE channels SET deleted_at = NOW(), status = 'disabled' \
+             WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id.as_uuid())
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
     }
 }
 
@@ -332,6 +432,70 @@ impl ChannelRepo for InMemoryChannelRepo {
         let mut out: Vec<ChannelRecord> = inner.channels.values().cloned().collect();
         out.sort_by_key(|c| c.created_at);
         Ok(out)
+    }
+
+    async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
+        let mut inner = self.inner.write().unwrap();
+        // 检查 code 唯一
+        if inner.channels.values().any(|c| c.code == input.code) {
+            return Err(DbError::Conflict(format!(
+                "channel code '{}' already exists",
+                input.code
+            )));
+        }
+        let now = Utc::now();
+        let id = ChannelId::from(Uuid::now_v7());
+        let record = ChannelRecord {
+            channel_id: id,
+            code: input.code,
+            name: input.name,
+            provider_type: input.provider_type,
+            base_url: input.base_url,
+            supported_models: input.supported_models,
+            status: if input.enabled {
+                "active".to_string()
+            } else {
+                "disabled".to_string()
+            },
+            health: "healthy".to_string(),
+            timeout_ms: 60000,
+            max_retries: 2,
+            created_at: now,
+            updated_at: now,
+        };
+        inner.channels.insert(id, record.clone());
+        Ok(record)
+    }
+
+    async fn update(&self, id: ChannelId, input: UpdateChannel) -> DbResult<ChannelRecord> {
+        let mut inner = self.inner.write().unwrap();
+        let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
+        if let Some(name) = input.name {
+            record.name = name;
+        }
+        if let Some(base_url) = input.base_url {
+            record.base_url = base_url;
+        }
+        if let Some(models) = input.supported_models {
+            record.supported_models = models;
+        }
+        if let Some(enabled) = input.enabled {
+            record.status = if enabled {
+                "active".to_string()
+            } else {
+                "disabled".to_string()
+            };
+        }
+        record.updated_at = Utc::now();
+        Ok(record.clone())
+    }
+
+    async fn soft_delete(&self, id: ChannelId) -> DbResult<()> {
+        let mut inner = self.inner.write().unwrap();
+        if inner.channels.remove(&id).is_none() {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
     }
 }
 

@@ -42,6 +42,9 @@ pub struct ApiKeySummary {
     pub prefix: String,
     pub last4: String,
     pub allowed_models: Vec<String>,
+    pub created_at: Option<String>,
+    pub last_used_at: Option<String>,
+    pub revoked: bool,
 }
 
 pub fn router() -> Router<AppState> {
@@ -137,18 +140,19 @@ async fn list(
         return Err(AppError::NotFound);
     }
 
-    let records = app.repos.api_keys.list_in_project(project).await?;
-    // Repo 返回的 record 没有 prefix/last4（在 PG schema 里有，但 ApiKeyRecord 字段精简了）
-    // 这里列表层先返回基本信息；后续可在 Repo 加 list_summaries() 拓展
+    let records = app.repos.api_keys.list_summaries(project).await?;
     Ok(Json(
         records
             .into_iter()
             .map(|r| ApiKeySummary {
                 id: r.api_key_id.as_uuid().to_string(),
                 name: r.name,
-                prefix: String::new(),
-                last4: String::new(),
+                prefix: r.prefix,
+                last4: r.last4,
                 allowed_models: r.allowed_models,
+                created_at: Some(r.created_at.to_rfc3339()),
+                last_used_at: r.last_used_at.map(|t| t.to_rfc3339()),
+                revoked: r.revoked_at.is_some(),
             })
             .collect(),
     ))

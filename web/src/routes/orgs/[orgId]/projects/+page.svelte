@@ -83,9 +83,12 @@
 	<div class="max-w-4xl mx-auto p-6">
 		<div class="flex items-center justify-between mb-6">
 			<h1 class="text-2xl font-bold text-zinc-900">项目列表</h1>
-			<Button onclick={() => (showCreate = !showCreate)}>
-				{showCreate ? '取消' : '+ 创建项目'}
-			</Button>
+			<div class="flex gap-2">
+				<Button variant="outline" onclick={() => goto(`/orgs/${orgId}/quotas`)}>配额管理</Button>
+				<Button onclick={() => (showCreate = !showCreate)}>
+					{showCreate ? '取消' : '+ 创建项目'}
+				</Button>
+			</div>
 		</div>
 
 		<!-- 创建表单 -->
@@ -132,6 +135,7 @@
 							<th class="px-4 py-3 text-left font-medium text-zinc-600">Slug</th>
 							<th class="px-4 py-3 text-left font-medium text-zinc-600">状态</th>
 							<th class="px-4 py-3 text-left font-medium text-zinc-600">ID</th>
+							<th class="px-4 py-3 text-right font-medium text-zinc-600">操作</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-zinc-100">
@@ -146,6 +150,11 @@
 									</span>
 								</td>
 								<td class="px-4 py-3 font-mono text-xs text-zinc-400">{proj.id}</td>
+								<td class="px-4 py-3 text-right">
+									<Button variant="ghost" size="sm" onclick={() => goto(`/orgs/${orgId}/projects/${proj.id}/keys`)}>
+										API Keys
+									</Button>
+								</td>
 							</tr>
 						{/each}
 					</tbody>
