@@ -7,7 +7,9 @@
 //! - 错误经 [`ProviderError`] 收口，给 server 层映射 4xx/5xx
 //! - [`ProviderRouter`] 按 project_id + model 动态选路
 
+pub mod anthropic;
 pub mod error;
+pub mod gemini;
 pub mod openai;
 pub mod router;
 pub mod types;

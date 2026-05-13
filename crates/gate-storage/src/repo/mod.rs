@@ -14,6 +14,7 @@ pub mod channel;
 pub mod identity;
 pub mod membership;
 pub mod memory;
+pub mod model_alias;
 pub mod org;
 pub mod project;
 pub mod quota;
