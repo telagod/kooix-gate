@@ -194,6 +194,7 @@ async fn fixture() -> Fixture {
         usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
     };
 
     let jwt = JwtIssuer::new(

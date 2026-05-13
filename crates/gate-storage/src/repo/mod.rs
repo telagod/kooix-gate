@@ -10,6 +10,7 @@
 //! - `ChannelGroupRepo`  — 渠道分组 + Project 默认分组
 
 pub mod api_key;
+pub mod audit;
 pub mod channel;
 pub mod channel_key;
 pub mod identity;

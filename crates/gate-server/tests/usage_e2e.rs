@@ -166,6 +166,7 @@ fn build_fixture() -> Fixture {
         usage,
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos);

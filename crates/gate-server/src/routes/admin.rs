@@ -17,7 +17,7 @@
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
@@ -83,6 +83,7 @@ pub fn router() -> Router<AppState> {
             "/channels/:id/keys/:key_id",
             axum::routing::delete(revoke_channel_key),
         )
+        .route("/audit-logs", get(list_audit_logs))
 }
 
 async fn list_channels(
@@ -146,6 +147,14 @@ async fn create_channel(
         })
         .await?;
 
+    app.audit.emit(
+        &ctx,
+        "channel.create",
+        "channel",
+        Some(*record.channel_id.as_uuid()),
+        Some(serde_json::json!({"code": &record.code})),
+    );
+
     Ok(Json(ChannelSummary {
         id: record.channel_id.as_uuid().to_string(),
         code: record.code,
@@ -182,6 +191,14 @@ async fn update_channel(
         )
         .await?;
 
+    app.audit.emit(
+        &ctx,
+        "channel.update",
+        "channel",
+        Some(id),
+        None,
+    );
+
     Ok(Json(ChannelSummary {
         id: record.channel_id.as_uuid().to_string(),
         code: record.code,
@@ -204,6 +221,14 @@ async fn delete_channel(
 
     let channel_id = ChannelId::from(id);
     app.repos.channels.soft_delete(channel_id).await?;
+
+    app.audit.emit(
+        &ctx,
+        "channel.delete",
+        "channel",
+        Some(id),
+        None,
+    );
 
     Ok(Json(serde_json::json!({"deleted": true})))
 }
@@ -301,6 +326,14 @@ async fn create_channel_key(
         .create(channel_id, &key_enc, &fingerprint, req.alias.as_deref())
         .await?;
 
+    app.audit.emit(
+        &ctx,
+        "channel_key.create",
+        "channel_key",
+        Some(*key_id.as_uuid()),
+        Some(serde_json::json!({"channel_id": id.to_string()})),
+    );
+
     Ok(Json(ChannelKeySummary {
         id: key_id.as_uuid().to_string(),
         channel_id: channel_id.as_uuid().to_string(),
@@ -344,6 +377,14 @@ async fn rotate_channel_key(
         .rotate(channel_id, &key_enc, &fingerprint, req.alias.as_deref())
         .await?;
 
+    app.audit.emit(
+        &ctx,
+        "channel_key.rotate",
+        "channel_key",
+        Some(*key_id.as_uuid()),
+        Some(serde_json::json!({"channel_id": id.to_string()})),
+    );
+
     Ok(Json(ChannelKeySummary {
         id: key_id.as_uuid().to_string(),
         channel_id: channel_id.as_uuid().to_string(),
@@ -370,5 +411,82 @@ async fn revoke_channel_key(
     let ck_id = ChannelKeyId::from(key_id);
     app.repos.channel_keys.revoke(ck_id).await?;
 
+    app.audit.emit(
+        &ctx,
+        "channel_key.revoke",
+        "channel_key",
+        Some(key_id),
+        Some(serde_json::json!({"channel_id": id.to_string()})),
+    );
+
     Ok(Json(serde_json::json!({"revoked": true})))
+}
+
+// ============================================================================
+// Audit Logs
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct AuditLogQuery {
+    pub org_id: Option<Uuid>,
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_limit() -> i64 {
+    50
+}
+
+#[derive(Serialize)]
+pub struct AuditLogView {
+    pub id: String,
+    pub ts: DateTime<Utc>,
+    pub actor_kind: String,
+    pub actor_id: Option<String>,
+    pub action: String,
+    pub resource_kind: String,
+    pub resource_id: Option<String>,
+    pub org_id: Option<String>,
+    pub outcome: String,
+    pub after: Option<serde_json::Value>,
+}
+
+async fn list_audit_logs(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Query(q): Query<AuditLogQuery>,
+) -> AppResult<Json<Vec<AuditLogView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::AuditRead, Scope::Platform);
+
+    let limit = q.limit.clamp(1, 200);
+    let offset = q.offset.max(0);
+
+    let records = if let Some(org_id) = q.org_id {
+        app.repos.audit.list_by_org(org_id, limit, offset).await?
+    } else {
+        // No org filter — platform admin sees all (via org_id=nil trick won't work;
+        // for now require org_id)
+        return Err(AppError::BadRequest("org_id query param required".into()));
+    };
+
+    Ok(Json(
+        records
+            .into_iter()
+            .map(|r| AuditLogView {
+                id: r.id.to_string(),
+                ts: r.ts,
+                actor_kind: r.actor_kind,
+                actor_id: r.actor_id.map(|u| u.to_string()),
+                action: r.action,
+                resource_kind: r.resource_kind,
+                resource_id: r.resource_id.map(|u| u.to_string()),
+                org_id: r.org_id.map(|u| u.to_string()),
+                outcome: r.outcome,
+                after: r.after,
+            })
+            .collect(),
+    ))
 }

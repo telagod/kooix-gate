@@ -13,6 +13,7 @@
 //! - [`app`]       `build_router(state)` —— 单一入口，便于测试
 
 pub mod app;
+pub mod audit;
 pub mod auth;
 pub mod billing_emit;
 pub mod config;

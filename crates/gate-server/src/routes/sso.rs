@@ -373,6 +373,23 @@ async fn callback(
 
     let user = app.repos.users.find_by_id(user_id).await?;
 
+    // 审计：SSO 登录成功
+    let audit_ctx = gate_auth::AuthContext::user(
+        user_id,
+        session_id,
+        Default::default(),
+        Default::default(),
+        None,
+        current_org,
+    );
+    app.audit.emit(
+        &audit_ctx,
+        "user.sso_login",
+        "user",
+        Some(*user_id.as_uuid()),
+        Some(serde_json::json!({"idp_id": idp.id.to_string(), "idp_slug": &idp.slug})),
+    );
+
     let body = CallbackResponse {
         access_token: access_token.clone(),
         refresh_token: refresh_token.clone(),

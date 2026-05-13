@@ -205,6 +205,19 @@ async fn upsert_quota(
             window_seconds: req.window_seconds,
         })
         .await?;
+
+    app.audit.emit(
+        &ctx,
+        "quota.upsert",
+        "quota",
+        Some(rec.id),
+        Some(serde_json::json!({
+            "scope_kind": &rec.scope_kind,
+            "scope_id": rec.scope_id.to_string(),
+            "dimension": &rec.dimension,
+        })),
+    );
+
     Ok(Json(rec.into()))
 }
 
@@ -267,7 +280,16 @@ async fn delete_quota(
     }
 
     match app.repos.quotas.delete(quota_id).await {
-        Ok(()) => Ok(Json(serde_json::json!({"deleted": true}))),
+        Ok(()) => {
+            app.audit.emit(
+                &ctx,
+                "quota.delete",
+                "quota",
+                Some(quota_id),
+                None,
+            );
+            Ok(Json(serde_json::json!({"deleted": true})))
+        }
         Err(DbError::NotFound) => Err(AppError::NotFound),
         Err(e) => Err(e.into()),
     }
