@@ -12,6 +12,7 @@ pub mod chat;
 pub mod health;
 pub mod me;
 pub mod projects;
+pub mod quotas;
 pub mod sso;
 
 use crate::state::AppState;
@@ -32,5 +33,6 @@ pub fn v1_router() -> Router<AppState> {
         .merge(chat::router())
         .merge(auth::router())
         .merge(sso::router())
+        .merge(quotas::router())
         .nest("/admin", admin::router())
 }

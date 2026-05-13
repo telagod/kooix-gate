@@ -60,6 +60,24 @@ where
     AppState: FromRef<S>,
     S: Send + Sync,
 {
+    resolve_inner(parts, state).await
+}
+
+/// 给同 crate 其他模块（middleware）复用的解析入口。
+///
+/// 不直接公开 `resolve`，避免把 trait bound 形态扩散；这里固定 `&AppState`。
+pub(crate) async fn resolve_for_state(
+    parts: &mut Parts,
+    app: &AppState,
+) -> Result<AuthContext, AppError> {
+    resolve_inner(parts, app).await
+}
+
+async fn resolve_inner<S>(parts: &mut Parts, state: &S) -> Result<AuthContext, AppError>
+where
+    AppState: FromRef<S>,
+    S: Send + Sync,
+{
     let app: AppState = AppState::from_ref(state);
 
     let auth_header = parts

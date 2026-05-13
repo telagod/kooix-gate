@@ -2,9 +2,12 @@
 //!
 //! - [`base`] 基础：request_id / trace
 //! - [`rate_limit`] 基于 gate-cache 的滑窗限流，按 AuthContext 区分 subject
+//! - [`quota`] 基于 quotas 表的多维度配额执行（rpm/tpm/daily_budget）
 
 pub mod base;
+pub mod quota;
 pub mod rate_limit;
 
 pub use base::{request_id_layers, trace_layer};
+pub use quota::quota_enforce;
 pub use rate_limit::rate_limit_by_subject;

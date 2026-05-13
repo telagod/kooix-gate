@@ -190,6 +190,7 @@ async fn fixture() -> Fixture {
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
         oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
     };
 
     let jwt = JwtIssuer::new(

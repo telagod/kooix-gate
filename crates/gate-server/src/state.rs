@@ -5,12 +5,12 @@
 use crate::loader::AuthContextLoader;
 use gate_auth::jwt::JwtIssuer;
 use gate_billing::{OutboxRepo, PricingRepo};
-use gate_cache::RateLimiter;
+use gate_cache::{QuotaCounter, RateLimiter};
 use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, ChannelGroupRepo, ChannelRepo, IdentityProviderRepo, MembershipRepo, OidcStateRepo,
-    OrgRepo, ProjectRepo, UserIdentityRepo, UserRepo,
+    OrgRepo, ProjectRepo, QuotaRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -42,6 +42,9 @@ pub struct AppState {
     /// 计费定价表：handler 拿 (channel_id, model, at) 查单价用。
     /// 未配置时 chat handler 不计费（warn-only，不阻断请求）。
     pub pricing: Option<Arc<dyn PricingRepo>>,
+    /// 配额预扣/查询计数器（Redis 后端）。
+    /// 未配置时 quota middleware 对 budget 维度走 fail-open，仅 rate 维度仍可生效（走 rate_limiter）。
+    pub quota_counter: Option<Arc<QuotaCounter>>,
 }
 
 /// 限流参数。可未来按 plan/api-key 维度差异化。
@@ -79,6 +82,7 @@ pub struct Repos {
     pub identity_providers: Arc<dyn IdentityProviderRepo>,
     pub user_identities: Arc<dyn UserIdentityRepo>,
     pub oidc_states: Arc<dyn OidcStateRepo>,
+    pub quotas: Arc<dyn QuotaRepo>,
 }
 
 impl Repos {
@@ -86,8 +90,8 @@ impl Repos {
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
             PgApiKeyRepo, PgChannelGroupRepo, PgChannelRepo, PgIdentityProviderRepo,
-            PgMembershipRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgUserIdentityRepo,
-            PgUserRepo,
+            PgMembershipRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo,
+            PgUserIdentityRepo, PgUserRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -99,7 +103,8 @@ impl Repos {
             channel_groups: Arc::new(PgChannelGroupRepo::new(pool.clone())),
             identity_providers: Arc::new(PgIdentityProviderRepo::new(pool.clone())),
             user_identities: Arc::new(PgUserIdentityRepo::new(pool.clone())),
-            oidc_states: Arc::new(PgOidcStateRepo::new(pool)),
+            oidc_states: Arc::new(PgOidcStateRepo::new(pool.clone())),
+            quotas: Arc::new(PgQuotaRepo::new(pool)),
         }
     }
 
@@ -108,7 +113,8 @@ impl Repos {
         use gate_storage::{
             InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
             InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryOidcStateRepo,
-            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryUserIdentityRepo,
+            InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -121,6 +127,7 @@ impl Repos {
             identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
             user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
             oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
+            quotas: Arc::new(InMemoryQuotaRepo::new()),
         }
     }
 }
@@ -140,6 +147,7 @@ impl AppState {
             public_origin: None,
             outbox: None,
             pricing: None,
+            quota_counter: None,
         }
     }
 
@@ -186,6 +194,12 @@ impl AppState {
     /// 挂载计费 pricing 仓库（D4 新增）。未挂载时计费走 warn-only 路径。
     pub fn with_pricing(mut self, pricing: Arc<dyn PricingRepo>) -> Self {
         self.pricing = Some(pricing);
+        self
+    }
+
+    /// 挂载 quota 计数器（E3 新增）。未挂载时 budget 配额检查走 fail-open。
+    pub fn with_quota_counter(mut self, qc: QuotaCounter) -> Self {
+        self.quota_counter = Some(Arc::new(qc));
         self
     }
 }
