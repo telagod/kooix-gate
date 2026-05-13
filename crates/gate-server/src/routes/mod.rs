@@ -8,6 +8,7 @@
 pub mod admin;
 pub mod api_keys;
 pub mod auth;
+pub mod billing;
 pub mod channels;
 pub mod chat;
 pub mod health;
@@ -38,5 +39,6 @@ pub fn v1_router() -> Router<AppState> {
         .merge(usage::router())
         .merge(channels::router())
         .merge(quotas::router())
+        .merge(billing::router())
         .nest("/admin", admin::router())
 }

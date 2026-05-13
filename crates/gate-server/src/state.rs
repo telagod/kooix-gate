@@ -10,9 +10,9 @@ use gate_cache::{QuotaCounter, RateLimiter};
 use gate_crypto::EnvelopeKms;
 use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
-    ApiKeyRepo, AuditRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, IdentityProviderRepo,
-    MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, UsageRepo,
-    UserIdentityRepo, UserRepo,
+    ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo,
+    IdentityProviderRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo,
+    QuotaRepo, UsageRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -96,15 +96,18 @@ pub struct Repos {
     pub model_aliases: Arc<dyn ModelAliasRepo>,
     /// 审计日志（G2 追加）—— 关键操作落 audit_logs 表。
     pub audit: Arc<dyn AuditRepo>,
+    /// 计费聚合（G3 追加）—— 月度账单 + CSV 导出。
+    pub billing: Arc<dyn BillingRepo>,
 }
 
 impl Repos {
     /// 从一个 PgPool 批量构造全部 Pg 实现。
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
-            PgApiKeyRepo, PgAuditRepo, PgChannelGroupRepo, PgChannelKeyRepo, PgChannelRepo,
-            PgIdentityProviderRepo, PgMembershipRepo, PgModelAliasRepo, PgOidcStateRepo,
-            PgOrgRepo, PgProjectRepo, PgQuotaRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo,
+            PgApiKeyRepo, PgAuditRepo, PgBillingRepo, PgChannelGroupRepo, PgChannelKeyRepo,
+            PgChannelRepo, PgIdentityProviderRepo, PgMembershipRepo, PgModelAliasRepo,
+            PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo, PgUsageRepo,
+            PgUserIdentityRepo, PgUserRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -121,14 +124,15 @@ impl Repos {
             usage: Arc::new(PgUsageRepo::new(pool.clone())),
             quotas: Arc::new(PgQuotaRepo::new(pool.clone())),
             model_aliases: Arc::new(PgModelAliasRepo::new(pool.clone())),
-            audit: Arc::new(PgAuditRepo::new(pool)),
+            audit: Arc::new(PgAuditRepo::new(pool.clone())),
+            billing: Arc::new(PgBillingRepo::new(pool)),
         }
     }
 
     /// 内存版（dev 模式 / 测试用）。
     pub fn in_memory() -> Self {
         use gate_storage::{
-            InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryChannelGroupRepo,
+            InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryBillingRepo, InMemoryChannelGroupRepo,
             InMemoryChannelKeyRepo, InMemoryChannelRepo, InMemoryIdentityProviderRepo,
             InMemoryMembershipRepo, InMemoryModelAliasRepo, InMemoryOidcStateRepo,
             InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryUsageRepo,
@@ -150,6 +154,7 @@ impl Repos {
             quotas: Arc::new(InMemoryQuotaRepo::new()),
             model_aliases: Arc::new(InMemoryModelAliasRepo::new()),
             audit: Arc::new(InMemoryAuditRepo::new()),
+            billing: Arc::new(InMemoryBillingRepo::new()),
         }
     }
 }

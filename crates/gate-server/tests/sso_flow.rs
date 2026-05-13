@@ -139,6 +139,7 @@ async fn build_fixture(
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
     };
 
     let jwt = JwtIssuer::new(

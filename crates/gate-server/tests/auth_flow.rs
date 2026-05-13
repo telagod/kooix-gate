@@ -277,6 +277,7 @@ fn build_repos(
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
     }
 }
 
@@ -580,6 +581,7 @@ async fn create_apikey_emits_audit_record() {
         quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: audit_repo.clone(),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
     };
 
     let state = AppState::new(jwt.clone(), loader, repos);

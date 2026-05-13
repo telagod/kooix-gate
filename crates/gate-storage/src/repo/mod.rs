@@ -11,6 +11,7 @@
 
 pub mod api_key;
 pub mod audit;
+pub mod billing;
 pub mod channel;
 pub mod channel_key;
 pub mod identity;

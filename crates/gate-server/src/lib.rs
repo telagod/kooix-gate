@@ -12,6 +12,7 @@
 //! - [`metrics`]   Prometheus metrics recorder + /metrics endpoint
 //! - [`app`]       `build_router(state)` —— 单一入口，便于测试
 
+pub mod alerts;
 pub mod app;
 pub mod audit;
 pub mod auth;
