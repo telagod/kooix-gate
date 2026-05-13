@@ -170,13 +170,139 @@ export interface Channel {
 	code: string;
 	name: string;
 	provider_type: string;
+	base_url: string;
 	status: string;
 	health: string;
 	updated_at: string;
 }
 
+export interface CreateChannelRequest {
+	code: string;
+	provider_type: string;
+	base_url: string;
+	name?: string;
+	enabled?: boolean;
+	supported_models?: string[];
+}
+
+export interface UpdateChannelRequest {
+	name?: string;
+	base_url?: string;
+	enabled?: boolean;
+	supported_models?: string[];
+}
+
 export async function listChannels(orgId: string): Promise<Channel[]> {
 	return apiFetch<Channel[]>(`/v1/orgs/${orgId}/channels`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function listAdminChannels(): Promise<Channel[]> {
+	return apiFetch<Channel[]>('/v1/admin/channels');
+}
+
+export async function createChannel(data: CreateChannelRequest): Promise<Channel> {
+	return apiFetch<Channel>('/v1/admin/channels', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function updateChannel(id: string, data: UpdateChannelRequest): Promise<Channel> {
+	return apiFetch<Channel>(`/v1/admin/channels/${id}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function deleteChannel(id: string): Promise<void> {
+	return apiFetch(`/v1/admin/channels/${id}`, {
+		method: 'DELETE'
+	});
+}
+
+// ── API Keys ───────────────────────────────────────
+
+export interface ApiKey {
+	id: string;
+	name: string;
+	prefix: string;
+	last4: string;
+	allowed_models: string[];
+	created_at: string | null;
+	last_used_at: string | null;
+	revoked: boolean;
+}
+
+export interface CreateKeyResponse {
+	id: string;
+	name: string;
+	plaintext: string;
+	prefix: string;
+	last4: string;
+}
+
+export async function listKeys(orgId: string, projectId: string): Promise<ApiKey[]> {
+	return apiFetch<ApiKey[]>(`/v1/orgs/${orgId}/projects/${projectId}/api-keys`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function createKey(orgId: string, projectId: string, name: string): Promise<CreateKeyResponse> {
+	return apiFetch<CreateKeyResponse>(`/v1/orgs/${orgId}/projects/${projectId}/api-keys`, {
+		method: 'POST',
+		body: JSON.stringify({ name }),
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function revokeKey(orgId: string, projectId: string, keyId: string): Promise<void> {
+	return apiFetch(`/v1/orgs/${orgId}/projects/${projectId}/api-keys/${keyId}`, {
+		method: 'DELETE',
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+// ── Quotas ─────────────────────────────────────────
+
+export interface Quota {
+	id: string;
+	scope_kind: string;
+	scope_id: string;
+	dimension: string;
+	model_filter: string | null;
+	limit_value: string;
+	window_seconds: number | null;
+	enabled: boolean;
+}
+
+export interface UpsertQuotaRequest {
+	scope_kind: string;
+	scope_id: string;
+	dimension: string;
+	model_filter?: string | null;
+	limit_value: number;
+	window_seconds?: number | null;
+}
+
+export async function listQuotas(orgId: string): Promise<Quota[]> {
+	return apiFetch<Quota[]>(`/v1/orgs/${orgId}/quotas`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function upsertQuota(orgId: string, data: UpsertQuotaRequest): Promise<Quota> {
+	return apiFetch<Quota>(`/v1/orgs/${orgId}/quotas`, {
+		method: 'POST',
+		body: JSON.stringify(data),
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function deleteQuota(orgId: string, quotaId: string): Promise<void> {
+	return apiFetch(`/v1/orgs/${orgId}/quotas/${quotaId}`, {
+		method: 'DELETE',
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
