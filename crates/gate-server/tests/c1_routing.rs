@@ -82,11 +82,14 @@ async fn provider_router_selects_highest_priority() {
     grp_repo.seed_default(project_id, group_id);
 
     let router = ProviderRouter::new(ch_repo, grp_repo);
-    let provider = router.route(project_id, "gpt-4o-mini").await.unwrap();
+    let routed = router.route(project_id, "gpt-4o-mini").await.unwrap();
     // 应该能找到（高优先级 channel）
-    assert!(provider.is_some(), "should get a provider");
+    assert!(routed.is_some(), "should get a provider");
+    let routed = routed.unwrap();
     // Provider name 应该是 openai
-    assert_eq!(provider.unwrap().name(), "openai");
+    assert_eq!(routed.provider.name(), "openai");
+    // 验证 channel_id 是高优先级那条
+    assert_eq!(routed.channel_id, ch_high);
 }
 
 /// 完整链路：api_key → project → group → channel → wiremock upstream

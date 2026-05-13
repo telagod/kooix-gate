@@ -47,10 +47,9 @@ async fn chat_completions(
     headers: HeaderMap,
     Json(req): Json<ChatRequest>,
 ) -> AppResult<axum::response::Response> {
-    let provider = resolve_provider(&app, &ctx, &headers, &req).await?;
-    // 计费上下文：仅 ApiKey 主体生成；channel_id 当前 D4 阶段未拿到（None 走全局 pricing）
-    // TODO(D5+): 把 ProviderRouter 选到的 channel_id 传出来给计费
-    let billing_ctx = BillingCtx::from_auth(&ctx, None, &req.model);
+    let (provider, channel_id) = resolve_provider(&app, &ctx, &headers, &req).await?;
+    // 计费上下文：仅 ApiKey 主体生成；channel_id 来自 ProviderRouter，fallback 路径为 None
+    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model);
     let model = req.model.clone();
 
     if req.stream {
@@ -125,22 +124,24 @@ async fn chat_completions(
 /// 按 subject 类型解析 project_id，再经 ProviderRouter 选 Provider。
 ///
 /// 返回顺序：
-/// 1. ProviderRouter 选到 → 返回
-/// 2. ProviderRouter 找不到（返回 None） → fallback 到 AppState.provider
+/// 1. ProviderRouter 选到 → 返回 `(Provider, Some(channel_id))`
+/// 2. ProviderRouter 找不到（返回 None） → fallback 到 AppState.provider，channel_id=None
 /// 3. 均无 → 400
 async fn resolve_provider(
     app: &AppState,
     ctx: &gate_auth::AuthContext,
     headers: &HeaderMap,
     req: &ChatRequest,
-) -> AppResult<Arc<dyn Provider>> {
+) -> AppResult<(Arc<dyn Provider>, Option<uuid::Uuid>)> {
     // 尝试从 ProviderRouter 获取
     if let Some(router) = &app.provider_router {
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
 
         if let Some(project_id) = project_id_opt {
             match router.route(project_id, &req.model).await {
-                Ok(Some(p)) => return Ok(p),
+                Ok(Some(routed)) => {
+                    return Ok((routed.provider, Some(*routed.channel_id.as_uuid())));
+                }
                 Ok(None) => {
                     // 路由找不到 channel，继续 fallback
                     tracing::debug!(
@@ -156,10 +157,12 @@ async fn resolve_provider(
         }
     }
 
-    // Fallback: 使用全局 provider
-    app.provider
+    // Fallback: 使用全局 provider，无 channel_id 归属
+    let provider = app
+        .provider
         .clone()
-        .ok_or_else(|| AppError::BadRequest("no provider configured".into()))
+        .ok_or_else(|| AppError::BadRequest("no provider configured".into()))?;
+    Ok((provider, None))
 }
 
 /// 从 AuthContext + headers 提取 project_id（带越权校验）。

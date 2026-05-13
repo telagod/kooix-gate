@@ -13,9 +13,16 @@
 use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::openai::OpenAiProvider;
-use gate_core::id::ProjectId;
+use gate_core::id::{ChannelId, ProjectId};
 use gate_storage::{ChannelGroupRepo, ChannelRepo};
 use std::sync::Arc;
+
+/// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）。
+#[derive(Clone)]
+pub struct RoutedProvider {
+    pub provider: Arc<dyn Provider>,
+    pub channel_id: ChannelId,
+}
 
 /// API key 来源策略（C1 阶段只看 env）。
 ///
@@ -56,11 +63,12 @@ impl ProviderRouter {
     ///
     /// - `requested_model`：目前仅用于日志，C1 不做 model_filter 匹配
     /// - 返回 `None` 表示找不到可用渠道，调用方 fallback 到全局 provider
+    /// - 返回 `Some(RoutedProvider)` 时 channel_id 为计费/审计追溯依据
     pub async fn route(
         &self,
         project_id: ProjectId,
         requested_model: &str,
-    ) -> ProviderResult<Option<Arc<dyn Provider>>> {
+    ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 1: 找 project 的默认 channel_group
         let group = match self.group_repo.find_default_for_project(project_id).await {
             Ok(g) => g,
@@ -121,6 +129,9 @@ impl ProviderRouter {
         let provider = OpenAiProvider::new(selected.channel.base_url.clone(), api_key)
             .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
 
-        Ok(Some(Arc::new(provider) as Arc<dyn Provider>))
+        Ok(Some(RoutedProvider {
+            provider: Arc::new(provider) as Arc<dyn Provider>,
+            channel_id: selected.channel.channel_id,
+        }))
     }
 }

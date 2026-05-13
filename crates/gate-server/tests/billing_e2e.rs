@@ -401,3 +401,142 @@ async fn stream_request_injects_include_usage_into_upstream() {
     let _ = resp.into_body().collect().await.unwrap();
     // wiremock 的 .expect(1) 会在 drop 时检查 hit 次数
 }
+
+/// E1: ProviderRouter 选中 channel 后，channel_id 必须沿调用链传到 UsageEvent。
+/// fallback 路径已被现有测试覆盖（channel_id=None）。
+#[tokio::test]
+async fn routed_chat_records_channel_id_in_outbox() {
+    use gate_core::id::{ChannelGroupId, ChannelId};
+    use gate_providers::ProviderRouter;
+    use gate_storage::{
+        ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+    };
+
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-routed-1",
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "routed!" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    // ID setup
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    let group_id = ChannelGroupId::new();
+    let channel_id = ChannelId::new();
+
+    // Channel + group
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let now = chrono::Utc::now();
+    ch_repo.seed_channel(ChannelRecord {
+        channel_id,
+        code: "wm".into(),
+        name: "wm-channel".into(),
+        provider_type: "openai".into(),
+        base_url: format!("{}/v1", upstream.uri()),
+        supported_models: vec![],
+        status: "active".into(),
+        health: "healthy".into(),
+        timeout_ms: 60_000,
+        max_retries: 1,
+        created_at: now,
+        updated_at: now,
+    });
+    ch_repo.seed_binding(group_id, channel_id, 10, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "g".into(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let provider_router = ProviderRouter::new(ch_repo.clone(), grp_repo.clone());
+
+    // JWT
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    // Loader: API key 绑定到上面的 project_id / org_id
+    let plaintext = "sk-kg-test-routed-channel-key-aaaaa";
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        plaintext,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    // Pricing + outbox
+    let pricing = Arc::new(InMemoryPricingRepo::new());
+    pricing.seed_global("gpt-4o-mini", 0.15, 0.60);
+    let outbox = Arc::new(InMemoryOutboxRepo::new());
+
+    // 用真 ChannelRepo / Group repo（非 default in_memory）
+    let mut repos = Repos::in_memory();
+    repos.channels = ch_repo;
+    repos.channel_groups = grp_repo;
+
+    let state = AppState::new(jwt, loader, repos)
+        .with_provider_router(provider_router)
+        .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>)
+        .with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
+    // 不挂 fallback provider，强制走 router 路径
+    let router = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {plaintext}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Hi"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let _ = resp.into_body().collect().await.unwrap();
+
+    yield_for_emit().await;
+
+    let events = outbox.snapshot();
+    assert_eq!(events.len(), 1, "expected exactly 1 outbox event");
+    let ev = &events[0];
+    assert_eq!(
+        ev.channel_id,
+        Some(*channel_id.as_uuid()),
+        "channel_id must propagate from ProviderRouter to UsageEvent"
+    );
+    assert_eq!(ev.prompt_tokens, 1000);
+    assert_eq!(ev.completion_tokens, 500);
+}
