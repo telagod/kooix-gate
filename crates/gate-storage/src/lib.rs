@@ -13,6 +13,12 @@ pub use repo::channel::{
     ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelRecord, ChannelRepo,
     InMemoryChannelGroupRepo, InMemoryChannelRepo, PgChannelGroupRepo, PgChannelRepo,
 };
+pub use repo::identity::{
+    IdentityProviderRecord, IdentityProviderRepo, InMemoryIdentityProviderRepo,
+    InMemoryOidcStateRepo, InMemoryUserIdentityRepo, OidcStateRecord, OidcStateRepo,
+    PgIdentityProviderRepo, PgOidcStateRepo, PgUserIdentityRepo, UserIdentityRecord,
+    UserIdentityRepo,
+};
 pub use repo::membership::{MembershipRepo, PgMembershipRepo, UserMemberships};
 pub use repo::memory::{
     InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,

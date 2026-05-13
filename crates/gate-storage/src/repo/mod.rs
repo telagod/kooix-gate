@@ -11,6 +11,7 @@
 
 pub mod api_key;
 pub mod channel;
+pub mod identity;
 pub mod membership;
 pub mod memory;
 pub mod org;
