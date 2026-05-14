@@ -7,173 +7,164 @@
 	import type { MeResult } from '$lib/api.js';
 	import { theme, toggleTheme } from '$lib/stores/theme';
 
+	import {
+		Building2,
+		BarChart3,
+		FolderOpen,
+		Receipt,
+		Gauge,
+		Cable,
+		ClipboardList,
+		Sun,
+		Moon,
+		Monitor,
+		LogOut,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Shield
+	} from 'lucide-svelte';
+
 	let currentPath = $derived($page.url.pathname);
 	let me = $state<MeResult | null>(null);
 	let collapsed = $state(false);
 
 	onMount(async () => {
-		try {
-			me = await getMe();
-		} catch {}
+		try { me = await getMe(); } catch {}
 	});
 
 	let currentOrg = $derived(me?.current_org ?? me?.orgs?.[0] ?? null);
 	let isAdmin = $derived(me?.is_platform_admin ?? false);
 
-	function isActive(pattern: string): boolean {
+	function active(pattern: string): boolean {
 		if (pattern === '/orgs') return currentPath === '/orgs' || currentPath.startsWith('/orgs/');
 		if (pattern === '/usage') return currentPath.startsWith('/usage');
 		if (pattern === '/channels') return currentPath === '/channels' || currentPath.startsWith('/channels/');
-		if (pattern === '/admin/audit') return currentPath.startsWith('/admin');
+		if (pattern === '/admin') return currentPath.startsWith('/admin');
 		return currentPath.startsWith(pattern);
 	}
 
-	function handleLogout() {
-		clearTokens();
-		goto('/login');
+	function linkCls(pattern: string): string {
+		const base = 'flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors mb-0.5';
+		return active(pattern)
+			? `${base} bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900`
+			: `${base} text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800`;
 	}
 
-	const themeLabel: Record<string, string> = { light: '☀ 浅色', dark: '🌙 深色', system: '💻 系统' };
-	const themeIcon: Record<string, string> = { light: '☀', dark: '🌙', system: '💻' };
-
-	interface NavItem {
-		href: string;
-		label: string;
-		icon: string;
-		pattern: string;
-	}
-
-	const userNav: NavItem[] = [
-		{ href: '/orgs', label: '组织', icon: '🏢', pattern: '/orgs' },
-		{ href: '/usage', label: '用量', icon: '📊', pattern: '/usage' },
-	];
-
-	let orgNav = $derived.by((): NavItem[] => {
-		if (!currentOrg) return [];
-		return [
-			{ href: `/orgs/${currentOrg}/projects`, label: '项目', icon: '📁', pattern: `/orgs/${currentOrg}/projects` },
-			{ href: `/orgs/${currentOrg}/billing`, label: '账单', icon: '💰', pattern: `/orgs/${currentOrg}/billing` },
-			{ href: `/orgs/${currentOrg}/quotas`, label: '配额', icon: '⚙', pattern: `/orgs/${currentOrg}/quotas` },
-		];
-	});
-
-	const adminNav: NavItem[] = [
-		{ href: '/channels', label: '渠道管理', icon: '🔌', pattern: '/channels' },
-		{ href: '/admin/audit', label: '审计日志', icon: '📋', pattern: '/admin/audit' },
-	];
+	const iconSize = 18;
 </script>
 
-<aside class="flex flex-col h-full {collapsed ? 'w-16' : 'w-56'} bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-700 transition-all duration-200 shrink-0">
-	<!-- Logo -->
-	<div class="flex items-center justify-between px-4 h-14 border-b border-zinc-200 dark:border-zinc-700">
+<aside class="flex flex-col h-full {collapsed ? 'w-14' : 'w-56'} bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-700 transition-all duration-200 shrink-0">
+	<!-- Header -->
+	<div class="flex items-center justify-between px-3 h-14 border-b border-zinc-200 dark:border-zinc-700">
 		{#if !collapsed}
-			<a href="/orgs" class="text-base font-bold text-zinc-900 dark:text-zinc-100 truncate">Kooix Gate</a>
-		{:else}
-			<a href="/orgs" class="text-base font-bold text-zinc-900 dark:text-zinc-100">K</a>
+			<a href="/orgs" class="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">Kooix Gate</a>
 		{/if}
 		<button
 			onclick={() => (collapsed = !collapsed)}
-			class="p-1 rounded text-zinc-400 dark:text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-xs"
-			title={collapsed ? '展开' : '收起'}
+			class="p-1.5 rounded-md text-zinc-400 dark:text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+			title={collapsed ? '展开侧栏' : '收起侧栏'}
 		>
-			{collapsed ? '»' : '«'}
+			{#if collapsed}
+				<PanelLeftOpen size={16} />
+			{:else}
+				<PanelLeftClose size={16} />
+			{/if}
 		</button>
 	</div>
 
-	<!-- Nav sections -->
-	<nav class="flex-1 overflow-y-auto py-3 px-2 space-y-4">
-		<!-- User section -->
+	<!-- Nav -->
+	<nav class="flex-1 overflow-y-auto py-3 px-2 space-y-5">
+		<!-- Main -->
 		<div>
 			{#if !collapsed}
-				<p class="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">导航</p>
+				<p class="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">导航</p>
 			{/if}
-			{#each userNav as item}
-				<a
-					href={item.href}
-					class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors mb-0.5
-						{isActive(item.pattern)
-							? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-							: 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}"
-					title={collapsed ? item.label : ''}
-				>
-					<span class="text-base leading-none shrink-0">{item.icon}</span>
-					{#if !collapsed}<span class="truncate">{item.label}</span>{/if}
-				</a>
-			{/each}
+			<a href="/orgs" class={linkCls('/orgs')} title={collapsed ? '组织' : ''}>
+				<Building2 size={iconSize} />
+				{#if !collapsed}<span class="truncate">组织</span>{/if}
+			</a>
+			<a href="/usage" class={linkCls('/usage')} title={collapsed ? '用量' : ''}>
+				<BarChart3 size={iconSize} />
+				{#if !collapsed}<span class="truncate">用量</span>{/if}
+			</a>
 		</div>
 
-		<!-- Org context section -->
-		{#if orgNav.length > 0}
+		<!-- Org context -->
+		{#if currentOrg}
 			<div>
 				{#if !collapsed}
-					<p class="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-						当前组织
-					</p>
+					<p class="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">当前组织</p>
 				{/if}
-				{#each orgNav as item}
-					<a
-						href={item.href}
-						class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors mb-0.5
-							{isActive(item.pattern)
-								? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-								: 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}"
-						title={collapsed ? item.label : ''}
-					>
-						<span class="text-base leading-none shrink-0">{item.icon}</span>
-						{#if !collapsed}<span class="truncate">{item.label}</span>{/if}
-					</a>
-				{/each}
+				<a href="/orgs/{currentOrg}/projects" class={linkCls(`/orgs/${currentOrg}/projects`)} title={collapsed ? '项目' : ''}>
+					<FolderOpen size={iconSize} />
+					{#if !collapsed}<span class="truncate">项目</span>{/if}
+				</a>
+				<a href="/orgs/{currentOrg}/billing" class={linkCls(`/orgs/${currentOrg}/billing`)} title={collapsed ? '账单' : ''}>
+					<Receipt size={iconSize} />
+					{#if !collapsed}<span class="truncate">账单</span>{/if}
+				</a>
+				<a href="/orgs/{currentOrg}/quotas" class={linkCls(`/orgs/${currentOrg}/quotas`)} title={collapsed ? '配额' : ''}>
+					<Gauge size={iconSize} />
+					{#if !collapsed}<span class="truncate">配额</span>{/if}
+				</a>
 			</div>
 		{/if}
 
-		<!-- Admin section -->
+		<!-- Admin -->
 		{#if isAdmin}
 			<div>
 				{#if !collapsed}
-					<div class="px-2 mb-1 flex items-center gap-1.5">
+					<div class="px-2.5 mb-1.5 flex items-center gap-1.5">
 						<p class="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">管理员</p>
 						<span class="inline-block px-1 py-0 rounded text-[9px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">Admin</span>
 					</div>
+				{:else}
+					<div class="flex justify-center mb-1">
+						<Shield size={12} class="text-amber-500" />
+					</div>
 				{/if}
-				{#each adminNav as item}
-					<a
-						href={item.href}
-						class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors mb-0.5
-							{isActive(item.pattern)
-								? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-								: 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}"
-						title={collapsed ? item.label : ''}
-					>
-						<span class="text-base leading-none shrink-0">{item.icon}</span>
-						{#if !collapsed}<span class="truncate">{item.label}</span>{/if}
-					</a>
-				{/each}
+				<a href="/channels" class={linkCls('/channels')} title={collapsed ? '渠道管理' : ''}>
+					<Cable size={iconSize} />
+					{#if !collapsed}<span class="truncate">渠道管理</span>{/if}
+				</a>
+				<a href="/admin/audit" class={linkCls('/admin')} title={collapsed ? '审计日志' : ''}>
+					<ClipboardList size={iconSize} />
+					{#if !collapsed}<span class="truncate">审计日志</span>{/if}
+				</a>
 			</div>
 		{/if}
 	</nav>
 
-	<!-- Bottom: theme + user -->
-	<div class="border-t border-zinc-200 dark:border-zinc-700 p-2 space-y-1">
+	<!-- Bottom -->
+	<div class="border-t border-zinc-200 dark:border-zinc-700 p-2 space-y-0.5">
 		<button
 			onclick={toggleTheme}
-			title="切换主题"
+			title={collapsed ? '切换主题' : ''}
 			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
 		>
-			<span class="text-base leading-none shrink-0">{themeIcon[$theme]}</span>
-			{#if !collapsed}<span class="truncate">{themeLabel[$theme]}</span>{/if}
+			{#if $theme === 'light'}
+				<Sun size={iconSize} />
+				{#if !collapsed}<span class="truncate">浅色</span>{/if}
+			{:else if $theme === 'dark'}
+				<Moon size={iconSize} />
+				{#if !collapsed}<span class="truncate">深色</span>{/if}
+			{:else}
+				<Monitor size={iconSize} />
+				{#if !collapsed}<span class="truncate">跟随系统</span>{/if}
+			{/if}
 		</button>
 
 		<button
-			onclick={handleLogout}
-			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+			onclick={() => { clearTokens(); goto('/login'); }}
 			title={collapsed ? '登出' : ''}
+			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
 		>
-			<span class="text-base leading-none shrink-0">🚪</span>
+			<LogOut size={iconSize} />
 			{#if !collapsed}<span class="truncate">登出</span>{/if}
 		</button>
 
 		{#if !collapsed && me}
-			<div class="px-2.5 py-1.5">
+			<div class="px-2.5 py-1">
 				<p class="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">
 					{#if isAdmin}
 						<span class="text-amber-600 dark:text-amber-400">Admin</span> ·
