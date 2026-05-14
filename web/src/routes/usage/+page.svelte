@@ -1,10 +1,8 @@
 <!-- /usage — 用量仪表盘：三 stat cards + SVG 折线图 + 范围切换 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { getUsage, getMe } from '$lib/api.js';
 	import type { UsageResponse } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Stat from '$lib/components/Stat.svelte';
@@ -16,10 +14,6 @@
 	let currentOrg = $state<string | null>(null);
 
 	onMount(async () => {
-		if (!getAccessToken()) {
-			goto('/login');
-			return;
-		}
 		try {
 			const me = await getMe();
 			currentOrg = me.current_org ?? me.orgs[0] ?? null;
@@ -29,11 +23,6 @@
 				return;
 			}
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载身份失败';
 			loading = false;
 			return;
@@ -47,11 +36,6 @@
 		try {
 			usage = await getUsage(currentOrg, range);
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
@@ -115,7 +99,7 @@
 	});
 </script>
 
-<div class="max-w-6xl mx-auto p-6">
+<div class="max-w-7xl mx-auto p-6">
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">用量仪表盘</h1>
 		<div class="flex gap-2">

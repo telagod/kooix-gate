@@ -3,7 +3,6 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getMe } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 
@@ -13,20 +12,11 @@
 	let activeOrg = $state<string | null>(null);
 
 	onMount(async () => {
-		if (!getAccessToken()) {
-			goto('/login');
-			return;
-		}
 		try {
 			me = await getMe();
 			activeOrg = me.current_org ?? me.orgs[0] ?? null;
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-			} else {
-				error = err?.message ?? '加载失败';
-			}
+			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
 		}
@@ -46,7 +36,7 @@
 	}
 </script>
 
-<div class="max-w-4xl mx-auto p-6">
+<div class="max-w-7xl mx-auto p-6">
 	{#if loading}
 		<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
 	{:else if error}

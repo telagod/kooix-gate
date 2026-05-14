@@ -1,7 +1,6 @@
 <!-- /channels/[channelId] — Channel Keys 管理 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import {
 		getMe,
@@ -11,7 +10,6 @@
 		revokeChannelKey
 	} from '$lib/api.js';
 	import type { ChannelKeySummary } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -49,11 +47,6 @@
 			const me = await getMe();
 			isPlatformAdmin = me.is_platform_admin;
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载身份失败';
 			loading = false;
 			return;
@@ -67,11 +60,6 @@
 		try {
 			keys = await listChannelKeys(channelId);
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
@@ -297,17 +285,8 @@
 
 <div>
 	<!-- 面包屑 -->
-	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
-		<button onclick={() => goto('/channels')} class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
-			← 渠道列表
-		</button>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<span class="text-sm font-mono text-zinc-600 dark:text-zinc-400">{channelId}</span>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Keys</span>
-	</div>
-
-	<div class="max-w-5xl mx-auto p-6">
+	<div class="max-w-7xl mx-auto p-6">
+		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">渠道 / {channelId.slice(0, 8)}... / Keys</p>
 		<div class="flex items-center justify-between mb-1">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Channel Keys 管理</h1>
 			{#if isPlatformAdmin}

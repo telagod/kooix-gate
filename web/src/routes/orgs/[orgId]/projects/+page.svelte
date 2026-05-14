@@ -4,7 +4,6 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { listProjects, createProject } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import type { Project } from '$lib/api.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
@@ -23,10 +22,6 @@
 	let createError = $state('');
 
 	onMount(async () => {
-		if (!getAccessToken()) {
-			goto('/login');
-			return;
-		}
 		await loadProjects();
 	});
 
@@ -36,12 +31,7 @@
 		try {
 			projects = await listProjects(orgId);
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-			} else {
-				error = err?.message ?? '加载失败';
-			}
+			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
 		}
@@ -68,19 +58,8 @@
 </script>
 
 <div>
-	<!-- 子导航：面包屑 -->
-	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
-		<button
-			onclick={() => goto('/orgs')}
-			class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-		>
-			← 组织列表
-		</button>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100 font-mono">{orgId}</span>
-	</div>
-
-	<div class="max-w-4xl mx-auto p-6">
+	<div class="max-w-7xl mx-auto p-6">
+		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">组织 / {orgId.slice(0, 8)}... / 项目</p>
 		<div class="flex items-center justify-between mb-6">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">项目列表</h1>
 			<div class="flex gap-2">

@@ -5,7 +5,6 @@
 	import { page } from '$app/stores';
 	import { listKeys, createKey, revokeKey } from '$lib/api.js';
 	import type { ApiKey, CreateKeyResponse } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -33,10 +32,6 @@
 	let toast = $state('');
 
 	onMount(async () => {
-		if (!getAccessToken()) {
-			goto('/login');
-			return;
-		}
 		await loadKeys();
 	});
 
@@ -46,12 +41,7 @@
 		try {
 			keys = await listKeys(orgId, projectId);
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-			} else {
-				error = err?.message ?? '加载失败';
-			}
+			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
 		}
@@ -154,19 +144,8 @@
 
 <div>
 	<!-- 面包屑 -->
-	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
-		<button onclick={() => goto('/orgs')} class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
-			← 组织
-		</button>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<button onclick={() => goto(`/orgs/${orgId}/projects`)} class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors font-mono">
-			{orgId.slice(0, 8)}...
-		</button>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">API Keys</span>
-	</div>
-
-	<div class="max-w-5xl mx-auto p-6">
+	<div class="max-w-7xl mx-auto p-6">
+		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">组织 / {orgId.slice(0, 8)}... / 项目 / API Keys</p>
 		<div class="flex items-center justify-between mb-6">
 			<div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">API Keys</h1>

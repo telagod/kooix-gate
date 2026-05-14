@@ -1,11 +1,9 @@
 <!-- /orgs/[orgId]/billing — 月账单 + CSV 导出 + 配额告警 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { getMonthlyBill, exportBillingCsv, getQuotaAlerts, getMe } from '$lib/api.js';
 	import type { MonthlyBill, QuotaAlert } from '$lib/api.js';
-	import { clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Stat from '$lib/components/Stat.svelte';
@@ -36,16 +34,11 @@
 	let exporting = $state(false);
 	let exportError = $state('');
 
-	// ── 挂载：验证身份后并行加载账单 + 告警 ─────────────
+	// ── 挂载：并行加载账单 + 告警 ─────────────
 	onMount(async () => {
 		try {
 			await getMe(orgId);
-		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
+		} catch {
 			// 非 401 忽略（超管可能无 org 上下文），继续加载
 		}
 		await loadAll();
@@ -62,11 +55,6 @@
 			bill = b;
 			alerts = a;
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
@@ -124,20 +112,8 @@
 
 <div>
 	<!-- 面包屑 -->
-	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
-		<button
-			onclick={() => goto('/orgs')}
-			class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-		>
-			← 组织列表
-		</button>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100 font-mono">{orgId.slice(0, 8)}...</span>
-		<span class="text-zinc-300 dark:text-zinc-600">/</span>
-		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">账单</span>
-	</div>
-
-	<div class="max-w-5xl mx-auto p-6">
+	<div class="max-w-7xl mx-auto p-6">
+		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">组织 / {orgId.slice(0, 8)}... / 账单</p>
 		<!-- 标题行 -->
 		<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
 			<div>

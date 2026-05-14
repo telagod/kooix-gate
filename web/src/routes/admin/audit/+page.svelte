@@ -1,10 +1,8 @@
 <!-- /admin/audit — 审计日志 (platform admin only) -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { getMe, listAuditLogs } from '$lib/api.js';
 	import type { AuditLog } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 
@@ -35,11 +33,6 @@
 				selectedOrg = orgs[0];
 			}
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载身份失败';
 			loading = false;
 			return;
@@ -58,11 +51,6 @@
 		try {
 			logs = await listAuditLogs(selectedOrg, LIMIT, offset);
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
@@ -119,7 +107,7 @@
 	let hasNext = $derived(logs.length === LIMIT);
 </script>
 
-<div class="max-w-6xl mx-auto p-6">
+<div class="max-w-7xl mx-auto p-6">
 	<div class="flex items-center justify-between mb-1">
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">审计日志</h1>
 		{#if isPlatformAdmin && orgs.length > 0}

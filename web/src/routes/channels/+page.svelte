@@ -4,7 +4,6 @@
 	import { goto } from '$app/navigation';
 	import { getMe, listChannels, createChannel, updateChannel, deleteChannel } from '$lib/api.js';
 	import type { Channel, CreateChannelRequest, UpdateChannelRequest } from '$lib/api.js';
-	import { getAccessToken, clearTokens } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -35,20 +34,11 @@
 	let toast = $state('');
 
 	onMount(async () => {
-		if (!getAccessToken()) {
-			goto('/login');
-			return;
-		}
 		try {
 			const me = await getMe();
 			currentOrg = me.current_org ?? me.orgs[0] ?? null;
 			isPlatformAdmin = me.is_platform_admin;
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载身份失败';
 			loading = false;
 			return;
@@ -69,11 +59,6 @@
 		try {
 			channels = await listChannels(currentOrg!);
 		} catch (err: any) {
-			if (err?.status === 401) {
-				clearTokens();
-				goto('/login');
-				return;
-			}
 			error = err?.message ?? '加载失败';
 		} finally {
 			loading = false;
@@ -212,7 +197,7 @@
 	</div>
 {/if}
 
-<div class="max-w-6xl mx-auto p-6">
+<div class="max-w-7xl mx-auto p-6">
 	<div class="flex items-center justify-between mb-1">
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">渠道管理</h1>
 		<div class="flex items-center gap-3">
