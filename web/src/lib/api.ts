@@ -246,6 +246,7 @@ export interface Channel {
 	status: string;
 	health: string;
 	updated_at: string;
+	supported_models?: string[];
 }
 
 export async function listChannels(orgId: string): Promise<Channel[]> {
@@ -292,6 +293,45 @@ export async function updateChannel(id: string, data: UpdateChannelRequest): Pro
 
 export async function deleteChannel(id: string): Promise<void> {
 	return apiFetch(`/v1/admin/channels/${id}`, { method: 'DELETE' });
+}
+
+// Channel probe (model discovery)
+export interface ProbeResponse {
+	channel_id: string;
+	provider_type: string;
+	models: string[];
+}
+
+export async function probeChannel(channelId: string): Promise<ProbeResponse> {
+	return apiFetch<ProbeResponse>(`/v1/admin/channels/${channelId}/probe`, { method: 'POST' });
+}
+
+// Channel test
+export interface TestResponse {
+	success: boolean;
+	model: string;
+	response_time_ms: number;
+	message: string | null;
+	error: string | null;
+}
+
+export async function testChannel(channelId: string, model?: string): Promise<TestResponse> {
+	const params = model ? `?model=${encodeURIComponent(model)}` : '';
+	return apiFetch<TestResponse>(`/v1/admin/channels/${channelId}/test${params}`);
+}
+
+// Channel balance
+export interface BalanceResponse {
+	channel_id: string;
+	provider_type: string;
+	supported: boolean;
+	balance_usd: number | null;
+	used_usd: number | null;
+	message: string | null;
+}
+
+export async function getChannelBalance(channelId: string): Promise<BalanceResponse> {
+	return apiFetch<BalanceResponse>(`/v1/admin/channels/${channelId}/balance`);
 }
 
 // ── Admin Channel Keys ────────────────────────────

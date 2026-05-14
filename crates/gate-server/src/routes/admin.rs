@@ -38,6 +38,8 @@ pub struct ChannelSummary {
     pub base_url: String,
     pub status: String,
     pub health: String,
+    pub rpm_limit: Option<i32>,
+    pub tpm_limit: Option<i32>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -52,6 +54,10 @@ pub struct CreateChannelRequest {
     pub enabled: bool,
     #[serde(default)]
     pub supported_models: Vec<String>,
+    #[serde(default)]
+    pub rpm_limit: Option<i32>,
+    #[serde(default)]
+    pub tpm_limit: Option<i32>,
 }
 
 fn default_true() -> bool {
@@ -64,6 +70,10 @@ pub struct UpdateChannelRequest {
     pub base_url: Option<String>,
     pub enabled: Option<bool>,
     pub supported_models: Option<Vec<String>>,
+    #[serde(default)]
+    pub rpm_limit: Option<i32>,
+    #[serde(default)]
+    pub tpm_limit: Option<i32>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -86,6 +96,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/channels/:id/probe", axum::routing::post(probe_channel_models))
         .route("/channels/:id/test", get(test_channel))
+        .route("/channels/:id/balance", get(get_channel_balance))
         .route("/audit-logs", get(list_audit_logs))
         .route("/orgs", get(list_all_orgs).post(create_org))
         .route("/orgs/:org_id", axum::routing::put(update_org))
@@ -118,6 +129,8 @@ async fn list_channels(
                 base_url: r.base_url,
                 status: r.status,
                 health: r.health,
+                rpm_limit: r.rpm_limit,
+                tpm_limit: r.tpm_limit,
                 updated_at: r.updated_at,
             })
             .collect(),
@@ -157,6 +170,8 @@ async fn create_channel(
             base_url: req.base_url,
             supported_models: req.supported_models,
             enabled: req.enabled,
+            rpm_limit: req.rpm_limit,
+            tpm_limit: req.tpm_limit,
         })
         .await?;
 
@@ -176,6 +191,8 @@ async fn create_channel(
         base_url: record.base_url,
         status: record.status,
         health: record.health,
+        rpm_limit: record.rpm_limit,
+        tpm_limit: record.tpm_limit,
         updated_at: record.updated_at,
     }))
 }
@@ -200,6 +217,8 @@ async fn update_channel(
                 base_url: req.base_url,
                 supported_models: req.supported_models,
                 enabled: req.enabled,
+                rpm_limit: req.rpm_limit,
+                tpm_limit: req.tpm_limit,
             },
         )
         .await?;
@@ -220,6 +239,8 @@ async fn update_channel(
         base_url: record.base_url,
         status: record.status,
         health: record.health,
+        rpm_limit: record.rpm_limit,
+        tpm_limit: record.tpm_limit,
         updated_at: record.updated_at,
     }))
 }
@@ -1145,6 +1166,116 @@ struct TestResponse {
     response_time_ms: u64,
     message: Option<String>,
     error: Option<String>,
+}
+
+// ============================================================================
+// Channel Balance (P4.5)
+// ============================================================================
+
+/// GET /v1/admin/channels/:id/balance — 查询上游账户余额。
+/// 目前仅 OpenAI 支持；其他 provider 返回 supported=false。
+async fn get_channel_balance(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path(channel_id): Path<Uuid>,
+) -> AppResult<Json<BalanceResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id)).await?;
+    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id), &ch.code).await;
+
+    match ch.provider_type.as_str() {
+        "openai" => {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+
+            let url = format!(
+                "{}/dashboard/billing/subscription",
+                ch.base_url.trim_end_matches('/')
+            );
+            let resp = client
+                .get(&url)
+                .bearer_auth(&api_key)
+                .send()
+                .await;
+
+            match resp {
+                Ok(r) if r.status().is_success() => {
+                    let body: serde_json::Value = r
+                        .json()
+                        .await
+                        .map_err(|e| AppError::Internal(e.to_string()))?;
+                    let hard_limit = body.get("hard_limit_usd").and_then(|v| v.as_f64());
+                    let used = body.get("soft_limit_usd").and_then(|v| v.as_f64());
+
+                    if let Some(limit) = hard_limit {
+                        update_channel_balance(&app, ChannelId::from(channel_id), limit).await;
+                    }
+
+                    Ok(Json(BalanceResponse {
+                        channel_id: channel_id.to_string(),
+                        provider_type: ch.provider_type.clone(),
+                        supported: true,
+                        balance_usd: hard_limit,
+                        used_usd: used,
+                        message: None,
+                    }))
+                }
+                Ok(r) => {
+                    let status = r.status().as_u16();
+                    Ok(Json(BalanceResponse {
+                        channel_id: channel_id.to_string(),
+                        provider_type: ch.provider_type.clone(),
+                        supported: true,
+                        balance_usd: None,
+                        used_usd: None,
+                        message: Some(format!("billing API returned {status}")),
+                    }))
+                }
+                Err(e) => Ok(Json(BalanceResponse {
+                    channel_id: channel_id.to_string(),
+                    provider_type: ch.provider_type.clone(),
+                    supported: true,
+                    balance_usd: None,
+                    used_usd: None,
+                    message: Some(format!("failed to reach billing API: {e}")),
+                })),
+            }
+        }
+        _ => Ok(Json(BalanceResponse {
+            channel_id: channel_id.to_string(),
+            provider_type: ch.provider_type.clone(),
+            supported: false,
+            balance_usd: None,
+            used_usd: None,
+            message: Some("balance checking not supported for this provider type".into()),
+        })),
+    }
+}
+
+#[derive(Serialize)]
+struct BalanceResponse {
+    channel_id: String,
+    provider_type: String,
+    supported: bool,
+    balance_usd: Option<f64>,
+    used_usd: Option<f64>,
+    message: Option<String>,
+}
+
+async fn update_channel_balance(app: &AppState, id: ChannelId, balance: f64) {
+    if let Some(pool) = app.repos.pool() {
+        let _ = sqlx::query(
+            "UPDATE channels SET balance = $1, balance_updated_at = NOW() WHERE id = $2",
+        )
+        .bind(balance)
+        .bind(id.as_uuid())
+        .execute(pool)
+        .await;
+    }
 }
 
 /// 解析 channel 探测/测试用的 API key。

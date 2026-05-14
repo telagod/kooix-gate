@@ -32,6 +32,7 @@ use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
 /// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）+ 实际使用的 model。
 #[derive(Clone)]
@@ -66,11 +67,12 @@ pub struct RoutedEmbeddingProvider {
 // ChannelMetrics — 滑动窗口成功率追踪（auto-disable 机制）
 // ============================================================================
 
-/// 轻量级内存滑动窗口，按 channel 追踪成功率。
+/// 轻量级内存滑动窗口，按 channel 追踪成功率和响应延迟。
 ///
 /// 窗口满且成功率低于阈值时，`should_disable` 返回 true。
 pub struct ChannelMetrics {
     windows: Mutex<HashMap<ChannelId, VecDeque<bool>>>,
+    latencies: Mutex<HashMap<ChannelId, VecDeque<u64>>>, // ms
     window_size: usize,
     threshold: f64,
 }
@@ -79,6 +81,7 @@ impl ChannelMetrics {
     pub fn new(window_size: usize, threshold: f64) -> Self {
         Self {
             windows: Mutex::new(HashMap::new()),
+            latencies: Mutex::new(HashMap::new()),
             window_size,
             threshold,
         }
@@ -108,10 +111,116 @@ impl ChannelMetrics {
         rate < self.threshold
     }
 
+    /// 记录响应延迟（毫秒）。
+    pub fn record_latency(&self, channel_id: ChannelId, latency_ms: u64) {
+        let mut latencies = self.latencies.lock().unwrap();
+        let window = latencies.entry(channel_id).or_insert_with(VecDeque::new);
+        if window.len() >= self.window_size {
+            window.pop_front();
+        }
+        window.push_back(latency_ms);
+    }
+
+    /// 获取 channel 的平均延迟（ms）；无数据时返回 u64::MAX。
+    pub fn avg_latency(&self, channel_id: ChannelId) -> u64 {
+        let latencies = self.latencies.lock().unwrap();
+        let Some(window) = latencies.get(&channel_id) else {
+            return u64::MAX;
+        };
+        if window.is_empty() {
+            return u64::MAX;
+        }
+        let sum: u64 = window.iter().sum();
+        sum / window.len() as u64
+    }
+
     /// 清除 channel 的历史记录（re-enable 后调用）。
     pub fn clear(&self, channel_id: ChannelId) {
         let mut windows = self.windows.lock().unwrap();
         windows.remove(&channel_id);
+        let mut latencies = self.latencies.lock().unwrap();
+        latencies.remove(&channel_id);
+    }
+}
+
+// ============================================================================
+// ChannelRateLimiter — 滑动 60s 窗口 RPM/TPM 检查
+// ============================================================================
+
+struct RateWindow {
+    rpm_count: u32,
+    tpm_count: u32,
+    window_start: Instant,
+}
+
+/// 内存滑动窗口限速器。每个 channel 一个 60s 窗口，过期自动重置。
+pub struct ChannelRateLimiter {
+    counters: Mutex<HashMap<ChannelId, RateWindow>>,
+}
+
+impl Default for ChannelRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChannelRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            counters: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// 检查并消耗一次 RPM 额度。None 限制视为无限。
+    /// 若通过返回 true，窗口内计数 +1；已超限返回 false（不消耗）。
+    pub fn check_rpm(&self, channel_id: ChannelId, rpm_limit: Option<i32>) -> bool {
+        let Some(limit) = rpm_limit else {
+            return true;
+        };
+        let limit = limit.max(0) as u32;
+        let mut counters = self.counters.lock().unwrap();
+        let window = counters.entry(channel_id).or_insert_with(|| RateWindow {
+            rpm_count: 0,
+            tpm_count: 0,
+            window_start: Instant::now(),
+        });
+        if window.window_start.elapsed().as_secs() >= 60 {
+            window.rpm_count = 0;
+            window.tpm_count = 0;
+            window.window_start = Instant::now();
+        }
+        if window.rpm_count >= limit {
+            return false;
+        }
+        window.rpm_count += 1;
+        true
+    }
+
+    /// 记录 token 消耗并检查 TPM 限额。None 限制视为无限。
+    /// 超限返回 false（token 仍会被累计）。
+    pub fn record_tokens(
+        &self,
+        channel_id: ChannelId,
+        tokens: u32,
+        tpm_limit: Option<i32>,
+    ) -> bool {
+        let Some(limit) = tpm_limit else {
+            return true;
+        };
+        let limit = limit.max(0) as u32;
+        let mut counters = self.counters.lock().unwrap();
+        let window = counters.entry(channel_id).or_insert_with(|| RateWindow {
+            rpm_count: 0,
+            tpm_count: 0,
+            window_start: Instant::now(),
+        });
+        if window.window_start.elapsed().as_secs() >= 60 {
+            window.rpm_count = 0;
+            window.tpm_count = 0;
+            window.window_start = Instant::now();
+        }
+        window.tpm_count = window.tpm_count.saturating_add(tokens);
+        window.tpm_count <= limit
     }
 }
 
@@ -185,11 +294,13 @@ fn select_channel<'a>(
     compatible: &'a [&ChannelBinding],
     rr_counter: &AtomicU64,
     inflight: &InflightTracker,
+    metrics: Option<&ChannelMetrics>,
 ) -> &'a ChannelBinding {
     match strategy {
         "weighted_random" => select_weighted_random(compatible),
         "round_robin" => select_round_robin(compatible, rr_counter),
         "least_conn" => select_least_conn(compatible, inflight),
+        "least_latency" => select_least_latency(compatible, metrics),
         // "priority" + 未知 strategy → 取第一条（已按 priority ASC 排序）
         _ => compatible[0],
     }
@@ -229,6 +340,20 @@ fn select_least_conn<'a>(
     channels
         .iter()
         .min_by_key(|ch| inflight.current(ch.channel.channel_id))
+        .unwrap()
+}
+
+/// 选平均延迟最低的 channel；无延迟数据时 fallback 到第一条。
+fn select_least_latency<'a>(
+    channels: &'a [&ChannelBinding],
+    metrics: Option<&ChannelMetrics>,
+) -> &'a ChannelBinding {
+    let Some(m) = metrics else {
+        return channels[0];
+    };
+    channels
+        .iter()
+        .min_by_key(|ch| m.avg_latency(ch.channel.channel_id))
         .unwrap()
 }
 
@@ -281,6 +406,8 @@ pub struct ProviderRouter {
     inflight: Arc<InflightTracker>,
     /// 滑动窗口成功率追踪（auto-disable 机制）。
     metrics: Option<Arc<ChannelMetrics>>,
+    /// per-channel RPM/TPM 限速器。
+    rate_limiter: Arc<ChannelRateLimiter>,
 }
 
 impl ProviderRouter {
@@ -294,6 +421,7 @@ impl ProviderRouter {
             rr_counter: AtomicU64::new(0),
             inflight: Arc::new(InflightTracker::new()),
             metrics: Some(Arc::new(ChannelMetrics::new(10, 0.8))),
+            rate_limiter: Arc::new(ChannelRateLimiter::new()),
         }
     }
 
@@ -338,6 +466,11 @@ impl ProviderRouter {
         if let Some(m) = &self.metrics {
             m.clear(channel_id);
         }
+    }
+
+    /// 获取 rate_limiter 的引用（供调用方上报 token 消耗）。
+    pub fn rate_limiter(&self) -> Arc<ChannelRateLimiter> {
+        self.rate_limiter.clone()
     }
 
     /// 根据 project_id + model 选 Provider。
@@ -493,7 +626,17 @@ impl ProviderRouter {
         }
 
         let selected =
-            select_channel(&group.strategy, &compatible, &self.rr_counter, &self.inflight);
+            select_channel(&group.strategy, &compatible, &self.rr_counter, &self.inflight, self.metrics.as_ref().map(|m| m.as_ref()));
+
+        // RPM 检查（embedding 路由同样受限速约束）
+        if !self.rate_limiter.check_rpm(selected.channel.channel_id, selected.channel.rpm_limit) {
+            tracing::warn!(
+                channel = %selected.channel.code,
+                rpm_limit = ?selected.channel.rpm_limit,
+                "channel RPM limit reached for embedding, skipping"
+            );
+            return Ok(None);
+        }
 
         let (api_key, key_id) = self
             .resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code)
@@ -738,7 +881,18 @@ impl ProviderRouter {
             &compatible,
             &self.rr_counter,
             &self.inflight,
+            self.metrics.as_ref().map(|m| m.as_ref()),
         );
+
+        // RPM 检查：选中后立即核查限速，超限则放弃本次路由
+        if !self.rate_limiter.check_rpm(selected.channel.channel_id, selected.channel.rpm_limit) {
+            tracing::warn!(
+                channel = %selected.channel.code,
+                rpm_limit = ?selected.channel.rpm_limit,
+                "channel RPM limit reached, skipping"
+            );
+            return Ok(None);
+        }
 
         // least_conn: 选中后递增 inflight 计数
         if group.strategy == "least_conn" {
@@ -944,6 +1098,8 @@ mod tests {
             health: "healthy".to_string(),
             timeout_ms: 60000,
             max_retries: 2,
+            rpm_limit: None,
+            tpm_limit: None,
             created_at: now,
             updated_at: now,
         }
@@ -1073,6 +1229,8 @@ mod tests {
             health: "healthy".to_string(),
             timeout_ms: 60000,
             max_retries: 2,
+            rpm_limit: None,
+            tpm_limit: None,
             created_at: now,
             updated_at: now,
         };

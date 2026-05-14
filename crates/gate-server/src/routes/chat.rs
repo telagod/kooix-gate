@@ -176,6 +176,7 @@ async fn chat_completions(
             .keep_alive(KeepAlive::default())
             .into_response())
     } else {
+        let start = std::time::Instant::now();
         let resp: ChatResponse = match with_retry(&retry_config, || {
             let req_clone = req.clone();
             let provider = provider.clone();
@@ -184,10 +185,12 @@ async fn chat_completions(
         .await
         {
             Ok(r) => {
-                // 上报成功
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                // 上报成功 + 延迟
                 if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
                     let ch_id = ChannelId::from(ch_uuid);
                     m.record(ch_id, true);
+                    m.record_latency(ch_id, elapsed_ms);
                     if m.should_disable(ch_id) {
                         let repos = app.repos.clone();
                         tokio::spawn(async move {

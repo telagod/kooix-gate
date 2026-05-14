@@ -27,6 +27,10 @@ pub struct ChannelRecord {
     pub health: String,
     pub timeout_ms: i32,
     pub max_retries: i32,
+    /// NULL = 无限制
+    pub rpm_limit: Option<i32>,
+    /// NULL = 无限制
+    pub tpm_limit: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -57,6 +61,8 @@ pub struct CreateChannel {
     pub base_url: String,
     pub supported_models: Vec<String>,
     pub enabled: bool,
+    pub rpm_limit: Option<i32>,
+    pub tpm_limit: Option<i32>,
 }
 
 /// 更新 Channel 的入参（全部可选，None 表示不改）。
@@ -66,6 +72,8 @@ pub struct UpdateChannel {
     pub base_url: Option<String>,
     pub supported_models: Option<Vec<String>>,
     pub enabled: Option<bool>,
+    pub rpm_limit: Option<i32>,
+    pub tpm_limit: Option<i32>,
 }
 
 #[async_trait]
@@ -122,6 +130,8 @@ fn row_to_channel(row: &sqlx::postgres::PgRow) -> DbResult<ChannelRecord> {
         health: row.try_get("health")?,
         timeout_ms: row.try_get("timeout_ms")?,
         max_retries: row.try_get("max_retries")?,
+        rpm_limit: row.try_get("rpm_limit")?,
+        tpm_limit: row.try_get("tpm_limit")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -132,7 +142,8 @@ impl ChannelRepo for PgChannelRepo {
     async fn find_by_id(&self, id: ChannelId) -> DbResult<ChannelRecord> {
         let row = sqlx::query(
             "SELECT id, code, name, provider_type, base_url, supported_models, \
-                    status, health, timeout_ms, max_retries, created_at, updated_at \
+                    status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
+                    created_at, updated_at \
              FROM channels WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id.as_uuid())
@@ -148,7 +159,8 @@ impl ChannelRepo for PgChannelRepo {
     ) -> DbResult<Vec<ChannelBinding>> {
         let rows = sqlx::query(
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
-                    c.status, c.health, c.timeout_ms, c.max_retries, c.created_at, c.updated_at, \
+                    c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
+                    c.created_at, c.updated_at, \
                     b.priority, b.weight, b.model_filter \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
@@ -178,7 +190,8 @@ impl ChannelRepo for PgChannelRepo {
     async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>> {
         let rows = sqlx::query(
             "SELECT id, code, name, provider_type, base_url, supported_models, \
-                    status, health, timeout_ms, max_retries, created_at, updated_at \
+                    status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
+                    created_at, updated_at \
              FROM channels WHERE deleted_at IS NULL \
              ORDER BY created_at ASC",
         )
@@ -191,10 +204,11 @@ impl ChannelRepo for PgChannelRepo {
         let status = if input.enabled { "active" } else { "disabled" };
         let row = sqlx::query(
             "INSERT INTO channels (code, name, provider_type, base_url, supported_models, \
-                                   config_enc, status) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                                   config_enc, status, rpm_limit, tpm_limit) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
              RETURNING id, code, name, provider_type, base_url, supported_models, \
-                       status, health, timeout_ms, max_retries, created_at, updated_at",
+                       status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
+                       created_at, updated_at",
         )
         .bind(&input.code)
         .bind(&input.name)
@@ -203,6 +217,8 @@ impl ChannelRepo for PgChannelRepo {
         .bind(&input.supported_models)
         .bind(b"" as &[u8]) // config_enc placeholder — 后续加密配置另走
         .bind(status)
+        .bind(input.rpm_limit)
+        .bind(input.tpm_limit)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| match &e {
@@ -228,16 +244,21 @@ impl ChannelRepo for PgChannelRepo {
             "UPDATE channels SET \
                 name = COALESCE($2, name), \
                 base_url = COALESCE($3, base_url), \
-                supported_models = COALESCE($4, supported_models) \
+                supported_models = COALESCE($4, supported_models), \
+                rpm_limit = CASE WHEN $5::INT IS NOT NULL THEN $5::INT ELSE rpm_limit END, \
+                tpm_limit = CASE WHEN $6::INT IS NOT NULL THEN $6::INT ELSE tpm_limit END \
                 {status_fragment} \
              WHERE id = $1 AND deleted_at IS NULL \
              RETURNING id, code, name, provider_type, base_url, supported_models, \
-                       status, health, timeout_ms, max_retries, created_at, updated_at"
+                       status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
+                       created_at, updated_at"
         ))
         .bind(id.as_uuid())
         .bind(input.name.as_deref())
         .bind(input.base_url.as_deref())
         .bind(input.supported_models.as_deref())
+        .bind(input.rpm_limit)
+        .bind(input.tpm_limit)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(DbError::NotFound)?;
@@ -429,7 +450,8 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
     async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>> {
         let rows = sqlx::query(
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
-                    c.status, c.health, c.timeout_ms, c.max_retries, c.created_at, c.updated_at, \
+                    c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
+                    c.created_at, c.updated_at, \
                     b.priority, b.weight, b.model_filter \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
@@ -615,6 +637,8 @@ impl ChannelRepo for InMemoryChannelRepo {
             health: "healthy".to_string(),
             timeout_ms: 60000,
             max_retries: 2,
+            rpm_limit: None,
+            tpm_limit: None,
             created_at: now,
             updated_at: now,
         };
@@ -640,6 +664,12 @@ impl ChannelRepo for InMemoryChannelRepo {
             } else {
                 "disabled".to_string()
             };
+        }
+        if let Some(v) = input.rpm_limit {
+            record.rpm_limit = Some(v);
+        }
+        if let Some(v) = input.tpm_limit {
+            record.tpm_limit = Some(v);
         }
         record.updated_at = Utc::now();
         Ok(record.clone())
