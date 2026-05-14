@@ -61,11 +61,11 @@
 			{#if me}
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
 					<div>
-						<p class="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">用户 ID</p>
+						<p class="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">用户 ID</p>
 						<p class="font-mono text-zinc-900 dark:text-zinc-100">{me.subject?.user_id ?? '—'}</p>
 					</div>
 					<div>
-						<p class="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">角色</p>
+						<p class="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">角色</p>
 						<p class="text-zinc-900 dark:text-zinc-100">
 							{#if me.is_platform_admin}
 								<span class="inline-flex items-center gap-1">
@@ -77,11 +77,11 @@
 						</p>
 					</div>
 					<div>
-						<p class="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">所属组织</p>
+						<p class="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">所属组织</p>
 						<p class="text-zinc-900 dark:text-zinc-100">{me.orgs?.length ?? 0} 个</p>
 					</div>
 					<div>
-						<p class="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">当前组织</p>
+						<p class="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">当前组织</p>
 						<p class="font-mono text-zinc-900 dark:text-zinc-100">{me.current_org?.slice(0, 12) ?? '—'}...</p>
 					</div>
 				</div>
@@ -96,16 +96,16 @@
 			</div>
 			<div class="space-y-3 max-w-sm">
 				<div>
-					<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">当前密码</label>
-					<input type="password" bind:value={currentPw} class="w-full h-10 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
+					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">当前密码</label>
+					<input type="password" bind:value={currentPw} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">新密码</label>
-					<input type="password" bind:value={newPw} class="w-full h-10 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
+					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">新密码</label>
+					<input type="password" bind:value={newPw} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">确认新密码</label>
-					<input type="password" bind:value={confirmPw} class="w-full h-10 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
+					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">确认新密码</label>
+					<input type="password" bind:value={confirmPw} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
 				</div>
 				{#if pwError}
 					<p class="text-xs text-red-600 dark:text-red-400">{pwError}</p>

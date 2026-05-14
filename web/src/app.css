@@ -2,6 +2,43 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ═══════════════════════════════════════════════════
+   Kooix Gate — Design System Tokens
+   ═══════════════════════════════════════════════════
+   Monochrome palette: zinc only.
+   Semantic colors (green/red/yellow) reserved for
+   health indicators, errors, and destructive actions.
+
+   WCAG AA contrast ratios (4.5:1 for text, 3:1 for UI):
+   ┌──────────────────────────────────────────────────┐
+   │ Light mode (bg: white/#fafafa)                   │
+   │   Primary text:   zinc-900 (#18181b) — 16.8:1 ✓ │
+   │   Secondary text: zinc-600 (#52525b) —  7.0:1 ✓ │
+   │   Tertiary text:  zinc-500 (#71717a) —  4.6:1 ✓ │
+   │   Placeholder:    zinc-400 (#a1a1aa) —  2.9:1 ✗ │
+   │   ➜ use zinc-500 minimum for any readable text   │
+   │                                                   │
+   │ Dark mode (bg: zinc-900/#18181b)                  │
+   │   Primary text:   zinc-100 (#f4f4f5) — 15.4:1 ✓ │
+   │   Secondary text: zinc-300 (#d4d4d8) — 10.3:1 ✓ │
+   │   Tertiary text:  zinc-400 (#a1a1aa) —  5.9:1 ✓ │
+   │   Placeholder:    zinc-500 (#71717a) —  3.6:1 ✗ │
+   │   ➜ use zinc-400 minimum for any readable text   │
+   └──────────────────────────────────────────────────┘
+
+   Mapping rules:
+   ─ Primary text:     text-zinc-900  dark:text-zinc-100
+   ─ Secondary text:   text-zinc-600  dark:text-zinc-300
+   ─ Tertiary / muted: text-zinc-500  dark:text-zinc-400
+   ─ Placeholder:      text-zinc-500  dark:text-zinc-400
+   ─ Disabled:         text-zinc-400  dark:text-zinc-500
+   ─ Decorative icons: text-zinc-400  dark:text-zinc-500 (non-text, 3:1 OK)
+   ─ Borders:          border-zinc-200 dark:border-zinc-700
+   ─ Surfaces:         bg-white dark:bg-zinc-900
+   ─ Raised surfaces:  bg-zinc-50 dark:bg-zinc-800
+   ─ Focus ring:       ring-zinc-900 dark:ring-zinc-300
+   ═══════════════════════════════════════════════════ */
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;

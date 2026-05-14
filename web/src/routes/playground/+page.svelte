@@ -91,7 +91,7 @@
 	<div class="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
 		<div class="flex items-center gap-3">
 			<h1 class="text-lg font-bold text-zinc-900 dark:text-zinc-100">Playground</h1>
-			<select bind:value={model} class="text-sm border border-zinc-300 dark:border-zinc-600 rounded-md px-2 py-1 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+			<select bind:value={model} class="text-sm border border-zinc-200 dark:border-zinc-700 rounded-md px-2 py-1 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
 				{#each modelOptions as m}
 					<option value={m}>{m}</option>
 				{/each}
@@ -105,7 +105,7 @@
 	<!-- Messages -->
 	<div bind:this={chatEl} class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 		{#if messages.length === 0}
-			<div class="flex flex-col items-center justify-center h-full text-zinc-400 dark:text-zinc-500">
+			<div class="flex flex-col items-center justify-center h-full text-zinc-500 dark:text-zinc-400">
 				<Bot size={48} class="mb-3 opacity-30" />
 				<p class="text-sm">选择模型，输入消息开始对话</p>
 				<p class="text-xs mt-1">支持 Shift+Enter 换行</p>
@@ -149,7 +149,7 @@
 				onkeydown={handleKeydown}
 				placeholder="输入消息..."
 				rows={1}
-				class="flex-1 resize-none rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+				class="flex-1 resize-none rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400"
 			></textarea>
 			{#if streaming}
 				<Button variant="destructive" size="sm" onclick={stop}>

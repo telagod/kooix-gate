@@ -144,7 +144,7 @@
 		if (health === 'healthy') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400';
 		if (health === 'degraded') return 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
 		if (health === 'unhealthy') return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400';
-		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400';
+		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300';
 	}
 
 	function formatDate(s: string): string {
@@ -206,7 +206,7 @@
 						disabled={creating}
 						rows="3"
 						placeholder="sk-..."
-						class="flex w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50 resize-none"
+						class="flex w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:opacity-50 resize-none"
 					></textarea>
 				</div>
 				<div>
@@ -255,7 +255,7 @@
 						disabled={rotating}
 						rows="3"
 						placeholder="sk-..."
-						class="flex w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50 resize-none"
+						class="flex w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:opacity-50 resize-none"
 					></textarea>
 				</div>
 				<div>
@@ -286,7 +286,7 @@
 <div>
 	<!-- 面包屑 -->
 	<div class="max-w-7xl mx-auto p-6">
-		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">渠道 / {channelId.slice(0, 8)}... / Keys</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">渠道 / {channelId.slice(0, 8)}... / Keys</p>
 		<div class="flex items-center justify-between mb-1">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Channel Keys 管理</h1>
 			{#if isPlatformAdmin}
@@ -300,7 +300,7 @@
 				</div>
 			{/if}
 		</div>
-		<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
+		<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6">
 			{#if isPlatformAdmin}
 				平台管理员可添加、轮转和撤销 Key。
 			{:else}
@@ -309,14 +309,14 @@
 		</p>
 
 		{#if loading}
-			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+			<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 		{:else if error}
 			<Card class="p-6">
 				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if keys.length === 0}
 			<Card class="p-6">
-				<p class="text-zinc-500 dark:text-zinc-400 text-sm">此 Channel 暂无 Key。
+				<p class="text-zinc-600 dark:text-zinc-300 text-sm">此 Channel 暂无 Key。
 					{#if isPlatformAdmin}点击「+ 添加 Key」创建第一个。{/if}
 				</p>
 			</Card>

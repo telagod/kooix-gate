@@ -175,7 +175,7 @@
 					<div>
 						<label for="q-scope" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">作用域类型</label>
 						<select id="q-scope" bind:value={formScopeKind} disabled={submitting}
-							class="flex h-10 w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100">
+							class="flex h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
 							<option value="org">组织</option>
 							<option value="project">项目</option>
 							<option value="api_key">API Key</option>
@@ -184,7 +184,7 @@
 					<div>
 						<label for="q-dim" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">维度</label>
 						<select id="q-dim" bind:value={formDimension} disabled={submitting}
-							class="flex h-10 w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100">
+							class="flex h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
 							<option value="rpm">RPM</option>
 							<option value="tpm">TPM</option>
 							<option value="concurrent">并发数</option>
@@ -197,7 +197,7 @@
 				<div>
 					<label for="q-scope-id" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Scope ID (UUID)</label>
 					<Input id="q-scope-id" placeholder={orgId} bind:value={formScopeId} disabled={submitting} />
-					<p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">组织级填 Org ID，项目级填 Project ID，Key 级填 API Key ID</p>
+					<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">组织级填 Org ID，项目级填 Project ID，Key 级填 API Key ID</p>
 				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div>
@@ -230,24 +230,24 @@
 <div>
 	<!-- 面包屑 -->
 	<div class="max-w-7xl mx-auto p-6">
-		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">组织 / {orgId.slice(0, 8)}... / 配额</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 配额</p>
 		<div class="flex items-center justify-between mb-6">
 			<div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">配额管理</h1>
-				<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">管理组织及其下属项目、API Key 的配额规则。</p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">管理组织及其下属项目、API Key 的配额规则。</p>
 			</div>
 			<Button onclick={openCreateForm}>+ 添加配额</Button>
 		</div>
 
 		{#if loading}
-			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+			<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 		{:else if error}
 			<Card class="p-6">
 				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if quotas.length === 0}
 			<Card class="p-6">
-				<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无配额规则。点击上方按钮创建。</p>
+				<p class="text-zinc-600 dark:text-zinc-300 text-sm">暂无配额规则。点击上方按钮创建。</p>
 			</Card>
 		{:else}
 			{#each Object.entries(grouped) as [scopeKind, items]}
@@ -273,7 +273,7 @@
 									<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
 										<td class="px-4 py-3 text-zinc-900 dark:text-zinc-100 font-medium">{dimensionLabel(q.dimension)}</td>
 										<td class="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{q.limit_value}</td>
-										<td class="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">{q.scope_id.slice(0, 8)}...</td>
+										<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">{q.scope_id.slice(0, 8)}...</td>
 										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">{q.model_filter ?? '全部'}</td>
 										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
 											{q.window_seconds ? `${q.window_seconds}s` : '—'}
@@ -282,7 +282,7 @@
 											{#if q.enabled}
 												<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400">启用</span>
 											{:else}
-												<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">禁用</span>
+												<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">禁用</span>
 											{/if}
 										</td>
 										<td class="px-4 py-3 text-right">

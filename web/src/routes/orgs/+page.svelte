@@ -83,7 +83,7 @@
 	<div class="flex items-center justify-between mb-6">
 		<div>
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">组织</h1>
-			<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
+			<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">
 				当前激活：<span class="font-mono font-medium text-zinc-700 dark:text-zinc-300">{activeOrg?.slice(0, 12) ?? '—'}...</span>
 			</p>
 		</div>
@@ -142,7 +142,7 @@
 		{:else}
 			<Card class="p-12 text-center">
 				<Building2 size={40} class="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
-				<p class="text-sm text-zinc-500 dark:text-zinc-400">暂无组织，请联系管理员</p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300">暂无组织，请联系管理员</p>
 			</Card>
 		{/if}
 	{:else}
@@ -154,11 +154,11 @@
 						<div class="space-y-3">
 							<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 								<div>
-									<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">名称</label>
+									<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">名称</label>
 									<Input bind:value={editName} />
 								</div>
 								<div>
-									<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">账单邮箱</label>
+									<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">账单邮箱</label>
 									<Input bind:value={editBilling} placeholder="billing@example.com" />
 								</div>
 							</div>
@@ -176,7 +176,7 @@
 								<Building2 size={18} class="text-zinc-400" />
 								<div>
 									<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{org.name}</p>
-									<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{org.slug} · {org.id.slice(0, 8)}...</p>
+									<p class="text-xs text-zinc-600 dark:text-zinc-300 font-mono">{org.slug} · {org.id.slice(0, 8)}...</p>
 								</div>
 								<span class="text-[10px] px-1.5 py-0.5 rounded-full {
 									org.status === 'active'
@@ -185,7 +185,7 @@
 								}">{org.status}</span>
 							</div>
 							<div class="flex items-center gap-2">
-								<span class="text-xs text-zinc-400 dark:text-zinc-500">{fmtDate(org.created_at)}</span>
+								<span class="text-xs text-zinc-500 dark:text-zinc-400">{fmtDate(org.created_at)}</span>
 								<Button variant="ghost" size="sm" onclick={() => startEdit(org)}>
 									<Settings size={14} />
 								</Button>

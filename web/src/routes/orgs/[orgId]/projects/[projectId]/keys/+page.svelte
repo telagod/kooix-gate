@@ -145,11 +145,11 @@
 <div>
 	<!-- 面包屑 -->
 	<div class="max-w-7xl mx-auto p-6">
-		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">组织 / {orgId.slice(0, 8)}... / 项目 / API Keys</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 项目 / API Keys</p>
 		<div class="flex items-center justify-between mb-6">
 			<div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">API Keys</h1>
-				<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Project: <span class="font-mono">{projectId.slice(0, 8)}...</span></p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">Project: <span class="font-mono">{projectId.slice(0, 8)}...</span></p>
 			</div>
 			<Button onclick={() => { showCreate = !showCreate; createdKey = null; }}>
 				{showCreate ? '取消' : '+ 创建 Key'}
@@ -205,14 +205,14 @@
 
 		<!-- Key list -->
 		{#if loading}
-			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+			<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 		{:else if error}
 			<Card class="p-6">
 				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if keys.length === 0}
 			<Card class="p-6">
-				<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无 API Key，点击右上角创建。</p>
+				<p class="text-zinc-600 dark:text-zinc-300 text-sm">暂无 API Key，点击右上角创建。</p>
 			</Card>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">

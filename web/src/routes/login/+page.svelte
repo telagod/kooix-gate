@@ -74,14 +74,14 @@
 
 {#if !ready}
 <div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
-	<p class="text-zinc-400 dark:text-zinc-500 text-sm">加载中...</p>
+	<p class="text-zinc-500 dark:text-zinc-400 text-sm">加载中...</p>
 </div>
 {:else}
 <div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
 	<Card class="w-full max-w-sm p-8">
 		<div class="mb-8 text-center">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Kooix Gate</h1>
-			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">登录控制台</p>
+			<p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">登录控制台</p>
 		</div>
 
 		<form onsubmit={handleSubmit} class="space-y-4">
@@ -120,7 +120,7 @@
 
 		<div class="my-6 flex items-center gap-3">
 			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
-			<span class="text-xs text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">或</span>
+			<span class="text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">或</span>
 			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
 		</div>
 

@@ -123,7 +123,7 @@
 	</div>
 
 	{#if loading}
-		<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+		<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 	{:else if error}
 		<Card class="p-6">
 			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
@@ -150,11 +150,11 @@
 		<Card class="p-5">
 			<div class="flex items-center justify-between mb-3">
 				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">每日花费 (USD)</h2>
-				<p class="text-xs text-zinc-400 dark:text-zinc-500 font-mono">{usage.series.length} buckets</p>
+				<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{usage.series.length} buckets</p>
 			</div>
 
 			{#if !chartPaths}
-				<p class="text-sm text-zinc-500 dark:text-zinc-400 py-12 text-center">此区间无用量记录</p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 py-12 text-center">此区间无用量记录</p>
 			{:else}
 				<svg viewBox="0 0 {W} {H}" class="w-full h-auto">
 					<!-- Y 轴 grid + 标签 -->
@@ -213,7 +213,7 @@
 			{/if}
 		</Card>
 
-		<p class="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
+		<p class="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
 			Org：<span class="font-mono">{currentOrg ?? '全平台 (SuperAdmin)'}</span> · 数据范围
 			{usage.from.slice(0, 10)} → {usage.to.slice(0, 10)}
 		</p>

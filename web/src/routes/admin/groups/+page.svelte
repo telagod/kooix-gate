@@ -306,7 +306,7 @@
 	{:else if groups.length === 0}
 		<div class="text-center py-16">
 			<Layers class="w-12 h-12 mx-auto text-zinc-300 dark:text-zinc-600 mb-3" />
-			<p class="text-zinc-500 dark:text-zinc-400 mb-4">还没有分组，点击右上角创建</p>
+			<p class="text-zinc-600 dark:text-zinc-300 mb-4">还没有分组，点击右上角创建</p>
 		</div>
 
 	{:else}
@@ -344,17 +344,17 @@
 						<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(meta.color)}">
 							{meta.label}
 						</span>
-						<span class="text-sm text-zinc-500 dark:text-zinc-400">{count} 渠道</span>
+						<span class="text-sm text-zinc-600 dark:text-zinc-300">{count} 渠道</span>
 					</div>
 
 					<!-- Description -->
 					{#if group.description}
-						<p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400 truncate">{group.description}</p>
+						<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300 truncate">{group.description}</p>
 					{/if}
 
 					<!-- Fallback -->
 					{#if group.fallback_group_id}
-						<div class="mt-2 flex items-center gap-1 text-sm text-zinc-500 dark:text-zinc-400">
+						<div class="mt-2 flex items-center gap-1 text-sm text-zinc-600 dark:text-zinc-300">
 							<ArrowRight class="w-3 h-3" />
 							<span class="truncate">回退: {groupName(group.fallback_group_id)}</span>
 						</div>
@@ -380,10 +380,10 @@
 					<div class="flex items-center justify-between">
 						<div>
 							<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{g.name}</h2>
-							{#if g.description}<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{g.description}</p>{/if}
+							{#if g.description}<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">{g.description}</p>{/if}
 							<div class="flex items-center gap-3 mt-2">
 								<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(meta.color)}">{meta.label}</span>
-								<span class="text-xs text-zinc-500 dark:text-zinc-400">{meta.desc}</span>
+								<span class="text-xs text-zinc-600 dark:text-zinc-300">{meta.desc}</span>
 							</div>
 						</div>
 						<div class="flex items-center gap-2">
@@ -412,7 +412,7 @@
 					<div class="space-y-4">
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-							<input bind:value={editForm.name} class="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm" />
+							<input bind:value={editForm.name} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm" />
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">策略</label>
@@ -424,14 +424,14 @@
 											{editForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
 									>
 										<span class="text-sm font-medium {editForm.strategy === key ? 'text-zinc-900 dark:text-zinc-100 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}">{s.label}</span>
-										<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">{s.desc}</p>
+										<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">{s.desc}</p>
 									</button>
 								{/each}
 							</div>
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">回退分组</label>
-							<select bind:value={editForm.fallback_group_id} class="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+							<select bind:value={editForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
 								<option value={null}>无</option>
 								{#each groups.filter(gr => gr.id !== selectedId) as gr}
 									<option value={gr.id}>{gr.name}</option>
@@ -440,7 +440,7 @@
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">描述</label>
-							<textarea bind:value={editForm.description} rows="2" class="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"></textarea>
+							<textarea bind:value={editForm.description} rows="2" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"></textarea>
 						</div>
 						<div class="flex items-center gap-2">
 							<label class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
@@ -453,7 +453,7 @@
 						</div>
 						<div class="flex gap-2">
 							<button onclick={handleUpdate} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200">保存</button>
-							<button onclick={() => { editing = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
+							<button onclick={() => { editing = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
 						</div>
 					</div>
 				{/if}
@@ -471,7 +471,7 @@
 										? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium'
 										: 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300'}">
 									<div>{node.name}</div>
-									<div class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{strategyMeta(node.strategy).label}</div>
+									<div class="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">{strategyMeta(node.strategy).label}</div>
 								</div>
 								{#if i < chain.length - 1}
 									<ChevronRight class="w-4 h-4 text-zinc-400 flex-shrink-0" />
@@ -480,7 +480,7 @@
 						{/each}
 						{#if !chain[chain.length - 1].fallback_group_id}
 							<ChevronRight class="w-4 h-4 text-zinc-400 flex-shrink-0" />
-							<span class="text-zinc-500 dark:text-zinc-400 text-sm">∅</span>
+							<span class="text-zinc-600 dark:text-zinc-300 text-sm">∅</span>
 						{/if}
 					</div>
 				</div>
@@ -491,18 +491,18 @@
 				<div class="flex items-center justify-between mb-3">
 					<h3 class="text-sm font-medium text-zinc-700 dark:text-zinc-300">渠道列表 ({detail.bindings.length})</h3>
 					<button onclick={() => { showAddChannel = true; selectedChannels = new Set(); channelSearch = ''; channelProviderFilter = ''; addPriority = 100; addWeight = 1; }}
-						class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">
+						class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">
 						<Plus class="w-3 h-3" /> 添加渠道
 					</button>
 				</div>
 
 				{#if detail.bindings.length === 0}
-					<p class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-8">暂无渠道，点击上方按钮添加</p>
+					<p class="text-center text-sm text-zinc-600 dark:text-zinc-300 py-8">暂无渠道，点击上方按钮添加</p>
 				{:else}
 					<div class="overflow-x-auto">
 						<table class="w-full text-sm">
 							<thead>
-								<tr class="border-b border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400">
+								<tr class="border-b border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">
 									<th class="text-left py-2 px-2 font-medium">状态</th>
 									<th class="text-left py-2 px-2 font-medium">渠道</th>
 									<th class="text-left py-2 px-2 font-medium">类型</th>
@@ -522,7 +522,7 @@
 										</td>
 										<td class="py-2.5 px-2">
 											<div class="font-medium text-zinc-900 dark:text-zinc-100">{b.channel_name}</div>
-											<div class="text-xs text-zinc-500 dark:text-zinc-400">{b.channel_code}</div>
+											<div class="text-xs text-zinc-600 dark:text-zinc-300">{b.channel_code}</div>
 										</td>
 										<td class="py-2.5 px-2">
 											<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(b.provider_type)}">
@@ -531,14 +531,14 @@
 										</td>
 										<td class="py-2.5 px-2">
 											{#if isEditing}
-												<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+												<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
 											{:else}
 												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.priority}</button>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2">
 											{#if isEditing}
-												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
 											{:else}
 												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.weight}</button>
 											{/if}
@@ -550,11 +550,11 @@
 														<span class="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-xs text-zinc-600 dark:text-zinc-300">{m}</span>
 													{/each}
 													{#if b.model_filter.length > 3}
-														<span class="text-xs text-zinc-500 dark:text-zinc-400">+{b.model_filter.length - 3}</span>
+														<span class="text-xs text-zinc-600 dark:text-zinc-300">+{b.model_filter.length - 3}</span>
 													{/if}
 												</div>
 											{:else}
-												<span class="text-xs text-zinc-500 dark:text-zinc-400">全部</span>
+												<span class="text-xs text-zinc-600 dark:text-zinc-300">全部</span>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2 text-right">
@@ -575,7 +575,7 @@
 
 				<!-- Project references -->
 				{#if detail.project_ids && detail.project_ids.length > 0}
-					<div class="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+					<div class="mt-4 text-sm text-zinc-600 dark:text-zinc-300">
 						{detail.project_ids.length} 个项目正在使用此分组
 					</div>
 				{/if}
@@ -595,7 +595,7 @@
 			<div class="p-5 space-y-4">
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-					<input bind:value={createForm.name} placeholder="如：默认分组" class="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm" />
+					<input bind:value={createForm.name} placeholder="如：默认分组" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm" />
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">路由策略</label>
@@ -607,14 +607,14 @@
 									{createForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
 							>
 								<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(s.color)} mb-1">{s.label}</span>
-								<p class="text-xs text-zinc-500 dark:text-zinc-400">{s.desc}</p>
+								<p class="text-xs text-zinc-600 dark:text-zinc-300">{s.desc}</p>
 							</button>
 						{/each}
 					</div>
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">回退分组（可选）</label>
-					<select bind:value={createForm.fallback_group_id} class="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+					<select bind:value={createForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
 						<option value={null}>无</option>
 						{#each groups as gr}
 							<option value={gr.id}>{gr.name}</option>
@@ -623,11 +623,11 @@
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">描述（可选）</label>
-					<textarea bind:value={createForm.description} rows="2" placeholder="分组用途说明" class="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"></textarea>
+					<textarea bind:value={createForm.description} rows="2" placeholder="分组用途说明" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"></textarea>
 				</div>
 			</div>
 			<div class="p-5 border-t border-zinc-200 dark:border-zinc-700 flex justify-end gap-2">
-				<button onclick={() => { showCreate = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
+				<button onclick={() => { showCreate = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
 				<button onclick={handleCreate} disabled={!createForm.name.trim()} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50">创建</button>
 			</div>
 		</div>
@@ -643,7 +643,7 @@
 					<AlertTriangle class="w-6 h-6 text-red-600 dark:text-red-400" />
 				</div>
 				<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认删除</h3>
-				<p class="text-sm text-zinc-500 dark:text-zinc-400">
+				<p class="text-sm text-zinc-600 dark:text-zinc-300">
 					确定要删除分组「{deleteTarget.name}」吗？此操作不可撤销。
 					{#if detail?.project_ids && detail.project_ids.length > 0}
 						<br /><span class="text-red-500 font-medium">⚠ 有 {detail.project_ids.length} 个项目正在使用此分组！</span>
@@ -651,7 +651,7 @@
 				</p>
 			</div>
 			<div class="px-6 pb-6 flex gap-2">
-				<button onclick={() => { deleteTarget = null; }} class="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
+				<button onclick={() => { deleteTarget = null; }} class="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
 				<button onclick={handleDelete} class="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">删除</button>
 			</div>
 		</div>
@@ -672,9 +672,9 @@
 				<div class="flex gap-2">
 					<div class="relative flex-1">
 						<Search class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
-						<input bind:value={channelSearch} placeholder="搜索渠道..." class="w-full pl-9 pr-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-sm" />
+						<input bind:value={channelSearch} placeholder="搜索渠道..." class="w-full pl-9 pr-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm" />
 					</div>
-					<select bind:value={channelProviderFilter} class="rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+					<select bind:value={channelProviderFilter} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
 						<option value="">全部类型</option>
 						{#each providerTypes as pt}
 							<option value={pt}>{pt}</option>
@@ -684,11 +684,11 @@
 				<div class="flex gap-4">
 					<div class="flex items-center gap-2">
 						<label class="text-xs text-zinc-500">优先级</label>
-						<input type="number" bind:value={addPriority} class="w-20 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+						<input type="number" bind:value={addPriority} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
 					</div>
 					<div class="flex items-center gap-2">
 						<label class="text-xs text-zinc-500">权重</label>
-						<input type="number" bind:value={addWeight} class="w-20 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+						<input type="number" bind:value={addWeight} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
 					</div>
 				</div>
 			</div>
@@ -696,7 +696,7 @@
 			<!-- Channel list -->
 			<div class="flex-1 overflow-y-auto p-4 space-y-1">
 				{#if filteredChannels.length === 0}
-					<p class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-8">没有可用的渠道</p>
+					<p class="text-center text-sm text-zinc-600 dark:text-zinc-300 py-8">没有可用的渠道</p>
 				{:else}
 					{#each filteredChannels as ch (ch.id)}
 						<button
@@ -705,12 +705,12 @@
 								{selectedChannels.has(ch.id) ? 'bg-zinc-100 dark:bg-zinc-800 border border-zinc-400 dark:border-zinc-500' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50 border border-transparent'}"
 						>
 							<div class="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0
-								{selectedChannels.has(ch.id) ? 'border-zinc-900 bg-zinc-900 dark:border-zinc-100 dark:bg-zinc-100' : 'border-zinc-300 dark:border-zinc-600'}">
+								{selectedChannels.has(ch.id) ? 'border-zinc-900 bg-zinc-900 dark:border-zinc-100 dark:bg-zinc-100' : 'border-zinc-200 dark:border-zinc-700'}">
 								{#if selectedChannels.has(ch.id)}<Check class="w-3 h-3 text-white" />{/if}
 							</div>
 							<div class="flex-1 min-w-0">
 								<div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{ch.name}</div>
-								<div class="text-xs text-zinc-500 dark:text-zinc-400">{ch.code}</div>
+								<div class="text-xs text-zinc-600 dark:text-zinc-300">{ch.code}</div>
 							</div>
 							<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(ch.provider_type)}">{ch.provider_type}</span>
 						</button>
@@ -722,7 +722,7 @@
 			<div class="p-4 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between flex-shrink-0">
 				<span class="text-sm text-zinc-500">{selectedChannels.size} 个已选</span>
 				<div class="flex gap-2">
-					<button onclick={() => { showAddChannel = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
+					<button onclick={() => { showAddChannel = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
 					<button onclick={handleAddChannels} disabled={selectedChannels.size === 0} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50">
 						添加选中 ({selectedChannels.size})
 					</button>

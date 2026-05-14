@@ -99,7 +99,7 @@
 	function outcomeBadge(outcome: string): string {
 		if (outcome === 'success' || outcome === 'ok') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400';
 		if (outcome === 'denied' || outcome === 'forbidden') return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400';
-		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400';
+		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300';
 	}
 
 	let currentPage = $derived(Math.floor(offset / LIMIT) + 1);
@@ -118,7 +118,7 @@
 					bind:value={selectedOrg}
 					onchange={handleOrgChange}
 					disabled={loading}
-					class="h-9 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50"
+					class="h-9 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:opacity-50"
 				>
 					{#each orgs as org}
 						<option value={org}>{org}</option>
@@ -127,25 +127,25 @@
 			</div>
 		{/if}
 	</div>
-	<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">平台级审计记录，仅 Platform Admin 可见。</p>
+	<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6">平台级审计记录，仅 Platform Admin 可见。</p>
 
 	{#if !isPlatformAdmin}
 		<Card class="p-8 text-center">
-			<p class="text-zinc-500 dark:text-zinc-400 text-sm">无访问权限。审计日志仅限 Platform Admin 查看。</p>
+			<p class="text-zinc-600 dark:text-zinc-300 text-sm">无访问权限。审计日志仅限 Platform Admin 查看。</p>
 		</Card>
 	{:else if !selectedOrg}
 		<Card class="p-6">
-			<p class="text-zinc-500 dark:text-zinc-400 text-sm">当前账号没有关联任何 Org，无法查询审计日志。</p>
+			<p class="text-zinc-600 dark:text-zinc-300 text-sm">当前账号没有关联任何 Org，无法查询审计日志。</p>
 		</Card>
 	{:else if loading}
-		<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+		<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 	{:else if error}
 		<Card class="p-6">
 			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 		</Card>
 	{:else if logs.length === 0}
 		<Card class="p-6">
-			<p class="text-zinc-500 dark:text-zinc-400 text-sm">此 Org 暂无审计记录。</p>
+			<p class="text-zinc-600 dark:text-zinc-300 text-sm">此 Org 暂无审计记录。</p>
 		</Card>
 	{:else}
 		<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 mb-4">
@@ -169,7 +169,7 @@
 						>
 							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{formatDate(log.ts)}</td>
 							<td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">
-								<span class="text-zinc-400 dark:text-zinc-500">{log.actor_kind}/</span>{log.actor_id?.slice(0, 8) ?? '—'}
+								<span class="text-zinc-500 dark:text-zinc-400">{log.actor_kind}/</span>{log.actor_id?.slice(0, 8) ?? '—'}
 							</td>
 							<td class="px-4 py-3 font-mono text-xs text-zinc-900 dark:text-zinc-100">{log.action}</td>
 							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">{log.resource_kind}</td>
@@ -181,7 +181,7 @@
 							</td>
 							<td class="px-4 py-3 text-right">
 								{#if log.after !== null}
-									<span class="text-xs text-zinc-400 dark:text-zinc-500">{expandedId === log.id ? '▲' : '▼'}</span>
+									<span class="text-xs text-zinc-500 dark:text-zinc-400">{expandedId === log.id ? '▲' : '▼'}</span>
 								{/if}
 							</td>
 						</tr>

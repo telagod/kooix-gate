@@ -60,7 +60,7 @@
 
 <div>
 	<div class="max-w-7xl mx-auto p-6">
-		<p class="text-xs text-zinc-400 dark:text-zinc-500 mb-1">组织 / {orgId.slice(0, 8)}... / 项目</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 项目</p>
 		<div class="flex items-center justify-between mb-6">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">项目列表</h1>
 			<div class="flex gap-2">
@@ -100,14 +100,14 @@
 
 		<!-- 项目列表 -->
 		{#if loading}
-			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+			<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 		{:else if error}
 			<p class="text-red-600 dark:text-red-400">{error}</p>
 		{:else if projects.length === 0}
 			<Card class="p-12 text-center">
 				<FolderOpen size={40} class="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
-				<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-2">暂无项目</p>
-				<p class="text-xs text-zinc-400 dark:text-zinc-500">点击右上角「创建项目」开始使用</p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-2">暂无项目</p>
+				<p class="text-xs text-zinc-500 dark:text-zinc-400">点击右上角「创建项目」开始使用</p>
 			</Card>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
@@ -132,7 +132,7 @@
 										{proj.status}
 									</span>
 								</td>
-								<td class="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">{proj.id}</td>
+								<td class="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">{proj.id}</td>
 								<td class="px-4 py-3 text-right">
 									<Button variant="ghost" size="sm" onclick={() => goto(`/orgs/${orgId}/projects/${proj.id}`)}>
 										设置

@@ -57,7 +57,7 @@
 		const base = 'flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors mb-0.5';
 		return active(pattern)
 			? `${base} bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900`
-			: `${base} text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800`;
+			: `${base} text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800`;
 	}
 
 	const iconSize = 18;
@@ -71,7 +71,7 @@
 		{/if}
 		<button
 			onclick={() => (collapsed = !collapsed)}
-			class="p-1.5 rounded-md text-zinc-400 dark:text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+			class="p-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
 			title={collapsed ? '展开侧栏' : '收起侧栏'}
 		>
 			{#if collapsed}
@@ -87,7 +87,7 @@
 		<!-- Main -->
 		<div>
 			{#if !collapsed}
-				<p class="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">导航</p>
+				<p class="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">导航</p>
 			{/if}
 			<a href="/dashboard" class={linkCls('/dashboard')} title={collapsed ? '总览' : ''}>
 				<LayoutDashboard size={iconSize} />
@@ -111,7 +111,7 @@
 		{#if currentOrg}
 			<div>
 				{#if !collapsed}
-					<p class="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">当前组织</p>
+					<p class="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">当前组织</p>
 				{/if}
 				<a href="/orgs/{currentOrg}/projects" class={linkCls(`/orgs/${currentOrg}/projects`)} title={collapsed ? '项目' : ''}>
 					<FolderOpen size={iconSize} />
@@ -133,7 +133,7 @@
 			<div>
 				{#if !collapsed}
 					<div class="px-2.5 mb-1.5 flex items-center gap-1.5">
-						<p class="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">管理员</p>
+						<p class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">管理员</p>
 						<span class="inline-block px-1 py-0 rounded text-[9px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">Admin</span>
 					</div>
 				{:else}
@@ -171,7 +171,7 @@
 		<button
 			onclick={toggleTheme}
 			title={collapsed ? '切换主题' : ''}
-			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
 		>
 			{#if $theme === 'light'}
 				<Sun size={iconSize} />
@@ -188,7 +188,7 @@
 		<button
 			onclick={() => { clearTokens(); goto('/login'); }}
 			title={collapsed ? '登出' : ''}
-			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
 		>
 			<LogOut size={iconSize} />
 			{#if !collapsed}<span class="truncate">登出</span>{/if}
@@ -196,7 +196,7 @@
 
 		{#if !collapsed && me}
 			<div class="px-2.5 py-1">
-				<p class="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">
+				<p class="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
 					{#if isAdmin}
 						<span class="text-amber-600 dark:text-amber-400">Admin</span> ·
 					{/if}

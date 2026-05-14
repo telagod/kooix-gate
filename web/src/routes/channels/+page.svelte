@@ -279,7 +279,7 @@
 
 	function statusBadge(status: string): string {
 		if (status === 'active') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400';
-		if (status === 'disabled') return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400';
+		if (status === 'disabled') return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300';
 		return 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
 	}
 
@@ -287,7 +287,7 @@
 		if (health === 'healthy') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400';
 		if (health === 'degraded') return 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
 		if (health === 'unhealthy') return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400';
-		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400';
+		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300';
 	}
 
 	function fmtBalance(b: BalanceResponse): string {
@@ -315,7 +315,7 @@
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
 				Probe 结果 — {probeChannelName}
 			</h3>
-			<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-3 font-mono">{probeResult.provider_type}</p>
+			<p class="text-xs text-zinc-600 dark:text-zinc-300 mb-3 font-mono">{probeResult.provider_type}</p>
 			<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
 				发现 {probeResult.models.length} 个模型
 			</p>
@@ -347,7 +347,7 @@
 {#if probingId && !probeResult}
 	<div class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
 		<Card class="p-6 max-w-xs w-full mx-4 flex flex-col items-center gap-3">
-			<svg class="animate-spin h-8 w-8 text-zinc-500 dark:text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+			<svg class="animate-spin h-8 w-8 text-zinc-600 dark:text-zinc-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
 				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
 			</svg>
@@ -395,7 +395,7 @@
 						id="edit-enabled"
 						bind:checked={editForm.enabled}
 						disabled={editing}
-						class="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600"
+						class="w-4 h-4 rounded border-zinc-200 dark:border-zinc-700"
 					/>
 					<label for="edit-enabled" class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
 				</div>
@@ -418,7 +418,7 @@
 	<div class="flex items-center justify-between mb-1">
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">渠道管理</h1>
 		<div class="flex items-center gap-2">
-			<p class="text-xs text-zinc-400 dark:text-zinc-500 font-mono">{currentOrg ?? '—'}</p>
+			<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{currentOrg ?? '—'}</p>
 			{#if isPlatformAdmin}
 				<Button size="sm" variant="outline" onclick={handleBatchTest} disabled={batchTesting || loading}>
 					{batchTesting ? batchProgress || '测试中...' : '批量测试'}
@@ -429,7 +429,7 @@
 			{/if}
 		</div>
 	</div>
-	<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
+	<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6">
 		{#if isPlatformAdmin}
 			平台管理员可创建、编辑、测试和删除 channel。
 		{:else}
@@ -453,7 +453,7 @@
 							id="ch-provider"
 							bind:value={createForm.provider_type}
 							disabled={creating}
-							class="flex h-10 w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+							class="flex h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"
 						>
 							<option value="openai">OpenAI</option>
 							<option value="anthropic">Anthropic</option>
@@ -492,14 +492,14 @@
 
 	<!-- Channel table -->
 	{#if loading}
-		<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
+		<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
 	{:else if error}
 		<Card class="p-6">
 			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 		</Card>
 	{:else if channels.length === 0}
 		<Card class="p-6">
-			<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无 channel。请使用上方按钮创建上游连接。</p>
+			<p class="text-zinc-600 dark:text-zinc-300 text-sm">暂无 channel。请使用上方按钮创建上游连接。</p>
 		</Card>
 	{:else}
 		<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
@@ -528,7 +528,7 @@
 							<td class="px-4 py-3">
 								<span class="font-mono text-zinc-900 dark:text-zinc-100">{ch.code}</span>
 								{#if ch.name && ch.name !== ch.code}
-									<div class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{ch.name}</div>
+									<div class="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">{ch.name}</div>
 								{/if}
 							</td>
 
@@ -559,20 +559,20 @@
 											</span>
 										{/each}
 										{#if ch.supported_models.length > 3}
-											<span class="inline-block px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-500 rounded text-[10px]">
+											<span class="inline-block px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded text-[10px]">
 												+{ch.supported_models.length - 3}
 											</span>
 										{/if}
 									</div>
 								{:else}
-									<span class="text-xs text-zinc-400 dark:text-zinc-600">—</span>
+									<span class="text-xs text-zinc-500 dark:text-zinc-400">—</span>
 								{/if}
 							</td>
 
 							<!-- Response / test result -->
 							<td class="px-4 py-3 min-w-[110px]">
 								{#if isTesting}
-									<span class="inline-flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+									<span class="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
 										<svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
 											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
@@ -593,12 +593,12 @@
 										</span>
 									{/if}
 									{#if bal}
-										<div class="text-[10px] text-zinc-400 dark:text-zinc-500 mt-0.5 font-mono">{fmtBalance(bal)}</div>
+										<div class="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5 font-mono">{fmtBalance(bal)}</div>
 									{/if}
 								{:else if bal}
-									<div class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{fmtBalance(bal)}</div>
+									<div class="text-xs text-zinc-600 dark:text-zinc-300 font-mono">{fmtBalance(bal)}</div>
 								{:else}
-									<span class="text-xs text-zinc-400 dark:text-zinc-600">—</span>
+									<span class="text-xs text-zinc-500 dark:text-zinc-400">—</span>
 								{/if}
 							</td>
 

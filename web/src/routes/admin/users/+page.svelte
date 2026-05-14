@@ -43,7 +43,7 @@
 <div class="max-w-7xl mx-auto p-6">
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">用户管理</h1>
-		<span class="text-sm text-zinc-500 dark:text-zinc-400">{users.length} 用户</span>
+		<span class="text-sm text-zinc-600 dark:text-zinc-300">{users.length} 用户</span>
 	</div>
 
 	{#if actionError}
@@ -65,19 +65,19 @@
 	{:else if users.length === 0}
 		<Card class="p-12 text-center">
 			<Users size={40} class="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
-			<p class="text-sm text-zinc-500 dark:text-zinc-400">暂无用户</p>
+			<p class="text-sm text-zinc-600 dark:text-zinc-300">暂无用户</p>
 		</Card>
 	{:else}
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead>
 					<tr class="border-b border-zinc-200 dark:border-zinc-700 text-left">
-						<th class="pb-2 font-medium text-zinc-500 dark:text-zinc-400">邮箱</th>
-						<th class="pb-2 font-medium text-zinc-500 dark:text-zinc-400">昵称</th>
-						<th class="pb-2 font-medium text-zinc-500 dark:text-zinc-400">状态</th>
-						<th class="pb-2 font-medium text-zinc-500 dark:text-zinc-400">MFA</th>
-						<th class="pb-2 font-medium text-zinc-500 dark:text-zinc-400">最后登录</th>
-						<th class="pb-2 font-medium text-zinc-500 dark:text-zinc-400">注册时间</th>
+						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">邮箱</th>
+						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">昵称</th>
+						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">状态</th>
+						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">MFA</th>
+						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">最后登录</th>
+						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">注册时间</th>
 						<th class="pb-2"></th>
 					</tr>
 				</thead>
@@ -95,9 +95,9 @@
 									{user.status}
 								</span>
 							</td>
-							<td class="py-3 text-zinc-500 dark:text-zinc-400">{user.mfa_enabled ? '是' : '否'}</td>
-							<td class="py-3 text-xs text-zinc-500 dark:text-zinc-400">{fmtDate(user.last_login_at)}</td>
-							<td class="py-3 text-xs text-zinc-500 dark:text-zinc-400">{fmtDate(user.created_at)}</td>
+							<td class="py-3 text-zinc-600 dark:text-zinc-300">{user.mfa_enabled ? '是' : '否'}</td>
+							<td class="py-3 text-xs text-zinc-600 dark:text-zinc-300">{fmtDate(user.last_login_at)}</td>
+							<td class="py-3 text-xs text-zinc-600 dark:text-zinc-300">{fmtDate(user.created_at)}</td>
 							<td class="py-3 text-right">
 								<Button
 									variant={user.status === 'active' ? 'outline' : 'default'}

@@ -79,7 +79,7 @@
 		<div class="flex items-center justify-between mb-6">
 			<div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">总览</h1>
-				<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">
 					{#if currentOrg}
 						当前组织：<span class="font-mono">{currentOrg.slice(0, 8)}...</span>
 					{:else}
@@ -157,7 +157,7 @@
 				<MessageSquare size={20} class="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors" />
 				<div class="flex-1">
 					<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Chat Playground</p>
-					<p class="text-xs text-zinc-500 dark:text-zinc-400">在线测试模型对话</p>
+					<p class="text-xs text-zinc-600 dark:text-zinc-300">在线测试模型对话</p>
 				</div>
 				<ArrowRight size={14} class="text-zinc-300 dark:text-zinc-600" />
 			</button>
@@ -166,7 +166,7 @@
 				<BarChart3 size={20} class="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors" />
 				<div class="flex-1">
 					<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">用量仪表盘</p>
-					<p class="text-xs text-zinc-500 dark:text-zinc-400">查看 Token 消耗趋势</p>
+					<p class="text-xs text-zinc-600 dark:text-zinc-300">查看 Token 消耗趋势</p>
 				</div>
 				<ArrowRight size={14} class="text-zinc-300 dark:text-zinc-600" />
 			</button>
@@ -176,7 +176,7 @@
 					<FolderOpen size={20} class="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors" />
 					<div class="flex-1">
 						<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">项目管理</p>
-						<p class="text-xs text-zinc-500 dark:text-zinc-400">查看项目和 API Key</p>
+						<p class="text-xs text-zinc-600 dark:text-zinc-300">查看项目和 API Key</p>
 					</div>
 					<ArrowRight size={14} class="text-zinc-300 dark:text-zinc-600" />
 				</button>

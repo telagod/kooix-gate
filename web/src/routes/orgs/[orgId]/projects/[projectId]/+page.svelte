@@ -125,7 +125,7 @@
 		</Card>
 	{:else if project}
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-1">{project.name}</h1>
-		<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6 font-mono">{project.slug} · {projectId.slice(0, 8)}...</p>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6 font-mono">{project.slug} · {projectId.slice(0, 8)}...</p>
 
 		<!-- Settings -->
 		<Card class="p-5 mb-6">
@@ -135,12 +135,12 @@
 			</div>
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 				<div>
-					<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">名称</label>
+					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">名称</label>
 					<Input bind:value={editName} placeholder="项目名称" />
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">状态</label>
-					<select bind:value={editStatus} class="w-full h-10 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100">
+					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">状态</label>
+					<select bind:value={editStatus} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100">
 						<option value="active">Active</option>
 						<option value="archived">Archived</option>
 					</select>
@@ -163,7 +163,7 @@
 					<Key size={16} class="text-zinc-400" />
 					<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">API Keys</h2>
 				</div>
-				<span class="text-xs text-zinc-500 dark:text-zinc-400">{keys.filter(k => !k.revoked).length} 活跃</span>
+				<span class="text-xs text-zinc-600 dark:text-zinc-300">{keys.filter(k => !k.revoked).length} 活跃</span>
 			</div>
 
 			{#if createdKey}
@@ -190,13 +190,13 @@
 			</div>
 
 			{#if keys.length === 0}
-				<p class="text-sm text-zinc-400 dark:text-zinc-500 py-4 text-center">暂无 API Key，创建一个开始使用</p>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400 py-4 text-center">暂无 API Key，创建一个开始使用</p>
 			{:else}
 				<div class="space-y-1.5">
 					{#each keys as key}
 						<div class="flex items-center justify-between py-2 px-3 rounded-md {key.revoked ? 'opacity-50' : ''} hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
 							<div class="flex items-center gap-3">
-								<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{key.prefix}...{key.last4}</span>
+								<span class="text-xs font-mono text-zinc-600 dark:text-zinc-300">{key.prefix}...{key.last4}</span>
 								<span class="text-sm text-zinc-900 dark:text-zinc-100">{key.name}</span>
 								{#if key.revoked}
 									<span class="text-[10px] px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded">已撤销</span>
@@ -220,7 +220,7 @@
 					<ArrowRight size={16} class="text-zinc-400" />
 					<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">模型别名</h2>
 				</div>
-				<span class="text-xs text-zinc-500 dark:text-zinc-400">{aliases.length} 条</span>
+				<span class="text-xs text-zinc-600 dark:text-zinc-300">{aliases.length} 条</span>
 			</div>
 
 			<div class="flex gap-2 mb-4">
@@ -232,7 +232,7 @@
 			</div>
 
 			{#if aliases.length === 0}
-				<p class="text-sm text-zinc-400 dark:text-zinc-500 py-4 text-center">暂无别名，添加后请求中的 model 会自动映射</p>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400 py-4 text-center">暂无别名，添加后请求中的 model 会自动映射</p>
 			{:else}
 				<div class="space-y-1.5">
 					{#each aliases as a}

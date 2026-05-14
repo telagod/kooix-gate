@@ -8,7 +8,7 @@
 			{$page.status}
 		</p>
 		<h1 class="text-xl font-semibold text-zinc-800 dark:text-zinc-200 mb-2">出错了</h1>
-		<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
+		<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6">
 			{$page.error?.message ?? '发生了未知错误'}
 		</p>
 		<a

@@ -87,7 +87,7 @@
 					<span class="text-green-600 dark:text-green-400 text-2xl font-bold">✓</span>
 				</div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">初始化完成</h1>
-				<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">管理员账号 <span class="font-mono font-medium text-zinc-700 dark:text-zinc-300">{resultEmail}</span> 已创建</p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6">管理员账号 <span class="font-mono font-medium text-zinc-700 dark:text-zinc-300">{resultEmail}</span> 已创建</p>
 				<Button class="w-full" onclick={handleLogin} disabled={loading}>
 					{loading ? '登录中...' : '进入控制台'}
 				</Button>
@@ -98,12 +98,12 @@
 		{:else}
 			<div class="mb-6">
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Kooix Gate 初始化</h1>
-				<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">首次使用，请创建管理员账号和默认组织</p>
+				<p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">首次使用，请创建管理员账号和默认组织</p>
 				<div class="flex gap-2 mt-4">
 					<div class="flex-1 h-1 rounded-full {step >= 1 ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-200 dark:bg-zinc-700'}"></div>
 					<div class="flex-1 h-1 rounded-full {step >= 2 ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-200 dark:bg-zinc-700'}"></div>
 				</div>
-				<p class="text-xs text-zinc-400 dark:text-zinc-500 mt-2">步骤 {step} / 2</p>
+				<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-2">步骤 {step} / 2</p>
 			</div>
 
 			<form onsubmit={handleSubmit} class="space-y-4">
@@ -142,7 +142,7 @@
 						</div>
 					</div>
 					<div class="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-3">
-						<p class="text-xs text-zinc-500 dark:text-zinc-400">组织和项目可在初始化后随时修改，这里用默认值即可快速开始。</p>
+						<p class="text-xs text-zinc-600 dark:text-zinc-300">组织和项目可在初始化后随时修改，这里用默认值即可快速开始。</p>
 					</div>
 				{/if}
 

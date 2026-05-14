@@ -24,5 +24,5 @@
 </script>
 
 <div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
-	<p class="text-zinc-400 dark:text-zinc-500 text-sm">加载中...</p>
+	<p class="text-zinc-500 dark:text-zinc-400 text-sm">加载中...</p>
 </div>
