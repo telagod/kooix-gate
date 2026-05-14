@@ -69,6 +69,18 @@ pub trait ChannelKeyRepo: Send + Sync + 'static {
 
     /// 撤销指定 key（设 health='disabled'）。
     async fn revoke(&self, key_id: ChannelKeyId) -> DbResult<()>;
+
+    /// 记录一次成功调用：清零 consecutive_errors，health 置 healthy，total_requests +1。
+    async fn report_success(&self, key_id: ChannelKeyId) -> DbResult<()>;
+
+    /// 记录一次失败调用：consecutive_errors +1，total_errors +1，total_requests +1，
+    /// 写入 last_error_code / last_error_at；达到阈值（≥3）后进入 cooling_down 并设 cooldown_until。
+    async fn report_failure(
+        &self,
+        key_id: ChannelKeyId,
+        error_code: Option<i32>,
+        cooldown_secs: i64,
+    ) -> DbResult<()>;
 }
 
 // ============================================================================
@@ -227,6 +239,48 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         }
         Ok(())
     }
+
+    async fn report_success(&self, key_id: ChannelKeyId) -> DbResult<()> {
+        sqlx::query(
+            "UPDATE channel_keys SET \
+             consecutive_errors = 0, \
+             health = 'healthy', \
+             total_requests = total_requests + 1, \
+             cooldown_until = NULL \
+             WHERE id = $1",
+        )
+        .bind(key_id.as_uuid())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn report_failure(
+        &self,
+        key_id: ChannelKeyId,
+        error_code: Option<i32>,
+        cooldown_secs: i64,
+    ) -> DbResult<()> {
+        sqlx::query(
+            "UPDATE channel_keys SET \
+             consecutive_errors = consecutive_errors + 1, \
+             total_requests = total_requests + 1, \
+             total_errors = total_errors + 1, \
+             last_error_code = $2, \
+             last_error_at = NOW(), \
+             health = CASE WHEN consecutive_errors + 1 >= 3 THEN 'cooling_down' ELSE health END, \
+             cooldown_until = CASE WHEN consecutive_errors + 1 >= 3 \
+                                   THEN NOW() + ($3 || ' seconds')::INTERVAL \
+                                   ELSE cooldown_until END \
+             WHERE id = $1",
+        )
+        .bind(key_id.as_uuid())
+        .bind(error_code)
+        .bind(cooldown_secs.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -373,6 +427,19 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
         let rec = inner.keys.get_mut(&key_id).ok_or(DbError::NotFound)?;
         rec.health = "disabled".to_string();
         rec.updated_at = Utc::now();
+        Ok(())
+    }
+
+    async fn report_success(&self, _key_id: ChannelKeyId) -> DbResult<()> {
+        Ok(())
+    }
+
+    async fn report_failure(
+        &self,
+        _key_id: ChannelKeyId,
+        _error_code: Option<i32>,
+        _cooldown_secs: i64,
+    ) -> DbResult<()> {
         Ok(())
     }
 }

@@ -41,6 +41,7 @@ use gate_auth::AuthError;
 use gate_auth::context::Subject;
 use gate_core::id::ProjectId;
 use gate_providers::{ChatRequest, ChatResponse, Provider, Usage};
+use gate_providers::retry::{RetryConfig, with_retry};
 use gate_core::id::ChannelId;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
@@ -71,9 +72,13 @@ async fn chat_completions(
     Authed(ctx): Authed,
     headers: HeaderMap,
     guards: Option<Extension<InflightGuards>>,
-    Json(req): Json<ChatRequest>,
+    Json(mut req): Json<ChatRequest>,
 ) -> AppResult<axum::response::Response> {
-    let (provider, channel_id) = resolve_provider(&app, &ctx, &headers, &req).await?;
+    let (provider, channel_id, retry_config, params_override) = resolve_provider(&app, &ctx, &headers, &req).await?;
+
+    // Apply params_override from model alias (if any)
+    apply_params_override(&mut req, &params_override);
+
     // 计费上下文：仅 ApiKey 主体生成；channel_id 来自 ProviderRouter，fallback 路径为 None
     let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model);
     let model = req.model.clone();
@@ -152,7 +157,13 @@ async fn chat_completions(
             .keep_alive(KeepAlive::default())
             .into_response())
     } else {
-        let resp: ChatResponse = provider.chat(req).await?;
+        let resp: ChatResponse = with_retry(&retry_config, || {
+            let req_clone = req.clone();
+            let provider = provider.clone();
+            async move { provider.chat(req_clone).await }
+        })
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
         // 释放 inflight 计数（least_conn 策略）
         if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
@@ -188,7 +199,7 @@ async fn resolve_provider(
     ctx: &gate_auth::AuthContext,
     headers: &HeaderMap,
     req: &ChatRequest,
-) -> AppResult<(Arc<dyn Provider>, Option<uuid::Uuid>)> {
+) -> AppResult<(Arc<dyn Provider>, Option<uuid::Uuid>, RetryConfig, serde_json::Value)> {
     // 尝试从 ProviderRouter 获取
     if let Some(router) = &app.provider_router {
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
@@ -196,10 +207,9 @@ async fn resolve_provider(
         if let Some(project_id) = project_id_opt {
             match router.route(project_id, &req.model).await {
                 Ok(Some(routed)) => {
-                    return Ok((routed.provider, Some(*routed.channel_id.as_uuid())));
+                    return Ok((routed.provider, Some(*routed.channel_id.as_uuid()), routed.retry_config, routed.params_override));
                 }
                 Ok(None) => {
-                    // 路由找不到 channel，继续 fallback
                     tracing::debug!(
                         project_id = %project_id,
                         "provider_router returned None, trying fallback provider"
@@ -207,7 +217,6 @@ async fn resolve_provider(
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "provider_router error, falling back");
-                    // 路由出错时 fallback，不直接 500（让 fallback provider 接管）
                 }
             }
         }
@@ -218,7 +227,7 @@ async fn resolve_provider(
         .provider
         .clone()
         .ok_or_else(|| AppError::BadRequest("no provider configured".into()))?;
-    Ok((provider, None))
+    Ok((provider, None, RetryConfig::default(), serde_json::json!({})))
 }
 
 /// 从 AuthContext + headers 提取 project_id（带越权校验）。
@@ -275,4 +284,29 @@ async fn extract_project_id(
     }
 
     Ok(Some(project_id))
+}
+
+/// Merge model alias params_override into ChatRequest.
+/// Known fields: temperature, max_tokens, top_p. Others go into `extra` (flatmap).
+fn apply_params_override(req: &mut ChatRequest, overrides: &serde_json::Value) {
+    let obj = match overrides.as_object() {
+        Some(o) if !o.is_empty() => o,
+        _ => return,
+    };
+    if let Some(v) = obj.get("temperature").and_then(|v| v.as_f64()) {
+        req.temperature = Some(v as f32);
+    }
+    if let Some(v) = obj.get("max_tokens").and_then(|v| v.as_u64()) {
+        req.max_tokens = Some(v as u32);
+    }
+    if let Some(v) = obj.get("top_p").and_then(|v| v.as_f64()) {
+        req.top_p = Some(v as f32);
+    }
+    // Other override keys go into the flattened extra map
+    for (k, v) in obj {
+        match k.as_str() {
+            "temperature" | "max_tokens" | "top_p" => {} // already handled
+            _ => { req.extra.insert(k.clone(), v.clone()); }
+        }
+    }
 }

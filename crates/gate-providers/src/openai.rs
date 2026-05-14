@@ -8,7 +8,6 @@ use crate::types::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
-use std::time::Duration;
 
 #[derive(Clone)]
 pub struct OpenAiProvider {
@@ -19,9 +18,17 @@ pub struct OpenAiProvider {
 
 impl OpenAiProvider {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> ProviderResult<Self> {
+        Self::new_with_opts(base_url, api_key, crate::ProviderOpts::default())
+    }
+
+    pub fn new_with_opts(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        opts: crate::ProviderOpts,
+    ) -> ProviderResult<Self> {
         let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(600))
+            .connect_timeout(opts.connect_timeout())
+            .timeout(opts.timeout_duration())
             .build()
             .map_err(|e| ProviderError::Config(e.to_string()))?;
         Ok(Self {

@@ -23,7 +23,7 @@ pub mod router;
 pub mod types;
 
 pub use error::{ProviderError, ProviderResult};
-pub use router::{InflightTracker, ProviderRouter, RoutedProvider};
+pub use router::{InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
 pub use types::{
     ChatChoice, ChatDelta, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk,
     ChatStreamChoice, ContentPart, ContentType, EmbeddingInput, EmbeddingRequest,
@@ -33,6 +33,27 @@ pub use types::{
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+
+#[derive(Debug, Clone)]
+pub struct ProviderOpts {
+    pub timeout_ms: u64,
+}
+
+impl Default for ProviderOpts {
+    fn default() -> Self {
+        Self { timeout_ms: 600_000 } // 10 min default
+    }
+}
+
+impl ProviderOpts {
+    pub fn timeout_duration(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.timeout_ms)
+    }
+
+    pub fn connect_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(10)
+    }
+}
 
 #[async_trait]
 pub trait Provider: Send + Sync + 'static {

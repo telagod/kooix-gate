@@ -15,6 +15,13 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(base_url: impl Into<String>) -> ProviderResult<Self> {
+        Self::new_with_opts(base_url, crate::ProviderOpts::default())
+    }
+
+    pub fn new_with_opts(
+        base_url: impl Into<String>,
+        opts: crate::ProviderOpts,
+    ) -> ProviderResult<Self> {
         let url = base_url.into();
         let url = if url.is_empty() {
             "http://localhost:11434/v1".to_string()
@@ -22,7 +29,7 @@ impl OllamaProvider {
             url
         };
         Ok(Self {
-            inner: OpenAiProvider::new(url, "ollama")?,
+            inner: OpenAiProvider::new_with_opts(url, "ollama", opts)?,
         })
     }
 }

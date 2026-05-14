@@ -162,7 +162,7 @@ impl ChatMessage {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,

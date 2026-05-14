@@ -44,6 +44,8 @@ pub struct ChannelBinding {
     /// 数字越小优先级越高。
     pub priority: i32,
     pub weight: i32,
+    /// Binding-level model filter. Empty = no restriction (use channel.supported_models).
+    pub model_filter: Vec<String>,
 }
 
 /// 创建 Channel 的入参。
@@ -141,7 +143,7 @@ impl ChannelRepo for PgChannelRepo {
         let rows = sqlx::query(
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
                     c.status, c.health, c.timeout_ms, c.max_retries, c.created_at, c.updated_at, \
-                    b.priority, b.weight \
+                    b.priority, b.weight, b.model_filter \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
              WHERE b.group_id = $1 \
@@ -161,6 +163,7 @@ impl ChannelRepo for PgChannelRepo {
                     channel: row_to_channel(r)?,
                     priority: r.try_get("priority")?,
                     weight: r.try_get("weight")?,
+                    model_filter: r.try_get("model_filter").unwrap_or_default(),
                 })
             })
             .collect()
@@ -396,7 +399,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         let rows = sqlx::query(
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
                     c.status, c.health, c.timeout_ms, c.max_retries, c.created_at, c.updated_at, \
-                    b.priority, b.weight \
+                    b.priority, b.weight, b.model_filter \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
              WHERE b.group_id = $1 AND c.deleted_at IS NULL \
@@ -410,6 +413,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
                 channel: row_to_channel(r)?,
                 priority: r.try_get("priority")?,
                 weight: r.try_get("weight")?,
+                model_filter: r.try_get("model_filter").unwrap_or_default(),
             }))
             .collect()
     }
@@ -534,6 +538,7 @@ impl ChannelRepo for InMemoryChannelRepo {
                             channel: ch.clone(),
                             priority: *priority,
                             weight: *weight,
+                            model_filter: vec![],
                         })
                     } else {
                         None

@@ -23,8 +23,10 @@ use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
 use gate_core::id::{ChannelId, ChannelKeyId};
 use gate_core::rbac::{Permission, Scope};
+use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
 use gate_storage::{CreateChannel, UpdateChannel};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Serialize)]
@@ -75,14 +77,15 @@ pub fn router() -> Router<AppState> {
             "/channels/:id/keys",
             get(list_channel_keys).post(create_channel_key),
         )
-        .route(
-            "/channels/:id/keys/rotate",
+        .route("/channels/:id/keys/rotate",
             axum::routing::post(rotate_channel_key),
         )
         .route(
             "/channels/:id/keys/:key_id",
             axum::routing::delete(revoke_channel_key),
         )
+        .route("/channels/:id/probe", axum::routing::post(probe_channel_models))
+        .route("/channels/:id/test", get(test_channel))
         .route("/audit-logs", get(list_audit_logs))
         .route("/orgs", get(list_all_orgs).post(create_org))
         .route("/orgs/:org_id", axum::routing::put(update_org))
@@ -949,4 +952,224 @@ async fn remove_org_member_handler(
     app.audit.emit(&ctx, "membership.remove", "membership", Some(user_id), None);
 
     Ok(Json(serde_json::json!({"removed": true})))
+}
+
+// ============================================================================
+// Channel Probe & Test (P2.1 + P2.2)
+// ============================================================================
+
+/// POST /v1/admin/channels/:id/probe — 调用上游 /v1/models 获取可用模型列表。
+async fn probe_channel_models(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path(channel_id): Path<Uuid>,
+) -> AppResult<Json<ProbeResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id)).await?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id), &ch.code).await;
+
+    let base = ch.base_url.trim_end_matches('/');
+
+    let (url, headers) = match ch.provider_type.as_str() {
+        "anthropic" => {
+            let url = format!("{base}/v1/models");
+            let mut h = reqwest::header::HeaderMap::new();
+            if let Ok(v) = api_key.parse() { h.insert("x-api-key", v); }
+            if let Ok(v) = "2023-06-01".parse() { h.insert("anthropic-version", v); }
+            (url, h)
+        }
+        _ => {
+            let url = format!("{base}/models");
+            let mut h = reqwest::header::HeaderMap::new();
+            if !api_key.is_empty() {
+                if let Ok(v) = format!("Bearer {api_key}").parse() {
+                    h.insert("authorization", v);
+                }
+            }
+            (url, h)
+        }
+    };
+
+    let resp = client
+        .get(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("probe failed: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(AppError::Internal(format!("probe returned {status}: {body}")));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("probe parse error: {e}")))?;
+
+    let models: Vec<String> = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(Json(ProbeResponse {
+        channel_id: channel_id.to_string(),
+        provider_type: ch.provider_type.clone(),
+        models,
+    }))
+}
+
+#[derive(Serialize)]
+struct ProbeResponse {
+    channel_id: String,
+    provider_type: String,
+    models: Vec<String>,
+}
+
+/// GET /v1/admin/channels/:id/test — 发送最小 chat completion 验证渠道可用性。
+async fn test_channel(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path(channel_id): Path<Uuid>,
+    Query(query): Query<TestChannelQuery>,
+) -> AppResult<Json<TestResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id)).await?;
+
+    let test_model = query.model.clone().unwrap_or_else(|| {
+        ch.supported_models
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "gpt-4o-mini".to_string())
+    });
+
+    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id), &ch.code).await;
+
+    let timeout_ms = (ch.timeout_ms as u64).max(5000);
+    let opts = gate_providers::ProviderOpts { timeout_ms };
+
+    let provider: Arc<dyn gate_providers::Provider> = match ch.provider_type.as_str() {
+        "anthropic" => Arc::new(
+            gate_providers::anthropic::AnthropicProvider::new_with_opts(
+                &ch.base_url,
+                &api_key,
+                opts,
+            )
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+        ),
+        "azure" => Arc::new(
+            gate_providers::azure::AzureProvider::new_with_opts(
+                &ch.base_url,
+                &api_key,
+                None,
+                opts,
+            )
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+        ),
+        _ => Arc::new(
+            gate_providers::openai::OpenAiProvider::new_with_opts(
+                &ch.base_url,
+                &api_key,
+                opts,
+            )
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+        ),
+    };
+
+    let start = std::time::Instant::now();
+    let req = ChatRequest {
+        model: test_model.clone(),
+        messages: vec![ChatMessage {
+            role: Role::User,
+            content: Some(MessageContent::Text("Hi".to_string())),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }],
+        max_tokens: Some(1),
+        temperature: Some(0.0),
+        stream: false,
+        ..Default::default()
+    };
+
+    let result = provider.chat(req).await;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(resp) => Ok(Json(TestResponse {
+            success: true,
+            model: test_model,
+            response_time_ms: elapsed_ms,
+            message: resp
+                .choices
+                .first()
+                .and_then(|c| c.message.content.as_ref())
+                .map(|c| c.to_text()),
+            error: None,
+        })),
+        Err(e) => Ok(Json(TestResponse {
+            success: false,
+            model: test_model,
+            response_time_ms: elapsed_ms,
+            message: None,
+            error: Some(e.to_string()),
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct TestChannelQuery {
+    model: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TestResponse {
+    success: bool,
+    model: String,
+    response_time_ms: u64,
+    message: Option<String>,
+    error: Option<String>,
+}
+
+/// 解析 channel 探测/测试用的 API key。
+/// 优先从 DB 加密 key 池取；fallback 到环境变量。
+async fn resolve_probe_key(app: &AppState, channel_id: ChannelId, code: &str) -> String {
+    if let (Ok(record), Some(crypto)) = (
+        app.repos.channel_keys.find_active_for_channel(channel_id).await,
+        app.crypto.as_ref(),
+    ) {
+        let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+        if let Ok(plaintext) = crypto.open(&record.key_enc, &aad).await {
+            if let Ok(s) = String::from_utf8(plaintext.to_vec()) {
+                return s;
+            }
+        }
+    }
+    // Fallback: 环境变量
+    let env_key = format!(
+        "KOOIX_CH_{}_KEY",
+        code.to_uppercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>()
+    );
+    std::env::var(&env_key)
+        .or_else(|_| std::env::var("KOOIX_API_KEY"))
+        .unwrap_or_default()
 }

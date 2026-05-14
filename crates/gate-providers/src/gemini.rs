@@ -13,10 +13,18 @@ pub struct GeminiProvider {
 
 impl GeminiProvider {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> ProviderResult<Self> {
+        Self::new_with_opts(base_url, api_key, crate::ProviderOpts::default())
+    }
+
+    pub fn new_with_opts(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        opts: crate::ProviderOpts,
+    ) -> ProviderResult<Self> {
         let base = base_url.into();
         let base = base.trim_end_matches('/');
         let compat_url = format!("{base}/v1beta/openai");
-        let inner = OpenAiProvider::new(compat_url, api_key)?;
+        let inner = OpenAiProvider::new_with_opts(compat_url, api_key, opts)?;
         Ok(Self { inner })
     }
 }

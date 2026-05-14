@@ -8,7 +8,6 @@ use crate::types::{
 };
 use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt};
-use std::time::Duration;
 
 #[derive(Clone)]
 pub struct AzureProvider {
@@ -24,9 +23,18 @@ impl AzureProvider {
         api_key: impl Into<String>,
         api_version: Option<String>,
     ) -> ProviderResult<Self> {
+        Self::new_with_opts(endpoint, api_key, api_version, crate::ProviderOpts::default())
+    }
+
+    pub fn new_with_opts(
+        endpoint: impl Into<String>,
+        api_key: impl Into<String>,
+        api_version: Option<String>,
+        opts: crate::ProviderOpts,
+    ) -> ProviderResult<Self> {
         let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(600))
+            .connect_timeout(opts.connect_timeout())
+            .timeout(opts.timeout_duration())
             .build()
             .map_err(|e| ProviderError::Config(e.to_string()))?;
         Ok(Self {

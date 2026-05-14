@@ -14,6 +14,7 @@
 //!    b. 若 DB 无 key 或 repo 未配置 → 回退 env var
 //! 6. 找不到 channel_group 或 channel → 返回 None，调用方 fallback 到 AppState.provider
 
+use crate::EmbeddingProvider;
 use crate::Provider;
 use crate::anthropic::AnthropicProvider;
 use crate::azure::AzureProvider;
@@ -25,7 +26,7 @@ use crate::gemini::GeminiProvider;
 use crate::mistral::MistralProvider;
 use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
-use gate_core::id::{ChannelId, ProjectId};
+use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
 use std::collections::HashMap;
@@ -39,6 +40,21 @@ pub struct RoutedProvider {
     pub channel_id: ChannelId,
     /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
     pub resolved_model: String,
+    /// 从 channel 记录构造的 retry 配置。
+    pub retry_config: crate::retry::RetryConfig,
+    /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
+    pub key_id: Option<ChannelKeyId>,
+    /// params_override from model alias (empty object `{}` if no alias or no override).
+    pub params_override: serde_json::Value,
+}
+
+/// Embedding 路由命中结果：EmbeddingProvider + 绑定的 channel_id。
+#[derive(Clone)]
+pub struct RoutedEmbeddingProvider {
+    pub provider: Arc<dyn EmbeddingProvider>,
+    pub channel_id: ChannelId,
+    /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
+    pub key_id: Option<ChannelKeyId>,
 }
 
 // ============================================================================
@@ -261,11 +277,15 @@ impl ProviderRouter {
         requested_model: &str,
     ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 0: alias 解析
-        let canonical_model = self.resolve_alias(project_id, requested_model).await?;
-        let model = canonical_model.as_deref().unwrap_or(requested_model);
+        let alias_result = self.resolve_alias(project_id, requested_model).await?;
+        let (model, params_override) = match &alias_result {
+            Some((target, po)) => (target.as_str(), po.clone()),
+            None => (requested_model, serde_json::json!({})),
+        };
 
         // Step 1: 尝试主模型路由
-        if let Some(routed) = self.route_for_model(project_id, model).await? {
+        if let Some(mut routed) = self.route_for_model(project_id, model).await? {
+            routed.params_override = params_override;
             return Ok(Some(routed));
         }
 
@@ -277,7 +297,8 @@ impl ProviderRouter {
                 fallback_model = fallback,
                 "primary model route failed, trying fallback"
             );
-            if let Some(routed) = self.route_for_model(project_id, fallback).await? {
+            if let Some(mut routed) = self.route_for_model(project_id, fallback).await? {
+                routed.params_override = params_override;
                 return Ok(Some(routed));
             }
         }
@@ -285,29 +306,220 @@ impl ProviderRouter {
         Ok(None)
     }
 
-    /// alias 解析：查 ModelAliasRepo，返回 Some(target) 或 None（无 alias）。
+    /// 按 project_id + model 选 EmbeddingProvider。
+    ///
+    /// 路由逻辑与 `route()` 相同，但构造 `Arc<dyn EmbeddingProvider>` 而非 `Arc<dyn Provider>`。
+    /// 不支持 embedding 的 provider type（anthropic、bedrock）会被过滤掉。
+    /// 返回 `None` 时调用方应 fallback 或返回 400。
+    pub async fn route_embedding(
+        &self,
+        project_id: ProjectId,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedEmbeddingProvider>> {
+        let alias_result = self.resolve_alias(project_id, model).await?;
+        let resolved = match &alias_result {
+            Some((target, _)) => target.as_str(),
+            None => model,
+        };
+
+        if let Some(routed) = self.route_embedding_for_model(project_id, resolved).await? {
+            return Ok(Some(routed));
+        }
+
+        for fallback in fallback_models(resolved) {
+            if let Some(routed) = self.route_embedding_for_model(project_id, fallback).await? {
+                return Ok(Some(routed));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// 为指定 model 做 embedding 路由（group → fallback chain → channel → EmbeddingProvider）。
+    async fn route_embedding_for_model(
+        &self,
+        project_id: ProjectId,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedEmbeddingProvider>> {
+        let initial_group = match self.group_repo.find_default_for_project(project_id).await {
+            Ok(g) => g,
+            Err(gate_storage::DbError::NotFound) => return Ok(None),
+            Err(e) => {
+                return Err(ProviderError::Config(format!(
+                    "channel_group lookup failed: {e}"
+                )));
+            }
+        };
+
+        let mut current_group = initial_group;
+        let mut depth = 0u8;
+        const MAX_FALLBACK_DEPTH: u8 = 5;
+
+        loop {
+            if depth > MAX_FALLBACK_DEPTH {
+                return Ok(None);
+            }
+
+            if current_group.enabled {
+                if let Some(routed) =
+                    self.try_route_embedding_in_group(&current_group, model).await?
+                {
+                    return Ok(Some(routed));
+                }
+            }
+
+            match current_group.fallback_group_id {
+                Some(fallback_id) => match self.group_repo.find_by_id(fallback_id).await {
+                    Ok(g) => {
+                        current_group = g;
+                        depth += 1;
+                    }
+                    Err(_) => return Ok(None),
+                },
+                None => return Ok(None),
+            }
+        }
+    }
+
+    /// Steps 2-4 for embedding: list channels, filter (model + embedding-capable provider),
+    /// select by strategy, construct `Arc<dyn EmbeddingProvider>`.
+    async fn try_route_embedding_in_group(
+        &self,
+        group: &gate_storage::ChannelGroupRecord,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedEmbeddingProvider>> {
+        let bindings = self
+            .channel_repo
+            .list_healthy_in_group(group.group_id)
+            .await
+            .map_err(|e| ProviderError::Config(format!("channel list failed: {e}")))?;
+
+        if bindings.is_empty() {
+            return Ok(None);
+        }
+
+        // Filter: model compatible AND provider supports EmbeddingProvider
+        let compatible: Vec<_> = bindings
+            .iter()
+            .filter(|b| {
+                let model_ok = if !b.model_filter.is_empty() {
+                    b.model_filter.iter().any(|m| m == model)
+                } else {
+                    b.channel.supported_models.is_empty()
+                        || b.channel.supported_models.iter().any(|m| m == model)
+                };
+                let provider_ok =
+                    !matches!(b.channel.provider_type.as_str(), "anthropic" | "bedrock");
+                model_ok && provider_ok
+            })
+            .collect();
+
+        if compatible.is_empty() {
+            return Ok(None);
+        }
+
+        let selected =
+            select_channel(&group.strategy, &compatible, &self.rr_counter, &self.inflight);
+
+        let (api_key, key_id) = self
+            .resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code)
+            .await?;
+        let opts = crate::ProviderOpts {
+            timeout_ms: selected.channel.timeout_ms as u64,
+        };
+
+        let provider: Arc<dyn EmbeddingProvider> = match selected.channel.provider_type.as_str() {
+            "azure" => {
+                let p = AzureProvider::new_with_opts(
+                    selected.channel.base_url.clone(),
+                    api_key,
+                    None,
+                    opts,
+                )
+                .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+            "deepseek" => {
+                let p = DeepSeekProvider::new_with_opts(
+                    selected.channel.base_url.clone(),
+                    api_key,
+                    opts,
+                )
+                .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+            "ollama" => {
+                let p = OllamaProvider::new_with_opts(selected.channel.base_url.clone(), opts)
+                    .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+            "mistral" => {
+                let p = MistralProvider::new_with_opts(
+                    selected.channel.base_url.clone(),
+                    api_key,
+                    opts,
+                )
+                .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+            "cohere" => {
+                let p = CohereProvider::new_with_opts(
+                    selected.channel.base_url.clone(),
+                    api_key,
+                    opts,
+                )
+                .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+            "gemini" => {
+                let p = GeminiProvider::new_with_opts(
+                    selected.channel.base_url.clone(),
+                    api_key,
+                    opts,
+                )
+                .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+            // Default: OpenAI-compatible (covers "openai" and any unknown type)
+            _ => {
+                let p = OpenAiProvider::new_with_opts(
+                    selected.channel.base_url.clone(),
+                    api_key,
+                    opts,
+                )
+                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn EmbeddingProvider>
+            }
+        };
+
+        Ok(Some(RoutedEmbeddingProvider {
+            provider,
+            channel_id: selected.channel.channel_id,
+            key_id,
+        }))
+    }
+
+    /// alias 解析：查 ModelAliasRepo，返回 Some((target, params_override)) 或 None（无 alias）。
     async fn resolve_alias(
         &self,
         project_id: ProjectId,
         requested_model: &str,
-    ) -> ProviderResult<Option<String>> {
+    ) -> ProviderResult<Option<(String, serde_json::Value)>> {
         let Some(repo) = &self.model_alias_repo else {
             return Ok(None);
         };
         match repo.resolve(project_id, requested_model).await {
-            Ok(target) => {
-                if let Some(ref t) = target {
-                    tracing::debug!(
-                        project_id = %project_id,
-                        alias = requested_model,
-                        target = t,
-                        "model alias resolved"
-                    );
-                }
-                Ok(target)
+            Ok(Some(resolved)) => {
+                tracing::debug!(
+                    project_id = %project_id,
+                    alias = requested_model,
+                    target = &resolved.target_model,
+                    "model alias resolved"
+                );
+                Ok(Some((resolved.target_model, resolved.params_override)))
             }
+            Ok(None) => Ok(None),
             Err(e) => {
-                // alias 解析失败不阻断请求，退化为原始模型
                 tracing::warn!(
                     project_id = %project_id,
                     model = requested_model,
@@ -319,14 +531,14 @@ impl ProviderRouter {
         }
     }
 
-    /// 为指定模型做实际路由（查 group → channel → 构造 provider）。
+    /// 为指定模型做实际路由（查 group → fallback chain → channel → 构造 provider）。
     async fn route_for_model(
         &self,
         project_id: ProjectId,
         model: &str,
     ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 1: 找 project 的默认 channel_group
-        let group = match self.group_repo.find_default_for_project(project_id).await {
+        let initial_group = match self.group_repo.find_default_for_project(project_id).await {
             Ok(g) => g,
             Err(gate_storage::DbError::NotFound) => {
                 tracing::debug!(
@@ -343,14 +555,69 @@ impl ProviderRouter {
             }
         };
 
-        if !group.enabled {
-            tracing::debug!(
-                group_id = %group.group_id,
-                "channel_group is disabled, falling back"
-            );
-            return Ok(None);
-        }
+        // Walk fallback chain (max depth 5 to prevent cycles)
+        let mut current_group = initial_group;
+        let mut depth = 0u8;
+        const MAX_FALLBACK_DEPTH: u8 = 5;
 
+        loop {
+            if depth > MAX_FALLBACK_DEPTH {
+                tracing::warn!(
+                    project_id = %project_id,
+                    model = model,
+                    depth = depth,
+                    "fallback chain exceeded max depth"
+                );
+                return Ok(None);
+            }
+
+            if !current_group.enabled {
+                tracing::debug!(
+                    group_id = %current_group.group_id,
+                    "channel_group is disabled, trying fallback"
+                );
+            } else {
+                // Try to find a channel in this group
+                if let Some(routed) = self.try_route_in_group(&current_group, model).await? {
+                    return Ok(Some(routed));
+                }
+            }
+
+            // No channel found — try fallback group
+            match current_group.fallback_group_id {
+                Some(fallback_id) => {
+                    tracing::info!(
+                        group = %current_group.name,
+                        fallback_group_id = %fallback_id,
+                        model = model,
+                        "no compatible channel in group, falling through to fallback group"
+                    );
+                    match self.group_repo.find_by_id(fallback_id).await {
+                        Ok(g) => {
+                            current_group = g;
+                            depth += 1;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                fallback_group_id = %fallback_id,
+                                error = %e,
+                                "fallback group lookup failed"
+                            );
+                            return Ok(None);
+                        }
+                    }
+                }
+                None => return Ok(None),
+            }
+        }
+    }
+
+    /// Steps 2-4: list healthy channels in group, filter, select, construct provider.
+    async fn try_route_in_group(
+        &self,
+        group: &gate_storage::ChannelGroupRecord,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 2: 取 group 内 healthy channels
         let bindings = self
             .channel_repo
@@ -367,13 +634,18 @@ impl ProviderRouter {
             return Ok(None);
         }
 
-        // Step 3: 按 supported_models 过滤 + strategy 选 channel
-        // 空 supported_models 表示 wildcard（支持所有模型）。
+        // Step 3: 按 model_filter / supported_models 过滤 + strategy 选 channel
+        // Binding-level model_filter takes priority; empty = fall back to channel.supported_models.
+        // Empty supported_models = wildcard（支持所有模型）。
         let compatible: Vec<_> = bindings
             .iter()
             .filter(|b| {
-                b.channel.supported_models.is_empty()
-                    || b.channel.supported_models.iter().any(|m| m == model)
+                if !b.model_filter.is_empty() {
+                    b.model_filter.iter().any(|m| m == model)
+                } else {
+                    b.channel.supported_models.is_empty()
+                        || b.channel.supported_models.iter().any(|m| m == model)
+                }
             })
             .collect();
 
@@ -400,7 +672,6 @@ impl ProviderRouter {
         }
 
         tracing::debug!(
-            project_id = %project_id,
             group = %group.name,
             channel = %selected.channel.code,
             provider_type = %selected.channel.provider_type,
@@ -410,20 +681,23 @@ impl ProviderRouter {
 
         // Step 4: 根据 provider_type 构造对应 Provider
         // G1: 优先从 DB 取 channel key → 解密；无则 fallback env
-        let api_key = self.resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code).await?;
+        let (api_key, key_id) = self.resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code).await?;
+        let opts = crate::ProviderOpts {
+            timeout_ms: selected.channel.timeout_ms as u64,
+        };
         let provider: Arc<dyn Provider> = match selected.channel.provider_type.as_str() {
             "anthropic" => {
-                let p = AnthropicProvider::new(selected.channel.base_url.clone(), api_key)
+                let p = AnthropicProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
                     .map_err(|e| ProviderError::Config(format!("build AnthropicProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             "gemini" => {
-                let p = GeminiProvider::new(selected.channel.base_url.clone(), api_key)
+                let p = GeminiProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
                     .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             "azure" => {
-                let p = AzureProvider::new(selected.channel.base_url.clone(), api_key, None)
+                let p = AzureProvider::new_with_opts(selected.channel.base_url.clone(), api_key, None, opts)
                     .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
@@ -432,54 +706,63 @@ impl ProviderRouter {
                 let secret = std::env::var(format!("KOOIX_CH_{}_SECRET", selected.channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_")))
                     .unwrap_or_default();
                 let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-                let p = BedrockProvider::new(region, access, secret)
+                let p = BedrockProvider::new_with_opts(region, access, secret, opts)
                     .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             "deepseek" => {
-                let p = DeepSeekProvider::new(selected.channel.base_url.clone(), api_key)
+                let p = DeepSeekProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
                     .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             "ollama" => {
-                let p = OllamaProvider::new(selected.channel.base_url.clone())
+                let p = OllamaProvider::new_with_opts(selected.channel.base_url.clone(), opts)
                     .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             "mistral" => {
-                let p = MistralProvider::new(selected.channel.base_url.clone(), api_key)
+                let p = MistralProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
                     .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             "cohere" => {
-                let p = CohereProvider::new(selected.channel.base_url.clone(), api_key)
+                let p = CohereProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
                     .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
             _ => {
                 // 未知类型走 OpenAI 兼容
-                let p = OpenAiProvider::new(selected.channel.base_url.clone(), api_key)
+                let p = OpenAiProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
                     .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
+        };
+
+        let retry_config = crate::retry::RetryConfig {
+            max_retries: selected.channel.max_retries.max(0) as u32,
+            ..Default::default()
         };
 
         Ok(Some(RoutedProvider {
             provider,
             channel_id: selected.channel.channel_id,
             resolved_model: model.to_string(),
+            retry_config,
+            key_id,
+            params_override: serde_json::json!({}),
         }))
     }
 
     /// G1: 从 DB 取 channel key → 解密；无则 fallback env var。
+    /// 返回 (plaintext_key, Option<key_id>)——key_id 仅在从 DB 取到时有值。
     async fn resolve_key_for_channel(
         &self,
         channel_id: ChannelId,
         channel_code: &str,
-    ) -> ProviderResult<String> {
+    ) -> ProviderResult<(String, Option<ChannelKeyId>)> {
         // 如果 repo 未配置，直接走 env
         let Some(repo) = &self.channel_key_repo else {
-            return Ok(resolve_api_key_for_channel(channel_code));
+            return Ok((resolve_api_key_for_channel(channel_code), None));
         };
 
         // 尝试从 DB 取 active key
@@ -491,10 +774,11 @@ impl ProviderRouter {
                         channel_id = %channel_id,
                         "channel key found in DB but crypto not configured, falling back to env"
                     );
-                    return Ok(resolve_api_key_for_channel(channel_code));
+                    return Ok((resolve_api_key_for_channel(channel_code), None));
                 };
                 // AAD = channel_key(channel_id) — 与 admin handler 加密时一致
                 let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+                let key_id = record.id;
                 let plaintext = crypto
                     .open(&record.key_enc, &aad)
                     .await
@@ -504,9 +788,10 @@ impl ProviderRouter {
                             record.id
                         ))
                     })?;
-                Ok(String::from_utf8(plaintext.to_vec()).map_err(|e| {
+                let key_str = String::from_utf8(plaintext.to_vec()).map_err(|e| {
                     ProviderError::Config(format!("channel key is not valid UTF-8: {e}"))
-                })?)
+                })?;
+                Ok((key_str, Some(key_id)))
             }
             Err(gate_storage::DbError::NotFound) => {
                 // DB 里没有 key，走 env
@@ -515,7 +800,7 @@ impl ProviderRouter {
                     channel_code = channel_code,
                     "no channel key in DB, falling back to env"
                 );
-                Ok(resolve_api_key_for_channel(channel_code))
+                Ok((resolve_api_key_for_channel(channel_code), None))
             }
             Err(e) => {
                 // DB 查询出错，warn + fallback env
@@ -524,7 +809,7 @@ impl ProviderRouter {
                     error = %e,
                     "channel key lookup failed, falling back to env"
                 );
-                Ok(resolve_api_key_for_channel(channel_code))
+                Ok((resolve_api_key_for_channel(channel_code), None))
             }
         }
     }
@@ -843,11 +1128,12 @@ mod tests {
         let secret = "sk-real-api-key-12345";
         let (router, ch_id, _project_id) = build_router_with_key(secret).await;
 
-        let resolved = router
+        let (resolved, key_id) = router
             .resolve_key_for_channel(ch_id, "test-ch")
             .await
             .unwrap();
         assert_eq!(resolved, secret);
+        assert!(key_id.is_some(), "key_id should be Some when resolved from DB");
     }
 
     // ============================================================================
@@ -1035,5 +1321,175 @@ mod tests {
 
         let routed = router.route(pid, "any").await.unwrap().unwrap();
         assert_eq!(routed.channel_id, ch_ids[1]);
+    }
+
+    // ============================================================================
+    // Group fallback chain tests
+    // ============================================================================
+
+    /// Build a router with two groups: primary has no channels for model X,
+    /// fallback has a channel. Expect routing to succeed via fallback group.
+    #[tokio::test]
+    async fn group_fallback_chain_routes_to_fallback_group() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let primary_group_id = ChannelGroupId::from(Uuid::now_v7());
+        let fallback_group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        let now = Utc::now();
+
+        // Primary group has only a gpt-4o channel
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id: primary_group_id,
+            name: "primary".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: Some(fallback_group_id),
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        });
+        group_repo.seed_default(project_id, primary_group_id);
+
+        let ch_gpt = make_channel_with_models("ch-gpt", "openai", vec!["gpt-4o".into()]);
+        let ch_gpt_id = ch_gpt.channel_id;
+        channel_repo.seed_channel(ch_gpt);
+        channel_repo.seed_binding(primary_group_id, ch_gpt_id, 1, 1);
+
+        // Fallback group has a claude channel
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id: fallback_group_id,
+            name: "fallback".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        });
+        let ch_claude = make_channel_with_models("ch-claude", "anthropic", vec!["claude-3-haiku".into()]);
+        let ch_claude_id = ch_claude.channel_id;
+        channel_repo.seed_channel(ch_claude);
+        channel_repo.seed_binding(fallback_group_id, ch_claude_id, 1, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let result = router.route(project_id, "claude-3-haiku").await.unwrap();
+        assert!(result.is_some(), "should route via fallback group");
+        let routed = result.unwrap();
+        assert_eq!(routed.channel_id, ch_claude_id);
+        assert_eq!(routed.resolved_model, "claude-3-haiku");
+    }
+
+    /// Disabled primary group with no fallback → None.
+    #[tokio::test]
+    async fn disabled_group_no_fallback_returns_none() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        let now = Utc::now();
+
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "disabled".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: false, // disabled!
+            created_at: now,
+            updated_at: now,
+        });
+        group_repo.seed_default(project_id, group_id);
+
+        let ch = make_channel_with_models("ch-any", "openai", vec![]);
+        let ch_id = ch.channel_id;
+        channel_repo.seed_channel(ch);
+        channel_repo.seed_binding(group_id, ch_id, 1, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let result = router.route(project_id, "gpt-4o").await.unwrap();
+        assert!(result.is_none(), "disabled group with no fallback should return None");
+    }
+
+    /// Disabled primary group → fallback to enabled group with a channel.
+    #[tokio::test]
+    async fn disabled_group_falls_through_to_fallback() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let primary_id = ChannelGroupId::from(Uuid::now_v7());
+        let fallback_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        let now = Utc::now();
+
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id: primary_id,
+            name: "primary-disabled".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: Some(fallback_id),
+            enabled: false,
+            created_at: now,
+            updated_at: now,
+        });
+        group_repo.seed_default(project_id, primary_id);
+
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id: fallback_id,
+            name: "fallback-enabled".to_string(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        });
+        let ch = make_channel_with_models("ch-fb", "openai", vec![]);
+        let ch_id = ch.channel_id;
+        channel_repo.seed_channel(ch);
+        channel_repo.seed_binding(fallback_id, ch_id, 1, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let result = router.route(project_id, "gpt-4o").await.unwrap();
+        assert!(result.is_some(), "should route through fallback after disabled primary");
+        assert_eq!(result.unwrap().channel_id, ch_id);
+    }
+
+    /// Three-level chain: A→B→C, only C has a matching channel.
+    #[tokio::test]
+    async fn group_fallback_three_levels_deep() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let id_a = ChannelGroupId::from(Uuid::now_v7());
+        let id_b = ChannelGroupId::from(Uuid::now_v7());
+        let id_c = ChannelGroupId::from(Uuid::now_v7());
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        let now = Utc::now();
+
+        for (id, fallback, name) in [
+            (id_a, Some(id_b), "group-a"),
+            (id_b, Some(id_c), "group-b"),
+            (id_c, None, "group-c"),
+        ] {
+            group_repo.seed_group(ChannelGroupRecord {
+                group_id: id,
+                name: name.to_string(),
+                strategy: "priority".to_string(),
+                fallback_group_id: fallback,
+                enabled: true,
+                created_at: now,
+                updated_at: now,
+            });
+        }
+        group_repo.seed_default(project_id, id_a);
+
+        // Only group C has a channel
+        let ch = make_channel_with_models("ch-c", "openai", vec!["target-model".into()]);
+        let ch_id = ch.channel_id;
+        channel_repo.seed_channel(ch);
+        channel_repo.seed_binding(id_c, ch_id, 1, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let result = router.route(project_id, "target-model").await.unwrap();
+        assert!(result.is_some(), "should route through 3-level chain");
+        assert_eq!(result.unwrap().channel_id, ch_id);
     }
 }

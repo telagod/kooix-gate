@@ -28,15 +28,22 @@ pub struct ModelAliasRecord {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Resolved alias result with optional parameter overrides.
+#[derive(Debug, Clone)]
+pub struct ResolvedAlias {
+    pub target_model: String,
+    pub params_override: serde_json::Value,
+}
+
 #[async_trait]
 pub trait ModelAliasRepo: Send + Sync + 'static {
-    /// 解析 alias → target_model。只查 enabled=TRUE 的行。
+    /// 解析 alias → target_model + params_override。只查 enabled=TRUE 的行。
     /// 返回 None 表示无匹配 alias（用原始 model）。
     async fn resolve(
         &self,
         project_id: ProjectId,
         requested_model: &str,
-    ) -> DbResult<Option<String>>;
+    ) -> DbResult<Option<ResolvedAlias>>;
 
     /// 列出 project 下所有 alias（含 disabled），admin 视图用。
     async fn list_by_project(&self, project_id: ProjectId) -> DbResult<Vec<ModelAliasRecord>>;
@@ -90,9 +97,9 @@ impl ModelAliasRepo for PgModelAliasRepo {
         &self,
         project_id: ProjectId,
         requested_model: &str,
-    ) -> DbResult<Option<String>> {
+    ) -> DbResult<Option<ResolvedAlias>> {
         let row = sqlx::query(
-            "SELECT target_model FROM model_aliases \
+            "SELECT target_model, params_override FROM model_aliases \
              WHERE project_id = $1 AND alias = $2 AND enabled = TRUE",
         )
         .bind(project_id.as_uuid())
@@ -103,7 +110,8 @@ impl ModelAliasRepo for PgModelAliasRepo {
         match row {
             Some(r) => {
                 let target: String = r.try_get("target_model")?;
-                Ok(Some(target))
+                let params: serde_json::Value = r.try_get("params_override").unwrap_or(serde_json::json!({}));
+                Ok(Some(ResolvedAlias { target_model: target, params_override: params }))
             }
             None => Ok(None),
         }
@@ -203,7 +211,7 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
         &self,
         project_id: ProjectId,
         requested_model: &str,
-    ) -> DbResult<Option<String>> {
+    ) -> DbResult<Option<ResolvedAlias>> {
         let key = (*project_id.as_uuid(), requested_model.to_string());
         Ok(self
             .inner
@@ -211,7 +219,10 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
             .unwrap()
             .get(&key)
             .filter(|r| r.enabled)
-            .map(|r| r.target_model.clone()))
+            .map(|r| ResolvedAlias {
+                target_model: r.target_model.clone(),
+                params_override: r.params_override.clone(),
+            }))
     }
 
     async fn list_by_project(&self, project_id: ProjectId) -> DbResult<Vec<ModelAliasRecord>> {

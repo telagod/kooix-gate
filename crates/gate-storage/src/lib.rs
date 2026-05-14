@@ -35,7 +35,7 @@ pub use repo::memory::{
     InMemoryUserRepo,
 };
 pub use repo::model_alias::{
-    InMemoryModelAliasRepo, ModelAliasRecord, ModelAliasRepo, PgModelAliasRepo,
+    InMemoryModelAliasRepo, ModelAliasRecord, ModelAliasRepo, PgModelAliasRepo, ResolvedAlias,
 };
 pub use repo::org::{OrgRepo, PgOrgRepo};
 pub use repo::project::{PgProjectRepo, ProjectRepo};
