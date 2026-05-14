@@ -85,7 +85,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/audit-logs", get(list_audit_logs))
         .route("/orgs", get(list_all_orgs).post(create_org))
-        .route("/orgs/:id", axum::routing::put(update_org))
+        .route("/orgs/:org_id", axum::routing::put(update_org))
         .route("/users", get(list_users))
         .route("/users/:id/status", axum::routing::put(update_user_status))
         .route("/groups", get(list_groups).post(create_group))
