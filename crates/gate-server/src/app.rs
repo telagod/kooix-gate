@@ -23,6 +23,7 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .merge(routes::health::router())
+        .nest("/v1", routes::setup::router())
         .nest("/v1", v1)
         .with_state(state)
         .layer(propagate_id)

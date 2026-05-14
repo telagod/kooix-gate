@@ -8,8 +8,6 @@ use crate::state::AppState;
 use axum::extract::State;
 use axum::{Json, Router, routing::post};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
-use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct SetupRequest {
