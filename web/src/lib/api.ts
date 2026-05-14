@@ -851,16 +851,34 @@ export async function listModels(): Promise<ModelInfo[]> {
 	return resp.data;
 }
 
+export interface ChatParams {
+	model: string;
+	messages: { role: string; content: string }[];
+	stream?: boolean;
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
+}
+
+export interface ChatMeta {
+	model?: string;
+	finish_reason?: string;
+	usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
 export function chatCompletionStream(
 	orgId: string,
-	model: string,
-	messages: { role: string; content: string }[],
+	params: ChatParams,
 	onChunk: (text: string) => void,
-	onDone: () => void,
+	onDone: (meta: ChatMeta) => void,
 	onError: (err: string) => void
 ): AbortController {
 	const ctrl = new AbortController();
 	const token = getAccessToken();
+	const body = { ...params, stream: true };
+
+	const meta: ChatMeta = {};
+
 	fetch(`${BASE_URL}/v1/chat/completions`, {
 		method: 'POST',
 		headers: {
@@ -868,13 +886,13 @@ export function chatCompletionStream(
 			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			...(orgId ? { 'X-Kooix-Org': orgId } : {})
 		},
-		body: JSON.stringify({ model, messages, stream: true }),
+		body: JSON.stringify(body),
 		signal: ctrl.signal
 	})
 		.then(async (resp) => {
 			if (!resp.ok) {
-				const body = await resp.json().catch(() => ({}));
-				onError(body?.error?.message ?? resp.statusText);
+				const b = await resp.json().catch(() => ({}));
+				onError(b?.error?.message ?? resp.statusText);
 				return;
 			}
 			const reader = resp.body?.getReader();
@@ -890,18 +908,20 @@ export function chatCompletionStream(
 				for (const line of lines) {
 					if (!line.startsWith('data: ')) continue;
 					const payload = line.slice(6).trim();
-					if (payload === '[DONE]') { onDone(); return; }
+					if (payload === '[DONE]') { onDone(meta); return; }
 					try {
 						const json = JSON.parse(payload);
 						const delta = json.choices?.[0]?.delta?.content;
 						if (delta) onChunk(delta);
+						if (json.choices?.[0]?.finish_reason) meta.finish_reason = json.choices[0].finish_reason;
+						if (json.model) meta.model = json.model;
+						if (json.usage) meta.usage = json.usage;
 					} catch (e) {
 						console.warn('SSE parse error:', e);
-						onError(`SSE parse error: ${e}`);
 					}
 				}
 			}
-			onDone();
+			onDone(meta);
 		})
 		.catch((err) => {
 			if (err.name !== 'AbortError') onError(String(err));

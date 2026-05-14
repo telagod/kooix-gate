@@ -32,7 +32,9 @@
 	},
 	"dependencies": {
 		"clsx": "^2.1.1",
+		"highlight.js": "^11.11.1",
 		"lucide-svelte": "^1.0.1",
+		"marked": "^18.0.3",
 		"tailwind-merge": "^3.6.0"
 	}
 }
