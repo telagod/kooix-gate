@@ -32,18 +32,40 @@ pub struct RequestRecord {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct RequestFilter {
+    // scope
     pub org_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
     pub channel_id: Option<Uuid>,
     pub api_key_id: Option<Uuid>,
+    pub user_id: Option<Uuid>,
+    pub group_id: Option<Uuid>,
+    // model
     pub model: Option<String>,
+    pub model_requested: Option<String>,
+    // status
     pub status_min: Option<i16>,
     pub status_max: Option<i16>,
+    pub status_category: Option<String>, // "2xx" | "4xx" | "5xx"
     pub error_only: Option<bool>,
+    pub error_code: Option<String>,
+    // stream / retries
+    pub stream: Option<bool>,
+    pub has_retries: Option<bool>,
+    // time
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
+    // ranges
+    pub latency_min: Option<i32>,
+    pub latency_max: Option<i32>,
+    pub ttfb_min: Option<i32>,
+    pub ttfb_max: Option<i32>,
+    pub cost_min: Option<f64>,
+    pub cost_max: Option<f64>,
+    pub tokens_min: Option<i64>,
+    pub tokens_max: Option<i64>,
+    // search
     pub search: Option<String>,
 }
 
@@ -83,6 +105,20 @@ pub struct HourlyBucket {
     pub cost_usd: f64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterOptions {
+    pub models: Vec<String>,
+    pub channels: Vec<FilterOptionItem>,
+    pub projects: Vec<FilterOptionItem>,
+    pub error_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterOptionItem {
+    pub id: Uuid,
+    pub label: Option<String>,
+}
+
 #[async_trait]
 pub trait RequestLogRepo: Send + Sync + 'static {
     async fn list(
@@ -99,6 +135,12 @@ pub trait RequestLogRepo: Send + Sync + 'static {
         org_id: Option<Uuid>,
         hours: i64,
     ) -> DbResult<DashboardStats>;
+
+    async fn filter_options(
+        &self,
+        org_id: Option<Uuid>,
+        hours: i64,
+    ) -> DbResult<FilterOptions>;
 }
 
 pub struct PgRequestLogRepo {
@@ -178,6 +220,7 @@ impl RequestLogRepo for PgRequestLogRepo {
             () => {{ bind_idx += 1; format!("${bind_idx}") }};
         }
 
+        // scope
         if filter.org_id.is_some() {
             conditions.push(format!("org_id = {}", next_idx!()));
         }
@@ -190,16 +233,38 @@ impl RequestLogRepo for PgRequestLogRepo {
         if filter.api_key_id.is_some() {
             conditions.push(format!("api_key_id = {}", next_idx!()));
         }
+        if filter.user_id.is_some() {
+            conditions.push(format!("user_id = {}", next_idx!()));
+        }
+        if filter.group_id.is_some() {
+            conditions.push(format!("group_id = {}", next_idx!()));
+        }
+
+        // model
         if filter.model.is_some() {
             conditions.push(format!("model_actual = {}", next_idx!()));
         }
+        if filter.model_requested.is_some() {
+            conditions.push(format!("model_requested = {}", next_idx!()));
+        }
+
+        // time
         if filter.from.is_some() {
             conditions.push(format!("ts >= {}", next_idx!()));
         }
         if filter.to.is_some() {
             conditions.push(format!("ts < {}", next_idx!()));
         }
-        if filter.error_only == Some(true) {
+
+        // status
+        if let Some(cat) = &filter.status_category {
+            match cat.as_str() {
+                "2xx" => conditions.push("status >= 200 AND status < 300".to_string()),
+                "4xx" => conditions.push("status >= 400 AND status < 500".to_string()),
+                "5xx" => conditions.push("status >= 500".to_string()),
+                _ => {}
+            }
+        } else if filter.error_only == Some(true) {
             conditions.push("status >= 400".to_string());
         } else {
             if filter.status_min.is_some() {
@@ -209,13 +274,69 @@ impl RequestLogRepo for PgRequestLogRepo {
                 conditions.push(format!("status <= {}", next_idx!()));
             }
         }
-        if filter.search.is_some() {
-            let idx = next_idx!();
-            conditions.push(format!(
-                "(model_actual ILIKE {idx} OR model_requested ILIKE {idx} OR error_code ILIKE {idx})"
-            ));
+
+        // error_code exact match
+        if filter.error_code.is_some() {
+            conditions.push(format!("error_code = {}", next_idx!()));
         }
 
+        // stream
+        if filter.stream.is_some() {
+            conditions.push(format!("stream = {}", next_idx!()));
+        }
+
+        // has_retries
+        if filter.has_retries == Some(true) {
+            conditions.push("retries > 0".to_string());
+        } else if filter.has_retries == Some(false) {
+            conditions.push("retries = 0".to_string());
+        }
+
+        // latency range
+        if filter.latency_min.is_some() {
+            conditions.push(format!("latency_ms >= {}", next_idx!()));
+        }
+        if filter.latency_max.is_some() {
+            conditions.push(format!("latency_ms <= {}", next_idx!()));
+        }
+
+        // ttfb range
+        if filter.ttfb_min.is_some() {
+            conditions.push(format!("ttfb_ms >= {}", next_idx!()));
+        }
+        if filter.ttfb_max.is_some() {
+            conditions.push(format!("ttfb_ms <= {}", next_idx!()));
+        }
+
+        // cost range (cast to float8 for comparison)
+        if filter.cost_min.is_some() {
+            conditions.push(format!("cost_usd::float8 >= {}", next_idx!()));
+        }
+        if filter.cost_max.is_some() {
+            conditions.push(format!("cost_usd::float8 <= {}", next_idx!()));
+        }
+
+        // tokens range (tokens_in + tokens_out)
+        if filter.tokens_min.is_some() {
+            conditions.push(format!("(tokens_in + tokens_out)::bigint >= {}", next_idx!()));
+        }
+        if filter.tokens_max.is_some() {
+            conditions.push(format!("(tokens_in + tokens_out)::bigint <= {}", next_idx!()));
+        }
+
+        // search (ILIKE or UUID exact match)
+        if let Some(s) = &filter.search {
+            if Uuid::parse_str(s.trim()).is_ok() {
+                conditions.push(format!("request_id = {}", next_idx!()));
+            } else {
+                let idx = next_idx!();
+                conditions.push(format!(
+                    "(model_actual ILIKE {idx} OR model_requested ILIKE {idx} OR error_code ILIKE {idx})"
+                ));
+            }
+        }
+
+        // cursor
         let cursor_parsed = cursor.and_then(parse_cursor);
         if cursor_parsed.is_some() {
             let ts_idx = next_idx!();
@@ -230,21 +351,61 @@ impl RequestLogRepo for PgRequestLogRepo {
 
         let mut q = sqlx::query(&sql);
 
+        // bind: scope
         if let Some(v) = &filter.org_id { q = q.bind(v); }
         if let Some(v) = &filter.project_id { q = q.bind(v); }
         if let Some(v) = &filter.channel_id { q = q.bind(v); }
         if let Some(v) = &filter.api_key_id { q = q.bind(v); }
+        if let Some(v) = &filter.user_id { q = q.bind(v); }
+        if let Some(v) = &filter.group_id { q = q.bind(v); }
+
+        // bind: model
         if let Some(v) = &filter.model { q = q.bind(v); }
+        if let Some(v) = &filter.model_requested { q = q.bind(v); }
+
+        // bind: time
         if let Some(v) = &filter.from { q = q.bind(v); }
         if let Some(v) = &filter.to { q = q.bind(v); }
-        if filter.error_only != Some(true) {
+
+        // bind: status (only when no category and not error_only)
+        if filter.status_category.is_none() && filter.error_only != Some(true) {
             if let Some(v) = &filter.status_min { q = q.bind(v); }
             if let Some(v) = &filter.status_max { q = q.bind(v); }
         }
-        if let Some(v) = &filter.search {
-            let pattern = format!("%{v}%");
-            q = q.bind(pattern);
+
+        // bind: error_code
+        if let Some(v) = &filter.error_code { q = q.bind(v); }
+
+        // bind: stream
+        if let Some(v) = &filter.stream { q = q.bind(v); }
+
+        // bind: latency
+        if let Some(v) = &filter.latency_min { q = q.bind(v); }
+        if let Some(v) = &filter.latency_max { q = q.bind(v); }
+
+        // bind: ttfb
+        if let Some(v) = &filter.ttfb_min { q = q.bind(v); }
+        if let Some(v) = &filter.ttfb_max { q = q.bind(v); }
+
+        // bind: cost
+        if let Some(v) = &filter.cost_min { q = q.bind(v); }
+        if let Some(v) = &filter.cost_max { q = q.bind(v); }
+
+        // bind: tokens
+        if let Some(v) = &filter.tokens_min { q = q.bind(v); }
+        if let Some(v) = &filter.tokens_max { q = q.bind(v); }
+
+        // bind: search
+        if let Some(s) = &filter.search {
+            if Uuid::parse_str(s.trim()).is_ok() {
+                q = q.bind(Uuid::parse_str(s.trim()).unwrap());
+            } else {
+                let pattern = format!("%{s}%");
+                q = q.bind(pattern);
+            }
         }
+
+        // bind: cursor
         if let Some((ts, id)) = &cursor_parsed {
             q = q.bind(ts);
             q = q.bind(id);
@@ -292,7 +453,6 @@ impl RequestLogRepo for PgRequestLogRepo {
         let hours = hours.clamp(1, 720);
         let org_filter = if org_id.is_some() { "AND org_id = $2" } else { "" };
 
-        // Totals + error count + percentiles
         let stats_sql = format!(
             "SELECT \
                 COUNT(*) AS total_requests, \
@@ -320,7 +480,6 @@ impl RequestLogRepo for PgRequestLogRepo {
             0.0
         };
 
-        // Top models
         let models_sql = format!(
             "SELECT model_actual AS model, COUNT(*) AS requests, \
                     COALESCE(SUM(cost_usd), 0)::float8 AS cost_usd \
@@ -341,7 +500,6 @@ impl RequestLogRepo for PgRequestLogRepo {
             }
         }).collect();
 
-        // Hourly trend
         let trend_sql = format!(
             "SELECT to_char(date_trunc('hour', ts), 'HH24:MI') AS hour, \
                     COUNT(*) AS requests, \
@@ -364,7 +522,6 @@ impl RequestLogRepo for PgRequestLogRepo {
             }
         }).collect();
 
-        // Recent errors (last 5)
         let errors_sql = format!(
             "SELECT {COLS} FROM usage_records \
              WHERE status >= 400 AND ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
@@ -392,6 +549,74 @@ impl RequestLogRepo for PgRequestLogRepo {
             top_models,
             hourly_trend,
             recent_errors,
+        })
+    }
+
+    async fn filter_options(
+        &self,
+        org_id: Option<Uuid>,
+        hours: i64,
+    ) -> DbResult<FilterOptions> {
+        let hours = hours.clamp(1, 720);
+        let org_filter = if org_id.is_some() { "AND org_id = $2" } else { "" };
+
+        let models_sql = format!(
+            "SELECT DISTINCT model_actual AS model \
+             FROM usage_records \
+             WHERE ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY model"
+        );
+        let mut q = sqlx::query(&models_sql).bind(hours as i32);
+        if let Some(o) = org_id { q = q.bind(o); }
+        let rows = q.fetch_all(&self.pool).await?;
+        let models: Vec<String> = rows.iter().filter_map(|r| r.try_get("model").ok()).collect();
+
+        let channels_sql = format!(
+            "SELECT DISTINCT u.channel_id AS id, c.name AS label \
+             FROM usage_records u \
+             LEFT JOIN channels c ON c.id = u.channel_id \
+             WHERE u.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY label NULLS LAST"
+        );
+        let mut q = sqlx::query(&channels_sql).bind(hours as i32);
+        if let Some(o) = org_id { q = q.bind(o); }
+        let rows = q.fetch_all(&self.pool).await?;
+        let channels: Vec<FilterOptionItem> = rows.iter().map(|r| FilterOptionItem {
+            id: r.try_get("id").unwrap_or_default(),
+            label: r.try_get("label").ok(),
+        }).collect();
+
+        let projects_sql = format!(
+            "SELECT DISTINCT u.project_id AS id, p.name AS label \
+             FROM usage_records u \
+             LEFT JOIN projects p ON p.id = u.project_id \
+             WHERE u.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY label NULLS LAST"
+        );
+        let mut q = sqlx::query(&projects_sql).bind(hours as i32);
+        if let Some(o) = org_id { q = q.bind(o); }
+        let rows = q.fetch_all(&self.pool).await?;
+        let projects: Vec<FilterOptionItem> = rows.iter().map(|r| FilterOptionItem {
+            id: r.try_get("id").unwrap_or_default(),
+            label: r.try_get("label").ok(),
+        }).collect();
+
+        let errors_sql = format!(
+            "SELECT DISTINCT error_code \
+             FROM usage_records \
+             WHERE error_code IS NOT NULL AND ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY error_code"
+        );
+        let mut q = sqlx::query(&errors_sql).bind(hours as i32);
+        if let Some(o) = org_id { q = q.bind(o); }
+        let rows = q.fetch_all(&self.pool).await?;
+        let error_codes: Vec<String> = rows.iter().filter_map(|r| r.try_get("error_code").ok()).collect();
+
+        Ok(FilterOptions {
+            models,
+            channels,
+            projects,
+            error_codes,
         })
     }
 }
@@ -428,6 +653,15 @@ impl RequestLogRepo for InMemoryRequestLogRepo {
             top_models: vec![],
             hourly_trend: vec![],
             recent_errors: vec![],
+        })
+    }
+
+    async fn filter_options(&self, _org_id: Option<Uuid>, _hours: i64) -> DbResult<FilterOptions> {
+        Ok(FilterOptions {
+            models: vec![],
+            channels: vec![],
+            projects: vec![],
+            error_codes: vec![],
         })
     }
 }

@@ -1,24 +1,22 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getMe, listRequests } from '$lib/api.js';
-	import type { RequestRecord, RequestPage, RequestListParams, MeResult } from '$lib/api.js';
+	import { getMe, listRequests, getFilterOptions } from '$lib/api.js';
+	import type { RequestRecord, RequestPage, RequestListParams, MeResult, FilterOptions } from '$lib/api.js';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import FilterPills from '$lib/components/ui/FilterPills.svelte';
 	import {
 		ScrollText,
 		Search,
-		AlertTriangle,
-		Clock,
 		ArrowRight,
 		ArrowLeft,
 		ChevronDown,
 		ChevronUp,
-		Zap,
 		XCircle,
-		CheckCircle2,
 		Filter,
-		RotateCcw
+		RotateCcw,
+		SlidersHorizontal,
+		X
 	} from 'lucide-svelte';
 	import { clsx } from 'clsx';
 
@@ -27,19 +25,46 @@
 	let loading = $state(true);
 	let error = $state('');
 	let expandedId = $state<string | null>(null);
+	let filterOpts = $state<FilterOptions | null>(null);
+	let showAdvanced = $state(false);
 
-	// Filters
+	// L0: Quick filters
 	let search = $state('');
-	let filterStatus = $state('');
-	let filterModel = $state('');
 	let filterRange = $state('24h');
+	let filterStatusCat = $state('');
+	let filterStream = $state('');
+
+	// L1: Dropdown selects
+	let filterModel = $state('');
+	let filterChannel = $state('');
+	let filterProject = $state('');
+	let filterOrgId = $state('');
+	let filterGroupId = $state('');
+	let filterUserId = $state('');
+	let filterApiKeyId = $state('');
+	let filterErrorCode = $state('');
+	let filterModelRequested = $state('');
+	let filterHasRetries = $state('');
+
+	// L2: Range filters
+	let latencyMin = $state('');
+	let latencyMax = $state('');
+	let ttfbMin = $state('');
+	let ttfbMax = $state('');
+	let costMin = $state('');
+	let costMax = $state('');
+	let tokensMin = $state('');
+	let tokensMax = $state('');
+
+	// Pagination
 	let cursorStack = $state<string[]>([]);
 	let currentCursor = $state<string | undefined>(undefined);
 
-	const statusOptions = [
+	const statusCatOptions = [
 		{ value: '', label: '全部状态' },
-		{ value: 'success', label: '成功' },
-		{ value: 'error', label: '错误' }
+		{ value: '2xx', label: '2xx 成功' },
+		{ value: '4xx', label: '4xx 客户端' },
+		{ value: '5xx', label: '5xx 服务端' }
 	];
 
 	const rangeOptions = [
@@ -47,6 +72,12 @@
 		{ value: '24h', label: '24 小时' },
 		{ value: '7d', label: '7 天' },
 		{ value: '30d', label: '30 天' }
+	];
+
+	const streamOptions = [
+		{ value: '', label: '全部' },
+		{ value: 'true', label: 'Stream' },
+		{ value: 'false', label: '非 Stream' }
 	];
 
 	function rangeToDate(range: string): string {
@@ -73,8 +104,14 @@
 			loading = false;
 			return;
 		}
-		await load();
+		await Promise.all([load(), loadFilterOptions()]);
 	});
+
+	async function loadFilterOptions() {
+		try {
+			filterOpts = await getFilterOptions(undefined, 168);
+		} catch { /* silent */ }
+	}
 
 	async function load() {
 		loading = true;
@@ -82,11 +119,39 @@
 		try {
 			const params: RequestListParams = { limit: 50 };
 			if (search.trim()) params.search = search.trim();
-			if (filterStatus === 'error') params.error_only = true;
-			else if (filterStatus === 'success') { params.status_min = 200; params.status_max = 299; }
-			if (filterModel.trim()) params.model = filterModel.trim();
 			params.from = rangeToDate(filterRange);
 			if (currentCursor) params.cursor = currentCursor;
+
+			// status
+			if (filterStatusCat) params.status_category = filterStatusCat;
+
+			// stream
+			if (filterStream === 'true') params.stream = true;
+			else if (filterStream === 'false') params.stream = false;
+
+			// L1 selects
+			if (filterModel) params.model = filterModel;
+			if (filterModelRequested) params.model_requested = filterModelRequested;
+			if (filterChannel) params.channel_id = filterChannel;
+			if (filterProject) params.project_id = filterProject;
+			if (filterOrgId) params.org_id = filterOrgId;
+			if (filterGroupId) params.group_id = filterGroupId;
+			if (filterUserId) params.user_id = filterUserId;
+			if (filterApiKeyId) params.api_key_id = filterApiKeyId;
+			if (filterErrorCode) params.error_code = filterErrorCode;
+			if (filterHasRetries === 'true') params.has_retries = true;
+			else if (filterHasRetries === 'false') params.has_retries = false;
+
+			// L2 ranges
+			if (latencyMin) params.latency_min = Number(latencyMin);
+			if (latencyMax) params.latency_max = Number(latencyMax);
+			if (ttfbMin) params.ttfb_min = Number(ttfbMin);
+			if (ttfbMax) params.ttfb_max = Number(ttfbMax);
+			if (costMin) params.cost_min = Number(costMin);
+			if (costMax) params.cost_max = Number(costMax);
+			if (tokensMin) params.tokens_min = Number(tokensMin);
+			if (tokensMax) params.tokens_max = Number(tokensMax);
+
 			page = await listRequests(params);
 		} catch (err: any) {
 			error = err?.message ?? '加载失败';
@@ -97,9 +162,27 @@
 
 	function resetFilters() {
 		search = '';
-		filterStatus = '';
-		filterModel = '';
 		filterRange = '24h';
+		filterStatusCat = '';
+		filterStream = '';
+		filterModel = '';
+		filterModelRequested = '';
+		filterChannel = '';
+		filterProject = '';
+		filterOrgId = '';
+		filterGroupId = '';
+		filterUserId = '';
+		filterApiKeyId = '';
+		filterErrorCode = '';
+		filterHasRetries = '';
+		latencyMin = '';
+		latencyMax = '';
+		ttfbMin = '';
+		ttfbMax = '';
+		costMin = '';
+		costMax = '';
+		tokensMin = '';
+		tokensMax = '';
 		currentCursor = undefined;
 		cursorStack = [];
 		load();
@@ -133,6 +216,31 @@
 	function toggleExpand(id: string) {
 		expandedId = expandedId === id ? null : id;
 	}
+
+	// Active advanced filter badges
+	let activeAdvanced = $derived(
+		[
+			filterModel && `模型: ${filterModel}`,
+			filterModelRequested && `请求模型: ${filterModelRequested}`,
+			filterChannel && `Channel: ${filterChannel.slice(0, 8)}`,
+			filterProject && `Project: ${filterProject.slice(0, 8)}`,
+			filterOrgId && `Org: ${filterOrgId.slice(0, 8)}`,
+			filterGroupId && `Group: ${filterGroupId.slice(0, 8)}`,
+			filterUserId && `User: ${filterUserId.slice(0, 8)}`,
+			filterApiKeyId && `API Key: ${filterApiKeyId.slice(0, 8)}`,
+			filterErrorCode && `错误码: ${filterErrorCode}`,
+			filterHasRetries === 'true' && '有重试',
+			filterHasRetries === 'false' && '无重试',
+			latencyMin && `延迟≥${latencyMin}ms`,
+			latencyMax && `延迟≤${latencyMax}ms`,
+			ttfbMin && `TTFB≥${ttfbMin}ms`,
+			ttfbMax && `TTFB≤${ttfbMax}ms`,
+			costMin && `费用≥$${costMin}`,
+			costMax && `费用≤$${costMax}`,
+			tokensMin && `Tokens≥${tokensMin}`,
+			tokensMax && `Tokens≤${tokensMax}`,
+		].filter(Boolean) as string[]
+	);
 
 	function statusBadgeCls(status: number): string {
 		if (status >= 200 && status < 300) return 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800';
@@ -188,36 +296,184 @@
 		</Button>
 	</div>
 
-	<!-- Filters -->
-	<div class="flex flex-wrap items-center gap-3 mb-4">
+	<!-- L0: Quick Filters -->
+	<div class="flex flex-wrap items-center gap-3 mb-3">
 		<div class="relative flex-1 min-w-[200px] max-w-sm">
 			<Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
 			<input
 				type="text"
 				bind:value={search}
 				onkeydown={handleSearchKeydown}
-				placeholder="搜索 model / error_code..."
+				placeholder="搜索 model / error_code / request_id..."
 				class="w-full h-9 pl-9 pr-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"
 			/>
 		</div>
 
 		<FilterPills bind:value={filterRange} options={rangeOptions} />
+		<FilterPills bind:value={filterStatusCat} options={statusCatOptions} />
+		<FilterPills bind:value={filterStream} options={streamOptions} />
 
-		<FilterPills bind:value={filterStatus} options={statusOptions} />
-
-		<input
-			type="text"
-			bind:value={filterModel}
-			onkeydown={handleSearchKeydown}
-			placeholder="model 过滤"
-			class="h-9 w-40 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"
-		/>
+		<button
+			onclick={() => showAdvanced = !showAdvanced}
+			class={clsx(
+				'inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-sm transition-colors',
+				showAdvanced
+					? 'border-zinc-900 dark:border-zinc-100 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
+					: 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+			)}
+		>
+			<SlidersHorizontal size={14} />
+			高级筛选
+			{#if activeAdvanced.length > 0}
+				<span class="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-zinc-700 dark:bg-zinc-300 text-[10px] font-bold text-white dark:text-zinc-900">{activeAdvanced.length}</span>
+			{/if}
+		</button>
 
 		<Button variant="default" size="sm" onclick={applyFilters} disabled={loading}>
 			<Filter size={14} />
 			<span class="ml-1">筛选</span>
 		</Button>
 	</div>
+
+	<!-- Active filter badges -->
+	{#if activeAdvanced.length > 0}
+		<div class="flex flex-wrap gap-1.5 mb-3">
+			{#each activeAdvanced as badge}
+				<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+					{badge}
+				</span>
+			{/each}
+		</div>
+	{/if}
+
+	<!-- Advanced Filter Panel -->
+	{#if showAdvanced}
+		<div class="mb-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/40 space-y-4">
+			<!-- Row 1: Select filters -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Model (actual)</label>
+					{#if filterOpts && filterOpts.models.length > 0}
+						<select bind:value={filterModel} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
+							<option value="">全部</option>
+							{#each filterOpts.models as m}
+								<option value={m}>{m}</option>
+							{/each}
+						</select>
+					{:else}
+						<input type="text" bind:value={filterModel} onkeydown={handleSearchKeydown} placeholder="model_actual" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					{/if}
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Model (requested)</label>
+					<input type="text" bind:value={filterModelRequested} onkeydown={handleSearchKeydown} placeholder="model_requested" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Channel</label>
+					{#if filterOpts && filterOpts.channels.length > 0}
+						<select bind:value={filterChannel} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
+							<option value="">全部</option>
+							{#each filterOpts.channels as ch}
+								<option value={ch.id}>{ch.label ?? ch.id.slice(0, 8)}</option>
+							{/each}
+						</select>
+					{:else}
+						<input type="text" bind:value={filterChannel} onkeydown={handleSearchKeydown} placeholder="channel_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					{/if}
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Project</label>
+					{#if filterOpts && filterOpts.projects.length > 0}
+						<select bind:value={filterProject} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
+							<option value="">全部</option>
+							{#each filterOpts.projects as p}
+								<option value={p.id}>{p.label ?? p.id.slice(0, 8)}</option>
+							{/each}
+						</select>
+					{:else}
+						<input type="text" bind:value={filterProject} onkeydown={handleSearchKeydown} placeholder="project_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					{/if}
+				</div>
+			</div>
+
+			<!-- Row 2: More selects -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Org ID</label>
+					<input type="text" bind:value={filterOrgId} onkeydown={handleSearchKeydown} placeholder="org_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 font-mono text-xs" />
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">API Key ID</label>
+					<input type="text" bind:value={filterApiKeyId} onkeydown={handleSearchKeydown} placeholder="api_key_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 font-mono text-xs" />
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Error Code</label>
+					{#if filterOpts && filterOpts.error_codes.length > 0}
+						<select bind:value={filterErrorCode} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
+							<option value="">全部</option>
+							{#each filterOpts.error_codes as ec}
+								<option value={ec}>{ec}</option>
+							{/each}
+						</select>
+					{:else}
+						<input type="text" bind:value={filterErrorCode} onkeydown={handleSearchKeydown} placeholder="error_code" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					{/if}
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">重试</label>
+					<select bind:value={filterHasRetries} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
+						<option value="">全部</option>
+						<option value="true">有重试</option>
+						<option value="false">无重试</option>
+					</select>
+				</div>
+			</div>
+
+			<!-- Row 3: Range filters -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">延迟 (ms)</label>
+					<div class="flex gap-1">
+						<input type="number" bind:value={latencyMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+						<input type="number" bind:value={latencyMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					</div>
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">TTFB (ms)</label>
+					<div class="flex gap-1">
+						<input type="number" bind:value={ttfbMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+						<input type="number" bind:value={ttfbMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					</div>
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">费用 ($)</label>
+					<div class="flex gap-1">
+						<input type="number" step="0.0001" bind:value={costMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+						<input type="number" step="0.0001" bind:value={costMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					</div>
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Tokens (in+out)</label>
+					<div class="flex gap-1">
+						<input type="number" bind:value={tokensMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+						<input type="number" bind:value={tokensMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+					</div>
+				</div>
+			</div>
+
+			<!-- Row 4: ID filters -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">User ID</label>
+					<input type="text" bind:value={filterUserId} onkeydown={handleSearchKeydown} placeholder="user_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 font-mono text-xs" />
+				</div>
+				<div>
+					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Group ID</label>
+					<input type="text" bind:value={filterGroupId} onkeydown={handleSearchKeydown} placeholder="group_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 font-mono text-xs" />
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Content -->
 	{#if loading && !page}
@@ -300,7 +556,7 @@
 							</td>
 						</tr>
 						{#if expandedId === req.request_id}
-							<tr class="bg-zinc-50 dark:bg-zinc-800/50 animate-expand">
+							<tr class="bg-zinc-50 dark:bg-zinc-800/50">
 								<td colspan="8" class="px-4 py-4">
 									<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
 										<div>
@@ -338,6 +594,26 @@
 											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.stream ? '是' : '否'}</p>
 										</div>
 									</div>
+									{#if req.user_id}
+										<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
+											<div>
+												<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">User ID</p>
+												<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.user_id}</p>
+											</div>
+											{#if req.group_id}
+												<div>
+													<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Group ID</p>
+													<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.group_id}</p>
+												</div>
+											{/if}
+											{#if req.channel_key_id}
+												<div>
+													<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Channel Key ID</p>
+													<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.channel_key_id}</p>
+												</div>
+											{/if}
+										</div>
+									{/if}
 									{#if req.error_code}
 										<div class="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
 											<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Error</p>

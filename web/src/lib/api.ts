@@ -948,12 +948,27 @@ export interface RequestListParams {
 	project_id?: string;
 	channel_id?: string;
 	api_key_id?: string;
+	user_id?: string;
+	group_id?: string;
 	model?: string;
+	model_requested?: string;
 	status_min?: number;
 	status_max?: number;
+	status_category?: string;
 	error_only?: boolean;
+	error_code?: string;
+	stream?: boolean;
+	has_retries?: boolean;
 	from?: string;
 	to?: string;
+	latency_min?: number;
+	latency_max?: number;
+	ttfb_min?: number;
+	ttfb_max?: number;
+	cost_min?: number;
+	cost_max?: number;
+	tokens_min?: number;
+	tokens_max?: number;
 	search?: string;
 	cursor?: string;
 	limit?: number;
@@ -961,19 +976,13 @@ export interface RequestListParams {
 
 export async function listRequests(params: RequestListParams = {}): Promise<RequestPage> {
 	const qs = new URLSearchParams();
-	if (params.org_id) qs.set('org_id', params.org_id);
-	if (params.project_id) qs.set('project_id', params.project_id);
-	if (params.channel_id) qs.set('channel_id', params.channel_id);
-	if (params.api_key_id) qs.set('api_key_id', params.api_key_id);
-	if (params.model) qs.set('model', params.model);
-	if (params.status_min != null) qs.set('status_min', String(params.status_min));
-	if (params.status_max != null) qs.set('status_max', String(params.status_max));
+	for (const [k, v] of Object.entries(params)) {
+		if (v != null && v !== '' && v !== false) qs.set(k, String(v));
+	}
+	// error_only / stream / has_retries: only send if true
 	if (params.error_only) qs.set('error_only', 'true');
-	if (params.from) qs.set('from', params.from);
-	if (params.to) qs.set('to', params.to);
-	if (params.search) qs.set('search', params.search);
-	if (params.cursor) qs.set('cursor', params.cursor);
-	if (params.limit) qs.set('limit', String(params.limit));
+	if (params.stream != null) qs.set('stream', String(params.stream));
+	if (params.has_retries != null) qs.set('has_retries', String(params.has_retries));
 	const q = qs.toString();
 	return apiFetch<RequestPage>(`/v1/admin/requests${q ? '?' + q : ''}`);
 }
@@ -986,13 +995,25 @@ export async function getRequest(requestId: string): Promise<RequestRecord> {
 
 export interface OrgRequestListParams {
 	project_id?: string;
-	channel_id?: string;
 	model?: string;
+	model_requested?: string;
 	status_min?: number;
 	status_max?: number;
+	status_category?: string;
 	error_only?: boolean;
+	error_code?: string;
+	stream?: boolean;
+	has_retries?: boolean;
 	from?: string;
 	to?: string;
+	latency_min?: number;
+	latency_max?: number;
+	ttfb_min?: number;
+	ttfb_max?: number;
+	cost_min?: number;
+	cost_max?: number;
+	tokens_min?: number;
+	tokens_max?: number;
 	search?: string;
 	cursor?: string;
 	limit?: number;
@@ -1000,17 +1021,12 @@ export interface OrgRequestListParams {
 
 export async function listOrgRequests(orgId: string, params: OrgRequestListParams = {}): Promise<RequestPage> {
 	const qs = new URLSearchParams();
-	if (params.project_id) qs.set('project_id', params.project_id);
-	if (params.channel_id) qs.set('channel_id', params.channel_id);
-	if (params.model) qs.set('model', params.model);
-	if (params.status_min != null) qs.set('status_min', String(params.status_min));
-	if (params.status_max != null) qs.set('status_max', String(params.status_max));
+	for (const [k, v] of Object.entries(params)) {
+		if (v != null && v !== '' && v !== false) qs.set(k, String(v));
+	}
 	if (params.error_only) qs.set('error_only', 'true');
-	if (params.from) qs.set('from', params.from);
-	if (params.to) qs.set('to', params.to);
-	if (params.search) qs.set('search', params.search);
-	if (params.cursor) qs.set('cursor', params.cursor);
-	if (params.limit) qs.set('limit', String(params.limit));
+	if (params.stream != null) qs.set('stream', String(params.stream));
+	if (params.has_retries != null) qs.set('has_retries', String(params.has_retries));
 	const q = qs.toString();
 	return apiFetch<RequestPage>(`/v1/orgs/${orgId}/requests${q ? '?' + q : ''}`, {
 		headers: { 'X-Kooix-Org': orgId }
@@ -1055,4 +1071,31 @@ export async function getDashboardStats(orgId?: string, hours = 24): Promise<Das
 	const qs = new URLSearchParams({ hours: String(hours) });
 	if (orgId) qs.set('org_id', orgId);
 	return apiFetch<DashboardStatsResponse>(`/v1/admin/dashboard-stats?${qs}`);
+}
+
+// ── Filter Options ──────────────────────────────
+
+export interface FilterOptionItem {
+	id: string;
+	label: string | null;
+}
+
+export interface FilterOptions {
+	models: string[];
+	channels: FilterOptionItem[];
+	projects: FilterOptionItem[];
+	error_codes: string[];
+}
+
+export async function getFilterOptions(orgId?: string, hours = 168): Promise<FilterOptions> {
+	const qs = new URLSearchParams({ hours: String(hours) });
+	if (orgId) qs.set('org_id', orgId);
+	return apiFetch<FilterOptions>(`/v1/admin/requests/filters?${qs}`);
+}
+
+export async function getOrgFilterOptions(orgId: string, hours = 168): Promise<FilterOptions> {
+	const qs = new URLSearchParams({ hours: String(hours) });
+	return apiFetch<FilterOptions>(`/v1/orgs/${orgId}/requests/filters?${qs}`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
 }

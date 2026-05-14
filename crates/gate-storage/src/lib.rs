@@ -45,8 +45,8 @@ pub use repo::usage::{
     UsageTotals,
 };
 pub use repo::request_log::{
-    DashboardStats, HourlyBucket, InMemoryRequestLogRepo, ModelRank, PgRequestLogRepo,
-    RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
+    DashboardStats, FilterOptionItem, FilterOptions, HourlyBucket, InMemoryRequestLogRepo,
+    ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
 };
 pub use repo::user::{PgUserRepo, UserRepo};
 pub use rls::RlsContext;

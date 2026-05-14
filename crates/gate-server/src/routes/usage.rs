@@ -57,6 +57,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/usage", get(get_usage))
         .route("/orgs/:org_id/requests", get(list_org_requests))
+        .route("/orgs/:org_id/requests/filters", get(get_org_filter_options))
         .route("/orgs/:org_id/requests/:request_id", get(get_org_request))
 }
 
@@ -170,13 +171,25 @@ fn resolve_target_org(
 #[derive(Deserialize)]
 pub struct OrgRequestListQuery {
     pub project_id: Option<Uuid>,
-    pub channel_id: Option<Uuid>,
     pub model: Option<String>,
+    pub model_requested: Option<String>,
     pub status_min: Option<i16>,
     pub status_max: Option<i16>,
+    pub status_category: Option<String>,
     pub error_only: Option<bool>,
+    pub error_code: Option<String>,
+    pub stream: Option<bool>,
+    pub has_retries: Option<bool>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
+    pub latency_min: Option<i32>,
+    pub latency_max: Option<i32>,
+    pub ttfb_min: Option<i32>,
+    pub ttfb_max: Option<i32>,
+    pub cost_min: Option<f64>,
+    pub cost_max: Option<f64>,
+    pub tokens_min: Option<i64>,
+    pub tokens_max: Option<i64>,
     pub search: Option<String>,
     pub cursor: Option<String>,
     #[serde(default = "default_request_limit")]
@@ -184,6 +197,14 @@ pub struct OrgRequestListQuery {
 }
 
 fn default_request_limit() -> i64 { 50 }
+
+#[derive(Deserialize)]
+pub struct OrgFilterOptionsQuery {
+    #[serde(default = "default_filter_options_hours")]
+    pub hours: i64,
+}
+
+fn default_filter_options_hours() -> i64 { 168 }
 
 async fn list_org_requests(
     State(app): State<AppState>,
@@ -198,14 +219,29 @@ async fn list_org_requests(
     let filter = RequestFilter {
         org_id: Some(org_id),
         project_id: q.project_id,
-        channel_id: q.channel_id,
+        channel_id: None,
         api_key_id: None,
+        user_id: None,
+        group_id: None,
         model: q.model,
+        model_requested: q.model_requested,
         status_min: q.status_min,
         status_max: q.status_max,
+        status_category: q.status_category,
         error_only: q.error_only,
+        error_code: q.error_code,
+        stream: q.stream,
+        has_retries: q.has_retries,
         from: q.from,
         to: q.to,
+        latency_min: q.latency_min,
+        latency_max: q.latency_max,
+        ttfb_min: q.ttfb_min,
+        ttfb_max: q.ttfb_max,
+        cost_min: q.cost_min,
+        cost_max: q.cost_max,
+        tokens_min: q.tokens_min,
+        tokens_max: q.tokens_max,
         search: q.search,
     };
 
@@ -234,10 +270,24 @@ async fn get_org_request(
 
     let record = app.repos.request_logs.find_by_request_id(request_id).await?;
 
-    // 确保请求属于该 Org
     if record.org_id != org_id {
         return Err(AppError::NotFound);
     }
 
     Ok(Json(serde_json::to_value(&record).unwrap_or_default()))
+}
+
+async fn get_org_filter_options(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path(org_id): Path<Uuid>,
+    Query(q): Query<OrgFilterOptionsQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    let org = OrgId::from(org_id);
+    require!(ctx, Permission::UsageRead, Scope::Org(&org));
+
+    let hours = q.hours.clamp(1, 720);
+    let options = app.repos.request_logs.filter_options(Some(org_id), hours).await?;
+    Ok(Json(serde_json::to_value(&options).unwrap_or_default()))
 }
