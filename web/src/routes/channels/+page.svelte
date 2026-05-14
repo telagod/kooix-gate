@@ -146,12 +146,12 @@
 					sort_by: sortBy,
 					sort_dir: sortDir
 				});
-				channels = result.data;
-				total = result.total;
+				channels = result.data ?? [];
+				total = result.total ?? 0;
 			} else {
 				const list = await listChannels(currentOrg!);
-				channels = list;
-				total = list.length;
+				channels = Array.isArray(list) ? list : (list as any).data ?? [];
+				total = channels.length;
 			}
 		} catch (err: any) {
 			error = err?.message ?? '加载失败';

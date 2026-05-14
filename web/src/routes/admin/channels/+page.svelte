@@ -46,7 +46,7 @@
 	onMount(async () => {
 		try {
 			const result = await listAdminChannels({ page_size: 100 });
-			channels = result.data;
+			channels = result.data ?? [];
 		} catch (err: any) {
 			error = err?.message ?? '加载失败';
 		} finally {
@@ -126,7 +126,7 @@
 			importResult = `导入完成：创建 ${created}，跳过 ${skipped}`;
 			// Reload
 			const result = await listAdminChannels({ page_size: 100 });
-			channels = result.data;
+			channels = result.data ?? [];
 		} catch (err: any) {
 			importResult = `导入失败：${err?.message ?? '格式错误'}`;
 		} finally {
