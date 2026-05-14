@@ -288,7 +288,7 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
 // ============================================================================
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 #[derive(Default)]
 pub struct InMemoryChannelKeyRepo {
@@ -307,7 +307,7 @@ impl InMemoryChannelKeyRepo {
 
     /// 测试直接 seed 一条记录。
     pub fn seed(&self, record: ChannelKeyRecord) {
-        self.inner.write().unwrap().keys.insert(record.id, record);
+        self.inner.write().keys.insert(record.id, record);
     }
 }
 
@@ -317,7 +317,7 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
         &self,
         channel_id: ChannelId,
     ) -> DbResult<ChannelKeyRecord> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         inner
             .keys
             .values()
@@ -334,7 +334,7 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
         &self,
         channel_id: ChannelId,
     ) -> DbResult<Vec<ChannelKeyRecord>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let mut out: Vec<_> = inner
             .keys
             .values()
@@ -352,7 +352,7 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
         key_fingerprint: &str,
         label: Option<&str>,
     ) -> DbResult<ChannelKeyId> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         // 检查 fingerprint 唯一
         if inner
             .keys
@@ -387,7 +387,7 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
         new_fingerprint: &str,
         label: Option<&str>,
     ) -> DbResult<ChannelKeyId> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         // disable 全部旧 healthy key
         for k in inner.keys.values_mut() {
             if k.channel_id == channel_id && k.health == "healthy" {
@@ -423,7 +423,7 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
     }
 
     async fn revoke(&self, key_id: ChannelKeyId) -> DbResult<()> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         let rec = inner.keys.get_mut(&key_id).ok_or(DbError::NotFound)?;
         rec.health = "disabled".to_string();
         rec.updated_at = Utc::now();

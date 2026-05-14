@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use std::collections::VecDeque;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// 审计日志行（与 `audit_logs` 表 1:1 映射）。
@@ -178,14 +178,14 @@ impl InMemoryAuditRepo {
 
     /// 测试用：获取所有记录拷贝。
     pub fn all(&self) -> Vec<AuditRecord> {
-        self.inner.read().unwrap().iter().cloned().collect()
+        self.inner.read().iter().cloned().collect()
     }
 }
 
 #[async_trait]
 impl AuditRepo for InMemoryAuditRepo {
     async fn append(&self, record: &AuditRecord) -> DbResult<()> {
-        self.inner.write().unwrap().push_back(record.clone());
+        self.inner.write().push_back(record.clone());
         Ok(())
     }
 
@@ -195,7 +195,7 @@ impl AuditRepo for InMemoryAuditRepo {
         limit: i64,
         offset: i64,
     ) -> DbResult<Vec<AuditRecord>> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         Ok(g.iter()
             .rev()
             .filter(|r| r.org_id == Some(org_id))
@@ -211,7 +211,7 @@ impl AuditRepo for InMemoryAuditRepo {
         resource_id: Uuid,
         limit: i64,
     ) -> DbResult<Vec<AuditRecord>> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         Ok(g.iter()
             .rev()
             .filter(|r| r.resource_kind == resource_kind && r.resource_id == Some(resource_id))

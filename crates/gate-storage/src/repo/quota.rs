@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// quota 行的存储快照。
@@ -209,7 +209,7 @@ impl InMemoryQuotaRepo {
 
     /// 测试快捷：直接 seed 一行（绕开 upsert 的唯一性检查）。
     pub fn seed(&self, record: QuotaRecord) {
-        self.inner.write().unwrap().insert(record.id, record);
+        self.inner.write().insert(record.id, record);
     }
 }
 
@@ -223,7 +223,6 @@ impl QuotaRepo for InMemoryQuotaRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .values()
             .filter(|r| r.scope_kind == scope_kind && r.scope_id == scope_id && r.enabled)
             .cloned()
@@ -231,7 +230,7 @@ impl QuotaRepo for InMemoryQuotaRepo {
     }
 
     async fn upsert(&self, q: QuotaUpsert) -> DbResult<QuotaRecord> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         // 先找现有
         let existing_id = g
             .values()
@@ -273,7 +272,7 @@ impl QuotaRepo for InMemoryQuotaRepo {
     }
 
     async fn delete(&self, id: Uuid) -> DbResult<()> {
-        if self.inner.write().unwrap().remove(&id).is_none() {
+        if self.inner.write().remove(&id).is_none() {
             return Err(DbError::NotFound);
         }
         Ok(())
@@ -283,7 +282,6 @@ impl QuotaRepo for InMemoryQuotaRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .values()
             .filter(|r| r.scope_kind == scope_kind && r.scope_id == scope_id)
             .cloned()

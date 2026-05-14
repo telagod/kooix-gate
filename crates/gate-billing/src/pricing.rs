@@ -25,7 +25,7 @@ use gate_providers::Usage;
 use sqlx::types::Decimal;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// 一条 pricing 快照。
@@ -163,7 +163,7 @@ impl InMemoryPricingRepo {
 
     /// 往内存里塞一条 pricing。
     pub fn seed(&self, pricing: ModelPricing) {
-        self.inner.write().unwrap().push(pricing);
+        self.inner.write().push(pricing);
     }
 
     /// 便捷：seed 一条永久有效的全局默认 pricing。
@@ -193,7 +193,7 @@ impl PricingRepo for InMemoryPricingRepo {
         model: &str,
         at: DateTime<Utc>,
     ) -> BillingResult<Option<ModelPricing>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
 
         let in_window = |p: &ModelPricing| -> bool {
             p.effective_from <= at && p.effective_until.map(|until| at < until).unwrap_or(true)
@@ -279,6 +279,7 @@ mod tests {
             prompt_tokens: 1000,
             completion_tokens: 500,
             total_tokens: 1500,
+            ..Default::default()
         };
         // 1000 * 0.15 / 1M = 0.00015 USD = 150 micros
         // 500  * 0.60 / 1M = 0.00030 USD = 300 micros

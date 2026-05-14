@@ -18,7 +18,7 @@ use gate_core::identity::{
     UserStatus,
 };
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 // ----------------------------------------------------------------------------
@@ -44,7 +44,7 @@ impl InMemoryUserRepo {
 
     /// 测试快捷：直接塞一个完整 User（绕过 create 也行）
     pub fn seed(&self, user: User, password_hash: Option<String>) {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         g.by_email.insert(user.email.to_lowercase(), user.id);
         g.users.insert(user.id, (user, password_hash));
     }
@@ -55,7 +55,6 @@ impl UserRepo for InMemoryUserRepo {
     async fn find_by_id(&self, id: UserId) -> DbResult<User> {
         self.inner
             .read()
-            .unwrap()
             .users
             .get(&id)
             .map(|(u, _)| u.clone())
@@ -63,7 +62,7 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn find_by_email(&self, email: &str) -> DbResult<User> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         g.by_email
             .get(&email.to_lowercase())
             .and_then(|id| g.users.get(id))
@@ -72,7 +71,7 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn find_credentials(&self, email: &str) -> DbResult<(User, Option<String>)> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         g.by_email
             .get(&email.to_lowercase())
             .and_then(|id| g.users.get(id))
@@ -86,7 +85,7 @@ impl UserRepo for InMemoryUserRepo {
         password_hash: Option<&str>,
         display_name: Option<&str>,
     ) -> DbResult<User> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         if g.by_email.contains_key(&email.to_lowercase()) {
             return Err(DbError::Conflict(format!("email {email} already in use")));
         }
@@ -115,7 +114,7 @@ impl UserRepo for InMemoryUserRepo {
         at: DateTime<Utc>,
         _ip: Option<std::net::IpAddr>,
     ) -> DbResult<()> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         if let Some((u, _)) = g.users.get_mut(&id) {
             u.last_login_at = Some(at);
         }
@@ -124,7 +123,7 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn bump_failed_login(&self, id: UserId) -> DbResult<i32> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         if !g.users.contains_key(&id) {
             return Err(DbError::NotFound);
         }
@@ -134,7 +133,7 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn reset_failed_login(&self, id: UserId) -> DbResult<()> {
-        self.inner.write().unwrap().failed.insert(id, 0);
+        self.inner.write().failed.insert(id, 0);
         Ok(())
     }
 
@@ -143,11 +142,11 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn list_all(&self, _limit: i64, _offset: i64) -> DbResult<Vec<User>> {
-        Ok(self.inner.read().unwrap().users.values().map(|(u, _)| u.clone()).collect())
+        Ok(self.inner.read().users.values().map(|(u, _)| u.clone()).collect())
     }
 
     async fn update_status(&self, id: UserId, status: &str) -> DbResult<User> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let (user, _) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
         user.status = match status {
             "active" => UserStatus::Active,
@@ -159,7 +158,7 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let (_, ph) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
         *ph = Some(password_hash.to_string());
         Ok(())
@@ -186,7 +185,7 @@ impl InMemoryOrgRepo {
         Self::default()
     }
     pub fn seed(&self, org: Organization) {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         g.by_slug.insert(org.slug.to_lowercase(), org.id);
         g.orgs.insert(org.id, org);
     }
@@ -197,7 +196,6 @@ impl OrgRepo for InMemoryOrgRepo {
     async fn find_by_id(&self, id: OrgId) -> DbResult<Organization> {
         self.inner
             .read()
-            .unwrap()
             .orgs
             .get(&id)
             .cloned()
@@ -205,7 +203,7 @@ impl OrgRepo for InMemoryOrgRepo {
     }
 
     async fn find_by_slug(&self, slug: &str) -> DbResult<Organization> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         g.by_slug
             .get(&slug.to_lowercase())
             .and_then(|id| g.orgs.get(id))
@@ -215,11 +213,11 @@ impl OrgRepo for InMemoryOrgRepo {
 
     async fn list_for_user(&self, _user_id: UserId) -> DbResult<Vec<Organization>> {
         // 简化：测试场景手动 seed，这里返回全部
-        Ok(self.inner.read().unwrap().orgs.values().cloned().collect())
+        Ok(self.inner.read().orgs.values().cloned().collect())
     }
 
     async fn create(&self, name: &str, slug: &str, owner: UserId) -> DbResult<Organization> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         if g.by_slug.contains_key(&slug.to_lowercase()) {
             return Err(DbError::Conflict(format!("slug {slug} in use")));
         }
@@ -241,11 +239,11 @@ impl OrgRepo for InMemoryOrgRepo {
     }
 
     async fn list_all(&self) -> DbResult<Vec<Organization>> {
-        Ok(self.inner.read().unwrap().orgs.values().cloned().collect())
+        Ok(self.inner.read().orgs.values().cloned().collect())
     }
 
     async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let org = g.orgs.get_mut(&id).ok_or(DbError::NotFound)?;
         if let Some(n) = name { org.name = n.to_string(); }
         if let Some(e) = billing_email { org.billing_email = Some(e.to_string()); }
@@ -268,7 +266,7 @@ impl InMemoryProjectRepo {
         Self::default()
     }
     pub fn seed(&self, project: Project) {
-        self.inner.write().unwrap().insert(project.id, project);
+        self.inner.write().insert(project.id, project);
     }
 }
 
@@ -277,7 +275,6 @@ impl ProjectRepo for InMemoryProjectRepo {
     async fn find_by_id(&self, id: ProjectId) -> DbResult<Project> {
         self.inner
             .read()
-            .unwrap()
             .get(&id)
             .cloned()
             .ok_or(DbError::NotFound)
@@ -287,7 +284,6 @@ impl ProjectRepo for InMemoryProjectRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .values()
             .filter(|p| p.org_id == org_id)
             .cloned()
@@ -295,7 +291,7 @@ impl ProjectRepo for InMemoryProjectRepo {
     }
 
     async fn create(&self, org_id: OrgId, name: &str, slug: &str) -> DbResult<Project> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let dup = g
             .values()
             .any(|p| p.org_id == org_id && p.slug.eq_ignore_ascii_case(slug));
@@ -319,7 +315,7 @@ impl ProjectRepo for InMemoryProjectRepo {
     }
 
     async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let project = g.get_mut(&id).ok_or(DbError::NotFound)?;
         if let Some(n) = name { project.name = n.to_string(); }
         if let Some(s) = status {
@@ -356,12 +352,11 @@ impl InMemoryMembershipRepo {
         Self::default()
     }
     pub fn seed_platform(&self, user: UserId, role: PlatformRole) {
-        self.inner.write().unwrap().platform.insert(user, role);
+        self.inner.write().platform.insert(user, role);
     }
     pub fn seed_project(&self, org: OrgId, project: ProjectId, user: UserId, role: ProjectRole) {
         self.inner
             .write()
-            .unwrap()
             .projects
             .insert((project, user), (org, role));
     }
@@ -370,7 +365,7 @@ impl InMemoryMembershipRepo {
 #[async_trait]
 impl MembershipRepo for InMemoryMembershipRepo {
     async fn load_for_user(&self, user_id: UserId) -> DbResult<UserMemberships> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         let orgs: HashMap<_, _> = g
             .orgs
             .iter()
@@ -392,7 +387,7 @@ impl MembershipRepo for InMemoryMembershipRepo {
     }
 
     async fn add_org_member(&self, org: OrgId, user: UserId, role: OrgRole) -> DbResult<()> {
-        self.inner.write().unwrap().orgs.insert((org, user), role);
+        self.inner.write().orgs.insert((org, user), role);
         Ok(())
     }
 
@@ -406,7 +401,6 @@ impl MembershipRepo for InMemoryMembershipRepo {
         let org = self
             .inner
             .read()
-            .unwrap()
             .projects
             .iter()
             .find(|((p, _), _)| *p == project)
@@ -414,7 +408,6 @@ impl MembershipRepo for InMemoryMembershipRepo {
             .unwrap_or_else(|| OrgId::from(Uuid::nil()));
         self.inner
             .write()
-            .unwrap()
             .projects
             .insert((project, user), (org, role));
         Ok(())
@@ -425,7 +418,7 @@ impl MembershipRepo for InMemoryMembershipRepo {
     }
 
     async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         if g.orgs.remove(&(org, user)).is_none() {
             return Err(DbError::NotFound);
         }
@@ -456,7 +449,7 @@ impl InMemoryApiKeyRepo {
     /// 用 hash 字符串 + 完整记录直接 seed（测试用）。
     /// 调用方负责算 hash（保持 `gate-storage` 不依赖 `gate-auth`）。
     pub fn seed(&self, key_hash: &str, record: ApiKeyRecord) {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         g.by_id.insert(record.api_key_id, key_hash.to_string());
         g.by_hash.insert(key_hash.to_string(), record);
     }
@@ -467,7 +460,6 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
     async fn find_by_hash(&self, hash: &str) -> DbResult<ApiKeyRecord> {
         self.inner
             .read()
-            .unwrap()
             .by_hash
             .get(hash)
             .cloned()
@@ -497,7 +489,7 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
             expires_at: None,
             revoked_at: None,
         };
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         g.by_id.insert(id, key_hash.to_string());
         g.by_hash.insert(key_hash.to_string(), record);
         Ok(id)
@@ -507,7 +499,6 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .by_hash
             .values()
             .filter(|r| r.project_id == project_id && !r.is_revoked())
@@ -519,7 +510,6 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .by_hash
             .values()
             .filter(|r| r.project_id == project_id)
@@ -537,7 +527,7 @@ impl ApiKeyRepo for InMemoryApiKeyRepo {
     }
 
     async fn revoke(&self, id: ApiKeyId, _by: UserId, _reason: Option<&str>) -> DbResult<()> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let hash = g.by_id.get(&id).cloned().ok_or(DbError::NotFound)?;
         if let Some(rec) = g.by_hash.get_mut(&hash) {
             rec.revoked_at = Some(Utc::now());

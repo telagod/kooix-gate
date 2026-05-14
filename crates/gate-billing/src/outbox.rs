@@ -105,7 +105,7 @@ impl OutboxRepo for PgOutboxRepo {
 // InMemoryOutboxRepo — 测试 / dev 用
 // ============================================================================
 
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 #[derive(Debug, Clone)]
 struct InMemoryRow {
@@ -136,7 +136,6 @@ impl InMemoryOutboxRepo {
     pub fn snapshot(&self) -> Vec<UsageEvent> {
         self.inner
             .lock()
-            .unwrap()
             .rows
             .iter()
             .map(|r| r.event.clone())
@@ -147,7 +146,6 @@ impl InMemoryOutboxRepo {
     pub fn pending_count(&self) -> usize {
         self.inner
             .lock()
-            .unwrap()
             .rows
             .iter()
             .filter(|r| !r.processed && r.retry_count < 3)
@@ -158,7 +156,7 @@ impl InMemoryOutboxRepo {
 #[async_trait]
 impl OutboxRepo for InMemoryOutboxRepo {
     async fn enqueue(&self, event: &UsageEvent) -> BillingResult<OutboxId> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock();
         g.next_id += 1;
         let id = g.next_id;
         g.rows.push(InMemoryRow {
@@ -172,7 +170,7 @@ impl OutboxRepo for InMemoryOutboxRepo {
     }
 
     async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
-        let g = self.inner.lock().unwrap();
+        let g = self.inner.lock();
         let out: Vec<_> = g
             .rows
             .iter()
@@ -184,7 +182,7 @@ impl OutboxRepo for InMemoryOutboxRepo {
     }
 
     async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock();
         if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
             r.processed = true;
         }
@@ -192,7 +190,7 @@ impl OutboxRepo for InMemoryOutboxRepo {
     }
 
     async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock();
         if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
             r.retry_count += 1;
             r.last_error = Some(error.to_string());

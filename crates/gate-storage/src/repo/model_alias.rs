@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use gate_core::id::ProjectId;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// model_aliases 行快照。
@@ -200,7 +200,6 @@ impl InMemoryModelAliasRepo {
     pub fn seed(&self, record: ModelAliasRecord) {
         self.inner
             .write()
-            .unwrap()
             .insert((record.project_id, record.alias.clone()), record);
     }
 }
@@ -216,7 +215,6 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .get(&key)
             .filter(|r| r.enabled)
             .map(|r| ResolvedAlias {
@@ -230,7 +228,6 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
         let mut out: Vec<ModelAliasRecord> = self
             .inner
             .read()
-            .unwrap()
             .values()
             .filter(|r| r.project_id == pid)
             .cloned()
@@ -248,7 +245,7 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
         let pid = *project_id.as_uuid();
         let key = (pid, alias.to_string());
         let now = Utc::now();
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
 
         if let Some(existing) = g.get_mut(&key) {
             existing.target_model = target_model.to_string();
@@ -275,7 +272,7 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
 
     async fn delete(&self, project_id: ProjectId, alias: &str) -> DbResult<()> {
         let key = (*project_id.as_uuid(), alias.to_string());
-        if self.inner.write().unwrap().remove(&key).is_none() {
+        if self.inner.write().remove(&key).is_none() {
             return Err(DbError::NotFound);
         }
         Ok(())

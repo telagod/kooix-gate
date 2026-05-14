@@ -70,16 +70,16 @@ impl Drop for InflightGuard {
 /// 内部用 `Arc<Mutex<..>>` 包装以满足 axum `Extension<T>: Clone` 要求。
 /// handler 通过 `take()` 取走所有 guard 做 settle。
 #[derive(Clone)]
-pub struct InflightGuards(Arc<std::sync::Mutex<Vec<InflightGuard>>>);
+pub struct InflightGuards(Arc<parking_lot::Mutex<Vec<InflightGuard>>>);
 
 impl InflightGuards {
     pub fn new(guards: Vec<InflightGuard>) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(guards)))
+        Self(Arc::new(parking_lot::Mutex::new(guards)))
     }
 
     /// 取走所有 guard（只能调一次，后续调用返空 vec）。
     pub fn take(&self) -> Vec<InflightGuard> {
-        std::mem::take(&mut *self.0.lock().unwrap())
+        std::mem::take(&mut *self.0.lock())
     }
 }
 

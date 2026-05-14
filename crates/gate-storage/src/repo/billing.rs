@@ -10,7 +10,7 @@ use gate_core::id::{OrgId, ProjectId};
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 // ============================================================================
@@ -283,7 +283,7 @@ impl InMemoryBillingRepo {
     }
 
     pub fn seed(&self, rec: BillingSeed) {
-        self.inner.write().unwrap().push(rec);
+        self.inner.write().push(rec);
     }
 }
 
@@ -292,7 +292,7 @@ impl BillingRepo for InMemoryBillingRepo {
     async fn monthly_bill(&self, org_id: OrgId, month: &str) -> DbResult<MonthlyBill> {
         let (from_utc, to_utc) = parse_month_range(month)?;
 
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let filtered: Vec<&BillingSeed> = inner
             .iter()
             .filter(|r| r.org_id == org_id && r.ts >= from_utc && r.ts < to_utc)
@@ -365,7 +365,7 @@ impl BillingRepo for InMemoryBillingRepo {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> DbResult<Vec<UsageExportRow>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let mut rows: Vec<UsageExportRow> = inner
             .iter()
             .filter(|r| r.org_id == org_id && r.ts >= from && r.ts < to)

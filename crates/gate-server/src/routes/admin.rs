@@ -149,6 +149,9 @@ async fn create_channel(
     if code.is_empty() {
         return Err(AppError::BadRequest("code is required".into()));
     }
+    if !code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') || code.len() > 64 {
+        return Err(AppError::BadRequest("code must be 1-64 chars: [a-zA-Z0-9_-]".into()));
+    }
 
     let valid_types = ["openai", "anthropic", "gemini", "azure", "bedrock", "deepseek", "ollama", "mistral", "cohere"];
     if !valid_types.contains(&req.provider_type.as_str()) {
@@ -1029,7 +1032,13 @@ async fn probe_channel_models(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("probe returned {status}: {body}")));
+        tracing::warn!(
+            channel_id = %channel_id,
+            status = status,
+            body = %body,
+            "probe upstream returned error"
+        );
+        return Err(AppError::Internal(format!("probe failed: upstream returned {status}")));
     }
 
     let body: serde_json::Value = resp

@@ -101,6 +101,7 @@ pub async fn emit_usage(
         model: ctx.model,
         prompt_tokens: usage.prompt_tokens as i32,
         completion_tokens: usage.completion_tokens as i32,
+        cached_tokens: usage.cached_tokens as i32,
         cost_micros,
         occurred_at: now,
         status,

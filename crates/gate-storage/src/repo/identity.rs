@@ -370,7 +370,7 @@ impl UserIdentityRepo for PgUserIdentityRepo {
 // ----------------------------------------------------------------------------
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 #[derive(Default)]
 pub struct InMemoryIdentityProviderRepo {
@@ -390,7 +390,7 @@ impl InMemoryIdentityProviderRepo {
     }
 
     pub fn seed(&self, record: IdentityProviderRecord) {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         g.by_slug
             .insert((record.org_id, record.slug.to_lowercase()), record.id);
         g.by_id.insert(record.id, record);
@@ -400,7 +400,7 @@ impl InMemoryIdentityProviderRepo {
 #[async_trait]
 impl IdentityProviderRepo for InMemoryIdentityProviderRepo {
     async fn find_platform_by_slug(&self, slug: &str) -> DbResult<IdentityProviderRecord> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         let id = g
             .by_slug
             .get(&(None, slug.to_lowercase()))
@@ -417,7 +417,7 @@ impl IdentityProviderRepo for InMemoryIdentityProviderRepo {
         org_id: OrgId,
         slug: &str,
     ) -> DbResult<IdentityProviderRecord> {
-        let g = self.inner.read().unwrap();
+        let g = self.inner.read();
         let id = g
             .by_slug
             .get(&(Some(org_id), slug.to_lowercase()))
@@ -432,7 +432,6 @@ impl IdentityProviderRepo for InMemoryIdentityProviderRepo {
     async fn find_by_id(&self, id: Uuid) -> DbResult<IdentityProviderRecord> {
         self.inner
             .read()
-            .unwrap()
             .by_id
             .get(&id)
             .cloned()
@@ -469,7 +468,7 @@ impl OidcStateRepo for InMemoryOidcStateRepo {
             redirect_to: redirect_to.map(String::from),
             expires_at: Utc::now() + ttl,
         };
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         if g.contains_key(state_hash) {
             return Err(DbError::Conflict("oidc state already exists".into()));
         }
@@ -480,14 +479,13 @@ impl OidcStateRepo for InMemoryOidcStateRepo {
     async fn consume(&self, state_hash: &str) -> DbResult<OidcStateRecord> {
         self.inner
             .write()
-            .unwrap()
             .remove(state_hash)
             .ok_or(DbError::NotFound)
     }
 
     async fn cleanup_expired(&self) -> DbResult<u64> {
         let now = Utc::now();
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let before = g.len();
         g.retain(|_, v| v.expires_at > now);
         Ok((before - g.len()) as u64)
@@ -515,7 +513,6 @@ impl UserIdentityRepo for InMemoryUserIdentityRepo {
         Ok(self
             .inner
             .read()
-            .unwrap()
             .get(&(provider_id, subject.to_string()))
             .cloned())
     }
@@ -537,13 +534,12 @@ impl UserIdentityRepo for InMemoryUserIdentityRepo {
         };
         self.inner
             .write()
-            .unwrap()
             .insert((provider_id, subject.to_string()), rec);
         Ok(())
     }
 
     async fn touch_last_login(&self, provider_id: Uuid, subject: &str) -> DbResult<()> {
-        let mut g = self.inner.write().unwrap();
+        let mut g = self.inner.write();
         let rec = g
             .get_mut(&(provider_id, subject.to_string()))
             .ok_or(DbError::NotFound)?;

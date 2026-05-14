@@ -31,7 +31,8 @@ use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use parking_lot::{Mutex, RwLock};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）+ 实际使用的 model。
@@ -89,7 +90,7 @@ impl ChannelMetrics {
 
     /// 记录一次请求结果（true = 成功，false = 失败）。
     pub fn record(&self, channel_id: ChannelId, success: bool) {
-        let mut windows = self.windows.lock().unwrap();
+        let mut windows = self.windows.lock();
         let window = windows.entry(channel_id).or_insert_with(VecDeque::new);
         if window.len() >= self.window_size {
             window.pop_front();
@@ -99,7 +100,7 @@ impl ChannelMetrics {
 
     /// 窗口满且成功率低于阈值时返回 true，触发 auto-disable。
     pub fn should_disable(&self, channel_id: ChannelId) -> bool {
-        let windows = self.windows.lock().unwrap();
+        let windows = self.windows.lock();
         let Some(window) = windows.get(&channel_id) else {
             return false;
         };
@@ -113,7 +114,7 @@ impl ChannelMetrics {
 
     /// 记录响应延迟（毫秒）。
     pub fn record_latency(&self, channel_id: ChannelId, latency_ms: u64) {
-        let mut latencies = self.latencies.lock().unwrap();
+        let mut latencies = self.latencies.lock();
         let window = latencies.entry(channel_id).or_insert_with(VecDeque::new);
         if window.len() >= self.window_size {
             window.pop_front();
@@ -123,7 +124,7 @@ impl ChannelMetrics {
 
     /// 获取 channel 的平均延迟（ms）；无数据时返回 u64::MAX。
     pub fn avg_latency(&self, channel_id: ChannelId) -> u64 {
-        let latencies = self.latencies.lock().unwrap();
+        let latencies = self.latencies.lock();
         let Some(window) = latencies.get(&channel_id) else {
             return u64::MAX;
         };
@@ -136,9 +137,9 @@ impl ChannelMetrics {
 
     /// 清除 channel 的历史记录（re-enable 后调用）。
     pub fn clear(&self, channel_id: ChannelId) {
-        let mut windows = self.windows.lock().unwrap();
+        let mut windows = self.windows.lock();
         windows.remove(&channel_id);
-        let mut latencies = self.latencies.lock().unwrap();
+        let mut latencies = self.latencies.lock();
         latencies.remove(&channel_id);
     }
 }
@@ -178,7 +179,7 @@ impl ChannelRateLimiter {
             return true;
         };
         let limit = limit.max(0) as u32;
-        let mut counters = self.counters.lock().unwrap();
+        let mut counters = self.counters.lock();
         let window = counters.entry(channel_id).or_insert_with(|| RateWindow {
             rpm_count: 0,
             tpm_count: 0,
@@ -208,7 +209,7 @@ impl ChannelRateLimiter {
             return true;
         };
         let limit = limit.max(0) as u32;
-        let mut counters = self.counters.lock().unwrap();
+        let mut counters = self.counters.lock();
         let window = counters.entry(channel_id).or_insert_with(|| RateWindow {
             rpm_count: 0,
             tpm_count: 0,
@@ -252,14 +253,14 @@ impl InflightTracker {
     pub fn acquire(&self, channel_id: ChannelId) {
         // 快路径：read lock
         {
-            let counts = self.counts.read().unwrap();
+            let counts = self.counts.read();
             if let Some(counter) = counts.get(&channel_id) {
                 counter.fetch_add(1, Ordering::Relaxed);
                 return;
             }
         }
         // 慢路径：write lock，首次见到的 channel
-        let mut counts = self.counts.write().unwrap();
+        let mut counts = self.counts.write();
         let counter = counts
             .entry(channel_id)
             .or_insert_with(|| Arc::new(AtomicI64::new(0)));
@@ -268,7 +269,7 @@ impl InflightTracker {
 
     /// 标记一个 channel 释放了请求（inflight -1）。
     pub fn release(&self, channel_id: ChannelId) {
-        let counts = self.counts.read().unwrap();
+        let counts = self.counts.read();
         if let Some(counter) = counts.get(&channel_id) {
             counter.fetch_sub(1, Ordering::Relaxed);
         }
@@ -276,7 +277,7 @@ impl InflightTracker {
 
     /// 查询 channel 当前 inflight 数。
     pub fn current(&self, channel_id: ChannelId) -> i64 {
-        let counts = self.counts.read().unwrap();
+        let counts = self.counts.read();
         counts
             .get(&channel_id)
             .map(|c| c.load(Ordering::Relaxed))
@@ -363,7 +364,7 @@ fn select_least_latency<'a>(
 /// 1. 环境变量 `KOOIX_CH_<CODE>_KEY`（code 大写，非字母替换为 _）
 /// 2. 环境变量 `KOOIX_API_KEY`（全局兜底）
 /// 3. 空字符串（上游自己决定是否拒绝）
-fn resolve_api_key_for_channel(code: &str) -> String {
+fn resolve_api_key_for_channel(code: &str) -> ProviderResult<String> {
     let env_key = format!(
         "KOOIX_CH_{}_KEY",
         code.to_uppercase()
@@ -373,7 +374,10 @@ fn resolve_api_key_for_channel(code: &str) -> String {
     );
     std::env::var(&env_key)
         .or_else(|_| std::env::var("KOOIX_API_KEY"))
-        .unwrap_or_default()
+        .map_err(|_| ProviderError::Config(format!(
+            "no API key found for channel '{}' (tried {} and KOOIX_API_KEY)",
+            code, env_key
+        )))
 }
 
 /// 静态 fallback 链：model → 可尝试的替代模型列表。
@@ -564,6 +568,11 @@ impl ProviderRouter {
 
         loop {
             if depth > MAX_FALLBACK_DEPTH {
+                tracing::warn!(
+                    model = model,
+                    depth = depth,
+                    "embedding fallback chain exceeded max depth"
+                );
                 return Ok(None);
             }
 
@@ -931,8 +940,12 @@ impl ProviderRouter {
             }
             "bedrock" => {
                 let access = api_key.clone();
-                let secret = std::env::var(format!("KOOIX_CH_{}_SECRET", selected.channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_")))
-                    .unwrap_or_default();
+                let secret_env = format!("KOOIX_CH_{}_SECRET", selected.channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_"));
+                let secret = std::env::var(&secret_env)
+                    .map_err(|_| ProviderError::Config(format!(
+                        "missing {} env var for bedrock channel '{}'",
+                        secret_env, selected.channel.code
+                    )))?;
                 let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
                 let p = BedrockProvider::new_with_opts(region, access, secret, opts)
                     .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
@@ -992,7 +1005,7 @@ impl ProviderRouter {
     ) -> ProviderResult<(String, Option<ChannelKeyId>)> {
         // 如果 repo 未配置，直接走 env
         let Some(repo) = &self.channel_key_repo else {
-            return Ok((resolve_api_key_for_channel(channel_code), None));
+            return Ok((resolve_api_key_for_channel(channel_code)?, None));
         };
 
         // 尝试从 DB 取 active key
@@ -1004,7 +1017,7 @@ impl ProviderRouter {
                         channel_id = %channel_id,
                         "channel key found in DB but crypto not configured, falling back to env"
                     );
-                    return Ok((resolve_api_key_for_channel(channel_code), None));
+                    return Ok((resolve_api_key_for_channel(channel_code)?, None));
                 };
                 // AAD = channel_key(channel_id) — 与 admin handler 加密时一致
                 let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
@@ -1030,7 +1043,7 @@ impl ProviderRouter {
                     channel_code = channel_code,
                     "no channel key in DB, falling back to env"
                 );
-                Ok((resolve_api_key_for_channel(channel_code), None))
+                Ok((resolve_api_key_for_channel(channel_code)?, None))
             }
             Err(e) => {
                 // DB 查询出错，warn + fallback env
@@ -1039,7 +1052,7 @@ impl ProviderRouter {
                     error = %e,
                     "channel key lookup failed, falling back to env"
                 );
-                Ok((resolve_api_key_for_channel(channel_code), None))
+                Ok((resolve_api_key_for_channel(channel_code)?, None))
             }
         }
     }
@@ -1054,6 +1067,13 @@ mod tests {
         ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
     };
     use uuid::Uuid;
+
+    fn ensure_test_api_key() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| unsafe {
+            std::env::set_var("KOOIX_API_KEY", "test-key-for-unit-tests");
+        });
+    }
 
     #[test]
     fn fallback_chain_gpt4o() {
@@ -1108,6 +1128,7 @@ mod tests {
     fn setup_fixtures(
         channels_spec: &[(&str, &str, Vec<String>, i32)],
     ) -> (ProjectId, ProviderRouter) {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let group_id = ChannelGroupId::from(Uuid::now_v7());
 
@@ -1301,6 +1322,7 @@ mod tests {
 
     #[tokio::test]
     async fn router_fallback_env_when_no_db_key() {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let group_id = ChannelGroupId::from(Uuid::now_v7());
         let (ch_id, ch_rec) = make_channel_simple("env-test-ch");
@@ -1331,6 +1353,7 @@ mod tests {
 
     #[tokio::test]
     async fn router_fallback_env_when_no_repo_configured() {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let group_id = ChannelGroupId::from(Uuid::now_v7());
         let (ch_id, ch_rec) = make_channel_simple("no-repo-ch");
@@ -1379,6 +1402,7 @@ mod tests {
         strategy: &str,
         channels_spec: &[(&str, i32, i32)], // (code, priority, weight)
     ) -> (ProjectId, ProviderRouter, Vec<ChannelId>) {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let group_id = ChannelGroupId::from(Uuid::now_v7());
 
@@ -1565,6 +1589,7 @@ mod tests {
     /// fallback has a channel. Expect routing to succeed via fallback group.
     #[tokio::test]
     async fn group_fallback_chain_routes_to_fallback_group() {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let primary_group_id = ChannelGroupId::from(Uuid::now_v7());
         let fallback_group_id = ChannelGroupId::from(Uuid::now_v7());
@@ -1647,6 +1672,7 @@ mod tests {
     /// Disabled primary group → fallback to enabled group with a channel.
     #[tokio::test]
     async fn disabled_group_falls_through_to_fallback() {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let primary_id = ChannelGroupId::from(Uuid::now_v7());
         let fallback_id = ChannelGroupId::from(Uuid::now_v7());
@@ -1689,6 +1715,7 @@ mod tests {
     /// Three-level chain: A→B→C, only C has a matching channel.
     #[tokio::test]
     async fn group_fallback_three_levels_deep() {
+        ensure_test_api_key();
         let project_id = ProjectId::from(Uuid::now_v7());
         let id_a = ChannelGroupId::from(Uuid::now_v7());
         let id_b = ChannelGroupId::from(Uuid::now_v7());

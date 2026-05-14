@@ -98,6 +98,7 @@ fn compute_cost_micros_gpt4o_mini() {
         prompt_tokens: 1000,
         completion_tokens: 500,
         total_tokens: 1500,
+        ..Default::default()
     };
     // 1000 * 0.15 / 1M + 500 * 0.60 / 1M = 0.00015 + 0.00030 = 0.00045 USD
     // = 450 micros
@@ -135,6 +136,7 @@ fn compute_cost_micros_large_volume_no_overflow() {
         prompt_tokens: 100_000_000,
         completion_tokens: 100_000_000,
         total_tokens: 200_000_000,
+        ..Default::default()
     };
     // input: 100M * 30 / 1M = 3000 USD = 3_000_000_000 micros
     // output: 100M * 60 / 1M = 6000 USD = 6_000_000_000 micros

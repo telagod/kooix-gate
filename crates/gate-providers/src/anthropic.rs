@@ -228,6 +228,8 @@ struct AnthropicUsage {
     input_tokens: u32,
     #[serde(default)]
     output_tokens: u32,
+    #[serde(default)]
+    cache_read_input_tokens: u32,
 }
 
 fn map_stop_reason(reason: Option<&str>) -> Option<FinishReason> {
@@ -278,6 +280,7 @@ fn from_anthropic_response(resp: AnthropicResponse) -> ChatResponse {
             prompt_tokens: resp.usage.input_tokens,
             completion_tokens: resp.usage.output_tokens,
             total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
+            cached_tokens: resp.usage.cache_read_input_tokens,
         },
     }
 }
@@ -436,6 +439,7 @@ struct StreamState {
     id: String,
     model: String,
     input_tokens: u32,
+    cached_tokens: u32,
     current_tool_id: Option<String>,
     current_tool_name: Option<String>,
 }
@@ -466,7 +470,10 @@ fn drain_anthropic_events(
                 let mut st = state.lock();
                 st.id = message.id;
                 st.model = message.model;
-                if let Some(u) = message.usage { st.input_tokens = u.input_tokens; }
+                if let Some(u) = message.usage {
+                    st.input_tokens = u.input_tokens;
+                    st.cached_tokens = u.cache_read_input_tokens;
+                }
                 out.push(Ok(ChatStreamChunk {
                     id: st.id.clone(),
                     model: st.model.clone(),
@@ -547,6 +554,7 @@ fn drain_anthropic_events(
                     prompt_tokens: st.input_tokens,
                     completion_tokens: u.output_tokens,
                     total_tokens: st.input_tokens + u.output_tokens,
+                    cached_tokens: st.cached_tokens,
                 });
                 out.push(Ok(ChatStreamChunk {
                     id: st.id.clone(), model: st.model.clone(),

@@ -239,6 +239,7 @@ impl Provider for BedrockProvider {
                 prompt_tokens: parsed.usage.input_tokens,
                 completion_tokens: parsed.usage.output_tokens,
                 total_tokens: parsed.usage.total_tokens,
+                ..Default::default()
             },
         })
     }

@@ -234,31 +234,32 @@ impl ChannelRepo for PgChannelRepo {
         // 先确认存在
         let _ = self.find_by_id(id).await?;
 
-        let status_fragment = match input.enabled {
-            Some(true) => ", status = 'active'",
-            Some(false) => ", status = 'disabled'",
-            None => "",
+        let status_param: Option<&str> = match input.enabled {
+            Some(true) => Some("active"),
+            Some(false) => Some("disabled"),
+            None => None,
         };
 
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(
             "UPDATE channels SET \
                 name = COALESCE($2, name), \
                 base_url = COALESCE($3, base_url), \
                 supported_models = COALESCE($4, supported_models), \
                 rpm_limit = CASE WHEN $5::INT IS NOT NULL THEN $5::INT ELSE rpm_limit END, \
-                tpm_limit = CASE WHEN $6::INT IS NOT NULL THEN $6::INT ELSE tpm_limit END \
-                {status_fragment} \
+                tpm_limit = CASE WHEN $6::INT IS NOT NULL THEN $6::INT ELSE tpm_limit END, \
+                status = COALESCE($7, status) \
              WHERE id = $1 AND deleted_at IS NULL \
              RETURNING id, code, name, provider_type, base_url, supported_models, \
                        status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
-                       created_at, updated_at"
-        ))
+                       created_at, updated_at",
+        )
         .bind(id.as_uuid())
         .bind(input.name.as_deref())
         .bind(input.base_url.as_deref())
         .bind(input.supported_models.as_deref())
         .bind(input.rpm_limit)
         .bind(input.tpm_limit)
+        .bind(status_param)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(DbError::NotFound)?;
@@ -514,7 +515,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
 // ============================================================================
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 #[derive(Default)]
 pub struct InMemoryChannelRepo {
@@ -537,7 +538,6 @@ impl InMemoryChannelRepo {
     pub fn seed_channel(&self, record: ChannelRecord) {
         self.inner
             .write()
-            .unwrap()
             .channels
             .insert(record.channel_id, record);
     }
@@ -552,7 +552,6 @@ impl InMemoryChannelRepo {
     ) {
         self.inner
             .write()
-            .unwrap()
             .bindings
             .entry(group_id)
             .or_default()
@@ -565,7 +564,6 @@ impl ChannelRepo for InMemoryChannelRepo {
     async fn find_by_id(&self, id: ChannelId) -> DbResult<ChannelRecord> {
         self.inner
             .read()
-            .unwrap()
             .channels
             .get(&id)
             .cloned()
@@ -576,7 +574,7 @@ impl ChannelRepo for InMemoryChannelRepo {
         &self,
         group_id: ChannelGroupId,
     ) -> DbResult<Vec<ChannelBinding>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let bindings = match inner.bindings.get(&group_id) {
             Some(b) => b.clone(),
             None => return Ok(vec![]),
@@ -605,14 +603,14 @@ impl ChannelRepo for InMemoryChannelRepo {
     }
 
     async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let mut out: Vec<ChannelRecord> = inner.channels.values().cloned().collect();
         out.sort_by_key(|c| c.created_at);
         Ok(out)
     }
 
     async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         // 检查 code 唯一
         if inner.channels.values().any(|c| c.code == input.code) {
             return Err(DbError::Conflict(format!(
@@ -647,7 +645,7 @@ impl ChannelRepo for InMemoryChannelRepo {
     }
 
     async fn update(&self, id: ChannelId, input: UpdateChannel) -> DbResult<ChannelRecord> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
         if let Some(name) = input.name {
             record.name = name;
@@ -676,7 +674,7 @@ impl ChannelRepo for InMemoryChannelRepo {
     }
 
     async fn soft_delete(&self, id: ChannelId) -> DbResult<()> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         if inner.channels.remove(&id).is_none() {
             return Err(DbError::NotFound);
         }
@@ -684,7 +682,7 @@ impl ChannelRepo for InMemoryChannelRepo {
     }
 
     async fn auto_disable(&self, id: ChannelId, reason: &str) -> DbResult<()> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
         record.status = "disabled".to_string();
         record.health = "unhealthy".to_string();
@@ -694,7 +692,7 @@ impl ChannelRepo for InMemoryChannelRepo {
     }
 
     async fn re_enable(&self, id: ChannelId) -> DbResult<()> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
         record.status = "active".to_string();
         record.health = "healthy".to_string();
@@ -723,7 +721,6 @@ impl InMemoryChannelGroupRepo {
     pub fn seed_group(&self, record: ChannelGroupRecord) {
         self.inner
             .write()
-            .unwrap()
             .groups
             .insert(record.group_id, record);
     }
@@ -731,7 +728,6 @@ impl InMemoryChannelGroupRepo {
     pub fn seed_default(&self, project_id: ProjectId, group_id: ChannelGroupId) {
         self.inner
             .write()
-            .unwrap()
             .defaults
             .insert(project_id, group_id);
     }
@@ -742,7 +738,6 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
     async fn find_by_id(&self, id: ChannelGroupId) -> DbResult<ChannelGroupRecord> {
         self.inner
             .read()
-            .unwrap()
             .groups
             .get(&id)
             .cloned()
@@ -753,13 +748,13 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         &self,
         project_id: ProjectId,
     ) -> DbResult<ChannelGroupRecord> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let group_id = inner.defaults.get(&project_id).ok_or(DbError::NotFound)?;
         inner.groups.get(group_id).cloned().ok_or(DbError::NotFound)
     }
 
     async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>> {
-        Ok(self.inner.read().unwrap().groups.values().cloned().collect())
+        Ok(self.inner.read().groups.values().cloned().collect())
     }
 
     async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord> {
@@ -769,12 +764,12 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
             group_id: id, name: name.to_string(), strategy: strategy.to_string(),
             fallback_group_id: None, enabled: true, created_at: now, updated_at: now,
         };
-        self.inner.write().unwrap().groups.insert(id, rec.clone());
+        self.inner.write().groups.insert(id, rec.clone());
         Ok(rec)
     }
 
     async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>) -> DbResult<ChannelGroupRecord> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         let g = inner.groups.get_mut(&id).ok_or(DbError::NotFound)?;
         if let Some(n) = name { g.name = n.to_string(); }
         if let Some(s) = strategy { g.strategy = s.to_string(); }
@@ -784,7 +779,7 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
     }
 
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()> {
-        if self.inner.write().unwrap().groups.remove(&id).is_none() { return Err(DbError::NotFound); }
+        if self.inner.write().groups.remove(&id).is_none() { return Err(DbError::NotFound); }
         Ok(())
     }
 

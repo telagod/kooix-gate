@@ -66,6 +66,7 @@ validator.workspace = true
 
 # CSV export
 csv = "1"
+parking_lot = "0.12"
 
 # SSO state hash + base64
 sha2.workspace = true

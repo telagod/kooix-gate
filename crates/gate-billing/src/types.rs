@@ -25,6 +25,9 @@ pub struct UsageEvent {
     pub prompt_tokens: i32,
     /// 输出 token 数
     pub completion_tokens: i32,
+    /// 缓存命中 token 数
+    #[serde(default)]
+    pub cached_tokens: i32,
     /// 费用（微美元，1 USD = 1_000_000 cost_micros）
     pub cost_micros: i64,
     /// 事件发生时间

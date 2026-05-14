@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use gate_core::id::OrgId;
 use sqlx::{PgPool, Row};
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 // ============================================================================
@@ -204,7 +204,7 @@ impl InMemoryUsageRepo {
     }
 
     pub fn seed(&self, rec: UsageSeed) {
-        self.inner.write().unwrap().push(rec);
+        self.inner.write().push(rec);
     }
 
     /// 便捷 seed：给定 org/ts/model/cost/tokens 快速塞一条。
@@ -238,7 +238,7 @@ impl UsageRepo for InMemoryUsageRepo {
         to: DateTime<Utc>,
         group_by: GroupBy,
     ) -> DbResult<Vec<UsageBucket>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let filtered = inner
             .iter()
             .filter(|r| r.ts >= from && r.ts < to)
@@ -293,7 +293,7 @@ impl UsageRepo for InMemoryUsageRepo {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> DbResult<UsageTotals> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let mut t = UsageTotals::default();
         for r in inner.iter() {
             if r.ts < from || r.ts >= to {

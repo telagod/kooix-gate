@@ -8,7 +8,7 @@ use gate_auth::AuthContext;
 use gate_core::id::*;
 use gate_core::identity::{OrgRole, PlatformRole, ProjectRole};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 /// 从用户 ID 加载完整角色快照；从 api_key 明文加载 ApiKey 上下文。
 ///
@@ -84,13 +84,13 @@ impl InMemoryLoader {
     }
 
     pub fn add_user(&self, id: UserId, record: UserRecord) {
-        self.inner.write().unwrap().users.insert(id, record);
+        self.inner.write().users.insert(id, record);
     }
 
     /// 用明文 API key 注册（自动计算 hash）
     pub fn add_api_key(&self, plaintext: &str, record: ApiKeyRecord) {
         let h = gate_auth::api_key::hash(plaintext);
-        self.inner.write().unwrap().api_keys.insert(h, record);
+        self.inner.write().api_keys.insert(h, record);
     }
 }
 
@@ -102,7 +102,7 @@ impl AuthContextLoader for InMemoryLoader {
         session_id: uuid::Uuid,
         current_org: Option<OrgId>,
     ) -> Result<AuthContext, LoaderError> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let rec = inner
             .users
             .get(&user_id)
@@ -123,7 +123,7 @@ impl AuthContextLoader for InMemoryLoader {
         client_ip: Option<std::net::IpAddr>,
     ) -> Result<AuthContext, LoaderError> {
         let hash = gate_auth::api_key::hash(plaintext);
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         let rec = inner
             .api_keys
             .get(&hash)

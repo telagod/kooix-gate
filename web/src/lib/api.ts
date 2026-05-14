@@ -772,7 +772,10 @@ export function chatCompletionStream(
 						const json = JSON.parse(payload);
 						const delta = json.choices?.[0]?.delta?.content;
 						if (delta) onChunk(delta);
-					} catch {}
+					} catch (e) {
+						console.warn('SSE parse error:', e);
+						onError(`SSE parse error: ${e}`);
+					}
 				}
 			}
 			onDone();

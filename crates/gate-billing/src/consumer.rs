@@ -96,8 +96,8 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     sqlx::query(
         "INSERT INTO usage_records \
          (ts, request_id, org_id, project_id, api_key_id, channel_id, \
-          model_requested, model_actual, tokens_in, tokens_out, cost_usd, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric / 1000000, $12) \
+          model_requested, model_actual, tokens_in, tokens_out, tokens_cached, cost_usd, status) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::numeric / 1000000, $13) \
          ON CONFLICT (ts, request_id) DO NOTHING",
     )
     .bind(event.occurred_at)
@@ -110,6 +110,7 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     .bind(&event.model) // model_actual = model_requested（C1 阶段无别名翻译）
     .bind(event.prompt_tokens)
     .bind(event.completion_tokens)
+    .bind(event.cached_tokens)
     .bind(event.cost_micros)
     .bind(event.status as i32)
     .execute(pool)

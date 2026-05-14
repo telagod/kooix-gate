@@ -44,7 +44,8 @@ use gate_providers::{ChannelMetrics, ChatRequest, ChatResponse, Provider, Usage}
 use gate_providers::retry::{RetryConfig, with_retry};
 use gate_core::id::ChannelId;
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/chat/completions", post(chat_completions))
@@ -121,14 +122,14 @@ async fn chat_completions(
             if let Ok(chunk) = item
                 && let Some(u) = chunk.usage
             {
-                *captured_clone.lock().unwrap() = Some(u);
+                *captured_clone.lock() = Some(u);
             }
         });
 
         // 用 StreamExt::chain 在 upstream 流尾巴接一段 trigger emit 的「副作用」流。
         // 副作用流自身不吐 chunk，只在被 poll 时 spawn emit 任务后返回 None。
         let trigger = futures::stream::once(async move {
-            let usage = captured_usage.lock().unwrap().take();
+            let usage = captured_usage.lock().take();
 
             // 释放 inflight 计数（least_conn 策略）
             if let (Some(router), Some(ch_id)) = (&router_for_release, release_channel_id) {

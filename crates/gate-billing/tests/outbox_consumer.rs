@@ -42,6 +42,7 @@ fn make_event() -> UsageEvent {
         model: "gpt-4o-mini".to_string(),
         prompt_tokens: 10,
         completion_tokens: 5,
+        cached_tokens: 0,
         cost_micros: 150,
         occurred_at: Utc::now(),
         status: 200,
