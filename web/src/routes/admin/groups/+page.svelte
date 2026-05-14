@@ -344,17 +344,17 @@
 						<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(meta.color)}">
 							{meta.label}
 						</span>
-						<span class="text-xs text-zinc-500 dark:text-zinc-400">{count} 渠道</span>
+						<span class="text-sm text-zinc-500 dark:text-zinc-400">{count} 渠道</span>
 					</div>
 
 					<!-- Description -->
 					{#if group.description}
-						<p class="mt-2 text-xs text-zinc-400 dark:text-zinc-500 truncate">{group.description}</p>
+						<p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400 truncate">{group.description}</p>
 					{/if}
 
 					<!-- Fallback -->
 					{#if group.fallback_group_id}
-						<div class="mt-2 flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
+						<div class="mt-2 flex items-center gap-1 text-sm text-zinc-500 dark:text-zinc-400">
 							<ArrowRight class="w-3 h-3" />
 							<span class="truncate">回退: {groupName(group.fallback_group_id)}</span>
 						</div>
@@ -383,7 +383,7 @@
 							{#if g.description}<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{g.description}</p>{/if}
 							<div class="flex items-center gap-3 mt-2">
 								<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(meta.color)}">{meta.label}</span>
-								<span class="text-xs text-zinc-400">{meta.desc}</span>
+								<span class="text-xs text-zinc-500 dark:text-zinc-400">{meta.desc}</span>
 							</div>
 						</div>
 						<div class="flex items-center gap-2">
@@ -424,7 +424,7 @@
 											{editForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
 									>
 										<span class="text-sm font-medium {editForm.strategy === key ? 'text-zinc-900 dark:text-zinc-100 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}">{s.label}</span>
-										<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{s.desc}</p>
+										<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">{s.desc}</p>
 									</button>
 								{/each}
 							</div>
@@ -471,7 +471,7 @@
 										? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium'
 										: 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300'}">
 									<div>{node.name}</div>
-									<div class="text-xs text-zinc-400 mt-0.5">{strategyMeta(node.strategy).label}</div>
+									<div class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{strategyMeta(node.strategy).label}</div>
 								</div>
 								{#if i < chain.length - 1}
 									<ChevronRight class="w-4 h-4 text-zinc-400 flex-shrink-0" />
@@ -480,7 +480,7 @@
 						{/each}
 						{#if !chain[chain.length - 1].fallback_group_id}
 							<ChevronRight class="w-4 h-4 text-zinc-400 flex-shrink-0" />
-							<span class="text-zinc-400 text-sm">∅</span>
+							<span class="text-zinc-500 dark:text-zinc-400 text-sm">∅</span>
 						{/if}
 					</div>
 				</div>
@@ -497,7 +497,7 @@
 				</div>
 
 				{#if detail.bindings.length === 0}
-					<p class="text-center text-sm text-zinc-400 py-8">暂无渠道，点击上方按钮添加</p>
+					<p class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-8">暂无渠道，点击上方按钮添加</p>
 				{:else}
 					<div class="overflow-x-auto">
 						<table class="w-full text-sm">
@@ -522,7 +522,7 @@
 										</td>
 										<td class="py-2.5 px-2">
 											<div class="font-medium text-zinc-900 dark:text-zinc-100">{b.channel_name}</div>
-											<div class="text-xs text-zinc-400">{b.channel_code}</div>
+											<div class="text-xs text-zinc-500 dark:text-zinc-400">{b.channel_code}</div>
 										</td>
 										<td class="py-2.5 px-2">
 											<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(b.provider_type)}">
@@ -550,11 +550,11 @@
 														<span class="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-xs text-zinc-600 dark:text-zinc-300">{m}</span>
 													{/each}
 													{#if b.model_filter.length > 3}
-														<span class="text-xs text-zinc-400">+{b.model_filter.length - 3}</span>
+														<span class="text-xs text-zinc-500 dark:text-zinc-400">+{b.model_filter.length - 3}</span>
 													{/if}
 												</div>
 											{:else}
-												<span class="text-xs text-zinc-400">全部</span>
+												<span class="text-xs text-zinc-500 dark:text-zinc-400">全部</span>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2 text-right">
@@ -575,7 +575,7 @@
 
 				<!-- Project references -->
 				{#if detail.project_ids && detail.project_ids.length > 0}
-					<div class="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
+					<div class="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
 						{detail.project_ids.length} 个项目正在使用此分组
 					</div>
 				{/if}
@@ -696,7 +696,7 @@
 			<!-- Channel list -->
 			<div class="flex-1 overflow-y-auto p-4 space-y-1">
 				{#if filteredChannels.length === 0}
-					<p class="text-center text-sm text-zinc-400 py-8">没有可用的渠道</p>
+					<p class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-8">没有可用的渠道</p>
 				{:else}
 					{#each filteredChannels as ch (ch.id)}
 						<button
@@ -710,7 +710,7 @@
 							</div>
 							<div class="flex-1 min-w-0">
 								<div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{ch.name}</div>
-								<div class="text-xs text-zinc-400">{ch.code}</div>
+								<div class="text-xs text-zinc-500 dark:text-zinc-400">{ch.code}</div>
 							</div>
 							<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(ch.provider_type)}">{ch.provider_type}</span>
 						</button>
