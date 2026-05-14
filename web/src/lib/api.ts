@@ -908,3 +908,110 @@ export function chatCompletionStream(
 		});
 	return ctrl;
 }
+
+// ── Request Logs (Admin) ─────────────────────────
+
+export interface RequestRecord {
+	ts: string;
+	request_id: string;
+	org_id: string;
+	project_id: string;
+	api_key_id: string;
+	user_id: string | null;
+	channel_id: string;
+	channel_key_id: string | null;
+	group_id: string | null;
+	model_requested: string;
+	model_actual: string;
+	stream: boolean;
+	tokens_in: number;
+	tokens_out: number;
+	tokens_cached: number;
+	cost_usd: number;
+	latency_ms: number | null;
+	ttfb_ms: number | null;
+	status: number;
+	error_code: string | null;
+	retries: number;
+	client_ip: string | null;
+	metadata: Record<string, unknown> | null;
+}
+
+export interface RequestPage {
+	data: RequestRecord[];
+	next_cursor: string | null;
+	has_more: boolean;
+}
+
+export interface RequestListParams {
+	org_id?: string;
+	project_id?: string;
+	channel_id?: string;
+	api_key_id?: string;
+	model?: string;
+	status_min?: number;
+	status_max?: number;
+	error_only?: boolean;
+	from?: string;
+	to?: string;
+	search?: string;
+	cursor?: string;
+	limit?: number;
+}
+
+export async function listRequests(params: RequestListParams = {}): Promise<RequestPage> {
+	const qs = new URLSearchParams();
+	if (params.org_id) qs.set('org_id', params.org_id);
+	if (params.project_id) qs.set('project_id', params.project_id);
+	if (params.channel_id) qs.set('channel_id', params.channel_id);
+	if (params.api_key_id) qs.set('api_key_id', params.api_key_id);
+	if (params.model) qs.set('model', params.model);
+	if (params.status_min != null) qs.set('status_min', String(params.status_min));
+	if (params.status_max != null) qs.set('status_max', String(params.status_max));
+	if (params.error_only) qs.set('error_only', 'true');
+	if (params.from) qs.set('from', params.from);
+	if (params.to) qs.set('to', params.to);
+	if (params.search) qs.set('search', params.search);
+	if (params.cursor) qs.set('cursor', params.cursor);
+	if (params.limit) qs.set('limit', String(params.limit));
+	const q = qs.toString();
+	return apiFetch<RequestPage>(`/v1/admin/requests${q ? '?' + q : ''}`);
+}
+
+export async function getRequest(requestId: string): Promise<RequestRecord> {
+	return apiFetch<RequestRecord>(`/v1/admin/requests/${requestId}`);
+}
+
+// ── Dashboard Stats (Admin) ──────────────────────
+
+export interface ModelRank {
+	model: string;
+	requests: number;
+	cost_usd: number;
+}
+
+export interface HourlyBucket {
+	hour: string;
+	requests: number;
+	errors: number;
+	cost_usd: number;
+}
+
+export interface DashboardStatsResponse {
+	total_requests: number;
+	total_errors: number;
+	error_rate: number;
+	p50_latency_ms: number | null;
+	p95_latency_ms: number | null;
+	total_cost_usd: number;
+	total_tokens: number;
+	top_models: ModelRank[];
+	hourly_trend: HourlyBucket[];
+	recent_errors: RequestRecord[];
+}
+
+export async function getDashboardStats(orgId?: string, hours = 24): Promise<DashboardStatsResponse> {
+	const qs = new URLSearchParams({ hours: String(hours) });
+	if (orgId) qs.set('org_id', orgId);
+	return apiFetch<DashboardStatsResponse>(`/v1/admin/dashboard-stats?${qs}`);
+}

@@ -18,6 +18,7 @@ pub mod model_aliases;
 pub mod models;
 pub mod projects;
 pub mod quotas;
+pub mod request_logs;
 pub mod settings;
 pub mod setup;
 pub mod sso;
@@ -49,5 +50,5 @@ pub fn v1_router() -> Router<AppState> {
         .merge(channels::router())
         .merge(quotas::router())
         .merge(billing::router())
-        .nest("/admin", admin::router())
+        .nest("/admin", admin::router().merge(request_logs::router()))
 }

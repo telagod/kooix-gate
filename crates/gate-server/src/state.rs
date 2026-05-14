@@ -12,7 +12,7 @@ use gate_providers::{Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo,
     IdentityProviderRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo,
-    QuotaRepo, UsageRepo, UserIdentityRepo, UserRepo,
+    QuotaRepo, RequestLogRepo, UsageRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -98,6 +98,8 @@ pub struct Repos {
     pub audit: Arc<dyn AuditRepo>,
     /// 计费聚合（G3 追加）—— 月度账单 + CSV 导出。
     pub billing: Arc<dyn BillingRepo>,
+    /// 请求日志（H1 追加）—— 逐条请求记录 + Dashboard 聚合。
+    pub request_logs: Arc<dyn RequestLogRepo>,
     #[doc(hidden)]
     pub pg_pool: Option<sqlx::PgPool>,
 }
@@ -108,7 +110,7 @@ impl Repos {
         use gate_storage::{
             PgApiKeyRepo, PgAuditRepo, PgBillingRepo, PgChannelGroupRepo, PgChannelKeyRepo,
             PgChannelRepo, PgIdentityProviderRepo, PgMembershipRepo, PgModelAliasRepo,
-            PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo, PgUsageRepo,
+            PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo, PgRequestLogRepo, PgUsageRepo,
             PgUserIdentityRepo, PgUserRepo,
         };
         Self {
@@ -128,6 +130,7 @@ impl Repos {
             model_aliases: Arc::new(PgModelAliasRepo::new(pool.clone())),
             audit: Arc::new(PgAuditRepo::new(pool.clone())),
             billing: Arc::new(PgBillingRepo::new(pool.clone())),
+            request_logs: Arc::new(PgRequestLogRepo::new(pool.clone())),
             pg_pool: Some(pool),
         }
     }
@@ -138,8 +141,8 @@ impl Repos {
             InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryBillingRepo, InMemoryChannelGroupRepo,
             InMemoryChannelKeyRepo, InMemoryChannelRepo, InMemoryIdentityProviderRepo,
             InMemoryMembershipRepo, InMemoryModelAliasRepo, InMemoryOidcStateRepo,
-            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryUsageRepo,
-            InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryRequestLogRepo,
+            InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -158,6 +161,7 @@ impl Repos {
             model_aliases: Arc::new(InMemoryModelAliasRepo::new()),
             audit: Arc::new(InMemoryAuditRepo::new()),
             billing: Arc::new(InMemoryBillingRepo::new()),
+            request_logs: Arc::new(InMemoryRequestLogRepo::new()),
             pg_pool: None,
         }
     }

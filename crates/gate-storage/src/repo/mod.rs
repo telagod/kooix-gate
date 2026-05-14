@@ -21,5 +21,6 @@ pub mod model_alias;
 pub mod org;
 pub mod project;
 pub mod quota;
+pub mod request_log;
 pub mod usage;
 pub mod user;

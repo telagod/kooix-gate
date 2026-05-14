@@ -44,6 +44,10 @@ pub use repo::usage::{
     GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, UsageBucket, UsageRepo, UsageSeed,
     UsageTotals,
 };
+pub use repo::request_log::{
+    DashboardStats, HourlyBucket, InMemoryRequestLogRepo, ModelRank, PgRequestLogRepo,
+    RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
+};
 pub use repo::user::{PgUserRepo, UserRepo};
 pub use rls::RlsContext;
 pub use sqlx::PgPool;

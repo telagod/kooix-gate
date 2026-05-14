@@ -27,7 +27,8 @@
 		PanelLeftClose,
 		PanelLeftOpen,
 		Shield,
-		ChevronDown
+		ChevronDown,
+		ScrollText
 	} from 'lucide-svelte';
 
 	let currentPath = $derived($page.url.pathname);
@@ -52,6 +53,7 @@
 		if (pattern === '/admin/users') return currentPath.startsWith('/admin/users');
 		if (pattern === '/admin/groups') return currentPath.startsWith('/admin/groups');
 		if (pattern === '/admin/audit') return currentPath.startsWith('/admin/audit');
+		if (pattern === '/admin/requests') return currentPath.startsWith('/admin/requests');
 		return currentPath.startsWith(pattern);
 	}
 
@@ -181,6 +183,10 @@
 				<a href="/admin/audit" class={linkCls('/admin/audit')} title={collapsed ? '审计日志' : ''}>
 					<ClipboardList size={iconSize} />
 					{#if !collapsed}<span class="truncate">审计日志</span>{/if}
+				</a>
+				<a href="/admin/requests" class={linkCls('/admin/requests')} title={collapsed ? '请求日志' : ''}>
+					<ScrollText size={iconSize} />
+					{#if !collapsed}<span class="truncate">请求日志</span>{/if}
 				</a>
 			</div>
 		{/if}

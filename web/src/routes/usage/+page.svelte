@@ -1,4 +1,4 @@
-<!-- /usage — 用量仪表盘：三 stat cards + SVG 折线图 + 范围切换 -->
+<!-- /usage — 用量仪表盘：stat cards + 双 SVG 折线图 + 维度切换 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getUsage, getMe } from '$lib/api.js';
@@ -6,12 +6,33 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Stat from '$lib/components/Stat.svelte';
+	import FilterPills from '$lib/components/ui/FilterPills.svelte';
+	import { BarChart3 } from 'lucide-svelte';
+	import { clsx } from 'clsx';
 
 	let usage = $state<UsageResponse | null>(null);
 	let loading = $state(true);
 	let error = $state('');
 	let range = $state<'7d' | '30d'>('7d');
+	let groupBy = $state<'day' | 'model' | 'channel'>('day');
+	let chartMode = $state<'cost' | 'tokens' | 'requests'>('cost');
 	let currentOrg = $state<string | null>(null);
+
+	const rangeOptions = [
+		{ value: '7d', label: '7 天' },
+		{ value: '30d', label: '30 天' }
+	];
+
+	const groupByOptions = [
+		{ value: 'day', label: '按天' },
+		{ value: 'model', label: '按模型' },
+		{ value: 'channel', label: '按渠道' }
+	];
+
+	const chartModeOptions = [
+		{ value: 'cost', label: '花费' },
+		{ value: 'tokens', label: 'Tokens' }
+	];
 
 	onMount(async () => {
 		try {
@@ -28,13 +49,14 @@
 			return;
 		}
 		await load();
+		initialized = true;
 	});
 
 	async function load() {
 		loading = true;
 		error = '';
 		try {
-			usage = await getUsage(currentOrg, range);
+			usage = await getUsage(currentOrg, range, groupBy);
 		} catch (err: any) {
 			error = err?.message ?? '加载失败';
 		} finally {
@@ -42,169 +64,179 @@
 		}
 	}
 
-	async function switchRange(next: '7d' | '30d') {
-		if (range === next) return;
-		range = next;
-		await load();
-	}
+	let initialized = $state(false);
+	$effect(() => {
+		range; groupBy;
+		if (initialized) load();
+	});
 
-	function formatCost(n: number): string {
-		return `$${n.toFixed(4)}`;
-	}
+	function formatCost(n: number): string { return `$${n.toFixed(4)}`; }
+	function formatNum(n: number): string { return n.toLocaleString('en-US'); }
 
-	function formatNum(n: number): string {
-		return n.toLocaleString('en-US');
-	}
-
-	// SVG 折线图配置
 	const W = 720;
 	const H = 220;
 	const PAD = { top: 16, right: 24, bottom: 32, left: 56 };
 
-	let chartPaths = $derived.by(() => {
+	let chartData = $derived.by(() => {
 		if (!usage || usage.series.length === 0) return null;
 		const series = usage.series;
 		const innerW = W - PAD.left - PAD.right;
 		const innerH = H - PAD.top - PAD.bottom;
 
-		const costs = series.map((p) => p.cost_usd);
-		const maxCost = Math.max(0.0001, ...costs);
+		const getVal = (p: typeof series[0]) => {
+			if (chartMode === 'tokens') return p.tokens_in + p.tokens_out;
+			return p.cost_usd;
+		};
+		const values = series.map(getVal);
+		const maxVal = Math.max(0.0001, ...values);
 		const n = series.length;
 
-		const x = (i: number) =>
-			PAD.left + (n === 1 ? innerW / 2 : (i * innerW) / (n - 1));
-		const y = (v: number) => PAD.top + innerH - (v / maxCost) * innerH;
+		const x = (i: number) => PAD.left + (n === 1 ? innerW / 2 : (i * innerW) / (n - 1));
+		const y = (v: number) => PAD.top + innerH - (v / maxVal) * innerH;
 
 		const path = series
-			.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(p.cost_usd).toFixed(1)}`)
+			.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(getVal(p)).toFixed(1)}`)
 			.join(' ');
 
-		// area fill：path + 底边封口
 		const area = `${path} L ${x(n - 1).toFixed(1)} ${PAD.top + innerH} L ${x(0).toFixed(1)} ${PAD.top + innerH} Z`;
 
 		const points = series.map((p, i) => ({
 			x: x(i),
-			y: y(p.cost_usd),
+			y: y(getVal(p)),
+			value: getVal(p),
+			key: p.key,
 			cost: p.cost_usd,
-			key: p.key
+			tokens_in: p.tokens_in,
+			tokens_out: p.tokens_out
 		}));
 
-		// y 轴 4 个 ticks
 		const yTicks = [0, 0.33, 0.66, 1].map((t) => ({
 			y: PAD.top + innerH - t * innerH,
-			value: t * maxCost
+			value: t * maxVal
 		}));
 
-		return { path, area, points, yTicks, maxCost };
+		const formatTickVal = (v: number) => {
+			if (chartMode === 'tokens') {
+				if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+				if (v >= 1000) return `${(v / 1000).toFixed(0)}K`;
+				return String(Math.round(v));
+			}
+			return `$${v.toFixed(3)}`;
+		};
+
+		return { path, area, points, yTicks, maxVal, formatTickVal };
+	});
+
+	// Bar chart for model/channel group_by
+	let isBarChart = $derived(groupBy !== 'day');
+
+	let barData = $derived.by(() => {
+		if (!usage || usage.series.length === 0 || !isBarChart) return null;
+		const series = usage.series.slice(0, 10);
+		const getVal = (p: typeof series[0]) => chartMode === 'tokens' ? p.tokens_in + p.tokens_out : p.cost_usd;
+		const maxVal = Math.max(0.0001, ...series.map(getVal));
+		return series.map(p => ({
+			key: p.key.length > 20 ? p.key.slice(0, 18) + '…' : p.key,
+			value: getVal(p),
+			pct: getVal(p) / maxVal,
+			cost: p.cost_usd,
+			tokens_in: p.tokens_in,
+			tokens_out: p.tokens_out
+		}));
 	});
 </script>
 
 <div class="px-6 py-6">
 	<div class="flex items-center justify-between mb-6">
-		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">用量仪表盘</h1>
-		<div class="flex gap-2">
-			<Button
-				variant={range === '7d' ? 'default' : 'outline'}
-				size="sm"
-				onclick={() => switchRange('7d')}
-				disabled={loading}
-			>
-				最近 7 天
-			</Button>
-			<Button
-				variant={range === '30d' ? 'default' : 'outline'}
-				size="sm"
-				onclick={() => switchRange('30d')}
-				disabled={loading}
-			>
-				最近 30 天
-			</Button>
+		<div class="flex items-center gap-3">
+			<div class="flex items-center justify-center w-9 h-9 rounded-lg bg-zinc-900 dark:bg-zinc-100">
+				<BarChart3 size={18} class="text-white dark:text-zinc-900" />
+			</div>
+			<h1 class="text-xl font-bold text-zinc-900 dark:text-zinc-100">用量仪表盘</h1>
+		</div>
+		<div class="flex items-center gap-3">
+			<FilterPills bind:value={groupBy} options={groupByOptions} />
+			<FilterPills bind:value={range} options={rangeOptions} />
 		</div>
 	</div>
 
 	{#if loading}
-		<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
+		<div class="space-y-4">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+				{#each Array(3) as _}
+					<div class="h-28 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse"></div>
+				{/each}
+			</div>
+			<div class="h-64 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse"></div>
+		</div>
 	{:else if error}
 		<Card class="p-6">
 			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 		</Card>
 	{:else if usage}
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-			<Stat
-				title="总花费"
-				value={formatCost(usage.total_cost_usd)}
-				subtitle="USD · {usage.range}"
-			/>
-			<Stat
-				title="Input Tokens"
-				value={formatNum(usage.total_tokens_in)}
-				subtitle="prompt 输入累计"
-			/>
-			<Stat
-				title="Output Tokens"
-				value={formatNum(usage.total_tokens_out)}
-				subtitle="completion 输出累计"
-			/>
+			<Stat title="总花费" value={formatCost(usage.total_cost_usd)} subtitle="USD · {usage.range}" />
+			<Stat title="Input Tokens" value={formatNum(usage.total_tokens_in)} subtitle="prompt 输入累计" />
+			<Stat title="Output Tokens" value={formatNum(usage.total_tokens_out)} subtitle="completion 输出累计" />
 		</div>
 
 		<Card class="p-5">
 			<div class="flex items-center justify-between mb-3">
-				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">每日花费 (USD)</h2>
-				<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{usage.series.length} buckets</p>
+				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+					{#if groupBy === 'day'}每日趋势{:else if groupBy === 'model'}模型分布{:else}渠道分布{/if}
+				</h2>
+				<div class="flex items-center gap-3">
+					<FilterPills bind:value={chartMode} options={chartModeOptions} />
+					<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{usage.series.length} buckets</p>
+				</div>
 			</div>
 
-			{#if !chartPaths}
+			{#if usage.series.length === 0}
 				<p class="text-sm text-zinc-600 dark:text-zinc-300 py-12 text-center">此区间无用量记录</p>
-			{:else}
+			{:else if isBarChart && barData}
+				<!-- Horizontal bar chart for model/channel -->
+				<div class="space-y-2">
+					{#each barData as bar}
+						<div class="flex items-center gap-3">
+							<span class="w-36 text-xs font-mono text-zinc-600 dark:text-zinc-400 text-right truncate" title={bar.key}>{bar.key}</span>
+							<div class="flex-1 h-6 bg-zinc-100 dark:bg-zinc-800 rounded overflow-hidden">
+								<div
+									class="h-full rounded bg-zinc-900 dark:bg-zinc-300 transition-all flex items-center px-2"
+									style="width: {Math.max(2, bar.pct * 100).toFixed(1)}%"
+								>
+									{#if bar.pct > 0.15}
+										<span class="text-[10px] font-mono text-white dark:text-zinc-900 truncate">
+											{chartMode === 'tokens' ? formatNum(bar.value) : formatCost(bar.value)}
+										</span>
+									{/if}
+								</div>
+							</div>
+							{#if bar.pct <= 0.15}
+								<span class="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 w-16">
+									{chartMode === 'tokens' ? formatNum(bar.value) : formatCost(bar.value)}
+								</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{:else if chartData}
+				<!-- Line chart for day group_by -->
 				<svg viewBox="0 0 {W} {H}" class="w-full h-auto">
-					<!-- Y 轴 grid + 标签 -->
-					{#each chartPaths.yTicks as t}
-						<line
-							x1={PAD.left}
-							y1={t.y}
-							x2={W - PAD.right}
-							y2={t.y}
-							class="stroke-zinc-200 dark:stroke-zinc-700"
-							stroke-dasharray="3,3"
-						/>
-						<text
-							x={PAD.left - 8}
-							y={t.y + 3}
-							text-anchor="end"
-							class="fill-zinc-400 dark:fill-zinc-500 text-[10px] font-mono"
-						>
-							${t.value.toFixed(3)}
+					{#each chartData.yTicks as t}
+						<line x1={PAD.left} y1={t.y} x2={W - PAD.right} y2={t.y} class="stroke-zinc-200 dark:stroke-zinc-700" stroke-dasharray="3,3" />
+						<text x={PAD.left - 8} y={t.y + 3} text-anchor="end" class="fill-zinc-400 dark:fill-zinc-500 text-[10px] font-mono">
+							{chartData.formatTickVal(t.value)}
 						</text>
 					{/each}
-
-					<!-- area fill -->
-					<path d={chartPaths.area} class="fill-zinc-900 dark:fill-zinc-300" fill-opacity="0.06" />
-
-					<!-- line -->
-					<path
-						d={chartPaths.path}
-						fill="none"
-						class="stroke-zinc-900 dark:stroke-zinc-300"
-						stroke-width="2"
-						stroke-linejoin="round"
-						stroke-linecap="round"
-					/>
-
-					<!-- 数据点 -->
-					{#each chartPaths.points as p}
+					<path d={chartData.area} class="fill-zinc-900 dark:fill-zinc-300" fill-opacity="0.06" />
+					<path d={chartData.path} fill="none" class="stroke-zinc-900 dark:stroke-zinc-300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+					{#each chartData.points as p}
 						<circle cx={p.x} cy={p.y} r="3.5" class="fill-zinc-900 dark:fill-zinc-300" />
-						<title>{p.key}: ${p.cost.toFixed(4)}</title>
+						<title>{p.key}: {chartMode === 'tokens' ? formatNum(p.value) : formatCost(p.value)}</title>
 					{/each}
-
-					<!-- X 轴日期标签（最多 7 个，超过则间隔抽样） -->
-					{#each chartPaths.points as p, i}
-						{#if chartPaths.points.length <= 7 || i % Math.ceil(chartPaths.points.length / 7) === 0 || i === chartPaths.points.length - 1}
-							<text
-								x={p.x}
-								y={H - 8}
-								text-anchor="middle"
-								class="fill-zinc-500 dark:fill-zinc-400 text-[10px] font-mono"
-							>
+					{#each chartData.points as p, i}
+						{#if chartData.points.length <= 7 || i % Math.ceil(chartData.points.length / 7) === 0 || i === chartData.points.length - 1}
+							<text x={p.x} y={H - 8} text-anchor="middle" class="fill-zinc-500 dark:fill-zinc-400 text-[10px] font-mono">
 								{p.key.slice(5)}
 							</text>
 						{/if}
