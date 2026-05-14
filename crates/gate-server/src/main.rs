@@ -123,8 +123,11 @@ async fn main() -> anyhow::Result<()> {
     ) {
         match gate_providers::openai::OpenAiProvider::new(base, key) {
             Ok(p) => {
-                state = state.with_provider(p);
-                tracing::info!("fallback openai provider active");
+                state = state
+                    .with_image_provider(p.clone())
+                    .with_audio_provider(p.clone())
+                    .with_provider(p);
+                tracing::info!("fallback openai provider active (chat + images + audio)");
             }
             Err(e) => tracing::warn!(error = %e, "fallback openai provider init failed"),
         }

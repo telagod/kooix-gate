@@ -942,6 +942,90 @@ export function chatCompletionStream(
 	return ctrl;
 }
 
+// ── Image Generation ─────────────────────────────
+
+export interface ImageGenerationParams {
+	model: string;
+	prompt: string;
+	n?: number;
+	size?: string;
+	quality?: string;
+	style?: string;
+	response_format?: string;
+}
+
+export interface ImageData {
+	url?: string;
+	b64_json?: string;
+	revised_prompt?: string;
+}
+
+export interface ImageGenerationResponse {
+	created: number;
+	data: ImageData[];
+}
+
+export async function generateImage(params: ImageGenerationParams): Promise<ImageGenerationResponse> {
+	return apiFetch<ImageGenerationResponse>('/v1/images/generations', {
+		method: 'POST',
+		body: JSON.stringify(params)
+	});
+}
+
+// ── Audio: TTS ───────────────────────────────────
+
+export interface AudioSpeechParams {
+	model: string;
+	input: string;
+	voice: string;
+	response_format?: string;
+	speed?: number;
+}
+
+export async function createSpeech(params: AudioSpeechParams): Promise<Blob> {
+	const token = getAccessToken();
+	const resp = await fetch(`${BASE_URL}/v1/audio/speech`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			...(token ? { Authorization: `Bearer ${token}` } : {})
+		},
+		body: JSON.stringify(params)
+	});
+	if (!resp.ok) {
+		const body = await resp.json().catch(() => ({}));
+		throw new Error(body?.error?.message ?? resp.statusText);
+	}
+	return resp.blob();
+}
+
+// ── Audio: STT ───────────────────────────────────
+
+export interface TranscriptionResponse {
+	text: string;
+}
+
+export async function createTranscription(file: File, model = 'whisper-1', language?: string): Promise<TranscriptionResponse> {
+	const token = getAccessToken();
+	const form = new FormData();
+	form.append('file', file);
+	form.append('model', model);
+	if (language) form.append('language', language);
+
+	const resp = await fetch(`${BASE_URL}/v1/audio/transcriptions`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {})
+		},
+		body: form
+	});
+	if (!resp.ok) {
+		const body = await resp.json().catch(() => ({}));
+		throw new Error(body?.error?.message ?? resp.statusText);
+	}
+	return resp.json();
+}
+
 // ── Request Logs (Admin) ─────────────────────────
 
 export interface RequestRecord {

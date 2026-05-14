@@ -26,9 +26,11 @@ pub mod types;
 pub use error::{ProviderError, ProviderResult};
 pub use router::{ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter, InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
 pub use types::{
+    AudioSpeechRequest, AudioTranscriptionResponse,
     ChatChoice, ChatDelta, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk,
     ChatStreamChoice, ContentPart, ContentType, EmbeddingInput, EmbeddingRequest,
-    EmbeddingResponse, EmbeddingUsage, FinishReason, FunctionCall, FunctionDef, ImageUrl,
+    EmbeddingResponse, EmbeddingUsage, FinishReason, FunctionCall, FunctionDef,
+    ImageData, ImageGenerationRequest, ImageGenerationResponse, ImageUrl,
     MessageContent, ModelInfo, ModelListResponse, Role, ToolCall, ToolCallDelta, ToolDef, Usage,
 };
 
@@ -70,4 +72,26 @@ pub trait Provider: Send + Sync + 'static {
 pub trait EmbeddingProvider: Send + Sync + 'static {
     fn name(&self) -> &'static str;
     async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse>;
+}
+
+#[async_trait]
+pub trait ImageProvider: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    async fn generate_image(
+        &self,
+        req: ImageGenerationRequest,
+    ) -> ProviderResult<ImageGenerationResponse>;
+}
+
+#[async_trait]
+pub trait AudioProvider: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    async fn speech(&self, req: AudioSpeechRequest) -> ProviderResult<bytes::Bytes>;
+    async fn transcription(
+        &self,
+        audio: bytes::Bytes,
+        filename: String,
+        model: String,
+        language: Option<String>,
+    ) -> ProviderResult<AudioTranscriptionResponse>;
 }

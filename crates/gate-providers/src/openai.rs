@@ -1,9 +1,11 @@
 //! OpenAI 兼容 provider —— 直接透传 + embedding。
 
-use crate::{EmbeddingProvider, Provider};
+use crate::{AudioProvider, EmbeddingProvider, ImageProvider, Provider};
 use crate::error::{ProviderError, ProviderResult};
 use crate::types::{
+    AudioSpeechRequest, AudioTranscriptionResponse,
     ChatRequest, ChatResponse, ChatStreamChunk, EmbeddingRequest, EmbeddingResponse,
+    ImageGenerationRequest, ImageGenerationResponse,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -44,6 +46,18 @@ impl OpenAiProvider {
 
     fn embeddings_url(&self) -> String {
         format!("{}/embeddings", self.base_url)
+    }
+
+    fn images_url(&self) -> String {
+        format!("{}/images/generations", self.base_url)
+    }
+
+    fn audio_speech_url(&self) -> String {
+        format!("{}/audio/speech", self.base_url)
+    }
+
+    fn audio_transcriptions_url(&self) -> String {
+        format!("{}/audio/transcriptions", self.base_url)
     }
 
     pub fn base_url(&self) -> &str {
@@ -105,6 +119,81 @@ impl EmbeddingProvider for OpenAiProvider {
             .post(self.embeddings_url())
             .bearer_auth(&self.api_key)
             .json(&req)
+            .send()
+            .await?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.json().await?)
+    }
+}
+
+#[async_trait]
+impl ImageProvider for OpenAiProvider {
+    fn name(&self) -> &'static str {
+        "openai"
+    }
+
+    async fn generate_image(
+        &self,
+        req: ImageGenerationRequest,
+    ) -> ProviderResult<ImageGenerationResponse> {
+        let resp = self
+            .client
+            .post(self.images_url())
+            .bearer_auth(&self.api_key)
+            .json(&req)
+            .send()
+            .await?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.json().await?)
+    }
+}
+
+#[async_trait]
+impl AudioProvider for OpenAiProvider {
+    fn name(&self) -> &'static str {
+        "openai"
+    }
+
+    async fn speech(&self, req: AudioSpeechRequest) -> ProviderResult<bytes::Bytes> {
+        let resp = self
+            .client
+            .post(self.audio_speech_url())
+            .bearer_auth(&self.api_key)
+            .json(&req)
+            .send()
+            .await?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.bytes().await?)
+    }
+
+    async fn transcription(
+        &self,
+        audio: bytes::Bytes,
+        filename: String,
+        model: String,
+        language: Option<String>,
+    ) -> ProviderResult<AudioTranscriptionResponse> {
+        let file_part = reqwest::multipart::Part::bytes(audio.to_vec())
+            .file_name(filename)
+            .mime_str("application/octet-stream")
+            .map_err(|e| ProviderError::Config(e.to_string()))?;
+
+        let mut form = reqwest::multipart::Form::new()
+            .part("file", file_part)
+            .text("model", model);
+
+        if let Some(lang) = language {
+            form = form.text("language", lang);
+        }
+
+        let resp = self
+            .client
+            .post(self.audio_transcriptions_url())
+            .bearer_auth(&self.api_key)
+            .multipart(form)
             .send()
             .await?;
         check_status(&resp)?;

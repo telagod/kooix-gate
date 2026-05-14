@@ -302,3 +302,61 @@ pub struct ModelListResponse {
     pub object: String,
     pub data: Vec<ModelInfo>,
 }
+
+// ── Image Generation ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageGenerationRequest {
+    pub model: String,
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageGenerationResponse {
+    pub created: i64,
+    pub data: Vec<ImageData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b64_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revised_prompt: Option<String>,
+}
+
+// ── Audio: TTS (Text-to-Speech) ──────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioSpeechRequest {
+    pub model: String,
+    pub input: String,
+    pub voice: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f32>,
+}
+
+// Response is raw audio bytes — no JSON wrapper
+
+// ── Audio: STT (Speech-to-Text) ──────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioTranscriptionResponse {
+    pub text: String,
+}
+
+// Request is multipart form — not a JSON struct

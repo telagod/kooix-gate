@@ -8,7 +8,7 @@ use gate_auth::jwt::JwtIssuer;
 use gate_billing::{OutboxRepo, PricingRepo};
 use gate_cache::{QuotaCounter, RateLimiter};
 use gate_crypto::EnvelopeKms;
-use gate_providers::{Provider, ProviderRouter};
+use gate_providers::{AudioProvider, ImageProvider, Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo,
     IdentityProviderRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo,
@@ -47,6 +47,10 @@ pub struct AppState {
     /// 配额预扣/查询计数器（Redis 后端）。
     /// 未配置时 quota middleware 对 budget 维度走 fail-open，仅 rate 维度仍可生效（走 rate_limiter）。
     pub quota_counter: Option<Arc<QuotaCounter>>,
+    /// 图片生成 provider（OpenAI DALL-E 兼容）。
+    pub image_provider: Option<Arc<dyn ImageProvider>>,
+    /// 语音 provider — TTS + STT（OpenAI 兼容）。
+    pub audio_provider: Option<Arc<dyn AudioProvider>>,
     /// 审计发射器（G2 新增）。用 repos.audit 初始化，非阻塞写入。
     pub audit: AuditEmitter,
 }
@@ -182,6 +186,8 @@ impl AppState {
             rate_limit_cfg: RateLimitCfg::default(),
             provider: None,
             provider_router: None,
+            image_provider: None,
+            audio_provider: None,
             crypto: None,
             oidc_client: None,
             public_origin: None,
@@ -253,6 +259,16 @@ impl AppState {
     /// 挂载 quota 计数器（E3 新增）。未挂载时 budget 配额检查走 fail-open。
     pub fn with_quota_counter(mut self, qc: QuotaCounter) -> Self {
         self.quota_counter = Some(Arc::new(qc));
+        self
+    }
+
+    pub fn with_image_provider<P: ImageProvider>(mut self, provider: P) -> Self {
+        self.image_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn with_audio_provider<P: AudioProvider>(mut self, provider: P) -> Self {
+        self.audio_provider = Some(Arc::new(provider));
         self
     }
 }

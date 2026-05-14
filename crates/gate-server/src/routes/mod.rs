@@ -7,12 +7,14 @@
 
 pub mod admin;
 pub mod api_keys;
+pub mod audio;
 pub mod auth;
 pub mod billing;
 pub mod channels;
 pub mod chat;
 pub mod embeddings;
 pub mod health;
+pub mod images;
 pub mod me;
 pub mod model_aliases;
 pub mod models;
@@ -44,6 +46,8 @@ pub fn v1_router() -> Router<AppState> {
         .merge(projects::router())
         .merge(api_keys::router())
         .merge(chat::router())
+        .merge(images::router())
+        .merge(audio::router())
         .merge(auth::router())
         .merge(sso::router())
         .merge(usage::router())
