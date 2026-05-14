@@ -4,15 +4,15 @@
 //! 用 3 条独立 SQL（org/project/platform）比 UNION 更直观，且 PG 会并行 plan。
 //! 如果后续真成为热点，再考虑缓存到 Redis。
 
-use crate::error::DbResult;
+use crate::error::{DbError, DbResult};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use gate_core::id::{OrgId, ProjectId, UserId};
 use gate_core::identity::{OrgRole, PlatformRole, ProjectRole};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// 一个用户的全部角色快照 — PgLoader 会把这个直接塞进 AuthContext。
 #[derive(Debug, Clone, Default)]
 pub struct UserMemberships {
     pub orgs: HashMap<OrgId, OrgRole>,
@@ -20,19 +20,22 @@ pub struct UserMemberships {
     pub platform: Option<PlatformRole>,
 }
 
+#[derive(Debug, Clone)]
+pub struct OrgMemberView {
+    pub user_id: UserId,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+}
+
 #[async_trait]
 pub trait MembershipRepo: Send + Sync + 'static {
-    /// 一次性查出 user 的所有成员关系。
     async fn load_for_user(&self, user_id: UserId) -> DbResult<UserMemberships>;
-
     async fn add_org_member(&self, org: OrgId, user: UserId, role: OrgRole) -> DbResult<()>;
-
-    async fn add_project_member(
-        &self,
-        project: ProjectId,
-        user: UserId,
-        role: ProjectRole,
-    ) -> DbResult<()>;
+    async fn add_project_member(&self, project: ProjectId, user: UserId, role: ProjectRole) -> DbResult<()>;
+    async fn list_org_members(&self, org: OrgId) -> DbResult<Vec<OrgMemberView>>;
+    async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()>;
 }
 
 pub struct PgMembershipRepo {
@@ -172,6 +175,41 @@ impl MembershipRepo for PgMembershipRepo {
         .bind(project_role_to_str(role))
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn list_org_members(&self, org: OrgId) -> DbResult<Vec<OrgMemberView>> {
+        let rows = sqlx::query(
+            "SELECT m.user_id, m.role, m.joined_at, u.email, u.display_name \
+             FROM org_memberships m \
+             JOIN users u ON u.id = m.user_id \
+             WHERE m.org_id = $1 AND u.deleted_at IS NULL \
+             ORDER BY m.joined_at ASC",
+        )
+        .bind(org.as_uuid())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(|r| {
+            let uid: Uuid = r.try_get("user_id")?;
+            Ok(OrgMemberView {
+                user_id: UserId::from(uid),
+                email: r.try_get("email")?,
+                display_name: r.try_get("display_name")?,
+                role: r.try_get("role")?,
+                joined_at: r.try_get("joined_at")?,
+            })
+        }).collect()
+    }
+
+    async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()> {
+        let res = sqlx::query(
+            "DELETE FROM org_memberships WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org.as_uuid())
+        .bind(user.as_uuid())
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 { return Err(DbError::NotFound); }
         Ok(())
     }
 }

@@ -5,7 +5,7 @@
 use crate::error::{DbError, DbResult};
 use crate::repo::{
     api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord},
-    membership::{MembershipRepo, UserMemberships},
+    membership::{MembershipRepo, OrgMemberView, UserMemberships},
     org::OrgRepo,
     project::ProjectRepo,
     user::UserRepo,
@@ -417,6 +417,18 @@ impl MembershipRepo for InMemoryMembershipRepo {
             .unwrap()
             .projects
             .insert((project, user), (org, role));
+        Ok(())
+    }
+
+    async fn list_org_members(&self, _org: OrgId) -> DbResult<Vec<OrgMemberView>> {
+        Ok(vec![])
+    }
+
+    async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()> {
+        let mut g = self.inner.write().unwrap();
+        if g.orgs.remove(&(org, user)).is_none() {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 }

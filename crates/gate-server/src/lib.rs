@@ -20,6 +20,7 @@ pub mod billing_emit;
 pub mod config;
 pub mod cost_estimate;
 pub mod error;
+pub mod health_probe;
 pub mod inflight;
 pub mod loader;
 pub mod metrics;

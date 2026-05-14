@@ -29,7 +29,7 @@ pub use repo::identity::{
     PgIdentityProviderRepo, PgOidcStateRepo, PgUserIdentityRepo, UserIdentityRecord,
     UserIdentityRepo,
 };
-pub use repo::membership::{MembershipRepo, PgMembershipRepo, UserMemberships};
+pub use repo::membership::{MembershipRepo, OrgMemberView, PgMembershipRepo, UserMemberships};
 pub use repo::memory::{
     InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,
     InMemoryUserRepo,

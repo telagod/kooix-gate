@@ -92,6 +92,8 @@ pub fn router() -> Router<AppState> {
         .route("/groups/:id", axum::routing::put(update_group).delete(delete_group))
         .route("/groups/:id/bindings", get(list_group_bindings).post(add_group_binding))
         .route("/groups/:id/bindings/:channel_id", axum::routing::delete(remove_group_binding))
+        .route("/orgs/:org_id/members", get(list_org_members).post(add_org_member))
+        .route("/orgs/:org_id/members/:user_id", axum::routing::delete(remove_org_member_handler))
 }
 
 async fn list_channels(
@@ -852,6 +854,94 @@ async fn remove_group_binding(
     let gid = gate_core::id::ChannelGroupId::from(id);
     let cid = gate_core::id::ChannelId::from(channel_id);
     app.repos.channel_groups.remove_binding(gid, cid).await?;
+
+    Ok(Json(serde_json::json!({"removed": true})))
+}
+
+// ============================================================================
+// Org Membership Management (Admin)
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct MemberView {
+    pub user_id: String,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct AddMemberRequest {
+    pub email: String,
+    pub role: String,
+}
+
+async fn list_org_members(
+    State(app): State<AppState>,
+    Path(org_id): Path<Uuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<Vec<MemberView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let org = gate_core::id::OrgId::from(org_id);
+    let members = app.repos.memberships.list_org_members(org).await?;
+    Ok(Json(members.into_iter().map(|m| MemberView {
+        user_id: m.user_id.as_uuid().to_string(),
+        email: m.email,
+        display_name: m.display_name,
+        role: m.role,
+        joined_at: m.joined_at,
+    }).collect()))
+}
+
+async fn add_org_member(
+    State(app): State<AppState>,
+    Path(org_id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<AddMemberRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let valid_roles = ["owner", "admin", "billing_viewer", "member"];
+    if !valid_roles.contains(&req.role.as_str()) {
+        return Err(AppError::BadRequest(format!("role must be one of: {valid_roles:?}")));
+    }
+
+    let user = app.repos.users.find_by_email(&req.email).await
+        .map_err(|_| AppError::BadRequest(format!("user '{}' not found", req.email)))?;
+
+    let role = match req.role.as_str() {
+        "owner" => gate_core::identity::OrgRole::Owner,
+        "admin" => gate_core::identity::OrgRole::Admin,
+        "billing_viewer" => gate_core::identity::OrgRole::BillingViewer,
+        _ => gate_core::identity::OrgRole::Member,
+    };
+
+    let org = gate_core::id::OrgId::from(org_id);
+    app.repos.memberships.add_org_member(org, user.id, role).await?;
+
+    app.audit.emit(&ctx, "membership.add", "membership", None,
+        Some(serde_json::json!({"org_id": org_id.to_string(), "email": req.email})));
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn remove_org_member_handler(
+    State(app): State<AppState>,
+    Path((org_id, user_id)): Path<(Uuid, Uuid)>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let org = gate_core::id::OrgId::from(org_id);
+    let uid = gate_core::id::UserId::from(user_id);
+    app.repos.memberships.remove_org_member(org, uid).await?;
+
+    app.audit.emit(&ctx, "membership.remove", "membership", Some(user_id), None);
 
     Ok(Json(serde_json::json!({"removed": true})))
 }

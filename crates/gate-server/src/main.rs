@@ -93,7 +93,9 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let app = build_router(state);
+    let app = build_router(state.clone());
+
+    gate_server::health_probe::spawn(state);
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
         .await
