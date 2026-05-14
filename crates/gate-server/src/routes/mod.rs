@@ -14,6 +14,7 @@ pub mod chat;
 pub mod embeddings;
 pub mod health;
 pub mod me;
+pub mod model_aliases;
 pub mod models;
 pub mod projects;
 pub mod quotas;
@@ -38,6 +39,7 @@ pub fn v1_router() -> Router<AppState> {
         .merge(settings::router())
         .merge(models::router())
         .merge(embeddings::router())
+        .merge(model_aliases::router())
         .merge(projects::router())
         .merge(api_keys::router())
         .merge(chat::router())

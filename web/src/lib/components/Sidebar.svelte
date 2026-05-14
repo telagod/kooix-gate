@@ -15,6 +15,7 @@
 		Receipt,
 		Gauge,
 		Cable,
+		Layers,
 		ClipboardList,
 		Users,
 		MessageSquare,
@@ -47,6 +48,7 @@
 		if (pattern === '/settings') return currentPath.startsWith('/settings');
 		if (pattern === '/channels') return currentPath === '/channels' || currentPath.startsWith('/channels/');
 		if (pattern === '/admin/users') return currentPath.startsWith('/admin/users');
+		if (pattern === '/admin/groups') return currentPath.startsWith('/admin/groups');
 		if (pattern === '/admin/audit') return currentPath.startsWith('/admin/audit');
 		return currentPath.startsWith(pattern);
 	}
@@ -142,6 +144,10 @@
 				<a href="/channels" class={linkCls('/channels')} title={collapsed ? '渠道管理' : ''}>
 					<Cable size={iconSize} />
 					{#if !collapsed}<span class="truncate">渠道管理</span>{/if}
+				</a>
+				<a href="/admin/groups" class={linkCls('/admin/groups')} title={collapsed ? '渠道分组' : ''}>
+					<Layers size={iconSize} />
+					{#if !collapsed}<span class="truncate">渠道分组</span>{/if}
 				</a>
 				<a href="/admin/users" class={linkCls('/admin/users')} title={collapsed ? '用户管理' : ''}>
 					<Users size={iconSize} />

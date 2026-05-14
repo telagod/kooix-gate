@@ -268,12 +268,15 @@ pub struct ChannelGroupRecord {
 
 #[async_trait]
 pub trait ChannelGroupRepo: Send + Sync + 'static {
-    /// 按 ID 查分组。
     async fn find_by_id(&self, id: ChannelGroupId) -> DbResult<ChannelGroupRecord>;
-
-    /// 查 Project 的默认分组（通过 projects.default_group_id）。
-    async fn find_default_for_project(&self, project_id: ProjectId)
-    -> DbResult<ChannelGroupRecord>;
+    async fn find_default_for_project(&self, project_id: ProjectId) -> DbResult<ChannelGroupRecord>;
+    async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>>;
+    async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord>;
+    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>) -> DbResult<ChannelGroupRecord>;
+    async fn delete(&self, id: ChannelGroupId) -> DbResult<()>;
+    async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>>;
+    async fn add_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId, priority: i32, weight: i32) -> DbResult<()>;
+    async fn remove_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId) -> DbResult<()>;
 }
 
 pub struct PgChannelGroupRepo {
@@ -330,6 +333,122 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         .await?
         .ok_or(DbError::NotFound)?;
         row_to_group(&row)
+    }
+
+    async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>> {
+        let rows = sqlx::query(
+            "SELECT id, name, strategy, fallback_group_id, enabled, created_at, updated_at \
+             FROM channel_groups ORDER BY created_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_group).collect()
+    }
+
+    async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord> {
+        let row = sqlx::query(
+            "INSERT INTO channel_groups (name, strategy) VALUES ($1, $2) \
+             RETURNING id, name, strategy, fallback_group_id, enabled, created_at, updated_at",
+        )
+        .bind(name)
+        .bind(strategy)
+        .fetch_one(&self.pool)
+        .await?;
+        row_to_group(&row)
+    }
+
+    async fn update(
+        &self,
+        id: ChannelGroupId,
+        name: Option<&str>,
+        strategy: Option<&str>,
+        enabled: Option<bool>,
+    ) -> DbResult<ChannelGroupRecord> {
+        let row = sqlx::query(
+            "UPDATE channel_groups SET \
+             name = COALESCE($2, name), \
+             strategy = COALESCE($3, strategy), \
+             enabled = COALESCE($4, enabled), \
+             updated_at = now() \
+             WHERE id = $1 \
+             RETURNING id, name, strategy, fallback_group_id, enabled, created_at, updated_at",
+        )
+        .bind(id.as_uuid())
+        .bind(name)
+        .bind(strategy)
+        .bind(enabled)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        row_to_group(&row)
+    }
+
+    async fn delete(&self, id: ChannelGroupId) -> DbResult<()> {
+        let res = sqlx::query("DELETE FROM channel_groups WHERE id = $1")
+            .bind(id.as_uuid())
+            .execute(&self.pool)
+            .await?;
+        if res.rows_affected() == 0 { return Err(DbError::NotFound); }
+        Ok(())
+    }
+
+    async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>> {
+        let rows = sqlx::query(
+            "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
+                    c.status, c.health, c.timeout_ms, c.max_retries, c.created_at, c.updated_at, \
+                    b.priority, b.weight \
+             FROM channel_group_bindings b \
+             JOIN channels c ON c.id = b.channel_id \
+             WHERE b.group_id = $1 AND c.deleted_at IS NULL \
+             ORDER BY b.priority ASC",
+        )
+        .bind(group_id.as_uuid())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| Ok(ChannelBinding {
+                channel: row_to_channel(r)?,
+                priority: r.try_get("priority")?,
+                weight: r.try_get("weight")?,
+            }))
+            .collect()
+    }
+
+    async fn add_binding(
+        &self,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        priority: i32,
+        weight: i32,
+    ) -> DbResult<()> {
+        sqlx::query(
+            "INSERT INTO channel_group_bindings (group_id, channel_id, priority, weight) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (group_id, channel_id) DO UPDATE SET priority = $3, weight = $4",
+        )
+        .bind(group_id.as_uuid())
+        .bind(channel_id.as_uuid())
+        .bind(priority)
+        .bind(weight)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn remove_binding(
+        &self,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+    ) -> DbResult<()> {
+        let res = sqlx::query(
+            "DELETE FROM channel_group_bindings WHERE group_id = $1 AND channel_id = $2",
+        )
+        .bind(group_id.as_uuid())
+        .bind(channel_id.as_uuid())
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 { return Err(DbError::NotFound); }
+        Ok(())
     }
 }
 
@@ -552,5 +671,47 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         let inner = self.inner.read().unwrap();
         let group_id = inner.defaults.get(&project_id).ok_or(DbError::NotFound)?;
         inner.groups.get(group_id).cloned().ok_or(DbError::NotFound)
+    }
+
+    async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>> {
+        Ok(self.inner.read().unwrap().groups.values().cloned().collect())
+    }
+
+    async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord> {
+        let now = Utc::now();
+        let id = ChannelGroupId::from(Uuid::now_v7());
+        let rec = ChannelGroupRecord {
+            group_id: id, name: name.to_string(), strategy: strategy.to_string(),
+            fallback_group_id: None, enabled: true, created_at: now, updated_at: now,
+        };
+        self.inner.write().unwrap().groups.insert(id, rec.clone());
+        Ok(rec)
+    }
+
+    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>) -> DbResult<ChannelGroupRecord> {
+        let mut inner = self.inner.write().unwrap();
+        let g = inner.groups.get_mut(&id).ok_or(DbError::NotFound)?;
+        if let Some(n) = name { g.name = n.to_string(); }
+        if let Some(s) = strategy { g.strategy = s.to_string(); }
+        if let Some(e) = enabled { g.enabled = e; }
+        g.updated_at = Utc::now();
+        Ok(g.clone())
+    }
+
+    async fn delete(&self, id: ChannelGroupId) -> DbResult<()> {
+        if self.inner.write().unwrap().groups.remove(&id).is_none() { return Err(DbError::NotFound); }
+        Ok(())
+    }
+
+    async fn list_bindings(&self, _group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>> {
+        Ok(vec![])
+    }
+
+    async fn add_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId, _priority: i32, _weight: i32) -> DbResult<()> {
+        Ok(())
+    }
+
+    async fn remove_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId) -> DbResult<()> {
+        Ok(())
     }
 }

@@ -88,6 +88,10 @@ pub fn router() -> Router<AppState> {
         .route("/orgs/:id", axum::routing::put(update_org))
         .route("/users", get(list_users))
         .route("/users/:id/status", axum::routing::put(update_user_status))
+        .route("/groups", get(list_groups).post(create_group))
+        .route("/groups/:id", axum::routing::put(update_group).delete(delete_group))
+        .route("/groups/:id/bindings", get(list_group_bindings).post(add_group_binding))
+        .route("/groups/:id/bindings/:channel_id", axum::routing::delete(remove_group_binding))
 }
 
 async fn list_channels(
@@ -683,4 +687,171 @@ fn user_to_view(u: gate_core::identity::User) -> UserView {
         last_login_at: u.last_login_at,
         created_at: u.created_at,
     }
+}
+
+// ============================================================================
+// Channel Groups (Admin)
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct GroupView {
+    pub id: String,
+    pub name: String,
+    pub strategy: String,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateGroupRequest {
+    pub name: String,
+    pub strategy: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateGroupRequest {
+    pub name: Option<String>,
+    pub strategy: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct BindingView {
+    pub channel_id: String,
+    pub channel_code: String,
+    pub channel_name: String,
+    pub provider_type: String,
+    pub priority: i32,
+    pub weight: i32,
+}
+
+#[derive(Deserialize)]
+pub struct AddBindingRequest {
+    pub channel_id: Uuid,
+    pub priority: Option<i32>,
+    pub weight: Option<i32>,
+}
+
+async fn list_groups(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<Vec<GroupView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let groups = app.repos.channel_groups.list_all().await?;
+    Ok(Json(groups.into_iter().map(|g| GroupView {
+        id: g.group_id.as_uuid().to_string(),
+        name: g.name,
+        strategy: g.strategy,
+        enabled: g.enabled,
+        created_at: g.created_at,
+    }).collect()))
+}
+
+async fn create_group(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<CreateGroupRequest>,
+) -> AppResult<Json<GroupView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let valid = ["priority", "weighted_random", "round_robin", "least_conn"];
+    if !valid.contains(&req.strategy.as_str()) {
+        return Err(AppError::BadRequest(format!("strategy must be one of: {valid:?}")));
+    }
+
+    let g = app.repos.channel_groups.create(&req.name, &req.strategy).await?;
+    app.audit.emit(&ctx, "channel_group.create", "channel_group", Some(*g.group_id.as_uuid()), None);
+
+    Ok(Json(GroupView {
+        id: g.group_id.as_uuid().to_string(),
+        name: g.name, strategy: g.strategy, enabled: g.enabled, created_at: g.created_at,
+    }))
+}
+
+async fn update_group(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<UpdateGroupRequest>,
+) -> AppResult<Json<GroupView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    let g = app.repos.channel_groups.update(gid, req.name.as_deref(), req.strategy.as_deref(), req.enabled).await?;
+    app.audit.emit(&ctx, "channel_group.update", "channel_group", Some(id), None);
+
+    Ok(Json(GroupView {
+        id: g.group_id.as_uuid().to_string(),
+        name: g.name, strategy: g.strategy, enabled: g.enabled, created_at: g.created_at,
+    }))
+}
+
+async fn delete_group(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    app.repos.channel_groups.delete(gid).await?;
+    app.audit.emit(&ctx, "channel_group.delete", "channel_group", Some(id), None);
+
+    Ok(Json(serde_json::json!({"deleted": true})))
+}
+
+async fn list_group_bindings(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<Vec<BindingView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    let bindings = app.repos.channel_groups.list_bindings(gid).await?;
+    Ok(Json(bindings.into_iter().map(|b| BindingView {
+        channel_id: b.channel.channel_id.as_uuid().to_string(),
+        channel_code: b.channel.code,
+        channel_name: b.channel.name,
+        provider_type: b.channel.provider_type,
+        priority: b.priority,
+        weight: b.weight,
+    }).collect()))
+}
+
+async fn add_group_binding(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<AddBindingRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    let cid = gate_core::id::ChannelId::from(req.channel_id);
+    app.repos.channel_groups.add_binding(gid, cid, req.priority.unwrap_or(100), req.weight.unwrap_or(1)).await?;
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn remove_group_binding(
+    State(app): State<AppState>,
+    Path((id, channel_id)): Path<(Uuid, Uuid)>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    let cid = gate_core::id::ChannelId::from(channel_id);
+    app.repos.channel_groups.remove_binding(gid, cid).await?;
+
+    Ok(Json(serde_json::json!({"removed": true})))
 }

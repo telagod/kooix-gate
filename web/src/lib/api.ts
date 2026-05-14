@@ -587,6 +587,93 @@ export async function changePassword(currentPassword: string, newPassword: strin
 	});
 }
 
+// ── Admin Channel Groups ──────────────────────────
+
+export interface ChannelGroup {
+	id: string;
+	name: string;
+	strategy: string;
+	enabled: boolean;
+	created_at: string;
+}
+
+export interface GroupBinding {
+	channel_id: string;
+	channel_code: string;
+	channel_name: string;
+	provider_type: string;
+	priority: number;
+	weight: number;
+}
+
+export async function listGroups(): Promise<ChannelGroup[]> {
+	return apiFetch<ChannelGroup[]>('/v1/admin/groups');
+}
+
+export async function createGroup(name: string, strategy: string): Promise<ChannelGroup> {
+	return apiFetch<ChannelGroup>('/v1/admin/groups', {
+		method: 'POST',
+		body: JSON.stringify({ name, strategy })
+	});
+}
+
+export async function updateGroup(id: string, data: { name?: string; strategy?: string; enabled?: boolean }): Promise<ChannelGroup> {
+	return apiFetch<ChannelGroup>(`/v1/admin/groups/${id}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function deleteGroup(id: string): Promise<void> {
+	return apiFetch(`/v1/admin/groups/${id}`, { method: 'DELETE' });
+}
+
+export async function listGroupBindings(groupId: string): Promise<GroupBinding[]> {
+	return apiFetch<GroupBinding[]>(`/v1/admin/groups/${groupId}/bindings`);
+}
+
+export async function addGroupBinding(groupId: string, channelId: string, priority?: number, weight?: number): Promise<void> {
+	return apiFetch(`/v1/admin/groups/${groupId}/bindings`, {
+		method: 'POST',
+		body: JSON.stringify({ channel_id: channelId, priority, weight })
+	});
+}
+
+export async function removeGroupBinding(groupId: string, channelId: string): Promise<void> {
+	return apiFetch(`/v1/admin/groups/${groupId}/bindings/${channelId}`, { method: 'DELETE' });
+}
+
+// ── Model Aliases ─────────────────────────────────
+
+export interface ModelAlias {
+	id: string;
+	alias: string;
+	target_model: string;
+	enabled: boolean;
+	created_at: string;
+}
+
+export async function listModelAliases(orgId: string, projectId: string): Promise<ModelAlias[]> {
+	return apiFetch<ModelAlias[]>(`/v1/orgs/${orgId}/projects/${projectId}/model-aliases`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function upsertModelAlias(orgId: string, projectId: string, alias: string, targetModel: string): Promise<void> {
+	return apiFetch(`/v1/orgs/${orgId}/projects/${projectId}/model-aliases`, {
+		method: 'POST',
+		body: JSON.stringify({ alias, target_model: targetModel }),
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function deleteModelAlias(orgId: string, projectId: string, alias: string): Promise<void> {
+	return apiFetch(`/v1/orgs/${orgId}/projects/${projectId}/model-aliases/${encodeURIComponent(alias)}`, {
+		method: 'DELETE',
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
 // ── Chat Playground ───────────────────────────────
 
 export interface ModelInfo {

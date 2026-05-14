@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getMe, getProject, updateProject, listKeys, createKey, revokeKey } from '$lib/api.js';
-	import type { Project, ApiKey, CreateKeyResponse } from '$lib/api.js';
+	import { getMe, getProject, updateProject, listKeys, createKey, revokeKey, listModelAliases, upsertModelAlias, deleteModelAlias } from '$lib/api.js';
+	import type { Project, ApiKey, CreateKeyResponse, ModelAlias } from '$lib/api.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
-	import { Settings, Key, Plus, Trash2, Copy, Check } from 'lucide-svelte';
+	import { Settings, Key, Plus, Trash2, Copy, Check, ArrowRight } from 'lucide-svelte';
 
 	let orgId = $derived($page.params.orgId);
 	let projectId = $derived($page.params.projectId);
@@ -25,14 +25,20 @@
 	let createdKey = $state<CreateKeyResponse | null>(null);
 	let keyCopied = $state(false);
 
+	let aliases = $state<ModelAlias[]>([]);
+	let newAlias = $state('');
+	let newTarget = $state('');
+
 	onMount(async () => {
 		try {
-			const [p, k] = await Promise.all([
+			const [p, k, a] = await Promise.all([
 				getProject(orgId, projectId),
-				listKeys(orgId, projectId)
+				listKeys(orgId, projectId),
+				listModelAliases(orgId, projectId).catch(() => [])
 			]);
 			project = p;
 			keys = k;
+			aliases = a;
 			editName = p.name;
 			editStatus = p.status;
 		} catch (err: any) {
@@ -82,6 +88,27 @@
 			navigator.clipboard.writeText(createdKey.plaintext);
 			keyCopied = true;
 			setTimeout(() => (keyCopied = false), 2000);
+		}
+	}
+
+	async function handleAddAlias() {
+		if (!newAlias.trim() || !newTarget.trim()) return;
+		try {
+			await upsertModelAlias(orgId, projectId, newAlias.trim(), newTarget.trim());
+			aliases = await listModelAliases(orgId, projectId);
+			newAlias = '';
+			newTarget = '';
+		} catch (err: any) {
+			error = err?.message ?? '添加失败';
+		}
+	}
+
+	async function handleDeleteAlias(alias: string) {
+		try {
+			await deleteModelAlias(orgId, projectId, alias);
+			aliases = aliases.filter(a => a.alias !== alias);
+		} catch (err: any) {
+			error = err?.message ?? '删除失败';
 		}
 	}
 </script>
@@ -180,6 +207,47 @@
 									<Trash2 size={12} class="text-red-500" />
 								</Button>
 							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</Card>
+
+		<!-- Model Aliases -->
+		<Card class="p-5 mt-6">
+			<div class="flex items-center justify-between mb-4">
+				<div class="flex items-center gap-2">
+					<ArrowRight size={16} class="text-zinc-400" />
+					<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">模型别名</h2>
+				</div>
+				<span class="text-xs text-zinc-500 dark:text-zinc-400">{aliases.length} 条</span>
+			</div>
+
+			<div class="flex gap-2 mb-4">
+				<Input bind:value={newAlias} placeholder="别名 (如 gpt-4)" class="flex-1" />
+				<Input bind:value={newTarget} placeholder="目标模型 (如 gpt-4o-mini)" class="flex-1" />
+				<Button size="sm" onclick={handleAddAlias} disabled={!newAlias.trim() || !newTarget.trim()}>
+					<Plus size={14} />
+				</Button>
+			</div>
+
+			{#if aliases.length === 0}
+				<p class="text-sm text-zinc-400 dark:text-zinc-500 py-4 text-center">暂无别名，添加后请求中的 model 会自动映射</p>
+			{:else}
+				<div class="space-y-1.5">
+					{#each aliases as a}
+						<div class="flex items-center justify-between py-2 px-3 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+							<div class="flex items-center gap-2">
+								<span class="text-sm font-mono text-zinc-900 dark:text-zinc-100">{a.alias}</span>
+								<ArrowRight size={12} class="text-zinc-400" />
+								<span class="text-sm font-mono text-zinc-600 dark:text-zinc-400">{a.target_model}</span>
+								{#if !a.enabled}
+									<span class="text-[10px] px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded">禁用</span>
+								{/if}
+							</div>
+							<Button variant="ghost" size="sm" onclick={() => handleDeleteAlias(a.alias)}>
+								<Trash2 size={12} class="text-red-500" />
+							</Button>
 						</div>
 					{/each}
 				</div>
