@@ -22,7 +22,7 @@
 		least_latency:   { label: '最低延迟',   color: 'yellow', desc: '优先使用平均响应最快的渠道' },
 	};
 
-	const PROVIDER_COLOR = 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300';
+	const PROVIDER_COLOR = 'bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200';
 
 	// ── State ──
 	let groups = $state<ChannelGroup[]>([]);
@@ -64,7 +64,7 @@
 	function providerColor(_p: string) { return PROVIDER_COLOR; }
 
 	function strategyBadgeClass(_color: string) {
-		return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300';
+		return 'bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200';
 	}
 
 	function healthDot(bindings: GroupBinding[]): string {
@@ -412,7 +412,7 @@
 					<div class="space-y-4">
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-							<input bind:value={editForm.name} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm" />
+							<input bind:value={editForm.name} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300" />
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">策略</label>
@@ -421,7 +421,7 @@
 									<button
 										onclick={() => { editForm.strategy = key; }}
 										class="text-left p-3 rounded-lg border-2 transition-colors
-											{editForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
+											{editForm.strategy === key ? 'border-zinc-900 dark:border-zinc-300 bg-zinc-50 dark:bg-zinc-700' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500'}"
 									>
 										<span class="text-sm font-medium {editForm.strategy === key ? 'text-zinc-900 dark:text-zinc-100 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}">{s.label}</span>
 										<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">{s.desc}</p>
@@ -431,7 +431,7 @@
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">回退分组</label>
-							<select bind:value={editForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+							<select bind:value={editForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
 								<option value={null}>无</option>
 								{#each groups.filter(gr => gr.id !== selectedId) as gr}
 									<option value={gr.id}>{gr.name}</option>
@@ -440,7 +440,7 @@
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">描述</label>
-							<textarea bind:value={editForm.description} rows="2" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"></textarea>
+							<textarea bind:value={editForm.description} rows="2" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"></textarea>
 						</div>
 						<div class="flex items-center gap-2">
 							<label class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
@@ -468,8 +468,8 @@
 							<div class="flex items-center gap-2 flex-shrink-0">
 								<div class="px-3 py-2 rounded-lg border text-sm
 									{node.id === selectedId
-										? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium'
-										: 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300'}">
+										? 'border-zinc-900 dark:border-zinc-300 bg-zinc-100 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium'
+										: 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'}">
 									<div>{node.name}</div>
 									<div class="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">{strategyMeta(node.strategy).label}</div>
 								</div>
@@ -531,14 +531,14 @@
 										</td>
 										<td class="py-2.5 px-2">
 											{#if isEditing}
-												<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+												<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
 											{:else}
 												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.priority}</button>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2">
 											{#if isEditing}
-												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
 											{:else}
 												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.weight}</button>
 											{/if}
@@ -595,7 +595,7 @@
 			<div class="p-5 space-y-4">
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-					<input bind:value={createForm.name} placeholder="如：默认分组" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm" />
+					<input bind:value={createForm.name} placeholder="如：默认分组" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300" />
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">路由策略</label>
@@ -604,7 +604,7 @@
 							<button
 								onclick={() => { createForm.strategy = key; }}
 								class="text-left p-3 rounded-lg border-2 transition-colors
-									{createForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
+									{createForm.strategy === key ? 'border-zinc-900 dark:border-zinc-300 bg-zinc-50 dark:bg-zinc-700' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500'}"
 							>
 								<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(s.color)} mb-1">{s.label}</span>
 								<p class="text-xs text-zinc-600 dark:text-zinc-300">{s.desc}</p>
@@ -614,7 +614,7 @@
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">回退分组（可选）</label>
-					<select bind:value={createForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+					<select bind:value={createForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
 						<option value={null}>无</option>
 						{#each groups as gr}
 							<option value={gr.id}>{gr.name}</option>
@@ -623,7 +623,7 @@
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">描述（可选）</label>
-					<textarea bind:value={createForm.description} rows="2" placeholder="分组用途说明" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"></textarea>
+					<textarea bind:value={createForm.description} rows="2" placeholder="分组用途说明" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"></textarea>
 				</div>
 			</div>
 			<div class="p-5 border-t border-zinc-200 dark:border-zinc-700 flex justify-end gap-2">
@@ -672,9 +672,9 @@
 				<div class="flex gap-2">
 					<div class="relative flex-1">
 						<Search class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
-						<input bind:value={channelSearch} placeholder="搜索渠道..." class="w-full pl-9 pr-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm" />
+						<input bind:value={channelSearch} placeholder="搜索渠道..." class="w-full pl-9 pr-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400" />
 					</div>
-					<select bind:value={channelProviderFilter} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+					<select bind:value={channelProviderFilter} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
 						<option value="">全部类型</option>
 						{#each providerTypes as pt}
 							<option value={pt}>{pt}</option>
@@ -683,12 +683,12 @@
 				</div>
 				<div class="flex gap-4">
 					<div class="flex items-center gap-2">
-						<label class="text-xs text-zinc-500">优先级</label>
-						<input type="number" bind:value={addPriority} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+						<label class="text-xs text-zinc-600 dark:text-zinc-300">优先级</label>
+						<input type="number" bind:value={addPriority} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
 					</div>
 					<div class="flex items-center gap-2">
-						<label class="text-xs text-zinc-500">权重</label>
-						<input type="number" bind:value={addWeight} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
+						<label class="text-xs text-zinc-600 dark:text-zinc-300">权重</label>
+						<input type="number" bind:value={addWeight} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
 					</div>
 				</div>
 			</div>
