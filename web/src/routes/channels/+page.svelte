@@ -29,8 +29,34 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import ProviderSelect from '$lib/components/ui/ProviderSelect.svelte';
+	import type { ProviderOption } from '$lib/components/ui/ProviderSelect.svelte';
 
 	const PROVIDERS = ['openai', 'anthropic', 'gemini', 'azure', 'bedrock', 'deepseek', 'ollama', 'mistral', 'cohere'];
+
+	const PROVIDER_OPTIONS: ProviderOption[] = [
+		{ value: 'openai', label: 'OpenAI', description: 'GPT-4o / o1 / o3' },
+		{ value: 'anthropic', label: 'Anthropic', description: 'Claude 4 / Sonnet / Haiku' },
+		{ value: 'gemini', label: 'Google Gemini', description: 'Gemini 2.5 Pro / Flash' },
+		{ value: 'azure', label: 'Azure OpenAI', description: 'Azure 托管 GPT 部署' },
+		{ value: 'bedrock', label: 'AWS Bedrock', description: 'Claude / Titan / Llama' },
+		{ value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek-V3 / R1' },
+		{ value: 'ollama', label: 'Ollama', description: '本地模型推理' },
+		{ value: 'mistral', label: 'Mistral', description: 'Mistral Large / Codestral' },
+		{ value: 'cohere', label: 'Cohere', description: 'Command R+ / Embed' },
+		{ value: 'groq', label: 'Groq', description: 'LPU 推理加速' },
+		{ value: 'together', label: 'Together AI', description: '开源模型推理' },
+		{ value: 'openrouter', label: 'OpenRouter', description: '多 provider 聚合' },
+		{ value: 'moonshot', label: 'Moonshot', description: 'Kimi 长上下文' },
+		{ value: 'zhipu', label: '智谱 GLM', description: 'GLM-4 / CodeGeex' },
+		{ value: 'qwen', label: '通义千问', description: 'Qwen-Max / Qwen-VL' },
+		{ value: 'yi', label: '零一万物', description: 'Yi-Large / Yi-Lightning' },
+	];
+
+	const FILTER_PROVIDER_OPTIONS: ProviderOption[] = [
+		{ value: '', label: '全部 Provider', description: '不过滤' },
+		...PROVIDER_OPTIONS,
+	];
 	const STRATEGIES_LABEL: Record<string, string> = {
 		priority: '优先级',
 		weighted_random: '加权随机',
@@ -182,6 +208,15 @@
 		selectedIds = new Set();
 		loadChannels();
 	}
+
+	// ProviderSelect 用 $bindable 不触发 onchange，用 effect 监听
+	let prevFilterProvider = $state('');
+	$effect(() => {
+		if (filterProvider !== prevFilterProvider) {
+			prevFilterProvider = filterProvider;
+			if (!loading) onFilterChange();
+		}
+	});
 
 	function onSort(col: string) {
 		if (sortBy === col) {
@@ -544,17 +579,13 @@
 								<Input id="ch-name" placeholder="OpenAI Production" bind:value={createForm.name} disabled={creating} />
 							</div>
 							<div>
-								<label for="ch-provider" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Provider <span class="text-red-500">*</span></label>
-								<select
-									id="ch-provider"
+								<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Provider <span class="text-red-500">*</span></label>
+								<ProviderSelect
 									bind:value={createForm.provider_type}
+									options={PROVIDER_OPTIONS}
+									mode="grid"
 									disabled={creating}
-									class="flex h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"
-								>
-									{#each PROVIDERS as p}
-										<option value={p}>{p}</option>
-									{/each}
-								</select>
+								/>
 							</div>
 							<div>
 								<label for="ch-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL <span class="text-red-500">*</span></label>
@@ -733,16 +764,13 @@
 			<div class="flex-1 min-w-[200px]">
 				<Input placeholder="搜索 code / 名称..." bind:value={search} oninput={onSearchInput} />
 			</div>
-			<select
-				bind:value={filterProvider}
-				onchange={onFilterChange}
-				class="h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"
-			>
-				<option value="">全部 Provider</option>
-				{#each PROVIDERS as p}
-					<option value={p}>{p}</option>
-				{/each}
-			</select>
+			<div class="w-[180px]">
+				<ProviderSelect
+					bind:value={filterProvider}
+					options={FILTER_PROVIDER_OPTIONS}
+					placeholder="全部 Provider"
+				/>
+			</div>
 			<select
 				bind:value={filterStatus}
 				onchange={onFilterChange}

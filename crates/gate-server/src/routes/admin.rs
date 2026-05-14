@@ -252,7 +252,11 @@ async fn create_channel(
         return Err(AppError::BadRequest("code must be 1-64 chars: [a-zA-Z0-9_-]".into()));
     }
 
-    let valid_types = ["openai", "anthropic", "gemini", "azure", "bedrock", "deepseek", "ollama", "mistral", "cohere"];
+    let valid_types = [
+        "openai", "anthropic", "gemini", "azure", "bedrock", "deepseek",
+        "ollama", "mistral", "cohere", "groq", "together", "openrouter",
+        "moonshot", "zhipu", "qwen", "yi",
+    ];
     if !valid_types.contains(&req.provider_type.as_str()) {
         return Err(AppError::BadRequest(format!(
             "invalid provider_type: '{}', must be one of {:?}",
