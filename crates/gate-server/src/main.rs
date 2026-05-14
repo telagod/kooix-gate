@@ -59,12 +59,14 @@ async fn main() -> anyhow::Result<()> {
     let mut state = AppState::new(jwt, loader, repos);
 
     // 限流：Redis 配置可选，未提供则跳过（middleware fail-open）
+    let mut redis_rate_limiter: Option<Arc<gate_cache::RateLimiter>> = None;
     if !cfg.redis_url.is_empty() {
         tracing::info!(url = %redact_redis_url(&cfg.redis_url), "connecting redis");
         match gate_cache::connect(&cfg.redis_url, 4).await {
             Ok(pool) => {
-                let rl = gate_cache::RateLimiter::new(pool);
-                state = state.with_rate_limiter(rl);
+                let rl = Arc::new(gate_cache::RateLimiter::new(pool));
+                redis_rate_limiter = Some(rl.clone());
+                state = state.with_rate_limiter_arc(rl.clone());
                 tracing::info!("rate limiter active");
             }
             Err(e) => {
@@ -75,7 +77,46 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("KOOIX_REDIS_URL not set; rate limiter disabled");
     }
 
-    // Provider: 现阶段简单接 OpenAI 兼容上游
+    // Envelope KMS: 用于解密 channel key 和 SSO client_secret
+    let kms_arc: Option<Arc<gate_crypto::EnvelopeKms>> = match gate_crypto::kms::EnvKms::from_env("KOOIX_MASTER_KEY") {
+        Ok(k) => {
+            let kms = gate_crypto::EnvelopeKms::new(k);
+            let arc = Arc::new(kms);
+            state = state.with_crypto_arc(arc.clone());
+            tracing::info!("envelope KMS active");
+            Some(arc)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "KOOIX_MASTER_KEY not set; channel key encryption unavailable");
+            None
+        }
+    };
+
+    // ProviderRouter: 多渠道路由（channel group → channel 选路 → key 解密 → provider 构造）
+    {
+        let channel_repo = state.repos.channels.clone();
+        let group_repo = state.repos.channel_groups.clone();
+        let key_repo = state.repos.channel_keys.clone();
+        let alias_repo = state.repos.model_aliases.clone();
+
+        let mut router = gate_providers::ProviderRouter::new(channel_repo, group_repo)
+            .with_channel_key_repo(key_repo)
+            .with_model_alias_repo(alias_repo);
+
+        if let Some(ref kms) = kms_arc {
+            router = router.with_crypto(kms.clone());
+        }
+        if let Some(ref rl) = redis_rate_limiter {
+            let channel_rl = gate_server::channel_rate_limit::RedisChannelRateLimiter::new(rl.clone());
+            router = router.with_rate_limiter(Arc::new(channel_rl));
+            tracing::info!("channel rate limiter (Redis) injected into ProviderRouter");
+        }
+
+        state = state.with_provider_router(router);
+        tracing::info!("provider router active");
+    }
+
+    // Fallback Provider: 单一 OpenAI 兼容上游（当 ProviderRouter 选路失败时兜底）
     if let (Ok(base), Ok(key)) = (
         std::env::var("KOOIX_OPENAI_BASE_URL"),
         std::env::var("KOOIX_OPENAI_API_KEY"),
@@ -83,13 +124,13 @@ async fn main() -> anyhow::Result<()> {
         match gate_providers::openai::OpenAiProvider::new(base, key) {
             Ok(p) => {
                 state = state.with_provider(p);
-                tracing::info!("openai provider active");
+                tracing::info!("fallback openai provider active");
             }
-            Err(e) => tracing::warn!(error = %e, "openai provider init failed"),
+            Err(e) => tracing::warn!(error = %e, "fallback openai provider init failed"),
         }
     } else {
-        tracing::warn!(
-            "KOOIX_OPENAI_BASE_URL / KOOIX_OPENAI_API_KEY not set; /v1/chat/completions will 400"
+        tracing::info!(
+            "KOOIX_OPENAI_BASE_URL not set; requests without channel routing will 400"
         );
     }
 

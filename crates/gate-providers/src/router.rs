@@ -612,6 +612,15 @@ fn fallback_models(model: &str) -> &'static [&'static str] {
     }
 }
 
+fn resolve_model_mapping(mapping: &serde_json::Value, model: &str) -> String {
+    if let serde_json::Value::Object(map) = mapping {
+        if let Some(serde_json::Value::String(target)) = map.get(model) {
+            return target.clone();
+        }
+    }
+    model.to_string()
+}
+
 /// 多 Provider 路由器。
 ///
 /// 持有 Repo 引用（Arc），每次请求惰性查询——无缓存（C1 阶段简单版）。
@@ -1127,10 +1136,13 @@ impl ProviderRouter {
                 ..Default::default()
             };
 
+            // model_mapping: 如果 channel 配置了映射，翻译模型名
+            let resolved_model = resolve_model_mapping(&candidate.channel.model_mapping, model);
+
             return Ok(Some(RoutedProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
-                resolved_model: model.to_string(),
+                resolved_model,
                 retry_config,
                 key_id,
                 params_override: serde_json::json!({}),

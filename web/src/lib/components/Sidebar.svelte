@@ -47,6 +47,7 @@
 		if (pattern === '/playground') return currentPath.startsWith('/playground');
 		if (pattern === '/settings') return currentPath.startsWith('/settings');
 		if (pattern === '/channels') return currentPath === '/channels' || currentPath.startsWith('/channels/');
+		if (pattern === '/admin/channels') return currentPath === '/admin/channels';
 		if (pattern === '/admin/users') return currentPath.startsWith('/admin/users');
 		if (pattern === '/admin/groups') return currentPath.startsWith('/admin/groups');
 		if (pattern === '/admin/audit') return currentPath.startsWith('/admin/audit');
@@ -144,6 +145,10 @@
 				<a href="/channels" class={linkCls('/channels')} title={collapsed ? '渠道管理' : ''}>
 					<Cable size={iconSize} />
 					{#if !collapsed}<span class="truncate">渠道管理</span>{/if}
+				</a>
+				<a href="/admin/channels" class={linkCls('/admin/channels')} title={collapsed ? '渠道仪表盘' : ''}>
+					<Monitor size={iconSize} />
+					{#if !collapsed}<span class="truncate">渠道仪表盘</span>{/if}
 				</a>
 				<a href="/admin/groups" class={linkCls('/admin/groups')} title={collapsed ? '渠道分组' : ''}>
 					<Layers size={iconSize} />

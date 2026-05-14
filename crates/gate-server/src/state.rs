@@ -194,6 +194,12 @@ impl AppState {
         self
     }
 
+    /// 带限流器构造（已经 Arc 包装）。
+    pub fn with_rate_limiter_arc(mut self, rl: Arc<RateLimiter>) -> Self {
+        self.rate_limiter = Some(rl);
+        self
+    }
+
     pub fn with_rate_limit_cfg(mut self, cfg: RateLimitCfg) -> Self {
         self.rate_limit_cfg = cfg;
         self
@@ -213,6 +219,12 @@ impl AppState {
     /// 挂载 Envelope KMS（SSO 回调解密 client_secret）。
     pub fn with_crypto(mut self, kms: EnvelopeKms) -> Self {
         self.crypto = Some(Arc::new(kms));
+        self
+    }
+
+    /// 挂载 Envelope KMS（已 Arc 包装）。
+    pub fn with_crypto_arc(mut self, kms: Arc<EnvelopeKms>) -> Self {
+        self.crypto = Some(kms);
         self
     }
 
