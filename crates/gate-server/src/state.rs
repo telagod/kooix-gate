@@ -98,7 +98,8 @@ pub struct Repos {
     pub audit: Arc<dyn AuditRepo>,
     /// 计费聚合（G3 追加）—— 月度账单 + CSV 导出。
     pub billing: Arc<dyn BillingRepo>,
-    pg_pool: Option<sqlx::PgPool>,
+    #[doc(hidden)]
+    pub pg_pool: Option<sqlx::PgPool>,
 }
 
 impl Repos {

@@ -111,7 +111,15 @@ async fn fixture() -> Fixture {
         health: "healthy".into(),
         timeout_ms: 60_000,
         max_retries: 1,
-        created_at: now,
+        rpm_limit: None,
+            tpm_limit: None,
+            tags: vec![],
+            model_mapping: serde_json::Value::Object(Default::default()),
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
         updated_at: now,
     });
     ch_repo.seed_binding(group_id, channel_id, 10, 1);
@@ -197,6 +205,7 @@ async fn fixture() -> Fixture {
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        pg_pool: None,
     };
 
     let jwt = JwtIssuer::new(

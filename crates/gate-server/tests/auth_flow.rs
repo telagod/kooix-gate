@@ -278,6 +278,7 @@ fn build_repos(
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        pg_pool: None,
     }
 }
 
@@ -482,7 +483,7 @@ async fn admin_channels_requires_platform() {
     let tok = jwt_for(&f.jwt, f.user_super, None, true);
     let (status, body) = call(&f.router, "GET", "/v1/admin/channels", Some(&tok), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.is_array());
+    assert!(body["data"].is_array());
 }
 
 #[tokio::test]
@@ -582,6 +583,7 @@ async fn create_apikey_emits_audit_record() {
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: audit_repo.clone(),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        pg_pool: None,
     };
 
     let state = AppState::new(jwt.clone(), loader, repos);

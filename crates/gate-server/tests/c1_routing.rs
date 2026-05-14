@@ -37,7 +37,15 @@ fn make_channel(id: ChannelId, code: &str, base_url: &str) -> ChannelRecord {
         health: "healthy".to_string(),
         timeout_ms: 60000,
         max_retries: 2,
-        created_at: chrono::Utc::now(),
+        rpm_limit: None,
+            tpm_limit: None,
+            tags: vec![],
+            model_mapping: serde_json::Value::Object(Default::default()),
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
+            created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }
 }
@@ -189,6 +197,7 @@ async fn full_chain_api_key_to_upstream() {
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        pg_pool: None,
     };
 
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);

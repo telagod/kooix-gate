@@ -31,8 +31,37 @@ pub struct ChannelRecord {
     pub rpm_limit: Option<i32>,
     /// NULL = 无限制
     pub tpm_limit: Option<i32>,
+    pub tags: Vec<String>,
+    pub model_mapping: serde_json::Value,
+    pub balance: Option<f64>,
+    pub balance_updated_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub last_error_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// 分页/过滤请求参数。
+#[derive(Debug, Clone, Default)]
+pub struct ListChannelsQuery {
+    pub search: Option<String>,
+    pub provider: Option<String>,
+    pub status: Option<String>,
+    pub health: Option<String>,
+    pub tag: Option<String>,
+    pub page: i64,
+    pub page_size: i64,
+    pub sort_by: String,
+    pub sort_dir: String,
+}
+
+/// 分页结果。
+#[derive(Debug, Clone)]
+pub struct PaginatedChannels {
+    pub data: Vec<ChannelRecord>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 impl ChannelRecord {
@@ -65,6 +94,10 @@ pub struct CreateChannel {
     pub enabled: bool,
     pub rpm_limit: Option<i32>,
     pub tpm_limit: Option<i32>,
+    pub timeout_ms: Option<i32>,
+    pub max_retries: Option<i32>,
+    pub tags: Vec<String>,
+    pub model_mapping: Option<serde_json::Value>,
 }
 
 /// 更新 Channel 的入参（全部可选，None 表示不改）。
@@ -76,6 +109,10 @@ pub struct UpdateChannel {
     pub enabled: Option<bool>,
     pub rpm_limit: Option<i32>,
     pub tpm_limit: Option<i32>,
+    pub timeout_ms: Option<i32>,
+    pub max_retries: Option<i32>,
+    pub tags: Option<Vec<String>>,
+    pub model_mapping: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -93,6 +130,9 @@ pub trait ChannelRepo: Send + Sync + 'static {
     /// 控制台只读用，不返回密钥/config 字段。
     async fn list_admin_view(&self) -> DbResult<Vec<ChannelRecord>>;
 
+    /// 分页+过滤+排序列出 channels（admin 视图）。
+    async fn list_admin_paginated(&self, query: ListChannelsQuery) -> DbResult<PaginatedChannels>;
+
     /// 创建新 channel（admin 操作）。
     async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord>;
 
@@ -107,6 +147,12 @@ pub trait ChannelRepo: Send + Sync + 'static {
 
     /// 恢复渠道（健康探活成功后）：设 status='active', health='healthy', 清 last_error。
     async fn re_enable(&self, id: ChannelId) -> DbResult<()>;
+
+    /// 批量更新 enabled 状态。
+    async fn batch_set_enabled(&self, ids: &[ChannelId], enabled: bool) -> DbResult<u64>;
+
+    /// 批量软删除。
+    async fn batch_soft_delete(&self, ids: &[ChannelId]) -> DbResult<u64>;
 }
 
 pub struct PgChannelRepo {
@@ -134,6 +180,12 @@ fn row_to_channel(row: &sqlx::postgres::PgRow) -> DbResult<ChannelRecord> {
         max_retries: row.try_get("max_retries")?,
         rpm_limit: row.try_get("rpm_limit")?,
         tpm_limit: row.try_get("tpm_limit")?,
+        tags: row.try_get("tags").unwrap_or_default(),
+        model_mapping: row.try_get("model_mapping").unwrap_or(serde_json::Value::Object(Default::default())),
+        balance: row.try_get("balance").unwrap_or(None),
+        balance_updated_at: row.try_get("balance_updated_at").unwrap_or(None),
+        last_error: row.try_get("last_error").unwrap_or(None),
+        last_error_at: row.try_get("last_error_at").unwrap_or(None),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -145,7 +197,8 @@ impl ChannelRepo for PgChannelRepo {
         let row = sqlx::query(
             "SELECT id, code, name, provider_type, base_url, supported_models, \
                     status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
-                    created_at, updated_at \
+                    tags, model_mapping, balance, balance_updated_at, \
+                    last_error, last_error_at, created_at, updated_at \
              FROM channels WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id.as_uuid())
@@ -162,7 +215,8 @@ impl ChannelRepo for PgChannelRepo {
         let rows = sqlx::query(
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
                     c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
-                    c.created_at, c.updated_at, \
+                    c.tags, c.model_mapping, c.balance, c.balance_updated_at, \
+                    c.last_error, c.last_error_at, c.created_at, c.updated_at, \
                     b.priority, b.weight, b.model_filter \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
@@ -194,7 +248,8 @@ impl ChannelRepo for PgChannelRepo {
         let rows = sqlx::query(
             "SELECT id, code, name, provider_type, base_url, supported_models, \
                     status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
-                    created_at, updated_at \
+                    tags, model_mapping, balance, balance_updated_at, \
+                    last_error, last_error_at, created_at, updated_at \
              FROM channels WHERE deleted_at IS NULL \
              ORDER BY created_at ASC",
         )
@@ -203,25 +258,112 @@ impl ChannelRepo for PgChannelRepo {
         rows.iter().map(row_to_channel).collect()
     }
 
+    async fn list_admin_paginated(&self, q: ListChannelsQuery) -> DbResult<PaginatedChannels> {
+        let valid_sorts = ["code", "name", "provider_type", "status", "health", "created_at", "updated_at"];
+        let sort_col = if valid_sorts.contains(&q.sort_by.as_str()) { &q.sort_by } else { "created_at" };
+        let sort_dir = if q.sort_dir.eq_ignore_ascii_case("desc") { "DESC" } else { "ASC" };
+        let page = q.page.max(1);
+        let page_size = q.page_size.clamp(1, 100);
+        let offset = (page - 1) * page_size;
+
+        let mut conditions = vec!["deleted_at IS NULL".to_string()];
+        let mut bind_idx = 1u32;
+        let mut bind_values: Vec<String> = Vec::new();
+
+        if let Some(ref search) = q.search {
+            if !search.is_empty() {
+                bind_idx += 1;
+                conditions.push(format!("(code ILIKE ${bind_idx} OR name ILIKE ${bind_idx})"));
+                bind_values.push(format!("%{search}%"));
+            }
+        }
+        if let Some(ref provider) = q.provider {
+            if !provider.is_empty() {
+                bind_idx += 1;
+                conditions.push(format!("provider_type = ${bind_idx}"));
+                bind_values.push(provider.clone());
+            }
+        }
+        if let Some(ref status) = q.status {
+            if !status.is_empty() {
+                bind_idx += 1;
+                conditions.push(format!("status = ${bind_idx}"));
+                bind_values.push(status.clone());
+            }
+        }
+        if let Some(ref health) = q.health {
+            if !health.is_empty() {
+                bind_idx += 1;
+                conditions.push(format!("health = ${bind_idx}"));
+                bind_values.push(health.clone());
+            }
+        }
+        if let Some(ref tag) = q.tag {
+            if !tag.is_empty() {
+                bind_idx += 1;
+                conditions.push(format!("${bind_idx} = ANY(tags)"));
+                bind_values.push(tag.clone());
+            }
+        }
+
+        let where_clause = conditions.join(" AND ");
+        let count_sql = format!("SELECT COUNT(*) as cnt FROM channels WHERE {where_clause}");
+        let data_sql = format!(
+            "SELECT id, code, name, provider_type, base_url, supported_models, \
+                    status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
+                    tags, model_mapping, balance, balance_updated_at, \
+                    last_error, last_error_at, created_at, updated_at \
+             FROM channels WHERE {where_clause} \
+             ORDER BY {sort_col} {sort_dir} \
+             LIMIT {page_size} OFFSET {offset}"
+        );
+
+        // Build count query with bindings
+        let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
+        for v in &bind_values {
+            count_q = count_q.bind(v);
+        }
+        let total = count_q.fetch_one(&self.pool).await?;
+
+        // Build data query with bindings
+        let mut data_q = sqlx::query(&data_sql);
+        for v in &bind_values {
+            data_q = data_q.bind(v);
+        }
+        let rows = data_q.fetch_all(&self.pool).await?;
+        let data: Vec<ChannelRecord> = rows.iter().map(row_to_channel).collect::<DbResult<_>>()?;
+
+        Ok(PaginatedChannels { data, total, page, page_size })
+    }
+
     async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
         let status = if input.enabled { "active" } else { "disabled" };
+        let mapping = input.model_mapping.unwrap_or(serde_json::Value::Object(Default::default()));
+        let timeout = input.timeout_ms.unwrap_or(60000);
+        let retries = input.max_retries.unwrap_or(2);
         let row = sqlx::query(
             "INSERT INTO channels (code, name, provider_type, base_url, supported_models, \
-                                   config_enc, status, rpm_limit, tpm_limit) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+                                   config_enc, status, rpm_limit, tpm_limit, timeout_ms, max_retries, \
+                                   tags, model_mapping) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
              RETURNING id, code, name, provider_type, base_url, supported_models, \
                        status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
-                       created_at, updated_at",
+                       tags, model_mapping, balance, balance_updated_at, \
+                       last_error, last_error_at, created_at, updated_at",
         )
         .bind(&input.code)
         .bind(&input.name)
         .bind(&input.provider_type)
         .bind(&input.base_url)
         .bind(&input.supported_models)
-        .bind(b"" as &[u8]) // config_enc placeholder — 后续加密配置另走
+        .bind(b"" as &[u8])
         .bind(status)
         .bind(input.rpm_limit)
         .bind(input.tpm_limit)
+        .bind(timeout)
+        .bind(retries)
+        .bind(&input.tags)
+        .bind(&mapping)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| match &e {
@@ -234,7 +376,6 @@ impl ChannelRepo for PgChannelRepo {
     }
 
     async fn update(&self, id: ChannelId, input: UpdateChannel) -> DbResult<ChannelRecord> {
-        // 先确认存在
         let _ = self.find_by_id(id).await?;
 
         let status_param: Option<&str> = match input.enabled {
@@ -250,11 +391,17 @@ impl ChannelRepo for PgChannelRepo {
                 supported_models = COALESCE($4, supported_models), \
                 rpm_limit = CASE WHEN $5::INT IS NOT NULL THEN $5::INT ELSE rpm_limit END, \
                 tpm_limit = CASE WHEN $6::INT IS NOT NULL THEN $6::INT ELSE tpm_limit END, \
-                status = COALESCE($7, status) \
+                status = COALESCE($7, status), \
+                timeout_ms = COALESCE($8, timeout_ms), \
+                max_retries = COALESCE($9, max_retries), \
+                tags = COALESCE($10, tags), \
+                model_mapping = COALESCE($11, model_mapping), \
+                updated_at = now() \
              WHERE id = $1 AND deleted_at IS NULL \
              RETURNING id, code, name, provider_type, base_url, supported_models, \
                        status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
-                       created_at, updated_at",
+                       tags, model_mapping, balance, balance_updated_at, \
+                       last_error, last_error_at, created_at, updated_at",
         )
         .bind(id.as_uuid())
         .bind(input.name.as_deref())
@@ -263,6 +410,10 @@ impl ChannelRepo for PgChannelRepo {
         .bind(input.rpm_limit)
         .bind(input.tpm_limit)
         .bind(status_param)
+        .bind(input.timeout_ms)
+        .bind(input.max_retries)
+        .bind(input.tags.as_deref())
+        .bind(input.model_mapping.as_ref())
         .fetch_optional(&self.pool)
         .await?
         .ok_or(DbError::NotFound)?;
@@ -306,6 +457,34 @@ impl ChannelRepo for PgChannelRepo {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    async fn batch_set_enabled(&self, ids: &[ChannelId], enabled: bool) -> DbResult<u64> {
+        if ids.is_empty() { return Ok(0); }
+        let uuids: Vec<Uuid> = ids.iter().map(|id| *id.as_uuid()).collect();
+        let status = if enabled { "active" } else { "disabled" };
+        let res = sqlx::query(
+            "UPDATE channels SET status = $2, updated_at = now() \
+             WHERE id = ANY($1) AND deleted_at IS NULL",
+        )
+        .bind(&uuids)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    async fn batch_soft_delete(&self, ids: &[ChannelId]) -> DbResult<u64> {
+        if ids.is_empty() { return Ok(0); }
+        let uuids: Vec<Uuid> = ids.iter().map(|id| *id.as_uuid()).collect();
+        let res = sqlx::query(
+            "UPDATE channels SET deleted_at = NOW(), status = 'disabled', updated_at = now() \
+             WHERE id = ANY($1) AND deleted_at IS NULL",
+        )
+        .bind(&uuids)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
     }
 }
 
@@ -478,7 +657,8 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         let rows = sqlx::query(
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
                     c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
-                    c.created_at, c.updated_at, \
+                    c.tags, c.model_mapping, c.balance, c.balance_updated_at, \
+                    c.last_error, c.last_error_at, c.created_at, c.updated_at, \
                     b.priority, b.weight, b.model_filter, b.enabled \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
@@ -704,6 +884,29 @@ impl ChannelRepo for InMemoryChannelRepo {
         Ok(out)
     }
 
+    async fn list_admin_paginated(&self, q: ListChannelsQuery) -> DbResult<PaginatedChannels> {
+        let inner = self.inner.read();
+        let mut out: Vec<ChannelRecord> = inner.channels.values().cloned().collect();
+
+        if let Some(ref s) = q.search {
+            if !s.is_empty() {
+                let s = s.to_lowercase();
+                out.retain(|c| c.code.to_lowercase().contains(&s) || c.name.to_lowercase().contains(&s));
+            }
+        }
+        if let Some(ref p) = q.provider { if !p.is_empty() { out.retain(|c| c.provider_type == *p); } }
+        if let Some(ref s) = q.status { if !s.is_empty() { out.retain(|c| c.status == *s); } }
+        if let Some(ref h) = q.health { if !h.is_empty() { out.retain(|c| c.health == *h); } }
+
+        let total = out.len() as i64;
+        let page = q.page.max(1);
+        let page_size = q.page_size.clamp(1, 100);
+        let offset = ((page - 1) * page_size) as usize;
+        out.sort_by_key(|c| c.created_at);
+        let data: Vec<ChannelRecord> = out.into_iter().skip(offset).take(page_size as usize).collect();
+        Ok(PaginatedChannels { data, total, page, page_size })
+    }
+
     async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
         let mut inner = self.inner.write();
         // 检查 code 唯一
@@ -728,10 +931,16 @@ impl ChannelRepo for InMemoryChannelRepo {
                 "disabled".to_string()
             },
             health: "healthy".to_string(),
-            timeout_ms: 60000,
-            max_retries: 2,
-            rpm_limit: None,
-            tpm_limit: None,
+            timeout_ms: input.timeout_ms.unwrap_or(60000),
+            max_retries: input.max_retries.unwrap_or(2),
+            rpm_limit: input.rpm_limit,
+            tpm_limit: input.tpm_limit,
+            tags: input.tags,
+            model_mapping: input.model_mapping.unwrap_or(serde_json::Value::Object(Default::default())),
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
             created_at: now,
             updated_at: now,
         };
@@ -764,6 +973,18 @@ impl ChannelRepo for InMemoryChannelRepo {
         if let Some(v) = input.tpm_limit {
             record.tpm_limit = Some(v);
         }
+        if let Some(v) = input.timeout_ms {
+            record.timeout_ms = v;
+        }
+        if let Some(v) = input.max_retries {
+            record.max_retries = v;
+        }
+        if let Some(tags) = input.tags {
+            record.tags = tags;
+        }
+        if let Some(mapping) = input.model_mapping {
+            record.model_mapping = mapping;
+        }
         record.updated_at = Utc::now();
         Ok(record.clone())
     }
@@ -793,6 +1014,30 @@ impl ChannelRepo for InMemoryChannelRepo {
         record.health = "healthy".to_string();
         record.updated_at = Utc::now();
         Ok(())
+    }
+
+    async fn batch_set_enabled(&self, ids: &[ChannelId], enabled: bool) -> DbResult<u64> {
+        let mut inner = self.inner.write();
+        let mut count = 0u64;
+        for id in ids {
+            if let Some(ch) = inner.channels.get_mut(id) {
+                ch.status = if enabled { "active".into() } else { "disabled".into() };
+                ch.updated_at = Utc::now();
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    async fn batch_soft_delete(&self, ids: &[ChannelId]) -> DbResult<u64> {
+        let mut inner = self.inner.write();
+        let mut count = 0u64;
+        for id in ids {
+            if inner.channels.remove(id).is_some() {
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 }
 

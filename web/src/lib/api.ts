@@ -237,18 +237,6 @@ export async function getUsage(
 
 // ── Channels (Org-scoped read-only) ───────────────
 
-export interface Channel {
-	id: string;
-	code: string;
-	name: string;
-	provider_type: string;
-	base_url?: string;
-	status: string;
-	health: string;
-	updated_at: string;
-	supported_models?: string[];
-}
-
 export async function listChannels(orgId: string): Promise<Channel[]> {
 	return apiFetch<Channel[]>(`/v1/orgs/${orgId}/channels`, {
 		headers: { 'X-Kooix-Org': orgId }
@@ -257,6 +245,48 @@ export async function listChannels(orgId: string): Promise<Channel[]> {
 
 // ── Admin Channels ────────────────────────────────
 
+export interface Channel {
+	id: string;
+	code: string;
+	name: string;
+	provider_type: string;
+	base_url: string;
+	status: string;
+	health: string;
+	supported_models: string[];
+	rpm_limit: number | null;
+	tpm_limit: number | null;
+	timeout_ms: number;
+	max_retries: number;
+	tags: string[];
+	model_mapping: Record<string, string>;
+	balance: number | null;
+	balance_updated_at: string | null;
+	last_error: string | null;
+	last_error_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface PaginatedChannels {
+	data: Channel[];
+	total: number;
+	page: number;
+	page_size: number;
+}
+
+export interface ChannelListParams {
+	search?: string;
+	provider?: string;
+	status?: string;
+	health?: string;
+	tag?: string;
+	page?: number;
+	page_size?: number;
+	sort_by?: string;
+	sort_dir?: string;
+}
+
 export interface CreateChannelRequest {
 	code: string;
 	provider_type: string;
@@ -264,6 +294,12 @@ export interface CreateChannelRequest {
 	name?: string;
 	enabled?: boolean;
 	supported_models?: string[];
+	rpm_limit?: number | null;
+	tpm_limit?: number | null;
+	timeout_ms?: number;
+	max_retries?: number;
+	tags?: string[];
+	model_mapping?: Record<string, string>;
 }
 
 export interface UpdateChannelRequest {
@@ -271,10 +307,27 @@ export interface UpdateChannelRequest {
 	base_url?: string;
 	enabled?: boolean;
 	supported_models?: string[];
+	rpm_limit?: number | null;
+	tpm_limit?: number | null;
+	timeout_ms?: number;
+	max_retries?: number;
+	tags?: string[];
+	model_mapping?: Record<string, string>;
 }
 
-export async function listAdminChannels(): Promise<Channel[]> {
-	return apiFetch<Channel[]>('/v1/admin/channels');
+export async function listAdminChannels(params: ChannelListParams = {}): Promise<PaginatedChannels> {
+	const qs = new URLSearchParams();
+	if (params.search) qs.set('search', params.search);
+	if (params.provider) qs.set('provider', params.provider);
+	if (params.status) qs.set('status', params.status);
+	if (params.health) qs.set('health', params.health);
+	if (params.tag) qs.set('tag', params.tag);
+	if (params.page) qs.set('page', String(params.page));
+	if (params.page_size) qs.set('page_size', String(params.page_size));
+	if (params.sort_by) qs.set('sort_by', params.sort_by);
+	if (params.sort_dir) qs.set('sort_dir', params.sort_dir);
+	const q = qs.toString();
+	return apiFetch<PaginatedChannels>(`/v1/admin/channels${q ? '?' + q : ''}`);
 }
 
 export async function createChannel(data: CreateChannelRequest): Promise<Channel> {
@@ -293,6 +346,27 @@ export async function updateChannel(id: string, data: UpdateChannelRequest): Pro
 
 export async function deleteChannel(id: string): Promise<void> {
 	return apiFetch(`/v1/admin/channels/${id}`, { method: 'DELETE' });
+}
+
+export async function batchEnableChannels(ids: string[]): Promise<{ affected: number }> {
+	return apiFetch('/v1/admin/channels/batch-enable', {
+		method: 'POST',
+		body: JSON.stringify({ ids })
+	});
+}
+
+export async function batchDisableChannels(ids: string[]): Promise<{ affected: number }> {
+	return apiFetch('/v1/admin/channels/batch-disable', {
+		method: 'POST',
+		body: JSON.stringify({ ids })
+	});
+}
+
+export async function batchDeleteChannels(ids: string[]): Promise<{ affected: number }> {
+	return apiFetch('/v1/admin/channels/batch-delete', {
+		method: 'POST',
+		body: JSON.stringify({ ids })
+	});
 }
 
 // Channel probe (model discovery)

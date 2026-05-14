@@ -24,7 +24,7 @@ use gate_auth::{require, require_user};
 use gate_core::id::{ChannelId, ChannelKeyId};
 use gate_core::rbac::{Permission, Scope};
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
-use gate_storage::{CreateChannel, UpdateChannel};
+use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -38,10 +38,50 @@ pub struct ChannelSummary {
     pub base_url: String,
     pub status: String,
     pub health: String,
+    pub supported_models: Vec<String>,
     pub rpm_limit: Option<i32>,
     pub tpm_limit: Option<i32>,
+    pub timeout_ms: i32,
+    pub max_retries: i32,
+    pub tags: Vec<String>,
+    pub model_mapping: serde_json::Value,
+    pub balance: Option<f64>,
+    pub balance_updated_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub last_error_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+#[derive(Serialize)]
+pub struct PaginatedChannelsResponse {
+    pub data: Vec<ChannelSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+#[derive(Deserialize)]
+pub struct ChannelListParams {
+    pub search: Option<String>,
+    pub provider: Option<String>,
+    pub status: Option<String>,
+    pub health: Option<String>,
+    pub tag: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
+    #[serde(default = "default_sort_by")]
+    pub sort_by: String,
+    #[serde(default = "default_sort_dir")]
+    pub sort_dir: String,
+}
+
+fn default_page() -> i64 { 1 }
+fn default_page_size() -> i64 { 20 }
+fn default_sort_by() -> String { "created_at".into() }
+fn default_sort_dir() -> String { "asc".into() }
 
 #[derive(Deserialize)]
 pub struct CreateChannelRequest {
@@ -58,6 +98,14 @@ pub struct CreateChannelRequest {
     pub rpm_limit: Option<i32>,
     #[serde(default)]
     pub tpm_limit: Option<i32>,
+    #[serde(default)]
+    pub timeout_ms: Option<i32>,
+    #[serde(default)]
+    pub max_retries: Option<i32>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub model_mapping: Option<serde_json::Value>,
 }
 
 fn default_true() -> bool {
@@ -74,6 +122,24 @@ pub struct UpdateChannelRequest {
     pub rpm_limit: Option<i32>,
     #[serde(default)]
     pub tpm_limit: Option<i32>,
+    #[serde(default)]
+    pub timeout_ms: Option<i32>,
+    #[serde(default)]
+    pub max_retries: Option<i32>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub model_mapping: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub struct BatchChannelRequest {
+    pub ids: Vec<Uuid>,
+}
+
+#[derive(Serialize)]
+pub struct BatchResult {
+    pub affected: u64,
 }
 
 pub fn router() -> Router<AppState> {
@@ -83,6 +149,9 @@ pub fn router() -> Router<AppState> {
             "/channels/:id",
             axum::routing::put(update_channel).delete(delete_channel),
         )
+        .route("/channels/batch-enable", axum::routing::post(batch_enable_channels))
+        .route("/channels/batch-disable", axum::routing::post(batch_disable_channels))
+        .route("/channels/batch-delete", axum::routing::post(batch_delete_channels))
         .route(
             "/channels/:id/keys",
             get(list_channel_keys).post(create_channel_key),
@@ -115,28 +184,55 @@ pub fn router() -> Router<AppState> {
 async fn list_channels(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-) -> AppResult<Json<Vec<ChannelSummary>>> {
+    Query(params): Query<ChannelListParams>,
+) -> AppResult<Json<PaginatedChannelsResponse>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelRead, Scope::Platform);
 
-    let records = app.repos.channels.list_admin_view().await?;
-    Ok(Json(
-        records
-            .into_iter()
-            .map(|r| ChannelSummary {
-                id: r.channel_id.as_uuid().to_string(),
-                code: r.code,
-                name: r.name,
-                provider_type: r.provider_type,
-                base_url: r.base_url,
-                status: r.status,
-                health: r.health,
-                rpm_limit: r.rpm_limit,
-                tpm_limit: r.tpm_limit,
-                updated_at: r.updated_at,
-            })
-            .collect(),
-    ))
+    let query = ListChannelsQuery {
+        search: params.search,
+        provider: params.provider,
+        status: params.status,
+        health: params.health,
+        tag: params.tag,
+        page: params.page,
+        page_size: params.page_size,
+        sort_by: params.sort_by,
+        sort_dir: params.sort_dir,
+    };
+
+    let result = app.repos.channels.list_admin_paginated(query).await?;
+    Ok(Json(PaginatedChannelsResponse {
+        data: result.data.into_iter().map(record_to_summary).collect(),
+        total: result.total,
+        page: result.page,
+        page_size: result.page_size,
+    }))
+}
+
+fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummary {
+    ChannelSummary {
+        id: r.channel_id.as_uuid().to_string(),
+        code: r.code,
+        name: r.name,
+        provider_type: r.provider_type,
+        base_url: r.base_url,
+        status: r.status,
+        health: r.health,
+        supported_models: r.supported_models,
+        rpm_limit: r.rpm_limit,
+        tpm_limit: r.tpm_limit,
+        timeout_ms: r.timeout_ms,
+        max_retries: r.max_retries,
+        tags: r.tags,
+        model_mapping: r.model_mapping,
+        balance: r.balance,
+        balance_updated_at: r.balance_updated_at,
+        last_error: r.last_error,
+        last_error_at: r.last_error_at,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+    }
 }
 
 async fn create_channel(
@@ -177,6 +273,10 @@ async fn create_channel(
             enabled: req.enabled,
             rpm_limit: req.rpm_limit,
             tpm_limit: req.tpm_limit,
+            timeout_ms: req.timeout_ms,
+            max_retries: req.max_retries,
+            tags: req.tags,
+            model_mapping: req.model_mapping,
         })
         .await?;
 
@@ -188,18 +288,7 @@ async fn create_channel(
         Some(serde_json::json!({"code": &record.code})),
     );
 
-    Ok(Json(ChannelSummary {
-        id: record.channel_id.as_uuid().to_string(),
-        code: record.code,
-        name: record.name,
-        provider_type: record.provider_type,
-        base_url: record.base_url,
-        status: record.status,
-        health: record.health,
-        rpm_limit: record.rpm_limit,
-        tpm_limit: record.tpm_limit,
-        updated_at: record.updated_at,
-    }))
+    Ok(Json(record_to_summary(record)))
 }
 
 async fn update_channel(
@@ -224,6 +313,10 @@ async fn update_channel(
                 enabled: req.enabled,
                 rpm_limit: req.rpm_limit,
                 tpm_limit: req.tpm_limit,
+                timeout_ms: req.timeout_ms,
+                max_retries: req.max_retries,
+                tags: req.tags,
+                model_mapping: req.model_mapping,
             },
         )
         .await?;
@@ -236,18 +329,7 @@ async fn update_channel(
         None,
     );
 
-    Ok(Json(ChannelSummary {
-        id: record.channel_id.as_uuid().to_string(),
-        code: record.code,
-        name: record.name,
-        provider_type: record.provider_type,
-        base_url: record.base_url,
-        status: record.status,
-        health: record.health,
-        rpm_limit: record.rpm_limit,
-        tpm_limit: record.tpm_limit,
-        updated_at: record.updated_at,
-    }))
+    Ok(Json(record_to_summary(record)))
 }
 
 async fn delete_channel(
@@ -270,6 +352,45 @@ async fn delete_channel(
     );
 
     Ok(Json(serde_json::json!({"deleted": true})))
+}
+
+async fn batch_enable_channels(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<BatchChannelRequest>,
+) -> AppResult<Json<BatchResult>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelUpdate, Scope::Platform);
+    let ids: Vec<ChannelId> = req.ids.into_iter().map(ChannelId::from).collect();
+    let affected = app.repos.channels.batch_set_enabled(&ids, true).await?;
+    app.audit.emit(&ctx, "channel.batch_enable", "channel", None, Some(serde_json::json!({"count": affected})));
+    Ok(Json(BatchResult { affected }))
+}
+
+async fn batch_disable_channels(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<BatchChannelRequest>,
+) -> AppResult<Json<BatchResult>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelUpdate, Scope::Platform);
+    let ids: Vec<ChannelId> = req.ids.into_iter().map(ChannelId::from).collect();
+    let affected = app.repos.channels.batch_set_enabled(&ids, false).await?;
+    app.audit.emit(&ctx, "channel.batch_disable", "channel", None, Some(serde_json::json!({"count": affected})));
+    Ok(Json(BatchResult { affected }))
+}
+
+async fn batch_delete_channels(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<BatchChannelRequest>,
+) -> AppResult<Json<BatchResult>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelDelete, Scope::Platform);
+    let ids: Vec<ChannelId> = req.ids.into_iter().map(ChannelId::from).collect();
+    let affected = app.repos.channels.batch_soft_delete(&ids).await?;
+    app.audit.emit(&ctx, "channel.batch_delete", "channel", None, Some(serde_json::json!({"count": affected})));
+    Ok(Json(BatchResult { affected }))
 }
 
 // ============================================================================

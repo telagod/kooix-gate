@@ -34,7 +34,15 @@ fn make_channel(code: &str, models: Vec<String>) -> ChannelRecord {
         health: "healthy".to_string(),
         timeout_ms: 60000,
         max_retries: 2,
-        created_at: now,
+        rpm_limit: None,
+            tpm_limit: None,
+            tags: vec![],
+            model_mapping: serde_json::Value::Object(Default::default()),
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
         updated_at: now,
     }
 }
