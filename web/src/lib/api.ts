@@ -506,3 +506,140 @@ export async function getQuotaAlerts(orgId: string): Promise<QuotaAlert[]> {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
+
+// ── Admin Orgs ────────────────────────────────────
+
+export interface OrgDetail {
+	id: string;
+	name: string;
+	slug: string;
+	owner_user_id: string;
+	status: string;
+	billing_email: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export async function listAllOrgs(): Promise<OrgDetail[]> {
+	return apiFetch<OrgDetail[]>('/v1/admin/orgs');
+}
+
+export async function createOrg(name: string, slug: string): Promise<OrgDetail> {
+	return apiFetch<OrgDetail>('/v1/admin/orgs', {
+		method: 'POST',
+		body: JSON.stringify({ name, slug })
+	});
+}
+
+export async function updateOrg(id: string, data: { name?: string; billing_email?: string }): Promise<OrgDetail> {
+	return apiFetch<OrgDetail>(`/v1/admin/orgs/${id}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	});
+}
+
+// ── Admin Users ───────────────────────────────────
+
+export interface UserDetail {
+	id: string;
+	email: string;
+	display_name: string | null;
+	status: string;
+	mfa_enabled: boolean;
+	last_login_at: string | null;
+	created_at: string;
+}
+
+export async function listUsers(limit = 50, offset = 0): Promise<UserDetail[]> {
+	const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+	return apiFetch<UserDetail[]>(`/v1/admin/users?${params}`);
+}
+
+export async function updateUserStatus(id: string, status: string): Promise<UserDetail> {
+	return apiFetch<UserDetail>(`/v1/admin/users/${id}/status`, {
+		method: 'PUT',
+		body: JSON.stringify({ status })
+	});
+}
+
+// ── Project Detail ────────────────────────────────
+
+export async function getProject(orgId: string, projectId: string): Promise<Project> {
+	return apiFetch<Project>(`/v1/orgs/${orgId}/projects/${projectId}`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function updateProject(orgId: string, projectId: string, data: { name?: string; status?: string }): Promise<Project> {
+	return apiFetch<Project>(`/v1/orgs/${orgId}/projects/${projectId}`, {
+		method: 'PUT',
+		body: JSON.stringify(data),
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+// ── Settings ──────────────────────────────────────
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean }> {
+	return apiFetch<{ ok: boolean }>('/v1/me/password', {
+		method: 'PUT',
+		body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+	});
+}
+
+// ── Chat Playground ───────────────────────────────
+
+export function chatCompletionStream(
+	orgId: string,
+	model: string,
+	messages: { role: string; content: string }[],
+	onChunk: (text: string) => void,
+	onDone: () => void,
+	onError: (err: string) => void
+): AbortController {
+	const ctrl = new AbortController();
+	const token = getAccessToken();
+	fetch(`${BASE_URL}/v1/chat/completions`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			...(orgId ? { 'X-Kooix-Org': orgId } : {})
+		},
+		body: JSON.stringify({ model, messages, stream: true }),
+		signal: ctrl.signal
+	})
+		.then(async (resp) => {
+			if (!resp.ok) {
+				const body = await resp.json().catch(() => ({}));
+				onError(body?.error?.message ?? resp.statusText);
+				return;
+			}
+			const reader = resp.body?.getReader();
+			if (!reader) { onError('no reader'); return; }
+			const decoder = new TextDecoder();
+			let buf = '';
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buf += decoder.decode(value, { stream: true });
+				const lines = buf.split('\n');
+				buf = lines.pop() ?? '';
+				for (const line of lines) {
+					if (!line.startsWith('data: ')) continue;
+					const payload = line.slice(6).trim();
+					if (payload === '[DONE]') { onDone(); return; }
+					try {
+						const json = JSON.parse(payload);
+						const delta = json.choices?.[0]?.delta?.content;
+						if (delta) onChunk(delta);
+					} catch {}
+				}
+			}
+			onDone();
+		})
+		.catch((err) => {
+			if (err.name !== 'AbortError') onError(String(err));
+		});
+	return ctrl;
+}

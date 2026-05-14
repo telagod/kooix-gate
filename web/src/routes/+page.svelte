@@ -16,7 +16,7 @@
 		}
 
 		if (getAccessToken()) {
-			goto('/orgs');
+			goto('/dashboard');
 		} else {
 			goto('/login');
 		}

@@ -15,6 +15,8 @@ pub trait ProjectRepo: Send + Sync + 'static {
     async fn list_in_org(&self, org_id: OrgId) -> DbResult<Vec<Project>>;
 
     async fn create(&self, org_id: OrgId, name: &str, slug: &str) -> DbResult<Project>;
+
+    async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project>;
 }
 
 pub struct PgProjectRepo {
@@ -95,6 +97,24 @@ impl ProjectRepo for PgProjectRepo {
         .bind(slug)
         .fetch_one(&self.pool)
         .await?;
+        row_to_project(&row)
+    }
+
+    async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project> {
+        let row = sqlx::query(&format!(
+            "UPDATE projects SET \
+             name = COALESCE($2, name), \
+             status = COALESCE($3, status), \
+             updated_at = now() \
+             WHERE id = $1 AND deleted_at IS NULL \
+             RETURNING {PROJECT_COLUMNS}"
+        ))
+        .bind(id.as_uuid())
+        .bind(name)
+        .bind(status)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
         row_to_project(&row)
     }
 }

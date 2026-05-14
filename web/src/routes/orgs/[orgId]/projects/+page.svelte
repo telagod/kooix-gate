@@ -8,6 +8,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import { FolderOpen, Plus, X } from 'lucide-svelte';
 
 	let orgId = $derived($page.params.orgId);
 	let projects = $state<Project[]>([]);
@@ -103,8 +104,10 @@
 		{:else if error}
 			<p class="text-red-600 dark:text-red-400">{error}</p>
 		{:else if projects.length === 0}
-			<Card class="p-6">
-				<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无项目，点击右上角创建。</p>
+			<Card class="p-12 text-center">
+				<FolderOpen size={40} class="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
+				<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-2">暂无项目</p>
+				<p class="text-xs text-zinc-400 dark:text-zinc-500">点击右上角「创建项目」开始使用</p>
 			</Card>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
@@ -131,6 +134,9 @@
 								</td>
 								<td class="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">{proj.id}</td>
 								<td class="px-4 py-3 text-right">
+									<Button variant="ghost" size="sm" onclick={() => goto(`/orgs/${orgId}/projects/${proj.id}`)}>
+										设置
+									</Button>
 									<Button variant="ghost" size="sm" onclick={() => goto(`/orgs/${orgId}/projects/${proj.id}/keys`)}>
 										API Keys
 									</Button>

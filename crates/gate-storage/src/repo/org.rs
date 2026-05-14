@@ -15,7 +15,12 @@ pub trait OrgRepo: Send + Sync + 'static {
     /// 返回 user 可见的所有 Org（作为 owner 或 org_memberships 成员）。
     async fn list_for_user(&self, user_id: UserId) -> DbResult<Vec<Organization>>;
 
+    /// 平台管理员：列出所有 Org。
+    async fn list_all(&self) -> DbResult<Vec<Organization>>;
+
     async fn create(&self, name: &str, slug: &str, owner: UserId) -> DbResult<Organization>;
+
+    async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization>;
 }
 
 pub struct PgOrgRepo {
@@ -112,6 +117,33 @@ impl OrgRepo for PgOrgRepo {
         .bind(owner.as_uuid())
         .fetch_one(&self.pool)
         .await?;
+        row_to_org(&row)
+    }
+
+    async fn list_all(&self) -> DbResult<Vec<Organization>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {ORG_COLUMNS} FROM organizations WHERE deleted_at IS NULL ORDER BY created_at DESC"
+        ))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_org).collect()
+    }
+
+    async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization> {
+        let row = sqlx::query(&format!(
+            "UPDATE organizations SET \
+             name = COALESCE($2, name), \
+             billing_email = COALESCE($3, billing_email), \
+             updated_at = now() \
+             WHERE id = $1 AND deleted_at IS NULL \
+             RETURNING {ORG_COLUMNS}"
+        ))
+        .bind(id.as_uuid())
+        .bind(name)
+        .bind(billing_email)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
         row_to_org(&row)
     }
 }

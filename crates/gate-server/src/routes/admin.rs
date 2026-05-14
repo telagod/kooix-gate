@@ -84,6 +84,10 @@ pub fn router() -> Router<AppState> {
             axum::routing::delete(revoke_channel_key),
         )
         .route("/audit-logs", get(list_audit_logs))
+        .route("/orgs", get(list_all_orgs).post(create_org))
+        .route("/orgs/:id", axum::routing::put(update_org))
+        .route("/users", get(list_users))
+        .route("/users/:id/status", axum::routing::put(update_user_status))
 }
 
 async fn list_channels(
@@ -489,4 +493,194 @@ async fn list_audit_logs(
             })
             .collect(),
     ))
+}
+
+// ============================================================================
+// Org Management (Admin)
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct OrgView {
+    pub id: String,
+    pub name: String,
+    pub slug: String,
+    pub owner_user_id: String,
+    pub status: String,
+    pub billing_email: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateOrgRequest {
+    pub name: String,
+    pub slug: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateOrgRequest {
+    pub name: Option<String>,
+    pub billing_email: Option<String>,
+}
+
+async fn list_all_orgs(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<Vec<OrgView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let orgs = app.repos.orgs.list_all().await?;
+    Ok(Json(orgs.into_iter().map(org_to_view).collect()))
+}
+
+async fn create_org(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<CreateOrgRequest>,
+) -> AppResult<Json<OrgView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let name = req.name.trim();
+    let slug = req.slug.trim();
+    if name.is_empty() || slug.is_empty() {
+        return Err(AppError::BadRequest("name and slug required".into()));
+    }
+
+    let owner_id = match ctx.subject().unwrap() {
+        gate_auth::Subject::User { user_id, .. } => user_id,
+        _ => return Err(AppError::Forbidden("only user subjects".into())),
+    };
+
+    let org = app.repos.orgs.create(name, slug, *owner_id).await?;
+
+    app.audit.emit(
+        &ctx,
+        "org.create",
+        "org",
+        Some(*org.id.as_uuid()),
+        Some(serde_json::json!({"slug": &org.slug})),
+    );
+
+    Ok(Json(org_to_view(org)))
+}
+
+async fn update_org(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<UpdateOrgRequest>,
+) -> AppResult<Json<OrgView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let org_id = gate_core::id::OrgId::from(id);
+    let org = app
+        .repos
+        .orgs
+        .update(org_id, req.name.as_deref(), req.billing_email.as_deref())
+        .await?;
+
+    app.audit.emit(&ctx, "org.update", "org", Some(id), None);
+
+    Ok(Json(org_to_view(org)))
+}
+
+fn org_to_view(o: gate_core::identity::Organization) -> OrgView {
+    OrgView {
+        id: o.id.as_uuid().to_string(),
+        name: o.name,
+        slug: o.slug,
+        owner_user_id: o.owner_user_id.as_uuid().to_string(),
+        status: format!("{:?}", o.status).to_lowercase(),
+        billing_email: o.billing_email,
+        created_at: o.created_at,
+        updated_at: o.updated_at,
+    }
+}
+
+// ============================================================================
+// User Management (Admin)
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct UserView {
+    pub id: String,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub status: String,
+    pub mfa_enabled: bool,
+    pub last_login_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct UsersQuery {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateStatusRequest {
+    pub status: String,
+}
+
+async fn list_users(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Query(q): Query<UsersQuery>,
+) -> AppResult<Json<Vec<UserView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let limit = q.limit.clamp(1, 200);
+    let offset = q.offset.max(0);
+    let users = app.repos.users.list_all(limit, offset).await?;
+    Ok(Json(users.into_iter().map(user_to_view).collect()))
+}
+
+async fn update_user_status(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<UpdateStatusRequest>,
+) -> AppResult<Json<UserView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let valid = ["active", "suspended"];
+    if !valid.contains(&req.status.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "status must be one of: {:?}",
+            valid
+        )));
+    }
+
+    let user_id = gate_core::id::UserId::from(id);
+    let user = app.repos.users.update_status(user_id, &req.status).await?;
+
+    app.audit.emit(
+        &ctx,
+        "user.update_status",
+        "user",
+        Some(id),
+        Some(serde_json::json!({"status": &req.status})),
+    );
+
+    Ok(Json(user_to_view(user)))
+}
+
+fn user_to_view(u: gate_core::identity::User) -> UserView {
+    UserView {
+        id: u.id.as_uuid().to_string(),
+        email: u.email,
+        display_name: u.display_name,
+        status: format!("{:?}", u.status).to_lowercase(),
+        mfa_enabled: u.mfa_enabled,
+        last_login_at: u.last_login_at,
+        created_at: u.created_at,
+    }
 }

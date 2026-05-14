@@ -141,6 +141,29 @@ impl UserRepo for InMemoryUserRepo {
     async fn has_any_admin(&self) -> DbResult<bool> {
         Ok(false)
     }
+
+    async fn list_all(&self, _limit: i64, _offset: i64) -> DbResult<Vec<User>> {
+        Ok(self.inner.read().unwrap().users.values().map(|(u, _)| u.clone()).collect())
+    }
+
+    async fn update_status(&self, id: UserId, status: &str) -> DbResult<User> {
+        let mut g = self.inner.write().unwrap();
+        let (user, _) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
+        user.status = match status {
+            "active" => UserStatus::Active,
+            "suspended" => UserStatus::Suspended,
+            _ => return Err(DbError::Internal(format!("unknown status: {status}"))),
+        };
+        user.updated_at = Utc::now();
+        Ok(user.clone())
+    }
+
+    async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()> {
+        let mut g = self.inner.write().unwrap();
+        let (_, ph) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
+        *ph = Some(password_hash.to_string());
+        Ok(())
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -216,6 +239,19 @@ impl OrgRepo for InMemoryOrgRepo {
         g.orgs.insert(id, org.clone());
         Ok(org)
     }
+
+    async fn list_all(&self) -> DbResult<Vec<Organization>> {
+        Ok(self.inner.read().unwrap().orgs.values().cloned().collect())
+    }
+
+    async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization> {
+        let mut g = self.inner.write().unwrap();
+        let org = g.orgs.get_mut(&id).ok_or(DbError::NotFound)?;
+        if let Some(n) = name { org.name = n.to_string(); }
+        if let Some(e) = billing_email { org.billing_email = Some(e.to_string()); }
+        org.updated_at = Utc::now();
+        Ok(org.clone())
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -280,6 +316,21 @@ impl ProjectRepo for InMemoryProjectRepo {
         };
         g.insert(id, project.clone());
         Ok(project)
+    }
+
+    async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project> {
+        let mut g = self.inner.write().unwrap();
+        let project = g.get_mut(&id).ok_or(DbError::NotFound)?;
+        if let Some(n) = name { project.name = n.to_string(); }
+        if let Some(s) = status {
+            project.status = match s {
+                "active" => ProjectStatus::Active,
+                "archived" => ProjectStatus::Archived,
+                _ => return Err(DbError::Internal(format!("unknown project status: {s}"))),
+            };
+        }
+        project.updated_at = Utc::now();
+        Ok(project.clone())
     }
 }
 

@@ -41,6 +41,15 @@ pub trait UserRepo: Send + Sync + 'static {
     async fn reset_failed_login(&self, id: UserId) -> DbResult<()>;
 
     async fn has_any_admin(&self) -> DbResult<bool>;
+
+    /// 平台管理员：列出所有用户。
+    async fn list_all(&self, limit: i64, offset: i64) -> DbResult<Vec<User>>;
+
+    /// 管理员：修改用户状态（suspend/activate）。
+    async fn update_status(&self, id: UserId, status: &str) -> DbResult<User>;
+
+    /// 用户自身：修改密码。
+    async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()>;
 }
 
 pub struct PgUserRepo {
@@ -185,5 +194,46 @@ impl UserRepo for PgUserRepo {
         .fetch_one(&self.pool)
         .await?;
         Ok(exists)
+    }
+
+    async fn list_all(&self, limit: i64, offset: i64) -> DbResult<Vec<User>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {USER_COLUMNS} FROM users WHERE deleted_at IS NULL \
+             ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+        ))
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_user).collect()
+    }
+
+    async fn update_status(&self, id: UserId, status: &str) -> DbResult<User> {
+        let row = sqlx::query(&format!(
+            "UPDATE users SET status = $2, updated_at = now() \
+             WHERE id = $1 AND deleted_at IS NULL \
+             RETURNING {USER_COLUMNS}"
+        ))
+        .bind(id.as_uuid())
+        .bind(status)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        row_to_user(&row)
+    }
+
+    async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()> {
+        let result = sqlx::query(
+            "UPDATE users SET password_hash = $2, updated_at = now() \
+             WHERE id = $1 AND deleted_at IS NULL"
+        )
+        .bind(id.as_uuid())
+        .bind(password_hash)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
     }
 }
