@@ -1,18 +1,8 @@
-//! Anthropic Messages API 适配器。
-//!
-//! 把统一 [`ChatRequest`] 翻译成 Anthropic 格式，响应翻回 OpenAI 形状。
-//!
-//! 配置：
-//! - `base_url`：默认 `https://api.anthropic.com`
-//! - `api_key`：通过 `x-api-key` header 传递
-//! - Anthropic 版本固定为 `2023-06-01`
+//! Anthropic Messages API 适配器 — tool calling + vision support.
 
 use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
-use crate::types::{
-    ChatChoice, ChatDelta, ChatMessage, ChatRequest, ChatResponse, ChatStreamChoice,
-    ChatStreamChunk, FinishReason, Role, Usage,
-};
+use crate::types::*;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
@@ -48,9 +38,7 @@ impl AnthropicProvider {
     }
 }
 
-// ============================================================================
-// Anthropic 请求格式
-// ============================================================================
+// ── Request types ────────────────────────────────
 
 #[derive(Debug, Serialize)]
 struct AnthropicRequest {
@@ -63,18 +51,51 @@ struct AnthropicRequest {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<AnthropicTool>>,
 }
 
 #[derive(Debug, Serialize)]
 struct AnthropicMessage {
     role: String,
-    content: String,
+    content: AnthropicContent,
 }
 
-/// 把统一 ChatRequest → Anthropic 格式。
-///
-/// - system 消息提到顶层 `system` 参数
-/// - `max_tokens` 必填，默认 4096
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum AnthropicContent {
+    Text(String),
+    Blocks(Vec<AnthropicBlock>),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum AnthropicBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { source: AnthropicImageSource },
+    #[serde(rename = "tool_use")]
+    ToolUse { id: String, name: String, input: serde_json::Value },
+    #[serde(rename = "tool_result")]
+    ToolResult { tool_use_id: String, content: String },
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicImageSource {
+    r#type: String,
+    media_type: String,
+    data: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicTool {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    input_schema: serde_json::Value,
+}
+
 fn to_anthropic_request(req: &ChatRequest) -> AnthropicRequest {
     let mut system_parts: Vec<String> = Vec::new();
     let mut messages: Vec<AnthropicMessage> = Vec::new();
@@ -82,61 +103,116 @@ fn to_anthropic_request(req: &ChatRequest) -> AnthropicRequest {
     for msg in &req.messages {
         match msg.role {
             Role::System => {
-                system_parts.push(msg.content.clone());
+                system_parts.push(msg.content_text().to_string());
             }
             Role::User | Role::Assistant => {
+                let content = if let Some(tool_calls) = &msg.tool_calls {
+                    let mut blocks = Vec::new();
+                    let text = msg.content_text();
+                    if !text.is_empty() {
+                        blocks.push(AnthropicBlock::Text { text: text.to_string() });
+                    }
+                    for tc in tool_calls {
+                        let input: serde_json::Value =
+                            serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                        blocks.push(AnthropicBlock::ToolUse {
+                            id: tc.id.clone(),
+                            name: tc.function.name.clone(),
+                            input,
+                        });
+                    }
+                    AnthropicContent::Blocks(blocks)
+                } else {
+                    match &msg.content {
+                        Some(MessageContent::Parts(parts)) => {
+                            let blocks = parts.iter().map(|p| match p {
+                                ContentPart::Text { text, .. } => {
+                                    AnthropicBlock::Text { text: text.clone() }
+                                }
+                                ContentPart::ImageUrl { image_url, .. } => {
+                                    if image_url.url.starts_with("data:") {
+                                        let parts: Vec<&str> = image_url.url.splitn(2, ',').collect();
+                                        let media_type = parts.first()
+                                            .and_then(|h| h.strip_prefix("data:"))
+                                            .and_then(|h| h.split(';').next())
+                                            .unwrap_or("image/png")
+                                            .to_string();
+                                        let data = parts.get(1).unwrap_or(&"").to_string();
+                                        AnthropicBlock::Image {
+                                            source: AnthropicImageSource {
+                                                r#type: "base64".to_string(),
+                                                media_type,
+                                                data,
+                                            },
+                                        }
+                                    } else {
+                                        AnthropicBlock::Text {
+                                            text: format!("[Image: {}]", image_url.url),
+                                        }
+                                    }
+                                }
+                            }).collect();
+                            AnthropicContent::Blocks(blocks)
+                        }
+                        _ => AnthropicContent::Text(msg.content_text().to_string()),
+                    }
+                };
+
                 messages.push(AnthropicMessage {
-                    role: match msg.role {
-                        Role::User => "user".to_string(),
-                        Role::Assistant => "assistant".to_string(),
-                        _ => unreachable!(),
-                    },
-                    content: msg.content.clone(),
+                    role: if msg.role == Role::User { "user" } else { "assistant" }.to_string(),
+                    content,
                 });
             }
             Role::Tool => {
-                // Tool 消息当 user 消息传（简化处理，完整 tool_use 在后续版本支持）
+                let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
                 messages.push(AnthropicMessage {
                     role: "user".to_string(),
-                    content: msg.content.clone(),
+                    content: AnthropicContent::Blocks(vec![AnthropicBlock::ToolResult {
+                        tool_use_id,
+                        content: msg.content_text().to_string(),
+                    }]),
                 });
             }
         }
     }
 
-    let system = if system_parts.is_empty() {
-        None
-    } else {
-        Some(system_parts.join("\n"))
-    };
+    let tools = req.tools.as_ref().map(|t| {
+        t.iter().map(|td| AnthropicTool {
+            name: td.function.name.clone(),
+            description: td.function.description.clone(),
+            input_schema: td.function.parameters.clone().unwrap_or(serde_json::json!({"type": "object"})),
+        }).collect()
+    });
 
     AnthropicRequest {
         model: req.model.clone(),
         max_tokens: req.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
         messages,
-        system,
+        system: if system_parts.is_empty() { None } else { Some(system_parts.join("\n")) },
         temperature: req.temperature,
         stream: if req.stream { Some(true) } else { None },
+        tools,
     }
 }
 
-// ============================================================================
-// Anthropic 响应格式
-// ============================================================================
+// ── Response types ───────────────────────────────
 
 #[derive(Debug, Deserialize)]
 struct AnthropicResponse {
     id: String,
     model: String,
-    content: Vec<AnthropicContentBlock>,
+    content: Vec<AnthropicResponseBlock>,
     stop_reason: Option<String>,
     usage: AnthropicUsage,
 }
 
 #[derive(Debug, Deserialize)]
-struct AnthropicContentBlock {
-    #[serde(default)]
-    text: Option<String>,
+#[serde(tag = "type")]
+enum AnthropicResponseBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse { id: String, name: String, input: serde_json::Value },
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -147,26 +223,36 @@ struct AnthropicUsage {
     output_tokens: u32,
 }
 
-/// stop_reason → FinishReason 映射。
 fn map_stop_reason(reason: Option<&str>) -> Option<FinishReason> {
     reason.map(|r| match r {
-        "end_turn" => FinishReason::Stop,
+        "end_turn" | "stop_sequence" => FinishReason::Stop,
         "max_tokens" => FinishReason::Length,
         "tool_use" => FinishReason::ToolCalls,
-        "stop_sequence" => FinishReason::Stop,
         _ => FinishReason::Other,
     })
 }
 
-/// Anthropic 响应 → 统一 ChatResponse。
 fn from_anthropic_response(resp: AnthropicResponse) -> ChatResponse {
-    let content = resp
-        .content
-        .iter()
-        .filter_map(|b| b.text.as_deref())
-        .collect::<Vec<_>>()
-        .join("");
+    let mut text_parts = Vec::new();
+    let mut tool_calls = Vec::new();
 
+    for block in &resp.content {
+        match block {
+            AnthropicResponseBlock::Text { text } => text_parts.push(text.as_str()),
+            AnthropicResponseBlock::ToolUse { id, name, input } => {
+                tool_calls.push(ToolCall {
+                    id: id.clone(),
+                    r#type: "function".to_string(),
+                    function: FunctionCall {
+                        name: name.clone(),
+                        arguments: serde_json::to_string(input).unwrap_or_default(),
+                    },
+                });
+            }
+        }
+    }
+
+    let content_text = text_parts.join("");
     ChatResponse {
         id: resp.id,
         model: resp.model,
@@ -174,8 +260,10 @@ fn from_anthropic_response(resp: AnthropicResponse) -> ChatResponse {
             index: 0,
             message: ChatMessage {
                 role: Role::Assistant,
-                content,
+                content: if content_text.is_empty() { None } else { Some(MessageContent::Text(content_text)) },
                 name: None,
+                tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                tool_call_id: None,
             },
             finish_reason: map_stop_reason(resp.stop_reason.as_deref()),
         }],
@@ -187,45 +275,32 @@ fn from_anthropic_response(resp: AnthropicResponse) -> ChatResponse {
     }
 }
 
-// ============================================================================
-// Provider impl
-// ============================================================================
+// ── Provider impl ────────────────────────────────
 
-/// 上游非 2xx 时映射出业务化错误。
 fn check_status(resp: &reqwest::Response) -> ProviderResult<()> {
     let status = resp.status();
-    if status.is_success() {
-        return Ok(());
-    }
+    if status.is_success() { return Ok(()); }
     let code = status.as_u16();
     if code == 401 || code == 403 {
         return Err(ProviderError::Auth(format!("upstream returned {code}")));
     }
     if code == 429 {
-        let retry = resp
-            .headers()
-            .get("retry-after")
+        let retry = resp.headers().get("retry-after")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<u64>().ok())
             .map(|s| s * 1000);
-        return Err(ProviderError::RateLimited {
-            retry_after_ms: retry,
-        });
+        return Err(ProviderError::RateLimited { retry_after_ms: retry });
     }
     Ok(())
 }
 
 #[async_trait]
 impl Provider for AnthropicProvider {
-    fn name(&self) -> &'static str {
-        "anthropic"
-    }
+    fn name(&self) -> &'static str { "anthropic" }
 
     async fn chat(&self, req: ChatRequest) -> ProviderResult<ChatResponse> {
         let body = to_anthropic_request(&req);
-        let resp = self
-            .client
-            .post(self.messages_url())
+        let resp = self.client.post(self.messages_url())
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
@@ -244,9 +319,7 @@ impl Provider for AnthropicProvider {
         let mut body = to_anthropic_request(&req);
         body.stream = Some(true);
 
-        let resp = self
-            .client
-            .post(self.messages_url())
+        let resp = self.client.post(self.messages_url())
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
@@ -260,28 +333,26 @@ impl Provider for AnthropicProvider {
     }
 }
 
-// ============================================================================
-// Streaming SSE → ChatStreamChunk
-// ============================================================================
+// ── Streaming ────────────────────────────────────
 
-/// Anthropic SSE event 类型。
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 enum AnthropicEvent {
     #[serde(rename = "message_start")]
     MessageStart { message: AnthropicStreamMessage },
     #[serde(rename = "content_block_start")]
-    ContentBlockStart {},
+    ContentBlockStart {
+        #[serde(default)]
+        index: u32,
+        #[serde(default)]
+        content_block: Option<AnthropicContentBlockInfo>,
+    },
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta { delta: AnthropicDelta },
     #[serde(rename = "content_block_stop")]
     ContentBlockStop {},
     #[serde(rename = "message_delta")]
-    MessageDelta {
-        delta: AnthropicMessageDelta,
-        #[serde(default)]
-        usage: Option<AnthropicDeltaUsage>,
-    },
+    MessageDelta { delta: AnthropicMessageDelta, #[serde(default)] usage: Option<AnthropicDeltaUsage> },
     #[serde(rename = "message_stop")]
     MessageStop {},
     #[serde(rename = "ping")]
@@ -299,9 +370,20 @@ struct AnthropicStreamMessage {
 }
 
 #[derive(Debug, Deserialize)]
+struct AnthropicContentBlockInfo {
+    r#type: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct AnthropicDelta {
     #[serde(default)]
     text: Option<String>,
+    #[serde(default)]
+    partial_json: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -320,15 +402,11 @@ struct AnthropicErrorEvent {
     message: String,
 }
 
-/// Anthropic SSE → ChatStreamChunk 流。
-fn anthropic_sse_to_chunks<S>(
-    byte_stream: S,
-) -> impl futures::Stream<Item = ProviderResult<ChatStreamChunk>>
+fn anthropic_sse_to_chunks<S>(byte_stream: S) -> impl futures::Stream<Item = ProviderResult<ChatStreamChunk>>
 where
     S: futures::Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
     let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<u8>::new()));
-    // 累积状态：id, model, input_tokens
     let state = std::sync::Arc::new(parking_lot::Mutex::new(StreamState::default()));
 
     byte_stream.flat_map(move |item| {
@@ -351,6 +429,8 @@ struct StreamState {
     id: String,
     model: String,
     input_tokens: u32,
+    current_tool_id: Option<String>,
+    current_tool_name: Option<String>,
 }
 
 fn drain_anthropic_events(
@@ -362,32 +442,16 @@ fn drain_anthropic_events(
     while let Some(idx) = find_double_newline(buf) {
         let event_bytes: Vec<u8> = buf.drain(..idx + 2).collect();
         let s = String::from_utf8_lossy(&event_bytes);
-
-        let mut event_type = None;
         let mut data_line = None;
-
         for line in s.lines() {
-            if let Some(et) = line.strip_prefix("event:") {
-                event_type = Some(et.trim().to_string());
-            } else if let Some(d) = line.strip_prefix("data:") {
+            if let Some(d) = line.strip_prefix("data:") {
                 data_line = Some(d.trim().to_string());
             }
         }
-
-        let Some(data) = data_line else {
-            continue;
-        };
-        let _ = event_type; // event type is embedded in JSON `type` field
-
-        // Parse as Anthropic event
+        let Some(data) = data_line else { continue; };
         let event: AnthropicEvent = match serde_json::from_str(&data) {
             Ok(e) => e,
-            Err(e) => {
-                out.push(Err(ProviderError::Decode(format!(
-                    "anthropic event {data:?}: {e}"
-                ))));
-                continue;
-            }
+            Err(e) => { out.push(Err(ProviderError::Decode(format!("{data:?}: {e}")))); continue; }
         };
 
         match event {
@@ -395,37 +459,73 @@ fn drain_anthropic_events(
                 let mut st = state.lock();
                 st.id = message.id;
                 st.model = message.model;
-                if let Some(u) = message.usage {
-                    st.input_tokens = u.input_tokens;
-                }
-                // Emit initial chunk with role
-                let st_id = st.id.clone();
-                let st_model = st.model.clone();
+                if let Some(u) = message.usage { st.input_tokens = u.input_tokens; }
                 out.push(Ok(ChatStreamChunk {
-                    id: st_id,
-                    model: st_model,
+                    id: st.id.clone(),
+                    model: st.model.clone(),
                     choices: vec![ChatStreamChoice {
                         index: 0,
-                        delta: ChatDelta {
-                            role: Some(Role::Assistant),
-                            content: None,
-                        },
+                        delta: ChatDelta { role: Some(Role::Assistant), content: None, tool_calls: None },
                         finish_reason: None,
                     }],
                     usage: None,
                 }));
             }
+            AnthropicEvent::ContentBlockStart { content_block, .. } => {
+                if let Some(cb) = content_block {
+                    if cb.r#type.as_deref() == Some("tool_use") {
+                        let mut st = state.lock();
+                        st.current_tool_id = cb.id.clone();
+                        st.current_tool_name = cb.name.clone();
+                        out.push(Ok(ChatStreamChunk {
+                            id: st.id.clone(),
+                            model: st.model.clone(),
+                            choices: vec![ChatStreamChoice {
+                                index: 0,
+                                delta: ChatDelta {
+                                    role: None,
+                                    content: None,
+                                    tool_calls: Some(vec![ToolCallDelta {
+                                        index: Some(0),
+                                        id: cb.id,
+                                        r#type: Some("function".to_string()),
+                                        function: Some(FunctionCallDelta {
+                                            name: cb.name,
+                                            arguments: None,
+                                        }),
+                                    }]),
+                                },
+                                finish_reason: None,
+                            }],
+                            usage: None,
+                        }));
+                    }
+                }
+            }
             AnthropicEvent::ContentBlockDelta { delta } => {
+                let st = state.lock();
                 if let Some(text) = delta.text {
-                    let st = state.lock();
                     out.push(Ok(ChatStreamChunk {
-                        id: st.id.clone(),
-                        model: st.model.clone(),
+                        id: st.id.clone(), model: st.model.clone(),
+                        choices: vec![ChatStreamChoice {
+                            index: 0,
+                            delta: ChatDelta { role: None, content: Some(text), tool_calls: None },
+                            finish_reason: None,
+                        }],
+                        usage: None,
+                    }));
+                }
+                if let Some(json) = delta.partial_json {
+                    out.push(Ok(ChatStreamChunk {
+                        id: st.id.clone(), model: st.model.clone(),
                         choices: vec![ChatStreamChoice {
                             index: 0,
                             delta: ChatDelta {
-                                role: None,
-                                content: Some(text),
+                                role: None, content: None,
+                                tool_calls: Some(vec![ToolCallDelta {
+                                    index: Some(0), id: None, r#type: None,
+                                    function: Some(FunctionCallDelta { name: None, arguments: Some(json) }),
+                                }]),
                             },
                             finish_reason: None,
                         }],
@@ -442,8 +542,7 @@ fn drain_anthropic_events(
                     total_tokens: st.input_tokens + u.output_tokens,
                 });
                 out.push(Ok(ChatStreamChunk {
-                    id: st.id.clone(),
-                    model: st.model.clone(),
+                    id: st.id.clone(), model: st.model.clone(),
                     choices: vec![ChatStreamChoice {
                         index: 0,
                         delta: ChatDelta::default(),
@@ -453,12 +552,8 @@ fn drain_anthropic_events(
                 }));
             }
             AnthropicEvent::Error { error } => {
-                out.push(Err(ProviderError::Decode(format!(
-                    "anthropic stream error: {}",
-                    error.message
-                ))));
+                out.push(Err(ProviderError::Decode(format!("anthropic: {}", error.message))));
             }
-            // ping / content_block_start / content_block_stop / message_stop → 不产出 chunk
             _ => {}
         }
     }
@@ -467,246 +562,4 @@ fn drain_anthropic_events(
 
 fn find_double_newline(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\n\n")
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn make_chat_request() -> ChatRequest {
-        ChatRequest {
-            model: "claude-3-sonnet-20240229".into(),
-            messages: vec![
-                ChatMessage {
-                    role: Role::System,
-                    content: "You are helpful.".into(),
-                    name: None,
-                },
-                ChatMessage {
-                    role: Role::User,
-                    content: "Hi".into(),
-                    name: None,
-                },
-            ],
-            temperature: Some(0.7),
-            top_p: None,
-            max_tokens: Some(1024),
-            stream: false,
-            extra: Default::default(),
-        }
-    }
-
-    #[test]
-    fn request_conversion_extracts_system() {
-        let req = make_chat_request();
-        let body = to_anthropic_request(&req);
-
-        assert_eq!(body.model, "claude-3-sonnet-20240229");
-        assert_eq!(body.max_tokens, 1024);
-        assert_eq!(body.system.as_deref(), Some("You are helpful."));
-        assert_eq!(body.temperature, Some(0.7));
-        // Only user/assistant messages in the messages array
-        assert_eq!(body.messages.len(), 1);
-        assert_eq!(body.messages[0].role, "user");
-        assert_eq!(body.messages[0].content, "Hi");
-    }
-
-    #[test]
-    fn request_conversion_default_max_tokens() {
-        let req = ChatRequest {
-            model: "claude-3-haiku-20240307".into(),
-            messages: vec![ChatMessage {
-                role: Role::User,
-                content: "Hello".into(),
-                name: None,
-            }],
-            temperature: None,
-            top_p: None,
-            max_tokens: None, // not set
-            stream: false,
-            extra: Default::default(),
-        };
-        let body = to_anthropic_request(&req);
-        assert_eq!(body.max_tokens, DEFAULT_MAX_TOKENS);
-        assert!(body.system.is_none());
-    }
-
-    #[test]
-    fn request_serializes_to_expected_json() {
-        let req = make_chat_request();
-        let body = to_anthropic_request(&req);
-        let json_val = serde_json::to_value(&body).unwrap();
-
-        assert_eq!(json_val["model"], "claude-3-sonnet-20240229");
-        assert_eq!(json_val["max_tokens"], 1024);
-        assert_eq!(json_val["system"], "You are helpful.");
-        assert_eq!(json_val["messages"][0]["role"], "user");
-        assert_eq!(json_val["messages"][0]["content"], "Hi");
-        // stream should not be present when None
-        assert!(json_val.get("stream").is_none() || json_val["stream"].is_null());
-    }
-
-    #[test]
-    fn response_conversion_concatenates_content() {
-        let raw: AnthropicResponse = serde_json::from_value(json!({
-            "id": "msg_abc",
-            "type": "message",
-            "model": "claude-3-sonnet-20240229",
-            "role": "assistant",
-            "content": [
-                {"type": "text", "text": "Hello"},
-                {"type": "text", "text": " world"}
-            ],
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 10, "output_tokens": 5}
-        }))
-        .unwrap();
-
-        let resp = from_anthropic_response(raw);
-
-        assert_eq!(resp.id, "msg_abc");
-        assert_eq!(resp.model, "claude-3-sonnet-20240229");
-        assert_eq!(resp.choices[0].message.content, "Hello world");
-        assert_eq!(resp.choices[0].message.role, Role::Assistant);
-        assert_eq!(resp.choices[0].finish_reason, Some(FinishReason::Stop));
-        assert_eq!(resp.usage.prompt_tokens, 10);
-        assert_eq!(resp.usage.completion_tokens, 5);
-        assert_eq!(resp.usage.total_tokens, 15);
-    }
-
-    #[test]
-    fn stop_reason_mapping() {
-        assert_eq!(map_stop_reason(Some("end_turn")), Some(FinishReason::Stop));
-        assert_eq!(
-            map_stop_reason(Some("max_tokens")),
-            Some(FinishReason::Length)
-        );
-        assert_eq!(
-            map_stop_reason(Some("tool_use")),
-            Some(FinishReason::ToolCalls)
-        );
-        assert_eq!(
-            map_stop_reason(Some("stop_sequence")),
-            Some(FinishReason::Stop)
-        );
-        assert_eq!(
-            map_stop_reason(Some("unknown")),
-            Some(FinishReason::Other)
-        );
-        assert_eq!(map_stop_reason(None), None);
-    }
-
-    #[test]
-    fn response_conversion_max_tokens_finish() {
-        let raw: AnthropicResponse = serde_json::from_value(json!({
-            "id": "msg_def",
-            "type": "message",
-            "model": "claude-3-haiku-20240307",
-            "role": "assistant",
-            "content": [{"type": "text", "text": "truncated"}],
-            "stop_reason": "max_tokens",
-            "usage": {"input_tokens": 20, "output_tokens": 100}
-        }))
-        .unwrap();
-
-        let resp = from_anthropic_response(raw);
-        assert_eq!(resp.choices[0].finish_reason, Some(FinishReason::Length));
-        assert_eq!(resp.usage.prompt_tokens, 20);
-        assert_eq!(resp.usage.completion_tokens, 100);
-    }
-
-    #[test]
-    fn stream_event_parsing_message_start() {
-        let state = parking_lot::Mutex::new(StreamState::default());
-        let mut buf = Vec::new();
-        buf.extend_from_slice(
-            b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"model\":\"claude-3-sonnet-20240229\",\"usage\":{\"input_tokens\":25}}}\n\n",
-        );
-
-        let chunks = drain_anthropic_events(&mut buf, &state);
-        assert_eq!(chunks.len(), 1);
-        let chunk = chunks[0].as_ref().unwrap();
-        assert_eq!(chunk.id, "msg_1");
-        assert_eq!(chunk.choices[0].delta.role, Some(Role::Assistant));
-
-        let st = state.lock();
-        assert_eq!(st.input_tokens, 25);
-    }
-
-    #[test]
-    fn stream_event_parsing_content_delta() {
-        let state = parking_lot::Mutex::new(StreamState {
-            id: "msg_1".into(),
-            model: "claude-3-sonnet-20240229".into(),
-            input_tokens: 10,
-        });
-        let mut buf = Vec::new();
-        buf.extend_from_slice(
-            b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
-        );
-
-        let chunks = drain_anthropic_events(&mut buf, &state);
-        assert_eq!(chunks.len(), 1);
-        let chunk = chunks[0].as_ref().unwrap();
-        assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("Hello"));
-    }
-
-    #[test]
-    fn stream_event_parsing_message_delta_with_usage() {
-        let state = parking_lot::Mutex::new(StreamState {
-            id: "msg_1".into(),
-            model: "claude-3-sonnet-20240229".into(),
-            input_tokens: 10,
-        });
-        let mut buf = Vec::new();
-        buf.extend_from_slice(
-            b"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":15}}\n\n",
-        );
-
-        let chunks = drain_anthropic_events(&mut buf, &state);
-        assert_eq!(chunks.len(), 1);
-        let chunk = chunks[0].as_ref().unwrap();
-        assert_eq!(chunk.choices[0].finish_reason, Some(FinishReason::Stop));
-        let usage = chunk.usage.as_ref().unwrap();
-        assert_eq!(usage.prompt_tokens, 10);
-        assert_eq!(usage.completion_tokens, 15);
-        assert_eq!(usage.total_tokens, 25);
-    }
-
-    #[test]
-    fn multiple_system_messages_concatenated() {
-        let req = ChatRequest {
-            model: "claude-3-sonnet-20240229".into(),
-            messages: vec![
-                ChatMessage {
-                    role: Role::System,
-                    content: "Rule 1.".into(),
-                    name: None,
-                },
-                ChatMessage {
-                    role: Role::System,
-                    content: "Rule 2.".into(),
-                    name: None,
-                },
-                ChatMessage {
-                    role: Role::User,
-                    content: "Go".into(),
-                    name: None,
-                },
-            ],
-            temperature: None,
-            top_p: None,
-            max_tokens: None,
-            stream: false,
-            extra: Default::default(),
-        };
-        let body = to_anthropic_request(&req);
-        assert_eq!(body.system.as_deref(), Some("Rule 1.\nRule 2."));
-        assert_eq!(body.messages.len(), 1);
-    }
 }

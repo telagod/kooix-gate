@@ -16,8 +16,14 @@
 
 use crate::Provider;
 use crate::anthropic::AnthropicProvider;
+use crate::azure::AzureProvider;
+use crate::bedrock::BedrockProvider;
+use crate::cohere::CohereProvider;
+use crate::deepseek::DeepSeekProvider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::gemini::GeminiProvider;
+use crate::mistral::MistralProvider;
+use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
 use gate_core::id::{ChannelId, ProjectId};
 use gate_crypto::EnvelopeKms;
@@ -416,8 +422,42 @@ impl ProviderRouter {
                     .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>
             }
+            "azure" => {
+                let p = AzureProvider::new(selected.channel.base_url.clone(), api_key, None)
+                    .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn Provider>
+            }
+            "bedrock" => {
+                let access = api_key.clone();
+                let secret = std::env::var(format!("KOOIX_CH_{}_SECRET", selected.channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_")))
+                    .unwrap_or_default();
+                let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+                let p = BedrockProvider::new(region, access, secret)
+                    .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn Provider>
+            }
+            "deepseek" => {
+                let p = DeepSeekProvider::new(selected.channel.base_url.clone(), api_key)
+                    .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn Provider>
+            }
+            "ollama" => {
+                let p = OllamaProvider::new(selected.channel.base_url.clone())
+                    .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn Provider>
+            }
+            "mistral" => {
+                let p = MistralProvider::new(selected.channel.base_url.clone(), api_key)
+                    .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn Provider>
+            }
+            "cohere" => {
+                let p = CohereProvider::new(selected.channel.base_url.clone(), api_key)
+                    .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
+                Arc::new(p) as Arc<dyn Provider>
+            }
             _ => {
-                // "openai" + 其他未知类型都走 OpenAI 兼容
+                // 未知类型走 OpenAI 兼容
                 let p = OpenAiProvider::new(selected.channel.base_url.clone(), api_key)
                     .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
                 Arc::new(p) as Arc<dyn Provider>

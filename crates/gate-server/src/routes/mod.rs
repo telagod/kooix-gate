@@ -11,8 +11,10 @@ pub mod auth;
 pub mod billing;
 pub mod channels;
 pub mod chat;
+pub mod embeddings;
 pub mod health;
 pub mod me;
+pub mod models;
 pub mod projects;
 pub mod quotas;
 pub mod settings;
@@ -34,6 +36,8 @@ pub fn v1_router() -> Router<AppState> {
     Router::new()
         .merge(me::router())
         .merge(settings::router())
+        .merge(models::router())
+        .merge(embeddings::router())
         .merge(projects::router())
         .merge(api_keys::router())
         .merge(chat::router())

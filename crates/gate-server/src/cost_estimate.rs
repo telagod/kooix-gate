@@ -19,7 +19,7 @@ pub const MAX_ESTIMATE_MICROS: i64 = 100_000;
 
 /// 估算一次 chat 请求的费用（micros），用于 pre-debit。
 pub fn estimate_cost_micros(req: &ChatRequest, rate_per_token_micros: i64) -> i64 {
-    let prompt_chars: usize = req.messages.iter().map(|m| m.content.len()).sum();
+    let prompt_chars: usize = req.messages.iter().map(|m| m.content_text().len()).sum();
     let prompt_tokens = (prompt_chars / 4) as i64;
     let completion_tokens = req.max_tokens.unwrap_or(4096) as i64;
     let total_tokens = prompt_tokens + completion_tokens;
@@ -36,16 +36,14 @@ mod tests {
             model: "gpt-4o".into(),
             messages: messages
                 .iter()
-                .map(|c| ChatMessage {
-                    role: Role::User,
-                    content: c.to_string(),
-                    name: None,
-                })
+                .map(|c| ChatMessage::text(Role::User, *c))
                 .collect(),
             temperature: None,
             top_p: None,
             max_tokens,
             stream: false,
+            tools: None,
+            tool_choice: None,
             extra: Default::default(),
         }
     }
