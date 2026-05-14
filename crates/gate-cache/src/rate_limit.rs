@@ -26,6 +26,11 @@ impl RateLimiter {
         Self { pool }
     }
 
+    /// 暴露内部 pool（供 ChannelRateLimiter TPM 计数等外部直接操作）。
+    pub fn pool(&self) -> &RedisPool {
+        &self.pool
+    }
+
     /// 检查并增量记账。
     ///
     /// - `key`     full Redis key（建议带 namespace）

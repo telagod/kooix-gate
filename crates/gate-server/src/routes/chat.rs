@@ -117,6 +117,10 @@ async fn chat_completions(
         let router_for_release = app.provider_router.clone();
         let release_channel_id = channel_id.map(ChannelId::from);
 
+        // TPM record: stream 结束后记录 token 消耗
+        let rate_limiter_for_tpm = app.provider_router.as_ref().map(|r| r.rate_limiter());
+        let tpm_channel_id = channel_id.map(ChannelId::from);
+
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
         let wrapped = upstream.inspect(move |item| {
             if let Ok(chunk) = item
@@ -134,6 +138,14 @@ async fn chat_completions(
             // 释放 inflight 计数（least_conn 策略）
             if let (Some(router), Some(ch_id)) = (&router_for_release, release_channel_id) {
                 router.release_channel(ch_id);
+            }
+
+            // 记录 token 消耗到 per-channel TPM 计数器
+            if let (Some(rl), Some(ch_id)) = (&rate_limiter_for_tpm, tpm_channel_id) {
+                if let Some(ref u) = usage {
+                    let total_tokens = u.prompt_tokens + u.completion_tokens;
+                    rl.record_tokens(ch_id, total_tokens).await;
+                }
             }
 
             // 结算 inflight guards（F3）
@@ -228,6 +240,14 @@ async fn chat_completions(
         // 释放 inflight 计数（least_conn 策略）
         if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
             router.release_channel(ChannelId::from(ch_uuid));
+        }
+
+        // 记录 token 消耗到 per-channel TPM 计数器
+        if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
+            let total_tokens = resp.usage.prompt_tokens + resp.usage.completion_tokens;
+            let rl = router.rate_limiter();
+            let ch_id = ChannelId::from(ch_uuid);
+            rl.record_tokens(ch_id, total_tokens).await;
         }
 
         // 结算 inflight guards（F3）

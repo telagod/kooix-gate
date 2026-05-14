@@ -75,6 +75,9 @@ base64.workspace = true
 rand.workspace = true
 openidconnect.workspace = true
 
+# Redis (for channel rate limiter)
+fred.workspace = true
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "macros"] }
 tower = { version = "0.5", features = ["util"] }
@@ -82,7 +85,6 @@ http-body-util = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 testcontainers = "0.27"
 testcontainers-modules = { version = "0.15", features = ["postgres", "redis"] }
-fred.workspace = true
 wiremock = "0.6"
 futures.workspace = true
 gate-crypto = { path = "../gate-crypto" }

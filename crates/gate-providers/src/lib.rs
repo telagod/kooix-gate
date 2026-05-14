@@ -24,7 +24,7 @@ pub mod router;
 pub mod types;
 
 pub use error::{ProviderError, ProviderResult};
-pub use router::{ChannelMetrics, InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
+pub use router::{ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter, InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
 pub use types::{
     ChatChoice, ChatDelta, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk,
     ChatStreamChoice, ContentPart, ContentType, EmbeddingInput, EmbeddingRequest,

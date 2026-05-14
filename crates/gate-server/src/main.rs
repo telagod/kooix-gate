@@ -95,7 +95,10 @@ async fn main() -> anyhow::Result<()> {
 
     let app = build_router(state.clone());
 
-    gate_server::health_probe::spawn(state);
+    gate_server::health_probe::spawn(state.clone());
+
+    // 带 auth + advisory lock + 分级处理的健康巡检
+    gate_server::health_check::spawn(&state);
 
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
         .await

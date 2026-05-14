@@ -145,7 +145,43 @@ impl ChannelMetrics {
 }
 
 // ============================================================================
-// ChannelRateLimiter — 滑动 60s 窗口 RPM/TPM 检查
+// ChannelRateCheck — per-channel RPM/TPM 限速 trait
+// ============================================================================
+
+/// Per-channel RPM/TPM 限速抽象。
+///
+/// 实现方式：
+/// - [`InMemoryChannelRateLimiter`]：纯内存固定窗口（dev / 单实例）
+/// - Redis 实现在 `gate-cache` crate（生产多实例 sliding window）
+///
+/// 路由器通过 `Arc<dyn ChannelRateCheck>` 持有，支持运行时注入。
+#[async_trait::async_trait]
+pub trait ChannelRateCheck: Send + Sync + 'static {
+    /// 检查并消耗一次 RPM 额度。
+    ///
+    /// - `rpm_limit = None` → 无限制，返回 `true`
+    /// - 通过 → `true`（计数 +1）
+    /// - 超限 → `false`（不消耗）
+    async fn check_rpm(&self, channel_id: ChannelId, rpm_limit: Option<i32>) -> bool;
+
+    /// 检查 TPM 限额（pre-flight）。
+    ///
+    /// 不消耗额度，仅检查当前窗口内 token 总量是否 < limit。
+    /// 实际 token 消耗由 `record_tokens` 在 response 后记录。
+    ///
+    /// - `tpm_limit = None` → 无限制，返回 `true`
+    /// - 窗口内 token < limit → `true`
+    /// - 超限 → `false`
+    async fn check_tpm(&self, channel_id: ChannelId, tpm_limit: Option<i32>) -> bool;
+
+    /// 记录实际 token 消耗（response 后调用）。
+    ///
+    /// 更新 TPM 滑动窗口计数。
+    async fn record_tokens(&self, channel_id: ChannelId, tokens: u32);
+}
+
+// ============================================================================
+// InMemoryChannelRateLimiter — 纯内存固定窗口实现
 // ============================================================================
 
 struct RateWindow {
@@ -154,27 +190,30 @@ struct RateWindow {
     window_start: Instant,
 }
 
-/// 内存滑动窗口限速器。每个 channel 一个 60s 窗口，过期自动重置。
-pub struct ChannelRateLimiter {
+/// 纯内存固定窗口限速器。每个 channel 一个 60s 窗口，过期自动重置。
+///
+/// 适用于 dev / 单实例部署。多实例部署应使用 Redis 实现。
+pub struct InMemoryChannelRateLimiter {
     counters: Mutex<HashMap<ChannelId, RateWindow>>,
 }
 
-impl Default for ChannelRateLimiter {
+impl Default for InMemoryChannelRateLimiter {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ChannelRateLimiter {
+impl InMemoryChannelRateLimiter {
     pub fn new() -> Self {
         Self {
             counters: Mutex::new(HashMap::new()),
         }
     }
+}
 
-    /// 检查并消耗一次 RPM 额度。None 限制视为无限。
-    /// 若通过返回 true，窗口内计数 +1；已超限返回 false（不消耗）。
-    pub fn check_rpm(&self, channel_id: ChannelId, rpm_limit: Option<i32>) -> bool {
+#[async_trait::async_trait]
+impl ChannelRateCheck for InMemoryChannelRateLimiter {
+    async fn check_rpm(&self, channel_id: ChannelId, rpm_limit: Option<i32>) -> bool {
         let Some(limit) = rpm_limit else {
             return true;
         };
@@ -197,14 +236,7 @@ impl ChannelRateLimiter {
         true
     }
 
-    /// 记录 token 消耗并检查 TPM 限额。None 限制视为无限。
-    /// 超限返回 false（token 仍会被累计）。
-    pub fn record_tokens(
-        &self,
-        channel_id: ChannelId,
-        tokens: u32,
-        tpm_limit: Option<i32>,
-    ) -> bool {
+    async fn check_tpm(&self, channel_id: ChannelId, tpm_limit: Option<i32>) -> bool {
         let Some(limit) = tpm_limit else {
             return true;
         };
@@ -220,10 +252,27 @@ impl ChannelRateLimiter {
             window.tpm_count = 0;
             window.window_start = Instant::now();
         }
+        window.tpm_count < limit
+    }
+
+    async fn record_tokens(&self, channel_id: ChannelId, tokens: u32) {
+        let mut counters = self.counters.lock();
+        let window = counters.entry(channel_id).or_insert_with(|| RateWindow {
+            rpm_count: 0,
+            tpm_count: 0,
+            window_start: Instant::now(),
+        });
+        if window.window_start.elapsed().as_secs() >= 60 {
+            window.rpm_count = 0;
+            window.tpm_count = 0;
+            window.window_start = Instant::now();
+        }
         window.tpm_count = window.tpm_count.saturating_add(tokens);
-        window.tpm_count <= limit
     }
 }
+
+/// Backward-compat alias.
+pub type ChannelRateLimiter = InMemoryChannelRateLimiter;
 
 // ============================================================================
 // InflightTracker — least_conn 策略用的 inflight 计数器
@@ -290,6 +339,9 @@ impl InflightTracker {
 // ============================================================================
 
 /// 根据策略名选择 channel。
+///
+/// 保留用于未来可能需要「单选」的场景（如 health probe 等）。
+#[allow(dead_code)]
 fn select_channel<'a>(
     strategy: &str,
     compatible: &'a [&ChannelBinding],
@@ -334,6 +386,7 @@ fn select_round_robin<'a>(
 }
 
 /// 选 inflight 最少的 channel；同分时取第一个（即 priority 最高的）。
+#[allow(dead_code)]
 fn select_least_conn<'a>(
     channels: &'a [&ChannelBinding],
     inflight: &InflightTracker,
@@ -345,6 +398,7 @@ fn select_least_conn<'a>(
 }
 
 /// 选平均延迟最低的 channel；无延迟数据时 fallback 到第一条。
+#[allow(dead_code)]
 fn select_least_latency<'a>(
     channels: &'a [&ChannelBinding],
     metrics: Option<&ChannelMetrics>,
@@ -356,6 +410,171 @@ fn select_least_latency<'a>(
         .iter()
         .min_by_key(|ch| m.avg_latency(ch.channel.channel_id))
         .unwrap()
+}
+
+/// 按策略返回所有 compatible channels 的有序列表（首选在前）。
+///
+/// 与 `select_channel` 不同，这里返回全部候选而非单个。
+/// 用于 rate limit fallback：首选被限速时依次尝试后续。
+fn order_channels_by_strategy<'a>(
+    strategy: &str,
+    compatible: &'a [&ChannelBinding],
+    rr_counter: &AtomicU64,
+    inflight: &InflightTracker,
+    metrics: Option<&ChannelMetrics>,
+) -> Vec<&'a ChannelBinding> {
+    if compatible.len() <= 1 {
+        return compatible.to_vec();
+    }
+
+    match strategy {
+        "weighted_random" => {
+            // 首选 = weighted random pick，其余按 priority 排
+            let first = select_weighted_random(compatible);
+            let mut rest: Vec<_> = compatible.iter().filter(|c| c.channel.channel_id != first.channel.channel_id).copied().collect();
+            rest.sort_by_key(|c| c.priority);
+            let mut result = vec![first];
+            result.extend(rest);
+            result
+        }
+        "round_robin" => {
+            // 首选 = round_robin pick，其余按 priority 排
+            let first = select_round_robin(compatible, rr_counter);
+            let mut rest: Vec<_> = compatible.iter().filter(|c| c.channel.channel_id != first.channel.channel_id).copied().collect();
+            rest.sort_by_key(|c| c.priority);
+            let mut result = vec![first];
+            result.extend(rest);
+            result
+        }
+        "least_conn" => {
+            // 按 inflight 升序排
+            let mut sorted: Vec<_> = compatible.to_vec();
+            sorted.sort_by_key(|c| inflight.current(c.channel.channel_id));
+            sorted
+        }
+        "least_latency" => {
+            // 按延迟升序排
+            let mut sorted: Vec<_> = compatible.to_vec();
+            if let Some(m) = metrics {
+                sorted.sort_by_key(|c| m.avg_latency(c.channel.channel_id));
+            }
+            sorted
+        }
+        // "priority" + 未知 → 已按 priority ASC 排序的原始顺序
+        _ => compatible.to_vec(),
+    }
+}
+
+/// 按 provider_type 构造 Provider 实例。
+fn build_provider(
+    channel: &gate_storage::ChannelRecord,
+    api_key: String,
+    opts: crate::ProviderOpts,
+) -> ProviderResult<Arc<dyn Provider>> {
+    match channel.provider_type.as_str() {
+        "anthropic" => {
+            let p = AnthropicProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build AnthropicProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "gemini" => {
+            let p = GeminiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "azure" => {
+            let p = AzureProvider::new_with_opts(channel.base_url.clone(), api_key, None, opts)
+                .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "bedrock" => {
+            let access = api_key;
+            let secret_env = format!(
+                "KOOIX_CH_{}_SECRET",
+                channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_")
+            );
+            let secret = std::env::var(&secret_env)
+                .map_err(|_| ProviderError::Config(format!(
+                    "missing {} env var for bedrock channel '{}'",
+                    secret_env, channel.code
+                )))?;
+            let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+            let p = BedrockProvider::new_with_opts(region, access, secret, opts)
+                .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "deepseek" => {
+            let p = DeepSeekProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "ollama" => {
+            let p = OllamaProvider::new_with_opts(channel.base_url.clone(), opts)
+                .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "mistral" => {
+            let p = MistralProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "cohere" => {
+            let p = CohereProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        _ => {
+            // 未知类型走 OpenAI 兼容
+            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+    }
+}
+
+/// 按 provider_type 构造 EmbeddingProvider 实例。
+fn build_embedding_provider(
+    channel: &gate_storage::ChannelRecord,
+    api_key: String,
+    opts: crate::ProviderOpts,
+) -> ProviderResult<Arc<dyn EmbeddingProvider>> {
+    match channel.provider_type.as_str() {
+        "azure" => {
+            let p = AzureProvider::new_with_opts(channel.base_url.clone(), api_key, None, opts)
+                .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        "deepseek" => {
+            let p = DeepSeekProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        "ollama" => {
+            let p = OllamaProvider::new_with_opts(channel.base_url.clone(), opts)
+                .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        "mistral" => {
+            let p = MistralProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        "cohere" => {
+            let p = CohereProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        "gemini" => {
+            let p = GeminiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        _ => {
+            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+    }
 }
 
 /// API key 来源策略（env 回退，DB 优先路径在 route_for_model 内）。
@@ -411,7 +630,7 @@ pub struct ProviderRouter {
     /// 滑动窗口成功率追踪（auto-disable 机制）。
     metrics: Option<Arc<ChannelMetrics>>,
     /// per-channel RPM/TPM 限速器。
-    rate_limiter: Arc<ChannelRateLimiter>,
+    rate_limiter: Arc<dyn ChannelRateCheck>,
 }
 
 impl ProviderRouter {
@@ -425,7 +644,7 @@ impl ProviderRouter {
             rr_counter: AtomicU64::new(0),
             inflight: Arc::new(InflightTracker::new()),
             metrics: Some(Arc::new(ChannelMetrics::new(10, 0.8))),
-            rate_limiter: Arc::new(ChannelRateLimiter::new()),
+            rate_limiter: Arc::new(InMemoryChannelRateLimiter::new()),
         }
     }
 
@@ -473,8 +692,14 @@ impl ProviderRouter {
     }
 
     /// 获取 rate_limiter 的引用（供调用方上报 token 消耗）。
-    pub fn rate_limiter(&self) -> Arc<ChannelRateLimiter> {
+    pub fn rate_limiter(&self) -> Arc<dyn ChannelRateCheck> {
         self.rate_limiter.clone()
+    }
+
+    /// 替换 rate limiter 实现（注入 Redis 后端）。
+    pub fn with_rate_limiter(mut self, rl: Arc<dyn ChannelRateCheck>) -> Self {
+        self.rate_limiter = rl;
+        self
     }
 
     /// 根据 project_id + model 选 Provider。
@@ -598,7 +823,7 @@ impl ProviderRouter {
     }
 
     /// Steps 2-4 for embedding: list channels, filter (model + embedding-capable provider),
-    /// select by strategy, construct `Arc<dyn EmbeddingProvider>`.
+    /// select by strategy with rate limit fallback, construct `Arc<dyn EmbeddingProvider>`.
     async fn try_route_embedding_in_group(
         &self,
         group: &gate_storage::ChannelGroupRecord,
@@ -634,95 +859,52 @@ impl ProviderRouter {
             return Ok(None);
         }
 
-        let selected =
-            select_channel(&group.strategy, &compatible, &self.rr_counter, &self.inflight, self.metrics.as_ref().map(|m| m.as_ref()));
+        let ordered = order_channels_by_strategy(
+            &group.strategy,
+            &compatible,
+            &self.rr_counter,
+            &self.inflight,
+            self.metrics.as_ref().map(|m| m.as_ref()),
+        );
 
-        // RPM 检查（embedding 路由同样受限速约束）
-        if !self.rate_limiter.check_rpm(selected.channel.channel_id, selected.channel.rpm_limit) {
-            tracing::warn!(
-                channel = %selected.channel.code,
-                rpm_limit = ?selected.channel.rpm_limit,
-                "channel RPM limit reached for embedding, skipping"
-            );
-            return Ok(None);
+        for candidate in &ordered {
+            // RPM 检查
+            if !self.rate_limiter.check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit).await {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    rpm_limit = ?candidate.channel.rpm_limit,
+                    "channel RPM limit reached for embedding, trying next"
+                );
+                continue;
+            }
+
+            // TPM 检查
+            if !self.rate_limiter.check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit).await {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    tpm_limit = ?candidate.channel.tpm_limit,
+                    "channel TPM limit reached for embedding, trying next"
+                );
+                continue;
+            }
+
+            let (api_key, key_id) = self
+                .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
+                .await?;
+            let opts = crate::ProviderOpts {
+                timeout_ms: candidate.channel.timeout_ms as u64,
+            };
+
+            let provider: Arc<dyn EmbeddingProvider> = build_embedding_provider(&candidate.channel, api_key, opts)?;
+
+            return Ok(Some(RoutedEmbeddingProvider {
+                provider,
+                channel_id: candidate.channel.channel_id,
+                key_id,
+            }));
         }
 
-        let (api_key, key_id) = self
-            .resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code)
-            .await?;
-        let opts = crate::ProviderOpts {
-            timeout_ms: selected.channel.timeout_ms as u64,
-        };
-
-        let provider: Arc<dyn EmbeddingProvider> = match selected.channel.provider_type.as_str() {
-            "azure" => {
-                let p = AzureProvider::new_with_opts(
-                    selected.channel.base_url.clone(),
-                    api_key,
-                    None,
-                    opts,
-                )
-                .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-            "deepseek" => {
-                let p = DeepSeekProvider::new_with_opts(
-                    selected.channel.base_url.clone(),
-                    api_key,
-                    opts,
-                )
-                .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-            "ollama" => {
-                let p = OllamaProvider::new_with_opts(selected.channel.base_url.clone(), opts)
-                    .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-            "mistral" => {
-                let p = MistralProvider::new_with_opts(
-                    selected.channel.base_url.clone(),
-                    api_key,
-                    opts,
-                )
-                .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-            "cohere" => {
-                let p = CohereProvider::new_with_opts(
-                    selected.channel.base_url.clone(),
-                    api_key,
-                    opts,
-                )
-                .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-            "gemini" => {
-                let p = GeminiProvider::new_with_opts(
-                    selected.channel.base_url.clone(),
-                    api_key,
-                    opts,
-                )
-                .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-            // Default: OpenAI-compatible (covers "openai" and any unknown type)
-            _ => {
-                let p = OpenAiProvider::new_with_opts(
-                    selected.channel.base_url.clone(),
-                    api_key,
-                    opts,
-                )
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn EmbeddingProvider>
-            }
-        };
-
-        Ok(Some(RoutedEmbeddingProvider {
-            provider,
-            channel_id: selected.channel.channel_id,
-            key_id,
-        }))
+        Ok(None)
     }
 
     /// alias 解析：查 ModelAliasRepo，返回 Some((target, params_override)) 或 None（无 alias）。
@@ -839,6 +1021,11 @@ impl ProviderRouter {
     }
 
     /// Steps 2-4: list healthy channels in group, filter, select, construct provider.
+    ///
+    /// Rate limiting integration:
+    /// - After strategy selection, check RPM + TPM limits
+    /// - If rate-limited, try the next channel in priority order
+    /// - Only fail (return None) if ALL compatible channels are rate-limited
     async fn try_route_in_group(
         &self,
         group: &gate_storage::ChannelGroupRecord,
@@ -860,9 +1047,7 @@ impl ProviderRouter {
             return Ok(None);
         }
 
-        // Step 3: 按 model_filter / supported_models 过滤 + strategy 选 channel
-        // Binding-level model_filter takes priority; empty = fall back to channel.supported_models.
-        // Empty supported_models = wildcard（支持所有模型）。
+        // Step 3: 按 model_filter / supported_models 过滤
         let compatible: Vec<_> = bindings
             .iter()
             .filter(|b| {
@@ -884,8 +1069,10 @@ impl ProviderRouter {
             return Ok(None);
         }
 
-        // strategy: 按 group.strategy 选 channel
-        let selected = select_channel(
+        // Strategy ordering: sort channels into preference order based on strategy
+        // For priority/round_robin/weighted_random, select_channel picks one.
+        // To support "try next on rate limit", we iterate candidates in order.
+        let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
             &self.rr_counter,
@@ -893,107 +1080,73 @@ impl ProviderRouter {
             self.metrics.as_ref().map(|m| m.as_ref()),
         );
 
-        // RPM 检查：选中后立即核查限速，超限则放弃本次路由
-        if !self.rate_limiter.check_rpm(selected.channel.channel_id, selected.channel.rpm_limit) {
-            tracing::warn!(
-                channel = %selected.channel.code,
-                rpm_limit = ?selected.channel.rpm_limit,
-                "channel RPM limit reached, skipping"
+        // Try each channel in order until one passes rate limits
+        for candidate in &ordered {
+            // RPM 检查
+            if !self.rate_limiter.check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit).await {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    rpm_limit = ?candidate.channel.rpm_limit,
+                    "channel RPM limit reached, trying next channel"
+                );
+                continue;
+            }
+
+            // TPM 检查（pre-flight）
+            if !self.rate_limiter.check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit).await {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    tpm_limit = ?candidate.channel.tpm_limit,
+                    "channel TPM limit reached, trying next channel"
+                );
+                continue;
+            }
+
+            // least_conn: 选中后递增 inflight 计数
+            if group.strategy == "least_conn" {
+                self.inflight.acquire(candidate.channel.channel_id);
+            }
+
+            tracing::debug!(
+                group = %group.name,
+                channel = %candidate.channel.code,
+                provider_type = %candidate.channel.provider_type,
+                model = model,
+                "routed to channel"
             );
-            return Ok(None);
+
+            // Step 4: 根据 provider_type 构造对应 Provider
+            let (api_key, key_id) = self.resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code).await?;
+            let opts = crate::ProviderOpts {
+                timeout_ms: candidate.channel.timeout_ms as u64,
+            };
+            let provider: Arc<dyn Provider> = build_provider(&candidate.channel, api_key, opts)?;
+
+            let retry_config = crate::retry::RetryConfig {
+                max_retries: candidate.channel.max_retries.max(0) as u32,
+                ..Default::default()
+            };
+
+            return Ok(Some(RoutedProvider {
+                provider,
+                channel_id: candidate.channel.channel_id,
+                resolved_model: model.to_string(),
+                retry_config,
+                key_id,
+                params_override: serde_json::json!({}),
+                provider_type: candidate.channel.provider_type.clone(),
+                metrics: self.metrics.clone(),
+            }));
         }
 
-        // least_conn: 选中后递增 inflight 计数
-        if group.strategy == "least_conn" {
-            self.inflight.acquire(selected.channel.channel_id);
-        }
-
-        tracing::debug!(
-            group = %group.name,
-            channel = %selected.channel.code,
-            provider_type = %selected.channel.provider_type,
+        // All compatible channels are rate-limited
+        tracing::warn!(
+            group_id = %group.group_id,
             model = model,
-            "routed to channel"
+            compatible_count = compatible.len(),
+            "all compatible channels are rate-limited"
         );
-
-        // Step 4: 根据 provider_type 构造对应 Provider
-        // G1: 优先从 DB 取 channel key → 解密；无则 fallback env
-        let (api_key, key_id) = self.resolve_key_for_channel(selected.channel.channel_id, &selected.channel.code).await?;
-        let opts = crate::ProviderOpts {
-            timeout_ms: selected.channel.timeout_ms as u64,
-        };
-        let provider: Arc<dyn Provider> = match selected.channel.provider_type.as_str() {
-            "anthropic" => {
-                let p = AnthropicProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
-                    .map_err(|e| ProviderError::Config(format!("build AnthropicProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "gemini" => {
-                let p = GeminiProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
-                    .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "azure" => {
-                let p = AzureProvider::new_with_opts(selected.channel.base_url.clone(), api_key, None, opts)
-                    .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "bedrock" => {
-                let access = api_key.clone();
-                let secret_env = format!("KOOIX_CH_{}_SECRET", selected.channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_"));
-                let secret = std::env::var(&secret_env)
-                    .map_err(|_| ProviderError::Config(format!(
-                        "missing {} env var for bedrock channel '{}'",
-                        secret_env, selected.channel.code
-                    )))?;
-                let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-                let p = BedrockProvider::new_with_opts(region, access, secret, opts)
-                    .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "deepseek" => {
-                let p = DeepSeekProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
-                    .map_err(|e| ProviderError::Config(format!("build DeepSeekProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "ollama" => {
-                let p = OllamaProvider::new_with_opts(selected.channel.base_url.clone(), opts)
-                    .map_err(|e| ProviderError::Config(format!("build OllamaProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "mistral" => {
-                let p = MistralProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
-                    .map_err(|e| ProviderError::Config(format!("build MistralProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            "cohere" => {
-                let p = CohereProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
-                    .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-            _ => {
-                // 未知类型走 OpenAI 兼容
-                let p = OpenAiProvider::new_with_opts(selected.channel.base_url.clone(), api_key, opts)
-                    .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-                Arc::new(p) as Arc<dyn Provider>
-            }
-        };
-
-        let retry_config = crate::retry::RetryConfig {
-            max_retries: selected.channel.max_retries.max(0) as u32,
-            ..Default::default()
-        };
-
-        Ok(Some(RoutedProvider {
-            provider,
-            channel_id: selected.channel.channel_id,
-            resolved_model: model.to_string(),
-            retry_config,
-            key_id,
-            params_override: serde_json::json!({}),
-            provider_type: selected.channel.provider_type.clone(),
-            metrics: self.metrics.clone(),
-        }))
+        Ok(None)
     }
 
     /// G1: 从 DB 取 channel key → 解密；无则 fallback env var。
