@@ -1,6 +1,7 @@
 //! kgctl: Kooix Gate 部署/运维 CLI
 //!
 //! 子命令：
+//!   kgctl setup              交互式初次启动引导（推荐首次部署使用）
 //!   kgctl init               生成首次部署所需的全部密钥（master + jwt）
 //!   kgctl key master         仅生成 master key (base64 32B)
 //!   kgctl key jwt            仅生成 JWT secret (base64 64B)
@@ -16,6 +17,7 @@ mod admin;
 mod doctor;
 mod migrate;
 mod pricing;
+mod setup;
 
 #[derive(Parser)]
 #[command(name = "kgctl", version, about = "Kooix Gate 部署/运维工具", long_about = None)]
@@ -26,6 +28,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// 交互式初次启动引导（推荐首次部署使用）
+    Setup,
     /// 生成全套首次部署密钥
     Init,
     /// 单独生成某把密钥
@@ -76,6 +80,7 @@ enum AdminCmd {
 fn main() {
     let cli = Cli::parse();
     let result: anyhow::Result<()> = match cli.cmd {
+        Cmd::Setup => run_async(setup::run()),
         Cmd::Init => {
             print_init();
             Ok(())
