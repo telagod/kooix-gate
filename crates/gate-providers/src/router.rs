@@ -29,9 +29,9 @@ use crate::openai::OpenAiProvider;
 use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）+ 实际使用的 model。
 #[derive(Clone)]
@@ -46,6 +46,11 @@ pub struct RoutedProvider {
     pub key_id: Option<ChannelKeyId>,
     /// params_override from model alias (empty object `{}` if no alias or no override).
     pub params_override: serde_json::Value,
+    /// 命中 channel 的 provider_type（"anthropic", "bedrock", "gemini" 等）。
+    /// 供调用方做参数适配（adapt_for_provider）。
+    pub provider_type: String,
+    /// 指向全局 ChannelMetrics，供调用方上报结果（auto-disable 机制）。
+    pub metrics: Option<Arc<ChannelMetrics>>,
 }
 
 /// Embedding 路由命中结果：EmbeddingProvider + 绑定的 channel_id。
@@ -55,6 +60,59 @@ pub struct RoutedEmbeddingProvider {
     pub channel_id: ChannelId,
     /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
     pub key_id: Option<ChannelKeyId>,
+}
+
+// ============================================================================
+// ChannelMetrics — 滑动窗口成功率追踪（auto-disable 机制）
+// ============================================================================
+
+/// 轻量级内存滑动窗口，按 channel 追踪成功率。
+///
+/// 窗口满且成功率低于阈值时，`should_disable` 返回 true。
+pub struct ChannelMetrics {
+    windows: Mutex<HashMap<ChannelId, VecDeque<bool>>>,
+    window_size: usize,
+    threshold: f64,
+}
+
+impl ChannelMetrics {
+    pub fn new(window_size: usize, threshold: f64) -> Self {
+        Self {
+            windows: Mutex::new(HashMap::new()),
+            window_size,
+            threshold,
+        }
+    }
+
+    /// 记录一次请求结果（true = 成功，false = 失败）。
+    pub fn record(&self, channel_id: ChannelId, success: bool) {
+        let mut windows = self.windows.lock().unwrap();
+        let window = windows.entry(channel_id).or_insert_with(VecDeque::new);
+        if window.len() >= self.window_size {
+            window.pop_front();
+        }
+        window.push_back(success);
+    }
+
+    /// 窗口满且成功率低于阈值时返回 true，触发 auto-disable。
+    pub fn should_disable(&self, channel_id: ChannelId) -> bool {
+        let windows = self.windows.lock().unwrap();
+        let Some(window) = windows.get(&channel_id) else {
+            return false;
+        };
+        if window.len() < self.window_size {
+            return false;
+        }
+        let successes = window.iter().filter(|&&s| s).count();
+        let rate = successes as f64 / window.len() as f64;
+        rate < self.threshold
+    }
+
+    /// 清除 channel 的历史记录（re-enable 后调用）。
+    pub fn clear(&self, channel_id: ChannelId) {
+        let mut windows = self.windows.lock().unwrap();
+        windows.remove(&channel_id);
+    }
 }
 
 // ============================================================================
@@ -221,6 +279,8 @@ pub struct ProviderRouter {
     rr_counter: AtomicU64,
     /// least_conn 策略的 inflight 计数器。
     inflight: Arc<InflightTracker>,
+    /// 滑动窗口成功率追踪（auto-disable 机制）。
+    metrics: Option<Arc<ChannelMetrics>>,
 }
 
 impl ProviderRouter {
@@ -233,6 +293,7 @@ impl ProviderRouter {
             crypto: None,
             rr_counter: AtomicU64::new(0),
             inflight: Arc::new(InflightTracker::new()),
+            metrics: Some(Arc::new(ChannelMetrics::new(10, 0.8))),
         }
     }
 
@@ -254,6 +315,12 @@ impl ProviderRouter {
         self
     }
 
+    /// 替换默认 ChannelMetrics（自定义 window_size / threshold）。
+    pub fn with_metrics(mut self, metrics: Arc<ChannelMetrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
     /// 释放 channel 的 inflight 计数（请求结束后调用）。
     ///
     /// 对非 least_conn 策略也是安全的（no-op if channel wasn't tracked）。
@@ -264,6 +331,13 @@ impl ProviderRouter {
     /// 获取 inflight tracker 的引用（供调用方在 async 场景中持有）。
     pub fn inflight_tracker(&self) -> Arc<InflightTracker> {
         self.inflight.clone()
+    }
+
+    /// 清除 channel 的 metrics 滑动窗口（re-enable 后由 health_probe 调用）。
+    pub fn clear_channel_metrics(&self, channel_id: ChannelId) {
+        if let Some(m) = &self.metrics {
+            m.clear(channel_id);
+        }
     }
 
     /// 根据 project_id + model 选 Provider。
@@ -750,6 +824,8 @@ impl ProviderRouter {
             retry_config,
             key_id,
             params_override: serde_json::json!({}),
+            provider_type: selected.channel.provider_type.clone(),
+            metrics: self.metrics.clone(),
         }))
     }
 

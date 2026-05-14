@@ -91,6 +91,12 @@ pub trait ChannelRepo: Send + Sync + 'static {
 
     /// 软删除（设 deleted_at + status='disabled'）。
     async fn soft_delete(&self, id: ChannelId) -> DbResult<()>;
+
+    /// 自动禁用渠道（成功率低于阈值时）：设 status='disabled', health='unhealthy', 记 last_error。
+    async fn auto_disable(&self, id: ChannelId, reason: &str) -> DbResult<()>;
+
+    /// 恢复渠道（健康探活成功后）：设 status='active', health='healthy', 清 last_error。
+    async fn re_enable(&self, id: ChannelId) -> DbResult<()>;
 }
 
 pub struct PgChannelRepo {
@@ -249,6 +255,31 @@ impl ChannelRepo for PgChannelRepo {
         if res.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
+        Ok(())
+    }
+
+    async fn auto_disable(&self, id: ChannelId, reason: &str) -> DbResult<()> {
+        sqlx::query(
+            "UPDATE channels SET status = 'disabled', health = 'unhealthy', \
+             last_error = $2, last_error_at = NOW() \
+             WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id.as_uuid())
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn re_enable(&self, id: ChannelId) -> DbResult<()> {
+        sqlx::query(
+            "UPDATE channels SET status = 'active', health = 'healthy', \
+             last_error = NULL, last_error_at = NULL \
+             WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id.as_uuid())
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }
@@ -619,6 +650,25 @@ impl ChannelRepo for InMemoryChannelRepo {
         if inner.channels.remove(&id).is_none() {
             return Err(DbError::NotFound);
         }
+        Ok(())
+    }
+
+    async fn auto_disable(&self, id: ChannelId, reason: &str) -> DbResult<()> {
+        let mut inner = self.inner.write().unwrap();
+        let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
+        record.status = "disabled".to_string();
+        record.health = "unhealthy".to_string();
+        let _ = reason; // stored conceptually; ChannelRecord has no last_error field in memory
+        record.updated_at = Utc::now();
+        Ok(())
+    }
+
+    async fn re_enable(&self, id: ChannelId) -> DbResult<()> {
+        let mut inner = self.inner.write().unwrap();
+        let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
+        record.status = "active".to_string();
+        record.health = "healthy".to_string();
+        record.updated_at = Utc::now();
         Ok(())
     }
 }

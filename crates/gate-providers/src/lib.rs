@@ -8,6 +8,7 @@
 //! - 错误经 [`ProviderError`] 收口，给 server 层映射 4xx/5xx
 //! - [`ProviderRouter`] 按 project_id + model 动态选路
 
+pub mod adapt;
 pub mod anthropic;
 pub mod azure;
 pub mod bedrock;
@@ -23,7 +24,7 @@ pub mod router;
 pub mod types;
 
 pub use error::{ProviderError, ProviderResult};
-pub use router::{InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
+pub use router::{ChannelMetrics, InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
 pub use types::{
     ChatChoice, ChatDelta, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk,
     ChatStreamChoice, ContentPart, ContentType, EmbeddingInput, EmbeddingRequest,
