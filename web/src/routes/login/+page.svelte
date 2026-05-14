@@ -73,20 +73,20 @@
 </script>
 
 {#if !ready}
-<div class="min-h-screen bg-zinc-50 flex items-center justify-center">
-	<p class="text-zinc-400 text-sm">加载中...</p>
+<div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
+	<p class="text-zinc-400 dark:text-zinc-500 text-sm">加载中...</p>
 </div>
 {:else}
-<div class="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
+<div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
 	<Card class="w-full max-w-sm p-8">
 		<div class="mb-8 text-center">
-			<h1 class="text-2xl font-bold text-zinc-900">Kooix Gate</h1>
-			<p class="mt-1 text-sm text-zinc-500">登录控制台</p>
+			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Kooix Gate</h1>
+			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">登录控制台</p>
 		</div>
 
 		<form onsubmit={handleSubmit} class="space-y-4">
 			<div>
-				<label for="email" class="block text-sm font-medium text-zinc-700 mb-1">邮箱</label>
+				<label for="email" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">邮箱</label>
 				<Input
 					id="email"
 					type="email"
@@ -98,7 +98,7 @@
 			</div>
 
 			<div>
-				<label for="password" class="block text-sm font-medium text-zinc-700 mb-1">密码</label>
+				<label for="password" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">密码</label>
 				<Input
 					id="password"
 					type="password"
@@ -110,7 +110,7 @@
 			</div>
 
 			{#if error}
-				<p class="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{error}</p>
+				<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{error}</p>
 			{/if}
 
 			<Button type="submit" disabled={loading || ssoLoading} class="w-full">
@@ -119,9 +119,9 @@
 		</form>
 
 		<div class="my-6 flex items-center gap-3">
-			<div class="flex-1 h-px bg-zinc-200"></div>
-			<span class="text-xs text-zinc-400 uppercase tracking-wider">或</span>
-			<div class="flex-1 h-px bg-zinc-200"></div>
+			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
+			<span class="text-xs text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">或</span>
+			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
 		</div>
 
 		<Button

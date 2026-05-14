@@ -138,10 +138,10 @@
 
 <!-- Revoke confirmation -->
 {#if revokingId}
-	<div class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center">
+	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center">
 		<Card class="p-6 max-w-sm w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 mb-2">确认撤销</h3>
-			<p class="text-sm text-zinc-600 mb-4">撤销后此 API Key 将立即失效，使用该 Key 的所有请求都会被拒绝。</p>
+			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认撤销</h3>
+			<p class="text-sm text-zinc-600 dark:text-zinc-400 mb-4">撤销后此 API Key 将立即失效，使用该 Key 的所有请求都会被拒绝。</p>
 			<div class="flex gap-2 justify-end">
 				<Button variant="outline" onclick={() => (revokingId = null)} disabled={revoking}>取消</Button>
 				<Button variant="destructive" onclick={handleRevoke} disabled={revoking}>
@@ -154,23 +154,23 @@
 
 <div>
 	<!-- 面包屑 -->
-	<div class="bg-white border-b border-zinc-200 px-6 py-2 flex items-center gap-3">
-		<button onclick={() => goto('/orgs')} class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">
+	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
+		<button onclick={() => goto('/orgs')} class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
 			← 组织
 		</button>
-		<span class="text-zinc-300">/</span>
-		<button onclick={() => goto(`/orgs/${orgId}/projects`)} class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors font-mono">
+		<span class="text-zinc-300 dark:text-zinc-600">/</span>
+		<button onclick={() => goto(`/orgs/${orgId}/projects`)} class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors font-mono">
 			{orgId.slice(0, 8)}...
 		</button>
-		<span class="text-zinc-300">/</span>
-		<span class="text-sm font-medium text-zinc-900">API Keys</span>
+		<span class="text-zinc-300 dark:text-zinc-600">/</span>
+		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">API Keys</span>
 	</div>
 
 	<div class="max-w-5xl mx-auto p-6">
 		<div class="flex items-center justify-between mb-6">
 			<div>
-				<h1 class="text-2xl font-bold text-zinc-900">API Keys</h1>
-				<p class="text-sm text-zinc-500 mt-1">Project: <span class="font-mono">{projectId.slice(0, 8)}...</span></p>
+				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">API Keys</h1>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Project: <span class="font-mono">{projectId.slice(0, 8)}...</span></p>
 			</div>
 			<Button onclick={() => { showCreate = !showCreate; createdKey = null; }}>
 				{showCreate ? '取消' : '+ 创建 Key'}
@@ -178,21 +178,21 @@
 		</div>
 
 		<!-- Warning banner -->
-		<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-6">
-			<p class="text-sm text-amber-800">API Key 明文仅在创建时显示一次，请立即复制保存。</p>
+		<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-4 py-3 mb-6">
+			<p class="text-sm text-amber-800 dark:text-amber-300">API Key 明文仅在创建时显示一次，请立即复制保存。</p>
 		</div>
 
 		<!-- Create form -->
 		{#if showCreate && !createdKey}
 			<Card class="p-5 mb-6">
-				<h2 class="text-base font-semibold text-zinc-900 mb-4">创建新 Key</h2>
+				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100 mb-4">创建新 Key</h2>
 				<form onsubmit={handleCreate} class="space-y-3">
 					<div>
-						<label for="key-name" class="block text-sm font-medium text-zinc-700 mb-1">名称</label>
+						<label for="key-name" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
 						<Input id="key-name" placeholder="production-backend" bind:value={newName} disabled={creating} />
 					</div>
 					{#if createError}
-						<p class="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{createError}</p>
+						<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{createError}</p>
 					{/if}
 					<div class="flex gap-2 justify-end">
 						<Button variant="outline" type="button" onclick={() => (showCreate = false)}>取消</Button>
@@ -206,18 +206,18 @@
 
 		<!-- Created key display (show once) -->
 		{#if createdKey}
-			<Card class="p-5 mb-6 border-green-200 bg-green-50">
-				<h2 class="text-base font-semibold text-green-900 mb-2">Key 已创建</h2>
-				<p class="text-sm text-green-800 mb-3">请立即复制以下密钥，此页面关闭后将无法再次查看。</p>
+			<Card class="p-5 mb-6 border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20">
+				<h2 class="text-base font-semibold text-green-900 dark:text-green-300 mb-2">Key 已创建</h2>
+				<p class="text-sm text-green-800 dark:text-green-400 mb-3">请立即复制以下密钥，此页面关闭后将无法再次查看。</p>
 				<div class="flex items-center gap-2">
-					<code class="flex-1 bg-white border border-green-300 rounded px-3 py-2 text-sm font-mono text-zinc-900 break-all select-all">
+					<code class="flex-1 bg-white dark:bg-zinc-900 border border-green-300 dark:border-green-700 rounded px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 break-all select-all">
 						{createdKey.plaintext}
 					</code>
 					<Button size="sm" onclick={copyKey}>
 						{copied ? '已复制' : '复制'}
 					</Button>
 				</div>
-				<p class="text-xs text-green-700 mt-2">Name: {createdKey.name} | Prefix: {createdKey.prefix}</p>
+				<p class="text-xs text-green-700 dark:text-green-400 mt-2">Name: {createdKey.name} | Prefix: {createdKey.prefix}</p>
 				<div class="flex justify-end mt-3">
 					<Button variant="outline" size="sm" onclick={dismissCreated}>我已保存，关闭</Button>
 				</div>
@@ -226,48 +226,48 @@
 
 		<!-- Key list -->
 		{#if loading}
-			<p class="text-zinc-500">加载中...</p>
+			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
 		{:else if error}
 			<Card class="p-6">
-				<p class="text-red-600 text-sm">{error}</p>
+				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if keys.length === 0}
 			<Card class="p-6">
-				<p class="text-zinc-500 text-sm">暂无 API Key，点击右上角创建。</p>
+				<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无 API Key，点击右上角创建。</p>
 			</Card>
 		{:else}
-			<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+			<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
 				<table class="w-full text-sm">
-					<thead class="bg-zinc-50 border-b border-zinc-200">
+					<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
 						<tr>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">名称</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">Key</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">创建时间</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">最后使用</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">状态</th>
-							<th class="px-4 py-3 text-right font-medium text-zinc-600">操作</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">名称</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Key</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">创建时间</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">最后使用</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">状态</th>
+							<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">操作</th>
 						</tr>
 					</thead>
-					<tbody class="divide-y divide-zinc-100">
+					<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 						{#each keys as key}
-							<tr class="hover:bg-zinc-50 transition-colors {key.revoked ? 'opacity-50' : ''}">
-								<td class="px-4 py-3 font-medium text-zinc-900">{key.name}</td>
-								<td class="px-4 py-3 font-mono text-zinc-600">
+							<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors {key.revoked ? 'opacity-50' : ''}">
+								<td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{key.name}</td>
+								<td class="px-4 py-3 font-mono text-zinc-600 dark:text-zinc-400">
 									{key.prefix ? `${key.prefix}...${key.last4}` : '—'}
 								</td>
-								<td class="px-4 py-3 text-zinc-600 text-xs">{formatDate(key.created_at)}</td>
-								<td class="px-4 py-3 text-zinc-600 text-xs">{formatDate(key.last_used_at)}</td>
+								<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{formatDate(key.created_at)}</td>
+								<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{formatDate(key.last_used_at)}</td>
 								<td class="px-4 py-3">
 									{#if key.revoked}
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700">已撤销</span>
+										<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400">已撤销</span>
 									{:else}
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700">活跃</span>
+										<span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400">活跃</span>
 									{/if}
 								</td>
 								<td class="px-4 py-3 text-right">
 									{#if !key.revoked}
 										<Button variant="ghost" size="sm" onclick={() => (revokingId = key.id)}>
-											<span class="text-red-600">撤销</span>
+											<span class="text-red-600 dark:text-red-400">撤销</span>
 										</Button>
 									{/if}
 								</td>

@@ -12,7 +12,7 @@
 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
 	{#each $toasts as toast (toast.id)}
 		<div
-			class="pointer-events-auto flex items-center justify-between gap-4 px-4 py-3 rounded-lg shadow-lg min-w-[260px] max-w-sm {colorMap[toast.type]}"
+			class="pointer-events-auto flex items-center justify-between gap-4 px-4 py-3 rounded-lg shadow-lg dark:shadow-zinc-900/40 min-w-[260px] max-w-sm {colorMap[toast.type]}"
 			in:fly={{ x: 40, duration: 220 }}
 			out:fly={{ x: 40, duration: 180 }}
 		>

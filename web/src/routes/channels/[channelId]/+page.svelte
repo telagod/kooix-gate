@@ -153,10 +153,10 @@
 	}
 
 	function healthBadge(health: string): string {
-		if (health === 'healthy') return 'bg-green-50 text-green-700';
-		if (health === 'degraded') return 'bg-amber-50 text-amber-700';
-		if (health === 'unhealthy') return 'bg-red-50 text-red-700';
-		return 'bg-zinc-100 text-zinc-500';
+		if (health === 'healthy') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+		if (health === 'degraded') return 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
+		if (health === 'unhealthy') return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400';
 	}
 
 	function formatDate(s: string): string {
@@ -183,10 +183,10 @@
 
 <!-- Revoke confirm -->
 {#if revokingId}
-	<div class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center">
+	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center">
 		<Card class="p-6 max-w-sm w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 mb-2">确认撤销</h3>
-			<p class="text-sm text-zinc-600 mb-4">撤销后此 Key 将立即失效，所有使用该 Key 的请求都会失败。</p>
+			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认撤销</h3>
+			<p class="text-sm text-zinc-600 dark:text-zinc-400 mb-4">撤销后此 Key 将立即失效，所有使用该 Key 的请求都会失败。</p>
 			<div class="flex gap-2 justify-end">
 				<Button variant="outline" onclick={() => (revokingId = null)} disabled={revoking}>取消</Button>
 				<Button variant="destructive" onclick={handleRevoke} disabled={revoking}>
@@ -199,17 +199,17 @@
 
 <!-- Create modal -->
 {#if showCreate}
-	<div class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center">
+	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center">
 		<Card class="p-6 max-w-lg w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 mb-1">创建 Channel Key</h3>
-			<div class="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4">
-				<p class="text-xs text-amber-800">
+			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">创建 Channel Key</h3>
+			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
+				<p class="text-xs text-amber-800 dark:text-amber-300">
 					Secret 为上游服务商 API Key 明文（如 OpenAI sk-...），将加密存储，提交后不可查看。
 				</p>
 			</div>
 			<form onsubmit={handleCreate} class="space-y-3">
 				<div>
-					<label for="create-secret" class="block text-sm font-medium text-zinc-700 mb-1">
+					<label for="create-secret" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
 						Secret <span class="text-red-500">*</span>
 					</label>
 					<textarea
@@ -218,11 +218,11 @@
 						disabled={creating}
 						rows="3"
 						placeholder="sk-..."
-						class="flex w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-zinc-900 disabled:opacity-50 resize-none"
+						class="flex w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50 resize-none"
 					></textarea>
 				</div>
 				<div>
-					<label for="create-alias" class="block text-sm font-medium text-zinc-700 mb-1">
+					<label for="create-alias" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
 						别名（可选）
 					</label>
 					<Input
@@ -233,7 +233,7 @@
 					/>
 				</div>
 				{#if createError}
-					<p class="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{createError}</p>
+					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{createError}</p>
 				{/if}
 				<div class="flex gap-2 justify-end">
 					<Button variant="outline" type="button" onclick={closeCreate} disabled={creating}>取消</Button>
@@ -248,17 +248,17 @@
 
 <!-- Rotate modal -->
 {#if showRotate}
-	<div class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center">
+	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center">
 		<Card class="p-6 max-w-lg w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 mb-1">轮转 Channel Key</h3>
-			<div class="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4">
-				<p class="text-xs text-amber-800">
+			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">轮转 Channel Key</h3>
+			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
+				<p class="text-xs text-amber-800 dark:text-amber-300">
 					轮转将创建新 Key 并自动撤销当前所有旧 Key。Secret 为上游 API Key 明文。
 				</p>
 			</div>
 			<form onsubmit={handleRotate} class="space-y-3">
 				<div>
-					<label for="rotate-secret" class="block text-sm font-medium text-zinc-700 mb-1">
+					<label for="rotate-secret" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
 						新 Secret <span class="text-red-500">*</span>
 					</label>
 					<textarea
@@ -267,11 +267,11 @@
 						disabled={rotating}
 						rows="3"
 						placeholder="sk-..."
-						class="flex w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-zinc-900 disabled:opacity-50 resize-none"
+						class="flex w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50 resize-none"
 					></textarea>
 				</div>
 				<div>
-					<label for="rotate-alias" class="block text-sm font-medium text-zinc-700 mb-1">
+					<label for="rotate-alias" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
 						别名（可选）
 					</label>
 					<Input
@@ -282,7 +282,7 @@
 					/>
 				</div>
 				{#if rotateError}
-					<p class="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{rotateError}</p>
+					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{rotateError}</p>
 				{/if}
 				<div class="flex gap-2 justify-end">
 					<Button variant="outline" type="button" onclick={closeRotate} disabled={rotating}>取消</Button>
@@ -297,19 +297,19 @@
 
 <div>
 	<!-- 面包屑 -->
-	<div class="bg-white border-b border-zinc-200 px-6 py-2 flex items-center gap-3">
-		<button onclick={() => goto('/channels')} class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">
+	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
+		<button onclick={() => goto('/channels')} class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
 			← 渠道列表
 		</button>
-		<span class="text-zinc-300">/</span>
-		<span class="text-sm font-mono text-zinc-600">{channelId}</span>
-		<span class="text-zinc-300">/</span>
-		<span class="text-sm font-medium text-zinc-900">Keys</span>
+		<span class="text-zinc-300 dark:text-zinc-600">/</span>
+		<span class="text-sm font-mono text-zinc-600 dark:text-zinc-400">{channelId}</span>
+		<span class="text-zinc-300 dark:text-zinc-600">/</span>
+		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Keys</span>
 	</div>
 
 	<div class="max-w-5xl mx-auto p-6">
 		<div class="flex items-center justify-between mb-1">
-			<h1 class="text-2xl font-bold text-zinc-900">Channel Keys 管理</h1>
+			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Channel Keys 管理</h1>
 			{#if isPlatformAdmin}
 				<div class="flex gap-2">
 					<Button variant="outline" size="sm" onclick={() => { showRotate = true; }}>
@@ -321,7 +321,7 @@
 				</div>
 			{/if}
 		</div>
-		<p class="text-sm text-zinc-500 mb-6">
+		<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
 			{#if isPlatformAdmin}
 				平台管理员可添加、轮转和撤销 Key。
 			{:else}
@@ -330,48 +330,48 @@
 		</p>
 
 		{#if loading}
-			<p class="text-zinc-500">加载中...</p>
+			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
 		{:else if error}
 			<Card class="p-6">
-				<p class="text-red-600 text-sm">{error}</p>
+				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if keys.length === 0}
 			<Card class="p-6">
-				<p class="text-zinc-500 text-sm">此 Channel 暂无 Key。
+				<p class="text-zinc-500 dark:text-zinc-400 text-sm">此 Channel 暂无 Key。
 					{#if isPlatformAdmin}点击「+ 添加 Key」创建第一个。{/if}
 				</p>
 			</Card>
 		{:else}
-			<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+			<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
 				<table class="w-full text-sm">
-					<thead class="bg-zinc-50 border-b border-zinc-200">
+					<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
 						<tr>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">Label</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">Fingerprint</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">Weight</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">Health</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600">创建时间</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Label</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Fingerprint</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Weight</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Health</th>
+							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">创建时间</th>
 							{#if isPlatformAdmin}
-								<th class="px-4 py-3 text-right font-medium text-zinc-600">操作</th>
+								<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">操作</th>
 							{/if}
 						</tr>
 					</thead>
-					<tbody class="divide-y divide-zinc-100">
+					<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 						{#each keys as key}
-							<tr class="hover:bg-zinc-50 transition-colors">
-								<td class="px-4 py-3 text-zinc-900">{key.label ?? '—'}</td>
-								<td class="px-4 py-3 font-mono text-xs text-zinc-600">{key.fingerprint}</td>
-								<td class="px-4 py-3 text-zinc-700">{key.weight}</td>
+							<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+								<td class="px-4 py-3 text-zinc-900 dark:text-zinc-100">{key.label ?? '—'}</td>
+								<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{key.fingerprint}</td>
+								<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{key.weight}</td>
 								<td class="px-4 py-3">
 									<span class="inline-block px-2 py-0.5 rounded text-xs font-medium {healthBadge(key.health)}">
 										{key.health}
 									</span>
 								</td>
-								<td class="px-4 py-3 text-zinc-600 text-xs">{formatDate(key.created_at)}</td>
+								<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{formatDate(key.created_at)}</td>
 								{#if isPlatformAdmin}
 									<td class="px-4 py-3 text-right">
 										<Button variant="ghost" size="sm" onclick={() => (revokingId = key.id)}>
-											<span class="text-red-600">撤销</span>
+											<span class="text-red-600 dark:text-red-400">撤销</span>
 										</Button>
 									</td>
 								{/if}

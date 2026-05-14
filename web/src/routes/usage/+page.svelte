@@ -117,7 +117,7 @@
 
 <div class="max-w-6xl mx-auto p-6">
 	<div class="flex items-center justify-between mb-6">
-		<h1 class="text-2xl font-bold text-zinc-900">用量仪表盘</h1>
+		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">用量仪表盘</h1>
 		<div class="flex gap-2">
 			<Button
 				variant={range === '7d' ? 'default' : 'outline'}
@@ -139,10 +139,10 @@
 	</div>
 
 	{#if loading}
-		<p class="text-zinc-500">加载中...</p>
+		<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
 	{:else if error}
 		<Card class="p-6">
-			<p class="text-red-600 text-sm">{error}</p>
+			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 		</Card>
 	{:else if usage}
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -165,12 +165,12 @@
 
 		<Card class="p-5">
 			<div class="flex items-center justify-between mb-3">
-				<h2 class="text-base font-semibold text-zinc-900">每日花费 (USD)</h2>
-				<p class="text-xs text-zinc-400 font-mono">{usage.series.length} buckets</p>
+				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">每日花费 (USD)</h2>
+				<p class="text-xs text-zinc-400 dark:text-zinc-500 font-mono">{usage.series.length} buckets</p>
 			</div>
 
 			{#if !chartPaths}
-				<p class="text-sm text-zinc-500 py-12 text-center">此区间无用量记录</p>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400 py-12 text-center">此区间无用量记录</p>
 			{:else}
 				<svg viewBox="0 0 {W} {H}" class="w-full h-auto">
 					<!-- Y 轴 grid + 标签 -->
@@ -180,27 +180,27 @@
 							y1={t.y}
 							x2={W - PAD.right}
 							y2={t.y}
-							stroke="#e4e4e7"
+							class="stroke-zinc-200 dark:stroke-zinc-700"
 							stroke-dasharray="3,3"
 						/>
 						<text
 							x={PAD.left - 8}
 							y={t.y + 3}
 							text-anchor="end"
-							class="fill-zinc-400 text-[10px] font-mono"
+							class="fill-zinc-400 dark:fill-zinc-500 text-[10px] font-mono"
 						>
 							${t.value.toFixed(3)}
 						</text>
 					{/each}
 
 					<!-- area fill -->
-					<path d={chartPaths.area} fill="#18181b" fill-opacity="0.06" />
+					<path d={chartPaths.area} class="fill-zinc-900 dark:fill-zinc-300" fill-opacity="0.06" />
 
 					<!-- line -->
 					<path
 						d={chartPaths.path}
 						fill="none"
-						stroke="#18181b"
+						class="stroke-zinc-900 dark:stroke-zinc-300"
 						stroke-width="2"
 						stroke-linejoin="round"
 						stroke-linecap="round"
@@ -208,7 +208,7 @@
 
 					<!-- 数据点 -->
 					{#each chartPaths.points as p}
-						<circle cx={p.x} cy={p.y} r="3.5" fill="#18181b" />
+						<circle cx={p.x} cy={p.y} r="3.5" class="fill-zinc-900 dark:fill-zinc-300" />
 						<title>{p.key}: ${p.cost.toFixed(4)}</title>
 					{/each}
 
@@ -219,7 +219,7 @@
 								x={p.x}
 								y={H - 8}
 								text-anchor="middle"
-								class="fill-zinc-500 text-[10px] font-mono"
+								class="fill-zinc-500 dark:fill-zinc-400 text-[10px] font-mono"
 							>
 								{p.key.slice(5)}
 							</text>
@@ -229,7 +229,7 @@
 			{/if}
 		</Card>
 
-		<p class="mt-4 text-xs text-zinc-400">
+		<p class="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
 			Org：<span class="font-mono">{currentOrg ?? '全平台 (SuperAdmin)'}</span> · 数据范围
 			{usage.from.slice(0, 10)} → {usage.to.slice(0, 10)}
 		</p>

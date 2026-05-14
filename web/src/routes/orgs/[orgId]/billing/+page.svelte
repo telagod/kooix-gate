@@ -124,25 +124,25 @@
 
 <div>
 	<!-- 面包屑 -->
-	<div class="bg-white border-b border-zinc-200 px-6 py-2 flex items-center gap-3">
+	<div class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-6 py-2 flex items-center gap-3">
 		<button
 			onclick={() => goto('/orgs')}
-			class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors"
+			class="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
 		>
 			← 组织列表
 		</button>
-		<span class="text-zinc-300">/</span>
-		<span class="text-sm font-medium text-zinc-900 font-mono">{orgId.slice(0, 8)}...</span>
-		<span class="text-zinc-300">/</span>
-		<span class="text-sm font-medium text-zinc-900">账单</span>
+		<span class="text-zinc-300 dark:text-zinc-600">/</span>
+		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100 font-mono">{orgId.slice(0, 8)}...</span>
+		<span class="text-zinc-300 dark:text-zinc-600">/</span>
+		<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">账单</span>
 	</div>
 
 	<div class="max-w-5xl mx-auto p-6">
 		<!-- 标题行 -->
 		<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
 			<div>
-				<h1 class="text-2xl font-bold text-zinc-900">月账单</h1>
-				<p class="text-sm text-zinc-500 mt-1">按月查看费用明细，支持导出 CSV。</p>
+				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">月账单</h1>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">按月查看费用明细，支持导出 CSV。</p>
 			</div>
 
 			<div class="flex items-center gap-3 flex-wrap">
@@ -151,7 +151,7 @@
 					bind:value={selectedMonth}
 					onchange={handleMonthChange}
 					disabled={loading}
-					class="flex h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 disabled:opacity-50"
+					class="flex h-10 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50"
 				>
 					{#each monthOptions as opt}
 						<option value={opt.value}>{opt.label}</option>
@@ -166,14 +166,14 @@
 		</div>
 
 		{#if exportError}
-			<p class="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2 mb-4">{exportError}</p>
+			<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2 mb-4">{exportError}</p>
 		{/if}
 
 		{#if loading}
-			<p class="text-zinc-500">加载中...</p>
+			<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
 		{:else if error}
 			<Card class="p-6">
-				<p class="text-red-600 text-sm">{error}</p>
+				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if bill}
 			<!-- ── 统计卡片 ── -->
@@ -202,29 +202,29 @@
 
 			<!-- ── 按项目分解 ── -->
 			<div class="mb-8">
-				<h2 class="text-sm font-semibold text-zinc-700 uppercase tracking-wider mb-3">
+				<h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-3">
 					按项目分解
 				</h2>
 				{#if bill.breakdown_by_project.length === 0}
 					<Card class="p-4">
-						<p class="text-sm text-zinc-500">本月无项目用量记录。</p>
+						<p class="text-sm text-zinc-500 dark:text-zinc-400">本月无项目用量记录。</p>
 					</Card>
 				{:else}
-					<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+					<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
 						<table class="w-full text-sm">
-							<thead class="bg-zinc-50 border-b border-zinc-200">
+							<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
 								<tr>
-									<th class="px-4 py-3 text-left font-medium text-zinc-600">Project ID</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600">费用 (USD)</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600">请求次数</th>
+									<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Project ID</th>
+									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">费用 (USD)</th>
+									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">请求次数</th>
 								</tr>
 							</thead>
-							<tbody class="divide-y divide-zinc-100">
+							<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 								{#each bill.breakdown_by_project as row}
-									<tr class="hover:bg-zinc-50 transition-colors">
-										<td class="px-4 py-3 font-mono text-xs text-zinc-600">{row.project_id}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-900">{fmtCost(row.cost_usd)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700">{fmtNum(row.requests)}</td>
+									<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+										<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.project_id}</td>
+										<td class="px-4 py-3 text-right font-mono text-zinc-900 dark:text-zinc-100">{fmtCost(row.cost_usd)}</td>
+										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.requests)}</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -235,33 +235,33 @@
 
 			<!-- ── 按模型分解 ── -->
 			<div class="mb-8">
-				<h2 class="text-sm font-semibold text-zinc-700 uppercase tracking-wider mb-3">
+				<h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-3">
 					按模型分解
 				</h2>
 				{#if bill.breakdown_by_model.length === 0}
 					<Card class="p-4">
-						<p class="text-sm text-zinc-500">本月无模型用量记录。</p>
+						<p class="text-sm text-zinc-500 dark:text-zinc-400">本月无模型用量记录。</p>
 					</Card>
 				{:else}
-					<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+					<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
 						<table class="w-full text-sm">
-							<thead class="bg-zinc-50 border-b border-zinc-200">
+							<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
 								<tr>
-									<th class="px-4 py-3 text-left font-medium text-zinc-600">模型</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600">费用 (USD)</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600">输入 Tokens</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600">输出 Tokens</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600">请求次数</th>
+									<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">模型</th>
+									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">费用 (USD)</th>
+									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">输入 Tokens</th>
+									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">输出 Tokens</th>
+									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">请求次数</th>
 								</tr>
 							</thead>
-							<tbody class="divide-y divide-zinc-100">
+							<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 								{#each bill.breakdown_by_model as row}
-									<tr class="hover:bg-zinc-50 transition-colors">
-										<td class="px-4 py-3 font-medium text-zinc-900">{row.model}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-900">{fmtCost(row.cost_usd)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700">{fmtNum(row.tokens_in)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700">{fmtNum(row.tokens_out)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700">{fmtNum(row.requests)}</td>
+									<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+										<td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{row.model}</td>
+										<td class="px-4 py-3 text-right font-mono text-zinc-900 dark:text-zinc-100">{fmtCost(row.cost_usd)}</td>
+										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.tokens_in)}</td>
+										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.tokens_out)}</td>
+										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.requests)}</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -274,27 +274,27 @@
 		<!-- ── 配额告警区域（独立于账单，始终尝试渲染） ── -->
 		{#if !loading && alerts.length > 0}
 			<div class="mb-6">
-				<h2 class="text-sm font-semibold text-zinc-700 uppercase tracking-wider mb-3">
+				<h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-3">
 					配额告警
 				</h2>
 
 				{#if exceeded.length > 0}
 					<div class="mb-4">
-						<p class="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">
+						<p class="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider mb-2">
 							已超限 ({exceeded.length})
 						</p>
 						<div class="space-y-2">
 							{#each exceeded as alert}
-								<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+								<div class="rounded-lg border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/20 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
 									<div class="flex items-center gap-3">
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">
+										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
 											超限
 										</span>
-										<span class="text-sm font-medium text-red-900">{alert.dimension}</span>
-										<span class="text-xs text-red-600">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-red-500">{alert.scope_id.slice(0, 8)}…</span>
+										<span class="text-sm font-medium text-red-900 dark:text-red-300">{alert.dimension}</span>
+										<span class="text-xs text-red-600 dark:text-red-400">{scopeLabel(alert.scope_kind)}</span>
+										<span class="text-xs font-mono text-red-500 dark:text-red-400">{alert.scope_id.slice(0, 8)}…</span>
 									</div>
-									<div class="flex items-center gap-4 text-xs text-red-700 tabular-nums">
+									<div class="flex items-center gap-4 text-xs text-red-700 dark:text-red-400 tabular-nums">
 										<span>当前：<strong>{fmtNum(alert.current_value)}</strong></span>
 										<span>限额：<strong>{fmtNum(alert.limit_value)}</strong></span>
 										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
@@ -307,21 +307,21 @@
 
 				{#if approaching.length > 0}
 					<div>
-						<p class="text-xs font-semibold text-yellow-600 uppercase tracking-wider mb-2">
+						<p class="text-xs font-semibold text-yellow-600 dark:text-yellow-400 uppercase tracking-wider mb-2">
 							接近限额 ({approaching.length})
 						</p>
 						<div class="space-y-2">
 							{#each approaching as alert}
-								<div class="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+								<div class="rounded-lg border border-yellow-200 dark:border-yellow-700 bg-yellow-50 dark:bg-amber-900/20 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
 									<div class="flex items-center gap-3">
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 text-yellow-700">
+										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 dark:bg-amber-900/30 text-yellow-700 dark:text-amber-400">
 											接近
 										</span>
-										<span class="text-sm font-medium text-yellow-900">{alert.dimension}</span>
-										<span class="text-xs text-yellow-600">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-yellow-500">{alert.scope_id.slice(0, 8)}…</span>
+										<span class="text-sm font-medium text-yellow-900 dark:text-amber-300">{alert.dimension}</span>
+										<span class="text-xs text-yellow-600 dark:text-amber-400">{scopeLabel(alert.scope_kind)}</span>
+										<span class="text-xs font-mono text-yellow-500 dark:text-amber-400">{alert.scope_id.slice(0, 8)}…</span>
 									</div>
-									<div class="flex items-center gap-4 text-xs text-yellow-700 tabular-nums">
+									<div class="flex items-center gap-4 text-xs text-yellow-700 dark:text-amber-400 tabular-nums">
 										<span>当前：<strong>{fmtNum(alert.current_value)}</strong></span>
 										<span>限额：<strong>{fmtNum(alert.limit_value)}</strong></span>
 										<span class="font-bold">{alert.percent.toFixed(1)}%</span>

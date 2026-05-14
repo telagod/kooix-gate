@@ -11,6 +11,6 @@
 	} = $props();
 </script>
 
-<div class={clsx('rounded-lg border border-zinc-200 bg-white shadow-sm', className)}>
+<div class={clsx('rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm dark:shadow-zinc-900/30', className)}>
 	{@render children?.()}
 </div>

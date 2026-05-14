@@ -109,9 +109,9 @@
 	}
 
 	function outcomeBadge(outcome: string): string {
-		if (outcome === 'success' || outcome === 'ok') return 'bg-green-50 text-green-700';
-		if (outcome === 'denied' || outcome === 'forbidden') return 'bg-red-50 text-red-700';
-		return 'bg-zinc-100 text-zinc-500';
+		if (outcome === 'success' || outcome === 'ok') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+		if (outcome === 'denied' || outcome === 'forbidden') return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400';
 	}
 
 	let currentPage = $derived(Math.floor(offset / LIMIT) + 1);
@@ -121,16 +121,16 @@
 
 <div class="max-w-6xl mx-auto p-6">
 	<div class="flex items-center justify-between mb-1">
-		<h1 class="text-2xl font-bold text-zinc-900">审计日志</h1>
+		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">审计日志</h1>
 		{#if isPlatformAdmin && orgs.length > 0}
 			<div class="flex items-center gap-2">
-				<label for="org-select" class="text-sm text-zinc-600">Org：</label>
+				<label for="org-select" class="text-sm text-zinc-600 dark:text-zinc-400">Org：</label>
 				<select
 					id="org-select"
 					bind:value={selectedOrg}
 					onchange={handleOrgChange}
 					disabled={loading}
-					class="h-9 rounded-md border border-zinc-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 disabled:opacity-50"
+					class="h-9 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 disabled:opacity-50"
 				>
 					{#each orgs as org}
 						<option value={org}>{org}</option>
@@ -139,53 +139,53 @@
 			</div>
 		{/if}
 	</div>
-	<p class="text-sm text-zinc-500 mb-6">平台级审计记录，仅 Platform Admin 可见。</p>
+	<p class="text-sm text-zinc-500 dark:text-zinc-400 mb-6">平台级审计记录，仅 Platform Admin 可见。</p>
 
 	{#if !isPlatformAdmin}
 		<Card class="p-8 text-center">
-			<p class="text-zinc-500 text-sm">无访问权限。审计日志仅限 Platform Admin 查看。</p>
+			<p class="text-zinc-500 dark:text-zinc-400 text-sm">无访问权限。审计日志仅限 Platform Admin 查看。</p>
 		</Card>
 	{:else if !selectedOrg}
 		<Card class="p-6">
-			<p class="text-zinc-500 text-sm">当前账号没有关联任何 Org，无法查询审计日志。</p>
+			<p class="text-zinc-500 dark:text-zinc-400 text-sm">当前账号没有关联任何 Org，无法查询审计日志。</p>
 		</Card>
 	{:else if loading}
-		<p class="text-zinc-500">加载中...</p>
+		<p class="text-zinc-500 dark:text-zinc-400">加载中...</p>
 	{:else if error}
 		<Card class="p-6">
-			<p class="text-red-600 text-sm">{error}</p>
+			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 		</Card>
 	{:else if logs.length === 0}
 		<Card class="p-6">
-			<p class="text-zinc-500 text-sm">此 Org 暂无审计记录。</p>
+			<p class="text-zinc-500 dark:text-zinc-400 text-sm">此 Org 暂无审计记录。</p>
 		</Card>
 	{:else}
-		<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white mb-4">
+		<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 mb-4">
 			<table class="w-full text-sm">
-				<thead class="bg-zinc-50 border-b border-zinc-200">
+				<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
 					<tr>
-						<th class="px-4 py-3 text-left font-medium text-zinc-600">时间</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-600">操作者</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-600">动作</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-600">资源类型</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-600">资源 ID</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-600">结果</th>
-						<th class="px-4 py-3 text-right font-medium text-zinc-600"></th>
+						<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">时间</th>
+						<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">操作者</th>
+						<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">动作</th>
+						<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">资源类型</th>
+						<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">资源 ID</th>
+						<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">结果</th>
+						<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400"></th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-zinc-100">
+				<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 					{#each logs as log}
 						<tr
-							class="hover:bg-zinc-50 transition-colors cursor-pointer {expandedId === log.id ? 'bg-zinc-50' : ''}"
+							class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer {expandedId === log.id ? 'bg-zinc-50 dark:bg-zinc-800' : ''}"
 							onclick={() => toggleExpand(log.id)}
 						>
-							<td class="px-4 py-3 text-xs text-zinc-600 whitespace-nowrap">{formatDate(log.ts)}</td>
-							<td class="px-4 py-3 font-mono text-xs text-zinc-700">
-								<span class="text-zinc-400">{log.actor_kind}/</span>{log.actor_id?.slice(0, 8) ?? '—'}
+							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{formatDate(log.ts)}</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+								<span class="text-zinc-400 dark:text-zinc-500">{log.actor_kind}/</span>{log.actor_id?.slice(0, 8) ?? '—'}
 							</td>
-							<td class="px-4 py-3 font-mono text-xs text-zinc-900">{log.action}</td>
-							<td class="px-4 py-3 text-xs text-zinc-600">{log.resource_kind}</td>
-							<td class="px-4 py-3 font-mono text-xs text-zinc-600">{log.resource_id?.slice(0, 8) ?? '—'}</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-900 dark:text-zinc-100">{log.action}</td>
+							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">{log.resource_kind}</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{log.resource_id?.slice(0, 8) ?? '—'}</td>
 							<td class="px-4 py-3">
 								<span class="inline-block px-2 py-0.5 rounded text-xs font-medium {outcomeBadge(log.outcome)}">
 									{log.outcome}
@@ -193,15 +193,15 @@
 							</td>
 							<td class="px-4 py-3 text-right">
 								{#if log.after !== null}
-									<span class="text-xs text-zinc-400">{expandedId === log.id ? '▲' : '▼'}</span>
+									<span class="text-xs text-zinc-400 dark:text-zinc-500">{expandedId === log.id ? '▲' : '▼'}</span>
 								{/if}
 							</td>
 						</tr>
 						{#if expandedId === log.id && log.after !== null}
-							<tr class="bg-zinc-50">
+							<tr class="bg-zinc-50 dark:bg-zinc-800">
 								<td colspan="7" class="px-4 py-3">
-									<div class="text-xs text-zinc-600 font-medium mb-1">After</div>
-									<pre class="bg-white border border-zinc-200 rounded-md p-3 text-xs font-mono text-zinc-800 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(log.after, null, 2)}</pre>
+									<div class="text-xs text-zinc-600 dark:text-zinc-400 font-medium mb-1">After</div>
+									<pre class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-md p-3 text-xs font-mono text-zinc-800 dark:text-zinc-200 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(log.after, null, 2)}</pre>
 								</td>
 							</tr>
 						{/if}
@@ -211,7 +211,7 @@
 		</div>
 
 		<!-- 分页 -->
-		<div class="flex items-center justify-between text-sm text-zinc-600">
+		<div class="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
 			<span>第 {currentPage} 页 · 显示 {logs.length} 条</span>
 			<div class="flex gap-2">
 				<Button variant="outline" size="sm" onclick={prevPage} disabled={!hasPrev || loading}>
