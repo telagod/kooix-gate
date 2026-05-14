@@ -45,7 +45,8 @@
 	function active(pattern: string): boolean {
 		if (pattern === '/dashboard') return currentPath === '/dashboard';
 		if (pattern === '/orgs') return currentPath === '/orgs' || (currentPath.startsWith('/orgs/') && !currentPath.includes('/projects') && !currentPath.includes('/billing') && !currentPath.includes('/quotas'));
-		if (pattern === '/usage') return currentPath.startsWith('/usage');
+		if (pattern === '/usage') return currentPath === '/usage';
+		if (pattern === '/usage/requests') return currentPath.startsWith('/usage/requests');
 		if (pattern === '/playground') return currentPath.startsWith('/playground');
 		if (pattern === '/settings') return currentPath.startsWith('/settings');
 		if (pattern === '/channels') return currentPath === '/channels' || currentPath.startsWith('/channels/');
@@ -123,6 +124,10 @@
 			<a href="/usage" class={linkCls('/usage')} title={collapsed ? '用量' : ''}>
 				<BarChart3 size={iconSize} />
 				{#if !collapsed}<span class="truncate">用量</span>{/if}
+			</a>
+			<a href="/usage/requests" class={linkCls('/usage/requests')} title={collapsed ? '请求记录' : ''}>
+				<ScrollText size={iconSize} />
+				{#if !collapsed}<span class="truncate">请求记录</span>{/if}
 			</a>
 			<a href="/playground" class={linkCls('/playground')} title={collapsed ? 'Playground' : ''}>
 				<MessageSquare size={iconSize} />

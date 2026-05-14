@@ -982,6 +982,47 @@ export async function getRequest(requestId: string): Promise<RequestRecord> {
 	return apiFetch<RequestRecord>(`/v1/admin/requests/${requestId}`);
 }
 
+// ── Org-scoped Request Logs ──────────────────────
+
+export interface OrgRequestListParams {
+	project_id?: string;
+	channel_id?: string;
+	model?: string;
+	status_min?: number;
+	status_max?: number;
+	error_only?: boolean;
+	from?: string;
+	to?: string;
+	search?: string;
+	cursor?: string;
+	limit?: number;
+}
+
+export async function listOrgRequests(orgId: string, params: OrgRequestListParams = {}): Promise<RequestPage> {
+	const qs = new URLSearchParams();
+	if (params.project_id) qs.set('project_id', params.project_id);
+	if (params.channel_id) qs.set('channel_id', params.channel_id);
+	if (params.model) qs.set('model', params.model);
+	if (params.status_min != null) qs.set('status_min', String(params.status_min));
+	if (params.status_max != null) qs.set('status_max', String(params.status_max));
+	if (params.error_only) qs.set('error_only', 'true');
+	if (params.from) qs.set('from', params.from);
+	if (params.to) qs.set('to', params.to);
+	if (params.search) qs.set('search', params.search);
+	if (params.cursor) qs.set('cursor', params.cursor);
+	if (params.limit) qs.set('limit', String(params.limit));
+	const q = qs.toString();
+	return apiFetch<RequestPage>(`/v1/orgs/${orgId}/requests${q ? '?' + q : ''}`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function getOrgRequest(orgId: string, requestId: string): Promise<RequestRecord> {
+	return apiFetch<RequestRecord>(`/v1/orgs/${orgId}/requests/${requestId}`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
 // ── Dashboard Stats (Admin) ──────────────────────
 
 export interface ModelRank {

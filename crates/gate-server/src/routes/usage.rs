@@ -12,13 +12,13 @@
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Duration, Utc};
 use gate_auth::{AuthError, require, require_user};
 use gate_core::id::OrgId;
 use gate_core::rbac::{Permission, Scope};
-use gate_storage::UsageGroupBy;
+use gate_storage::{RequestFilter, UsageGroupBy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -54,7 +54,10 @@ pub struct UsageResponse {
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/usage", get(get_usage))
+    Router::new()
+        .route("/usage", get(get_usage))
+        .route("/orgs/:org_id/requests", get(list_org_requests))
+        .route("/orgs/:org_id/requests/:request_id", get(get_org_request))
 }
 
 async fn get_usage(
@@ -158,4 +161,83 @@ fn resolve_target_org(
     Err(AppError::BadRequest(
         "current_org missing; set X-Kooix-Org header or pass org_id=".into(),
     ))
+}
+
+// ============================================================================
+// Org-scoped Request Logs (普通用户可看自己 Org 的请求)
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct OrgRequestListQuery {
+    pub project_id: Option<Uuid>,
+    pub channel_id: Option<Uuid>,
+    pub model: Option<String>,
+    pub status_min: Option<i16>,
+    pub status_max: Option<i16>,
+    pub error_only: Option<bool>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    pub search: Option<String>,
+    pub cursor: Option<String>,
+    #[serde(default = "default_request_limit")]
+    pub limit: i64,
+}
+
+fn default_request_limit() -> i64 { 50 }
+
+async fn list_org_requests(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path(org_id): Path<Uuid>,
+    Query(q): Query<OrgRequestListQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    let org = OrgId::from(org_id);
+    require!(ctx, Permission::UsageRead, Scope::Org(&org));
+
+    let filter = RequestFilter {
+        org_id: Some(org_id),
+        project_id: q.project_id,
+        channel_id: q.channel_id,
+        api_key_id: None,
+        model: q.model,
+        status_min: q.status_min,
+        status_max: q.status_max,
+        error_only: q.error_only,
+        from: q.from,
+        to: q.to,
+        search: q.search,
+    };
+
+    let limit = q.limit.clamp(1, 100);
+    let page = app
+        .repos
+        .request_logs
+        .list(&filter, q.cursor.as_deref(), limit)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "data": page.data,
+        "next_cursor": page.next_cursor,
+        "has_more": page.has_more,
+    })))
+}
+
+async fn get_org_request(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path((org_id, request_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    let org = OrgId::from(org_id);
+    require!(ctx, Permission::UsageRead, Scope::Org(&org));
+
+    let record = app.repos.request_logs.find_by_request_id(request_id).await?;
+
+    // 确保请求属于该 Org
+    if record.org_id != org_id {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(Json(serde_json::to_value(&record).unwrap_or_default()))
 }
