@@ -55,6 +55,7 @@ fn build_router(
     group_repo.seed_group(ChannelGroupRecord {
         group_id,
         name: "bench-group".to_string(),
+        description: String::new(),
         strategy: strategy.to_string(),
         fallback_group_id: None,
         enabled: true,
@@ -210,6 +211,7 @@ fn bench_route_model_not_found(c: &mut Criterion) {
     group_repo.seed_group(ChannelGroupRecord {
         group_id,
         name: "bench-group".to_string(),
+        description: String::new(),
         strategy: "priority".to_string(),
         fallback_group_id: None,
         enabled: true,

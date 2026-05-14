@@ -50,6 +50,8 @@ pub struct ChannelBinding {
     pub weight: i32,
     /// Binding-level model filter. Empty = no restriction (use channel.supported_models).
     pub model_filter: Vec<String>,
+    /// Whether this binding is enabled.
+    pub enabled: bool,
 }
 
 /// 创建 Channel 的入参。
@@ -182,6 +184,7 @@ impl ChannelRepo for PgChannelRepo {
                     priority: r.try_get("priority")?,
                     weight: r.try_get("weight")?,
                     model_filter: r.try_get("model_filter").unwrap_or_default(),
+                    enabled: true, // this query only fetches enabled bindings
                 })
             })
             .collect()
@@ -315,6 +318,7 @@ impl ChannelRepo for PgChannelRepo {
 pub struct ChannelGroupRecord {
     pub group_id: ChannelGroupId,
     pub name: String,
+    pub description: String,
     pub strategy: String,
     pub fallback_group_id: Option<ChannelGroupId>,
     pub enabled: bool,
@@ -328,11 +332,18 @@ pub trait ChannelGroupRepo: Send + Sync + 'static {
     async fn find_default_for_project(&self, project_id: ProjectId) -> DbResult<ChannelGroupRecord>;
     async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>>;
     async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord>;
-    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>) -> DbResult<ChannelGroupRecord>;
+    /// Update group fields. `fallback_group_id`: outer None = don't change, Some(None) = clear, Some(Some(id)) = set.
+    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>, fallback_group_id: Option<Option<ChannelGroupId>>, description: Option<&str>) -> DbResult<ChannelGroupRecord>;
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()>;
     async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>>;
     async fn add_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId, priority: i32, weight: i32) -> DbResult<()>;
     async fn remove_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId) -> DbResult<()>;
+    /// Update binding fields (all optional — None means keep current).
+    async fn update_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId, priority: Option<i32>, weight: Option<i32>, model_filter: Option<Vec<String>>, enabled: Option<bool>) -> DbResult<()>;
+    /// List projects whose `default_group_id` references this group.
+    async fn list_projects_using_group(&self, group_id: ChannelGroupId) -> DbResult<Vec<ProjectId>>;
+    /// Set a project's default_group_id.
+    async fn set_project_default_group(&self, project_id: ProjectId, group_id: Option<ChannelGroupId>) -> DbResult<()>;
 }
 
 pub struct PgChannelGroupRepo {
@@ -351,6 +362,7 @@ fn row_to_group(row: &sqlx::postgres::PgRow) -> DbResult<ChannelGroupRecord> {
     Ok(ChannelGroupRecord {
         group_id: ChannelGroupId::from(id),
         name: row.try_get("name")?,
+        description: row.try_get::<Option<String>, _>("description")?.unwrap_or_default(),
         strategy: row.try_get("strategy")?,
         fallback_group_id: fallback.map(ChannelGroupId::from),
         enabled: row.try_get("enabled")?,
@@ -363,7 +375,7 @@ fn row_to_group(row: &sqlx::postgres::PgRow) -> DbResult<ChannelGroupRecord> {
 impl ChannelGroupRepo for PgChannelGroupRepo {
     async fn find_by_id(&self, id: ChannelGroupId) -> DbResult<ChannelGroupRecord> {
         let row = sqlx::query(
-            "SELECT id, name, strategy, fallback_group_id, enabled, created_at, updated_at \
+            "SELECT id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at \
              FROM channel_groups WHERE id = $1",
         )
         .bind(id.as_uuid())
@@ -378,7 +390,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         project_id: ProjectId,
     ) -> DbResult<ChannelGroupRecord> {
         let row = sqlx::query(
-            "SELECT cg.id, cg.name, cg.strategy, cg.fallback_group_id, cg.enabled, \
+            "SELECT cg.id, cg.name, cg.description, cg.strategy, cg.fallback_group_id, cg.enabled, \
                     cg.created_at, cg.updated_at \
              FROM projects p \
              JOIN channel_groups cg ON cg.id = p.default_group_id \
@@ -393,7 +405,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
 
     async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>> {
         let rows = sqlx::query(
-            "SELECT id, name, strategy, fallback_group_id, enabled, created_at, updated_at \
+            "SELECT id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at \
              FROM channel_groups ORDER BY created_at ASC",
         )
         .fetch_all(&self.pool)
@@ -404,7 +416,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
     async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord> {
         let row = sqlx::query(
             "INSERT INTO channel_groups (name, strategy) VALUES ($1, $2) \
-             RETURNING id, name, strategy, fallback_group_id, enabled, created_at, updated_at",
+             RETURNING id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at",
         )
         .bind(name)
         .bind(strategy)
@@ -419,20 +431,34 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         name: Option<&str>,
         strategy: Option<&str>,
         enabled: Option<bool>,
+        fallback_group_id: Option<Option<ChannelGroupId>>,
+        description: Option<&str>,
     ) -> DbResult<ChannelGroupRecord> {
+        // $6 = boolean flag: true means "apply fallback change", false means "keep current"
+        // $7 = the new fallback_group_id (may be NULL to clear)
+        let change_fallback = fallback_group_id.is_some();
+        let new_fallback: Option<Uuid> = fallback_group_id
+            .flatten()
+            .map(|gid| *gid.as_uuid());
+
         let row = sqlx::query(
             "UPDATE channel_groups SET \
              name = COALESCE($2, name), \
              strategy = COALESCE($3, strategy), \
              enabled = COALESCE($4, enabled), \
+             description = COALESCE($5, description), \
+             fallback_group_id = CASE WHEN $6::boolean THEN $7 ELSE fallback_group_id END, \
              updated_at = now() \
              WHERE id = $1 \
-             RETURNING id, name, strategy, fallback_group_id, enabled, created_at, updated_at",
+             RETURNING id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at",
         )
         .bind(id.as_uuid())
         .bind(name)
         .bind(strategy)
         .bind(enabled)
+        .bind(description)
+        .bind(change_fallback)
+        .bind(new_fallback)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(DbError::NotFound)?;
@@ -453,7 +479,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
             "SELECT c.id, c.code, c.name, c.provider_type, c.base_url, c.supported_models, \
                     c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
                     c.created_at, c.updated_at, \
-                    b.priority, b.weight, b.model_filter \
+                    b.priority, b.weight, b.model_filter, b.enabled \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
              WHERE b.group_id = $1 AND c.deleted_at IS NULL \
@@ -468,6 +494,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
                 priority: r.try_get("priority")?,
                 weight: r.try_get("weight")?,
                 model_filter: r.try_get("model_filter").unwrap_or_default(),
+                enabled: r.try_get("enabled").unwrap_or(true),
             }))
             .collect()
     }
@@ -506,6 +533,73 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         .execute(&self.pool)
         .await?;
         if res.rows_affected() == 0 { return Err(DbError::NotFound); }
+        Ok(())
+    }
+
+    async fn update_binding(
+        &self,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        priority: Option<i32>,
+        weight: Option<i32>,
+        model_filter: Option<Vec<String>>,
+        enabled: Option<bool>,
+    ) -> DbResult<()> {
+        let res = sqlx::query(
+            "UPDATE channel_group_bindings SET \
+             priority = COALESCE($3, priority), \
+             weight = COALESCE($4, weight), \
+             model_filter = COALESCE($5, model_filter), \
+             enabled = COALESCE($6, enabled) \
+             WHERE group_id = $1 AND channel_id = $2",
+        )
+        .bind(group_id.as_uuid())
+        .bind(channel_id.as_uuid())
+        .bind(priority)
+        .bind(weight)
+        .bind(model_filter.as_deref())
+        .bind(enabled)
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn list_projects_using_group(
+        &self,
+        group_id: ChannelGroupId,
+    ) -> DbResult<Vec<ProjectId>> {
+        let rows = sqlx::query(
+            "SELECT id FROM projects WHERE default_group_id = $1",
+        )
+        .bind(group_id.as_uuid())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| {
+            let id: Uuid = r.try_get("id").unwrap();
+            ProjectId::from(id)
+        }).collect())
+    }
+
+    async fn set_project_default_group(
+        &self,
+        project_id: ProjectId,
+        group_id: Option<ChannelGroupId>,
+    ) -> DbResult<()> {
+        let gid: Option<Uuid> = group_id.map(|g| *g.as_uuid());
+        let res = sqlx::query(
+            "UPDATE projects SET default_group_id = $1, updated_at = now() \
+             WHERE id = $2 AND deleted_at IS NULL",
+        )
+        .bind(gid)
+        .bind(project_id.as_uuid())
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 }
@@ -590,6 +684,7 @@ impl ChannelRepo for InMemoryChannelRepo {
                             priority: *priority,
                             weight: *weight,
                             model_filter: vec![],
+                            enabled: true,
                         })
                     } else {
                         None
@@ -761,19 +856,21 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         let now = Utc::now();
         let id = ChannelGroupId::from(Uuid::now_v7());
         let rec = ChannelGroupRecord {
-            group_id: id, name: name.to_string(), strategy: strategy.to_string(),
+            group_id: id, name: name.to_string(), description: String::new(), strategy: strategy.to_string(),
             fallback_group_id: None, enabled: true, created_at: now, updated_at: now,
         };
         self.inner.write().groups.insert(id, rec.clone());
         Ok(rec)
     }
 
-    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>) -> DbResult<ChannelGroupRecord> {
+    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>, fallback_group_id: Option<Option<ChannelGroupId>>, description: Option<&str>) -> DbResult<ChannelGroupRecord> {
         let mut inner = self.inner.write();
         let g = inner.groups.get_mut(&id).ok_or(DbError::NotFound)?;
         if let Some(n) = name { g.name = n.to_string(); }
         if let Some(s) = strategy { g.strategy = s.to_string(); }
         if let Some(e) = enabled { g.enabled = e; }
+        if let Some(d) = description { g.description = d.to_string(); }
+        if let Some(fb) = fallback_group_id { g.fallback_group_id = fb; }
         g.updated_at = Utc::now();
         Ok(g.clone())
     }
@@ -792,6 +889,27 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
     }
 
     async fn remove_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId) -> DbResult<()> {
+        Ok(())
+    }
+
+    async fn update_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId, _priority: Option<i32>, _weight: Option<i32>, _model_filter: Option<Vec<String>>, _enabled: Option<bool>) -> DbResult<()> {
+        Ok(())
+    }
+
+    async fn list_projects_using_group(&self, group_id: ChannelGroupId) -> DbResult<Vec<ProjectId>> {
+        let inner = self.inner.read();
+        Ok(inner.defaults.iter()
+            .filter(|(_, gid)| **gid == group_id)
+            .map(|(pid, _)| *pid)
+            .collect())
+    }
+
+    async fn set_project_default_group(&self, project_id: ProjectId, group_id: Option<ChannelGroupId>) -> DbResult<()> {
+        let mut inner = self.inner.write();
+        match group_id {
+            Some(gid) => { inner.defaults.insert(project_id, gid); }
+            None => { inner.defaults.remove(&project_id); }
+        }
         Ok(())
     }
 }

@@ -74,6 +74,7 @@ async fn provider_router_selects_highest_priority() {
     grp_repo.seed_group(ChannelGroupRecord {
         group_id,
         name: "test-group".to_string(),
+        description: String::new(),
         strategy: "priority".to_string(),
         fallback_group_id: None,
         enabled: true,
@@ -134,6 +135,7 @@ async fn full_chain_api_key_to_upstream() {
     grp_repo.seed_group(ChannelGroupRecord {
         group_id,
         name: "wm-group".to_string(),
+        description: String::new(),
         strategy: "priority".to_string(),
         fallback_group_id: None,
         enabled: true,

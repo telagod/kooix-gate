@@ -634,6 +634,10 @@ export interface ChannelGroup {
 	name: string;
 	strategy: string;
 	enabled: boolean;
+	description?: string;
+	fallback_group_id?: string | null;
+	channel_count?: number;
+	updated_at?: string;
 	created_at: string;
 }
 
@@ -644,20 +648,36 @@ export interface GroupBinding {
 	provider_type: string;
 	priority: number;
 	weight: number;
+	model_filter?: string[];
+	enabled?: boolean;
+	channel_status?: string;
+	channel_health?: string;
+}
+
+export interface GroupDetail {
+	group: ChannelGroup;
+	bindings: GroupBinding[];
+	project_ids: string[];
 }
 
 export async function listGroups(): Promise<ChannelGroup[]> {
 	return apiFetch<ChannelGroup[]>('/v1/admin/groups');
 }
 
-export async function createGroup(name: string, strategy: string): Promise<ChannelGroup> {
+export async function createGroup(name: string, strategy: string, description?: string, fallback_group_id?: string | null): Promise<ChannelGroup> {
 	return apiFetch<ChannelGroup>('/v1/admin/groups', {
 		method: 'POST',
-		body: JSON.stringify({ name, strategy })
+		body: JSON.stringify({ name, strategy, description, fallback_group_id })
 	});
 }
 
-export async function updateGroup(id: string, data: { name?: string; strategy?: string; enabled?: boolean }): Promise<ChannelGroup> {
+export async function updateGroup(id: string, data: {
+	name?: string;
+	strategy?: string;
+	enabled?: boolean;
+	description?: string;
+	fallback_group_id?: string | null;
+}): Promise<ChannelGroup> {
 	return apiFetch<ChannelGroup>(`/v1/admin/groups/${id}`, {
 		method: 'PUT',
 		body: JSON.stringify(data)
@@ -666,6 +686,10 @@ export async function updateGroup(id: string, data: { name?: string; strategy?: 
 
 export async function deleteGroup(id: string): Promise<void> {
 	return apiFetch(`/v1/admin/groups/${id}`, { method: 'DELETE' });
+}
+
+export async function getGroupDetail(groupId: string): Promise<GroupDetail> {
+	return apiFetch<GroupDetail>(`/v1/admin/groups/${groupId}/detail`);
 }
 
 export async function listGroupBindings(groupId: string): Promise<GroupBinding[]> {
@@ -679,8 +703,27 @@ export async function addGroupBinding(groupId: string, channelId: string, priori
 	});
 }
 
+export async function updateGroupBinding(groupId: string, channelId: string, data: {
+	priority?: number;
+	weight?: number;
+	model_filter?: string[];
+	enabled?: boolean;
+}): Promise<void> {
+	return apiFetch(`/v1/admin/groups/${groupId}/bindings/${channelId}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	});
+}
+
 export async function removeGroupBinding(groupId: string, channelId: string): Promise<void> {
 	return apiFetch(`/v1/admin/groups/${groupId}/bindings/${channelId}`, { method: 'DELETE' });
+}
+
+export async function setProjectDefaultGroup(projectId: string, groupId: string): Promise<void> {
+	return apiFetch(`/v1/admin/projects/${projectId}/default-group`, {
+		method: 'PUT',
+		body: JSON.stringify({ group_id: groupId })
+	});
 }
 
 // ── Model Aliases ─────────────────────────────────

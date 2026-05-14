@@ -1139,6 +1139,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id,
             name: "default".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1275,6 +1276,7 @@ mod tests {
         grp_repo.seed_group(gate_storage::ChannelGroupRecord {
             group_id,
             name: "default".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1335,6 +1337,7 @@ mod tests {
         grp_repo.seed_group(gate_storage::ChannelGroupRecord {
             group_id,
             name: "default".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1366,6 +1369,7 @@ mod tests {
         grp_repo.seed_group(gate_storage::ChannelGroupRecord {
             group_id,
             name: "default".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1413,6 +1417,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id,
             name: "default".to_string(),
+            description: String::new(),
             strategy: strategy.to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1602,6 +1607,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id: primary_group_id,
             name: "primary".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: Some(fallback_group_id),
             enabled: true,
@@ -1619,6 +1625,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id: fallback_group_id,
             name: "fallback".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1651,6 +1658,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id,
             name: "disabled".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: false, // disabled!
@@ -1684,6 +1692,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id: primary_id,
             name: "primary-disabled".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: Some(fallback_id),
             enabled: false,
@@ -1695,6 +1704,7 @@ mod tests {
         group_repo.seed_group(ChannelGroupRecord {
             group_id: fallback_id,
             name: "fallback-enabled".to_string(),
+            description: String::new(),
             strategy: "priority".to_string(),
             fallback_group_id: None,
             enabled: true,
@@ -1733,6 +1743,7 @@ mod tests {
             group_repo.seed_group(ChannelGroupRecord {
                 group_id: id,
                 name: name.to_string(),
+                description: String::new(),
                 strategy: "priority".to_string(),
                 fallback_group_id: fallback,
                 enabled: true,

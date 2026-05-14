@@ -118,6 +118,7 @@ async fn fixture() -> Fixture {
     grp_repo.seed_group(ChannelGroupRecord {
         group_id,
         name: "g".into(),
+        description: String::new(),
         strategy: "priority".into(),
         fallback_group_id: None,
         enabled: true,

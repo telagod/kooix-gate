@@ -105,7 +105,9 @@ pub fn router() -> Router<AppState> {
         .route("/groups", get(list_groups).post(create_group))
         .route("/groups/:id", axum::routing::put(update_group).delete(delete_group))
         .route("/groups/:id/bindings", get(list_group_bindings).post(add_group_binding))
-        .route("/groups/:id/bindings/:channel_id", axum::routing::delete(remove_group_binding))
+        .route("/groups/:id/bindings/:channel_id", axum::routing::put(update_group_binding).delete(remove_group_binding))
+        .route("/groups/:id/detail", get(get_group_detail))
+        .route("/projects/:id/default-group", axum::routing::put(set_project_default_group))
         .route("/orgs/:org_id/members", get(list_org_members).post(add_org_member))
         .route("/orgs/:org_id/members/:user_id", axum::routing::delete(remove_org_member_handler))
 }
@@ -731,9 +733,13 @@ fn user_to_view(u: gate_core::identity::User) -> UserView {
 pub struct GroupView {
     pub id: String,
     pub name: String,
+    pub description: String,
     pub strategy: String,
     pub enabled: bool,
+    pub fallback_group_id: Option<String>,
+    pub channel_count: i64,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Deserialize)]
@@ -747,6 +753,8 @@ pub struct UpdateGroupRequest {
     pub name: Option<String>,
     pub strategy: Option<String>,
     pub enabled: Option<bool>,
+    pub fallback_group_id: Option<Option<String>>,
+    pub description: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -757,6 +765,10 @@ pub struct BindingView {
     pub provider_type: String,
     pub priority: i32,
     pub weight: i32,
+    pub model_filter: Vec<String>,
+    pub enabled: bool,
+    pub channel_status: String,
+    pub channel_health: String,
 }
 
 #[derive(Deserialize)]
@@ -774,13 +786,22 @@ async fn list_groups(
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
     let groups = app.repos.channel_groups.list_all().await?;
-    Ok(Json(groups.into_iter().map(|g| GroupView {
-        id: g.group_id.as_uuid().to_string(),
-        name: g.name,
-        strategy: g.strategy,
-        enabled: g.enabled,
-        created_at: g.created_at,
-    }).collect()))
+    let mut views = Vec::with_capacity(groups.len());
+    for g in groups {
+        let bindings = app.repos.channel_groups.list_bindings(g.group_id).await?;
+        views.push(GroupView {
+            id: g.group_id.as_uuid().to_string(),
+            name: g.name,
+            description: g.description,
+            strategy: g.strategy,
+            enabled: g.enabled,
+            fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+            channel_count: bindings.len() as i64,
+            created_at: g.created_at,
+            updated_at: g.updated_at,
+        });
+    }
+    Ok(Json(views))
 }
 
 async fn create_group(
@@ -791,7 +812,7 @@ async fn create_group(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let valid = ["priority", "weighted_random", "round_robin", "least_conn"];
+    let valid = ["priority", "weighted_random", "round_robin", "least_conn", "least_latency"];
     if !valid.contains(&req.strategy.as_str()) {
         return Err(AppError::BadRequest(format!("strategy must be one of: {valid:?}")));
     }
@@ -801,7 +822,14 @@ async fn create_group(
 
     Ok(Json(GroupView {
         id: g.group_id.as_uuid().to_string(),
-        name: g.name, strategy: g.strategy, enabled: g.enabled, created_at: g.created_at,
+        name: g.name,
+        description: g.description,
+        strategy: g.strategy,
+        enabled: g.enabled,
+        fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+        channel_count: 0,
+        created_at: g.created_at,
+        updated_at: g.updated_at,
     }))
 }
 
@@ -814,13 +842,48 @@ async fn update_group(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
+    // Validate strategy if provided
+    if let Some(ref s) = req.strategy {
+        let valid = ["priority", "weighted_random", "round_robin", "least_conn", "least_latency"];
+        if !valid.contains(&s.as_str()) {
+            return Err(AppError::BadRequest(format!("strategy must be one of: {valid:?}")));
+        }
+    }
+
     let gid = gate_core::id::ChannelGroupId::from(id);
-    let g = app.repos.channel_groups.update(gid, req.name.as_deref(), req.strategy.as_deref(), req.enabled).await?;
+
+    // Parse fallback_group_id: Option<Option<String>> -> Option<Option<ChannelGroupId>>
+    let fallback: Option<Option<gate_core::id::ChannelGroupId>> = match req.fallback_group_id {
+        None => None,                   // don't change
+        Some(None) => Some(None),       // clear
+        Some(Some(ref s)) => {
+            let fb_uuid = s.parse::<Uuid>().map_err(|_| AppError::BadRequest("invalid fallback_group_id UUID".into()))?;
+            Some(Some(gate_core::id::ChannelGroupId::from(fb_uuid)))
+        }
+    };
+
+    let g = app.repos.channel_groups.update(
+        gid,
+        req.name.as_deref(),
+        req.strategy.as_deref(),
+        req.enabled,
+        fallback,
+        req.description.as_deref(),
+    ).await?;
     app.audit.emit(&ctx, "channel_group.update", "channel_group", Some(id), None);
+
+    let bindings = app.repos.channel_groups.list_bindings(gid).await?;
 
     Ok(Json(GroupView {
         id: g.group_id.as_uuid().to_string(),
-        name: g.name, strategy: g.strategy, enabled: g.enabled, created_at: g.created_at,
+        name: g.name,
+        description: g.description,
+        strategy: g.strategy,
+        enabled: g.enabled,
+        fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+        channel_count: bindings.len() as i64,
+        created_at: g.created_at,
+        updated_at: g.updated_at,
     }))
 }
 
@@ -856,6 +919,10 @@ async fn list_group_bindings(
         provider_type: b.channel.provider_type,
         priority: b.priority,
         weight: b.weight,
+        model_filter: b.model_filter,
+        enabled: b.enabled,
+        channel_status: b.channel.status,
+        channel_health: b.channel.health,
     }).collect()))
 }
 
@@ -888,6 +955,118 @@ async fn remove_group_binding(
     app.repos.channel_groups.remove_binding(gid, cid).await?;
 
     Ok(Json(serde_json::json!({"removed": true})))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateBindingRequest {
+    pub priority: Option<i32>,
+    pub weight: Option<i32>,
+    pub model_filter: Option<Vec<String>>,
+    pub enabled: Option<bool>,
+}
+
+async fn update_group_binding(
+    State(app): State<AppState>,
+    Path((id, channel_id)): Path<(Uuid, Uuid)>,
+    Authed(ctx): Authed,
+    Json(req): Json<UpdateBindingRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    let cid = gate_core::id::ChannelId::from(channel_id);
+    app.repos.channel_groups.update_binding(gid, cid, req.priority, req.weight, req.model_filter, req.enabled).await?;
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Serialize)]
+pub struct GroupDetailView {
+    #[serde(flatten)]
+    pub group: GroupView,
+    pub bindings: Vec<BindingView>,
+    pub projects_using: Vec<String>,
+}
+
+async fn get_group_detail(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<GroupDetailView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let gid = gate_core::id::ChannelGroupId::from(id);
+    let g = app.repos.channel_groups.find_by_id(gid).await?;
+    let bindings = app.repos.channel_groups.list_bindings(gid).await?;
+    let projects = app.repos.channel_groups.list_projects_using_group(gid).await?;
+
+    let binding_views: Vec<BindingView> = bindings.into_iter().map(|b| BindingView {
+        channel_id: b.channel.channel_id.as_uuid().to_string(),
+        channel_code: b.channel.code,
+        channel_name: b.channel.name,
+        provider_type: b.channel.provider_type,
+        priority: b.priority,
+        weight: b.weight,
+        model_filter: b.model_filter,
+        enabled: b.enabled,
+        channel_status: b.channel.status,
+        channel_health: b.channel.health,
+    }).collect();
+
+    Ok(Json(GroupDetailView {
+        group: GroupView {
+            id: g.group_id.as_uuid().to_string(),
+            name: g.name,
+            description: g.description,
+            strategy: g.strategy,
+            enabled: g.enabled,
+            fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+            channel_count: binding_views.len() as i64,
+            created_at: g.created_at,
+            updated_at: g.updated_at,
+        },
+        bindings: binding_views,
+        projects_using: projects.into_iter().map(|p| p.as_uuid().to_string()).collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct SetDefaultGroupRequest {
+    pub group_id: Option<String>,
+}
+
+async fn set_project_default_group(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<SetDefaultGroupRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let project_id = gate_core::id::ProjectId::from(id);
+    // Validate the project exists
+    let _ = app.repos.projects.find_by_id(project_id).await?;
+
+    let group_id = match req.group_id {
+        None => None,
+        Some(ref s) => {
+            let gid_uuid = s.parse::<Uuid>().map_err(|_| AppError::BadRequest("invalid group_id UUID".into()))?;
+            let gid = gate_core::id::ChannelGroupId::from(gid_uuid);
+            // Validate the group exists
+            let _ = app.repos.channel_groups.find_by_id(gid).await?;
+            Some(gid)
+        }
+    };
+
+    app.repos.channel_groups.set_project_default_group(project_id, group_id).await?;
+
+    app.audit.emit(&ctx, "project.set_default_group", "project", Some(id),
+        Some(serde_json::json!({"group_id": req.group_id})));
+
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 // ============================================================================

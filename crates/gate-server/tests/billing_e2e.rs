@@ -457,6 +457,7 @@ async fn routed_chat_records_channel_id_in_outbox() {
     grp_repo.seed_group(ChannelGroupRecord {
         group_id,
         name: "g".into(),
+        description: String::new(),
         strategy: "priority".into(),
         fallback_group_id: None,
         enabled: true,
