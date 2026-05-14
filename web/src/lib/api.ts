@@ -851,9 +851,22 @@ export async function listModels(): Promise<ModelInfo[]> {
 	return resp.data;
 }
 
+export interface ChatContentPart {
+	type: 'text' | 'image_url';
+	text?: string;
+	image_url?: { url: string; detail?: string };
+}
+
+export type ChatMessageContent = string | ChatContentPart[];
+
+export interface ChatMessage {
+	role: string;
+	content: ChatMessageContent;
+}
+
 export interface ChatParams {
 	model: string;
-	messages: { role: string; content: string }[];
+	messages: ChatMessage[];
 	stream?: boolean;
 	temperature?: number;
 	top_p?: number;

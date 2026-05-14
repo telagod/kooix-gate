@@ -136,20 +136,34 @@ impl HealthChecker {
         consecutive_failures: &mut HashMap<ChannelId, u32>,
         is_cooldown: bool,
     ) {
-        // 取活跃 key 做 Bearer 认证（部分 provider 如 Ollama 可能无需 key）
         let bearer_token = self.get_bearer_token(ch.channel_id).await;
 
-        let url = format!(
-            "{}/v1/models",
-            ch.base_url.trim_end_matches('/')
-        );
+        let base = ch.base_url.trim_end_matches('/');
+        let (url, req_headers) = match ch.provider_type.as_str() {
+            "anthropic" => {
+                let url = format!("{base}/v1/models");
+                let mut h = reqwest::header::HeaderMap::new();
+                if let Some(ref token) = bearer_token {
+                    if let Ok(v) = token.parse() { h.insert("x-api-key", v); }
+                }
+                if let Ok(v) = "2023-06-01".parse() { h.insert("anthropic-version", v); }
+                (url, h)
+            }
+            _ => {
+                let url = format!("{base}/v1/models");
+                let mut h = reqwest::header::HeaderMap::new();
+                if let Some(ref token) = bearer_token {
+                    if let Ok(v) = format!("Bearer {token}").parse() {
+                        h.insert("authorization", v);
+                    }
+                }
+                (url, h)
+            }
+        };
 
-        let mut req_builder = client.get(&url);
-        if let Some(ref token) = bearer_token {
-            req_builder = req_builder.header("Authorization", format!("Bearer {token}"));
-        }
-
-        let resp = req_builder
+        let resp = client
+            .get(&url)
+            .headers(req_headers)
             .timeout(Duration::from_secs(10))
             .send()
             .await;
@@ -159,7 +173,38 @@ impl HealthChecker {
                 let status = r.status();
                 match status.as_u16() {
                     200 => {
-                        // 健康：如果之前不健康，恢复之
+                        // Auto-discover models from response
+                        if let Ok(body) = r.json::<serde_json::Value>().await {
+                            let models: Vec<String> = body
+                                .get("data")
+                                .and_then(|d| d.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            if !models.is_empty() {
+                                match self.repos.channels.sync_models(ch.channel_id, &models).await {
+                                    Ok(true) => {
+                                        tracing::info!(
+                                            channel = %ch.code,
+                                            count = models.len(),
+                                            "health_check: auto-synced models"
+                                        );
+                                    }
+                                    Ok(false) => {}
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            channel = %ch.code, error = %e,
+                                            "health_check: failed to sync models"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
                         let count = consecutive_failures.entry(ch.channel_id).or_insert(0);
                         if *count > 0 || ch.health != "healthy" || is_cooldown {
                             *count = 0;
@@ -169,7 +214,6 @@ impl HealthChecker {
                                     "health_check: failed to re_enable"
                                 );
                             } else {
-                                // 清除 router metrics 窗口
                                 if let Some(router) = &self.provider_router {
                                     router.clear_channel_metrics(ch.channel_id);
                                 }

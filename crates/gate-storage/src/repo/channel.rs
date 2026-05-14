@@ -153,6 +153,10 @@ pub trait ChannelRepo: Send + Sync + 'static {
 
     /// 批量软删除。
     async fn batch_soft_delete(&self, ids: &[ChannelId]) -> DbResult<u64>;
+
+    /// 同步模型列表（health check 自动发现用）。
+    /// 仅当 discovered 非空且与当前不同时才更新。
+    async fn sync_models(&self, id: ChannelId, models: &[String]) -> DbResult<bool>;
 }
 
 pub struct PgChannelRepo {
@@ -485,6 +489,26 @@ impl ChannelRepo for PgChannelRepo {
         .execute(&self.pool)
         .await?;
         Ok(res.rows_affected())
+    }
+
+    async fn sync_models(&self, id: ChannelId, models: &[String]) -> DbResult<bool> {
+        if models.is_empty() {
+            return Ok(false);
+        }
+        let mut sorted = models.to_vec();
+        sorted.sort();
+        sorted.dedup();
+
+        let res = sqlx::query(
+            "UPDATE channels SET supported_models = $2, updated_at = NOW() \
+             WHERE id = $1 AND deleted_at IS NULL \
+             AND supported_models IS DISTINCT FROM $2",
+        )
+        .bind(id.as_uuid())
+        .bind(&sorted)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 }
 
@@ -1038,6 +1062,20 @@ impl ChannelRepo for InMemoryChannelRepo {
             }
         }
         Ok(count)
+    }
+
+    async fn sync_models(&self, id: ChannelId, models: &[String]) -> DbResult<bool> {
+        let mut inner = self.inner.write();
+        if let Some(ch) = inner.channels.get_mut(&id) {
+            let mut sorted = models.to_vec();
+            sorted.sort();
+            sorted.dedup();
+            if ch.supported_models != sorted {
+                ch.supported_models = sorted;
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
 

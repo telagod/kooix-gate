@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { getMe, chatCompletionStream, listModels } from '$lib/api.js';
-	import type { MeResult, ModelInfo, ChatParams, ChatMeta } from '$lib/api.js';
+	import type { MeResult, ModelInfo, ChatParams, ChatMeta, ChatMessage } from '$lib/api.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import MarkdownRenderer from '$lib/components/ui/MarkdownRenderer.svelte';
 	import {
 		Send, Square, RotateCcw, Bot, User as UserIcon, Settings2,
 		Plus, Trash2, Copy, Check, Pencil, RefreshCw, ChevronLeft,
-		MessageSquare, X, Clock, Coins, Zap
+		MessageSquare, X, Clock, Coins, Zap, ImagePlus
 	} from 'lucide-svelte';
 	import { clsx } from 'clsx';
 
@@ -16,6 +16,7 @@
 		id: string;
 		role: 'system' | 'user' | 'assistant';
 		content: string;
+		images?: string[]; // base64 data URIs for user messages
 		meta?: ChatMeta;
 		startedAt?: number;
 		finishedAt?: number;
@@ -53,6 +54,8 @@
 	let editingMsgId = $state<string | null>(null);
 	let editContent = $state('');
 	let copiedId = $state<string | null>(null);
+	let pendingImages = $state<string[]>([]);
+	let fileInputEl: HTMLInputElement | undefined = $state();
 
 	const FALLBACK_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4', 'claude-sonnet-4-20250514', 'claude-haiku-4-20250414'];
 	const STORAGE_KEY = 'kooix_playground_conversations';
@@ -132,14 +135,24 @@
 		if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
 	}
 
-	function buildMessages(): { role: string; content: string }[] {
+	function buildMessages(): ChatMessage[] {
 		if (!active) return [];
-		const msgs: { role: string; content: string }[] = [];
+		const msgs: ChatMessage[] = [];
 		if (active.systemPrompt.trim()) {
 			msgs.push({ role: 'system', content: active.systemPrompt.trim() });
 		}
 		for (const m of active.messages) {
-			if (m.role !== 'system') {
+			if (m.role === 'system') continue;
+			if (m.images && m.images.length > 0) {
+				const parts: { type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }[] = [];
+				for (const img of m.images) {
+					parts.push({ type: 'image_url', image_url: { url: img } });
+				}
+				if (m.content) {
+					parts.push({ type: 'text', text: m.content });
+				}
+				msgs.push({ role: m.role, content: parts });
+			} else {
 				msgs.push({ role: m.role, content: m.content });
 			}
 		}
@@ -147,10 +160,14 @@
 	}
 
 	async function send() {
-		if (!input.trim() || streaming || !active) return;
+		if ((!input.trim() && pendingImages.length === 0) || streaming || !active) return;
 		error = '';
-		const userMsg: Msg = { id: uid(), role: 'user', content: input.trim() };
+		const userMsg: Msg = {
+			id: uid(), role: 'user', content: input.trim(),
+			images: pendingImages.length > 0 ? [...pendingImages] : undefined
+		};
 		input = '';
+		pendingImages = [];
 		const assistantMsg: Msg = { id: uid(), role: 'assistant', content: '', startedAt: Date.now() };
 
 		active.messages = [...active.messages, userMsg, assistantMsg];
@@ -299,7 +316,61 @@
 		active.messages = [];
 		active.updatedAt = Date.now();
 		error = '';
+		pendingImages = [];
 		saveConversations();
+	}
+
+	// ── Image handling ──
+	function fileToBase64(file: File): Promise<string> {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(reader.result as string);
+			reader.onerror = reject;
+			reader.readAsDataURL(file);
+		});
+	}
+
+	async function handleFiles(files: FileList | File[]) {
+		for (const file of files) {
+			if (!file.type.startsWith('image/')) continue;
+			if (file.size > 20 * 1024 * 1024) {
+				error = `图片 ${file.name} 超过 20MB 限制`;
+				continue;
+			}
+			const dataUri = await fileToBase64(file);
+			pendingImages = [...pendingImages, dataUri];
+		}
+	}
+
+	function handlePaste(e: ClipboardEvent) {
+		const items = e.clipboardData?.items;
+		if (!items) return;
+		const imageFiles: File[] = [];
+		for (const item of items) {
+			if (item.type.startsWith('image/')) {
+				const file = item.getAsFile();
+				if (file) imageFiles.push(file);
+			}
+		}
+		if (imageFiles.length > 0) {
+			e.preventDefault();
+			handleFiles(imageFiles);
+		}
+	}
+
+	function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		if (e.dataTransfer?.files) {
+			handleFiles(e.dataTransfer.files);
+		}
+	}
+
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+	}
+
+	function removePendingImage(idx: number) {
+		pendingImages = pendingImages.filter((_, i) => i !== idx);
 	}
 
 	function formatDate(ts: number): string {
@@ -418,9 +489,20 @@
 													</div>
 												</div>
 											{:else}
-												<div class="rounded-2xl rounded-br-md px-4 py-2.5 text-sm bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 whitespace-pre-wrap break-words">
-													{msg.content}
-												</div>
+												{#if msg.images && msg.images.length > 0}
+													<div class="flex flex-wrap gap-1.5 mb-1.5 justify-end">
+														{#each msg.images as img}
+															<img src={img} alt="附件" class="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-zinc-700 dark:border-zinc-600" />
+														{/each}
+													</div>
+												{/if}
+												{#if msg.content}
+													<div class="rounded-2xl rounded-br-md px-4 py-2.5 text-sm bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 whitespace-pre-wrap break-words">
+														{msg.content}
+													</div>
+												{:else if msg.images && msg.images.length > 0}
+													<!-- image-only message, no text bubble needed -->
+												{/if}
 												<div class="flex gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
 													<button onclick={() => startEdit(msg)} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="编辑">
 														<Pencil size={12} class="text-zinc-400" />
@@ -507,13 +589,49 @@
 				{/if}
 
 				<!-- Input -->
-				<div class="border-t border-zinc-200 dark:border-zinc-700 px-4 py-3 bg-white dark:bg-zinc-900">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="border-t border-zinc-200 dark:border-zinc-700 px-4 py-3 bg-white dark:bg-zinc-900"
+					ondrop={handleDrop}
+					ondragover={handleDragOver}
+				>
 					<div class="max-w-3xl mx-auto">
+						{#if pendingImages.length > 0}
+							<div class="flex flex-wrap gap-2 mb-2">
+								{#each pendingImages as img, idx}
+									<div class="relative group w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+										<img src={img} alt="附件" class="w-full h-full object-cover" />
+										<button
+											onclick={() => removePendingImage(idx)}
+											class="absolute top-0 right-0 p-0.5 bg-zinc-900/70 text-white rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity"
+										>
+											<X size={10} />
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
 						<div class="flex gap-2 items-end">
+							<button
+								onclick={() => fileInputEl?.click()}
+								class="shrink-0 p-2.5 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+								title="上传图片"
+							>
+								<ImagePlus size={18} />
+							</button>
+							<input
+								bind:this={fileInputEl}
+								type="file"
+								accept="image/*"
+								multiple
+								class="hidden"
+								onchange={(e: Event) => { const t = e.target as HTMLInputElement; if (t.files) handleFiles(t.files); t.value = ''; }}
+							/>
 							<textarea
 								bind:value={input}
 								onkeydown={handleKeydown}
-								placeholder="输入消息... (Shift+Enter 换行)"
+								onpaste={handlePaste}
+								placeholder={pendingImages.length > 0 ? '添加描述（可选）...' : '输入消息... (Shift+Enter 换行，粘贴/拖拽图片)'}
 								rows={1}
 								class="flex-1 resize-none rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:bg-white dark:focus:bg-zinc-800 min-h-[40px] max-h-[200px]"
 								oninput={(e: Event) => {
@@ -527,7 +645,7 @@
 									<Square size={14} />
 								</Button>
 							{:else}
-								<Button size="sm" onclick={send} disabled={!input.trim()} class="rounded-xl h-10 w-10 p-0">
+								<Button size="sm" onclick={send} disabled={!input.trim() && pendingImages.length === 0} class="rounded-xl h-10 w-10 p-0">
 									<Send size={14} />
 								</Button>
 							{/if}
