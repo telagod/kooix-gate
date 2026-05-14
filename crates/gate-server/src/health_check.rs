@@ -136,24 +136,20 @@ impl HealthChecker {
         consecutive_failures: &mut HashMap<ChannelId, u32>,
         is_cooldown: bool,
     ) {
-        // 取活跃 key 做 Bearer 认证
-        let bearer_token = match self.get_bearer_token(ch.channel_id).await {
-            Some(t) => t,
-            None => {
-                // 没有可用 key，跳过（不标记失败，因为可能尚未配 key）
-                tracing::debug!(channel = %ch.code, "health_check: no active key, skipping");
-                return;
-            }
-        };
+        // 取活跃 key 做 Bearer 认证（部分 provider 如 Ollama 可能无需 key）
+        let bearer_token = self.get_bearer_token(ch.channel_id).await;
 
         let url = format!(
             "{}/v1/models",
             ch.base_url.trim_end_matches('/')
         );
 
-        let resp = client
-            .get(&url)
-            .header("Authorization", format!("Bearer {bearer_token}"))
+        let mut req_builder = client.get(&url);
+        if let Some(ref token) = bearer_token {
+            req_builder = req_builder.header("Authorization", format!("Bearer {token}"));
+        }
+
+        let resp = req_builder
             .timeout(Duration::from_secs(10))
             .send()
             .await;
@@ -293,7 +289,8 @@ impl HealthChecker {
             .ok()?;
 
         let crypto = self.crypto.as_ref()?;
-        let aad = gate_crypto::aad::channel_key(*key_record.id.as_uuid());
+        // AAD 用 channel_id（与创建时一致，同 channel 共享 AAD context）
+        let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
         let plaintext = crypto.open(&key_record.key_enc, &aad).await.ok()?;
         let token = String::from_utf8(plaintext.to_vec()).ok()?;
         Some(token)
