@@ -90,7 +90,7 @@
 					disabled && 'opacity-50 pointer-events-none'
 				)}
 			>
-				<img src={logoSrc(opt.value)} alt={opt.label} class="w-5 h-5 dark:invert" />
+				{#if opt.value}<img src={logoSrc(opt.value)} alt={opt.label} class="w-5 h-5 dark:invert" />{/if}
 				<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100">{opt.label}</span>
 				{#if opt.description}
 					<span class="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-1">{opt.description}</span>
@@ -114,7 +114,7 @@
 		>
 			<span class="flex items-center gap-2 truncate">
 				{#if selected}
-					<img src={logoSrc(selected.value)} alt={selected.label} class="w-4 h-4 dark:invert" />
+					{#if selected.value}<img src={logoSrc(selected.value)} alt={selected.label} class="w-4 h-4 dark:invert" />{/if}
 					<span>{selected.label}</span>
 				{:else}
 					<span class="text-zinc-500 dark:text-zinc-400">{placeholder}</span>
@@ -152,7 +152,7 @@
 									value === opt.value && 'font-medium'
 								)}
 							>
-								<img src={logoSrc(opt.value)} alt={opt.label} class="w-4 h-4 shrink-0 dark:invert" />
+								{#if opt.value}<img src={logoSrc(opt.value)} alt={opt.label} class="w-4 h-4 shrink-0 dark:invert" />{/if}
 								<div class="flex-1 min-w-0">
 									<p class="text-zinc-900 dark:text-zinc-100 truncate">{opt.label}</p>
 									{#if opt.description}

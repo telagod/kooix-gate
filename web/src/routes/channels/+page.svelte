@@ -880,7 +880,12 @@
 								{/if}
 							</td>
 							<!-- Provider -->
-							<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono text-xs">{ch.provider_type}</td>
+							<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono text-xs">
+									<span class="inline-flex items-center gap-1.5">
+										<img src="/providers/{ch.provider_type}.svg" alt="" class="w-4 h-4 dark:invert" />
+										{ch.provider_type}
+									</span>
+								</td>
 							<!-- Status toggle -->
 							<td class="px-3 py-3 text-center">
 								{#if isPlatformAdmin}
