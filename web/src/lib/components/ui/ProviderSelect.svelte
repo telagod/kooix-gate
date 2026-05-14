@@ -4,7 +4,6 @@
 	export interface ProviderOption {
 		value: string;
 		label: string;
-		icon?: string;
 		description?: string;
 		category?: string;
 	}
@@ -71,36 +70,12 @@
 		}
 	}
 
-	const PROVIDER_ICONS: Record<string, string> = {
-		openai: '🟢',
-		anthropic: '🟠',
-		gemini: '🔵',
-		azure: '☁️',
-		bedrock: '🏔️',
-		deepseek: '🔍',
-		ollama: '🦙',
-		mistral: '🌊',
-		cohere: '🧠',
-		groq: '⚡',
-		together: '🤝',
-		fireworks: '🎆',
-		openrouter: '🛤️',
-		moonshot: '🌙',
-		zhipu: '🐉',
-		baichuan: '🏛️',
-		qwen: '☁️',
-		yi: '💡',
-		minimax: '📦',
-		stepfun: '🚀'
-	};
-
-	function getIcon(opt: ProviderOption): string {
-		return opt.icon ?? PROVIDER_ICONS[opt.value] ?? '🔗';
+	function logoSrc(slug: string): string {
+		return `/providers/${slug}.svg`;
 	}
 </script>
 
 {#if mode === 'grid'}
-	<!-- Grid mode: 用于创建表单，直观展示所有 provider -->
 	<div class="grid grid-cols-3 gap-2 {className}">
 		{#each options as opt}
 			<button
@@ -108,14 +83,14 @@
 				{disabled}
 				onclick={() => (value = opt.value)}
 				class={clsx(
-					'flex flex-col items-center gap-1 px-3 py-3 rounded-lg border text-center transition-all',
+					'flex flex-col items-center gap-1.5 px-3 py-3 rounded-lg border text-center transition-all',
 					value === opt.value
 						? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-800 ring-1 ring-zinc-900 dark:ring-zinc-100'
 						: 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 bg-white dark:bg-zinc-900',
 					disabled && 'opacity-50 pointer-events-none'
 				)}
 			>
-				<span class="text-lg">{getIcon(opt)}</span>
+				<img src={logoSrc(opt.value)} alt={opt.label} class="w-5 h-5 dark:invert" />
 				<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100">{opt.label}</span>
 				{#if opt.description}
 					<span class="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-1">{opt.description}</span>
@@ -124,7 +99,6 @@
 		{/each}
 	</div>
 {:else}
-	<!-- Select mode: combobox popover 用于过滤器和紧凑场景 -->
 	<div class="relative {className}">
 		<button
 			type="button"
@@ -140,7 +114,7 @@
 		>
 			<span class="flex items-center gap-2 truncate">
 				{#if selected}
-					<span class="text-sm">{getIcon(selected)}</span>
+					<img src={logoSrc(selected.value)} alt={selected.label} class="w-4 h-4 dark:invert" />
 					<span>{selected.label}</span>
 				{:else}
 					<span class="text-zinc-500 dark:text-zinc-400">{placeholder}</span>
@@ -153,7 +127,6 @@
 
 		{#if open}
 			<div class="absolute z-50 mt-1 w-full min-w-[200px] max-h-64 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg">
-				<!-- Search input -->
 				<div class="p-2 border-b border-zinc-100 dark:border-zinc-800">
 					<input
 						bind:this={inputEl}
@@ -163,7 +136,6 @@
 						class="w-full px-2 py-1.5 text-sm rounded-md bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 border-none outline-none"
 					/>
 				</div>
-				<!-- Options -->
 				<div class="overflow-y-auto max-h-48 py-1">
 					{#if filtered.length === 0}
 						<p class="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">无匹配结果</p>
@@ -180,7 +152,7 @@
 									value === opt.value && 'font-medium'
 								)}
 							>
-								<span class="text-sm shrink-0">{getIcon(opt)}</span>
+								<img src={logoSrc(opt.value)} alt={opt.label} class="w-4 h-4 shrink-0 dark:invert" />
 								<div class="flex-1 min-w-0">
 									<p class="text-zinc-900 dark:text-zinc-100 truncate">{opt.label}</p>
 									{#if opt.description}
@@ -201,7 +173,6 @@
 	</div>
 {/if}
 
-<!-- Click outside to close -->
 {#if open}
 	<div class="fixed inset-0 z-40" onclick={() => (open = false)}></div>
 {/if}
