@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getMe, chatCompletionStream } from '$lib/api.js';
-	import type { MeResult } from '$lib/api.js';
+	import { getMe, chatCompletionStream, listModels } from '$lib/api.js';
+	import type { MeResult, ModelInfo } from '$lib/api.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import { Send, Square, RotateCcw, Bot, User as UserIcon } from 'lucide-svelte';
@@ -9,6 +9,7 @@
 	let me = $state<MeResult | null>(null);
 	let currentOrg = $derived(me?.current_org ?? me?.orgs?.[0] ?? null);
 	let model = $state('gpt-4o-mini');
+	let availableModels = $state<ModelInfo[]>([]);
 	let input = $state('');
 	let messages = $state<{ role: string; content: string }[]>([]);
 	let streaming = $state(false);
@@ -16,7 +17,23 @@
 	let error = $state('');
 	let chatEl: HTMLElement | undefined = $state();
 
-	const MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4', 'gpt-3.5-turbo', 'claude-sonnet-4-20250514', 'claude-haiku-4-20250414'];
+	const FALLBACK_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4', 'gpt-3.5-turbo', 'claude-sonnet-4-20250514', 'claude-haiku-4-20250414'];
+
+	onMount(async () => {
+		try { me = await getMe(); } catch {}
+		try {
+			availableModels = await listModels();
+			if (availableModels.length > 0) {
+				model = availableModels[0].id;
+			}
+		} catch {}
+	});
+
+	let modelOptions = $derived(
+		availableModels.length > 0
+			? availableModels.map(m => m.id)
+			: FALLBACK_MODELS
+	);
 
 	onMount(async () => {
 		try { me = await getMe(); } catch {}
@@ -75,7 +92,7 @@
 		<div class="flex items-center gap-3">
 			<h1 class="text-lg font-bold text-zinc-900 dark:text-zinc-100">Playground</h1>
 			<select bind:value={model} class="text-sm border border-zinc-300 dark:border-zinc-600 rounded-md px-2 py-1 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
-				{#each MODELS as m}
+				{#each modelOptions as m}
 					<option value={m}>{m}</option>
 				{/each}
 			</select>

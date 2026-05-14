@@ -16,9 +16,10 @@
 
 	// Create modal
 	let showCreate = $state(false);
-	let createForm = $state<CreateChannelRequest>({ code: '', provider_type: 'openai', base_url: '' });
+	let createForm = $state<CreateChannelRequest>({ code: '', provider_type: 'openai', base_url: '', supported_models: [] });
 	let creating = $state(false);
 	let createError = $state('');
+	let modelsInput = $state('');
 
 	// Edit modal
 	let editingChannel = $state<Channel | null>(null);
@@ -76,10 +77,12 @@
 		creating = true;
 		createError = '';
 		try {
-			const ch = await createChannel(createForm);
+			const models = modelsInput.split(',').map(s => s.trim()).filter(Boolean);
+			const ch = await createChannel({ ...createForm, supported_models: models });
 			channels = [...channels, ch];
 			showCreate = false;
-			createForm = { code: '', provider_type: 'openai', base_url: '' };
+			createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [] };
+			modelsInput = '';
 			showToast('Channel 创建成功');
 		} catch (err: any) {
 			createError = err?.message ?? '创建失败';
@@ -234,14 +237,22 @@
 							<option value="openai">OpenAI</option>
 							<option value="anthropic">Anthropic</option>
 							<option value="gemini">Gemini</option>
-							<option value="azure">Azure</option>
-							<option value="bedrock">Bedrock</option>
+							<option value="azure">Azure OpenAI</option>
+							<option value="bedrock">AWS Bedrock</option>
+							<option value="deepseek">DeepSeek</option>
+							<option value="ollama">Ollama (Local)</option>
+							<option value="mistral">Mistral</option>
+							<option value="cohere">Cohere</option>
 						</select>
 					</div>
 				</div>
 				<div>
 					<label for="ch-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL</label>
 					<Input id="ch-url" placeholder="https://api.openai.com/v1" bind:value={createForm.base_url} disabled={creating} />
+				</div>
+				<div>
+					<label for="ch-models" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">支持的模型 <span class="text-zinc-400 font-normal">(逗号分隔，留空=全部)</span></label>
+					<Input id="ch-models" placeholder="gpt-4o, gpt-4o-mini, gpt-3.5-turbo" bind:value={modelsInput} disabled={creating} />
 				</div>
 				{#if createError}
 					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{createError}</p>

@@ -589,6 +589,18 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 // ── Chat Playground ───────────────────────────────
 
+export interface ModelInfo {
+	id: string;
+	object: string;
+	created: number;
+	owned_by: string;
+}
+
+export async function listModels(): Promise<ModelInfo[]> {
+	const resp = await apiFetch<{ data: ModelInfo[] }>('/v1/models');
+	return resp.data;
+}
+
 export function chatCompletionStream(
 	orgId: string,
 	model: string,
