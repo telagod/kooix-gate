@@ -61,7 +61,7 @@
 	let approachingAlerts = $derived(alerts.filter(a => a.level === 'approaching'));
 </script>
 
-<div class="max-w-7xl mx-auto p-6">
+<div class="px-6 py-6">
 	{#if loading}
 		<div class="space-y-4">
 			<div class="h-8 w-48 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse"></div>

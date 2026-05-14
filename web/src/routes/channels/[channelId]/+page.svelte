@@ -323,7 +323,7 @@
 	</div>
 {/if}
 
-<div class="max-w-7xl mx-auto p-6">
+<div class="px-6 py-6">
 	<!-- Breadcrumb -->
 	<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
 		<a href="/channels" class="hover:underline">渠道</a> / {channelId.slice(0, 8)}...

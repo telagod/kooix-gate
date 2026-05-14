@@ -107,7 +107,7 @@
 	let hasNext = $derived(logs.length === LIMIT);
 </script>
 
-<div class="max-w-7xl mx-auto p-6">
+<div class="px-6 py-6">
 	<div class="flex items-center justify-between mb-1">
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">审计日志</h1>
 		{#if isPlatformAdmin && orgs.length > 0}

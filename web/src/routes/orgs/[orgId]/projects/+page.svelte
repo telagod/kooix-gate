@@ -59,7 +59,7 @@
 </script>
 
 <div>
-	<div class="max-w-7xl mx-auto p-6">
+	<div class="px-6 py-6">
 		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 项目</p>
 		<div class="flex items-center justify-between mb-6">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">项目列表</h1>
