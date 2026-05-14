@@ -417,6 +417,12 @@ export interface ChannelKeySummary {
 	fingerprint: string;
 	weight: number;
 	health: string;
+	total_requests: number;
+	total_errors: number;
+	consecutive_errors: number;
+	last_error_code: number | null;
+	last_error_at: string | null;
+	cooldown_until: string | null;
 	created_at: string;
 }
 

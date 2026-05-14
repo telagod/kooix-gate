@@ -27,6 +27,12 @@ pub struct ChannelKeyRecord {
     pub key_fingerprint: String,
     pub weight: i32,
     pub health: String,
+    pub consecutive_errors: i32,
+    pub total_requests: i64,
+    pub total_errors: i64,
+    pub last_error_code: Option<i32>,
+    pub last_error_at: Option<DateTime<Utc>>,
+    pub cooldown_until: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -108,6 +114,12 @@ fn row_to_channel_key(row: &sqlx::postgres::PgRow) -> DbResult<ChannelKeyRecord>
         key_fingerprint: row.try_get("key_fingerprint")?,
         weight: row.try_get("weight")?,
         health: row.try_get("health")?,
+        consecutive_errors: row.try_get("consecutive_errors")?,
+        total_requests: row.try_get("total_requests")?,
+        total_errors: row.try_get("total_errors")?,
+        last_error_code: row.try_get("last_error_code")?,
+        last_error_at: row.try_get("last_error_at")?,
+        cooldown_until: row.try_get("cooldown_until")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -121,7 +133,9 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
     ) -> DbResult<ChannelKeyRecord> {
         let row = sqlx::query(
             "SELECT id, channel_id, label, key_enc, key_fingerprint, weight, \
-                    health, created_at, updated_at \
+                    health, consecutive_errors, total_requests, total_errors, \
+                    last_error_code, last_error_at, cooldown_until, \
+                    created_at, updated_at \
              FROM channel_keys \
              WHERE channel_id = $1 \
                AND health = 'healthy' \
@@ -142,7 +156,9 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
     ) -> DbResult<Vec<ChannelKeyRecord>> {
         let rows = sqlx::query(
             "SELECT id, channel_id, label, key_enc, key_fingerprint, weight, \
-                    health, created_at, updated_at \
+                    health, consecutive_errors, total_requests, total_errors, \
+                    last_error_code, last_error_at, cooldown_until, \
+                    created_at, updated_at \
              FROM channel_keys \
              WHERE channel_id = $1 \
              ORDER BY created_at DESC",
@@ -373,6 +389,12 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
             key_fingerprint: key_fingerprint.to_string(),
             weight: 1,
             health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
             created_at: now,
             updated_at: now,
         };
@@ -415,6 +437,12 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
             key_fingerprint: new_fingerprint.to_string(),
             weight: 1,
             health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
             created_at: now,
             updated_at: now,
         };

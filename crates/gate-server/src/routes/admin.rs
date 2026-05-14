@@ -163,6 +163,7 @@ pub fn router() -> Router<AppState> {
             "/channels/:id/keys/:key_id",
             axum::routing::delete(revoke_channel_key),
         )
+        .route("/channels/:id/stats", get(get_channel_stats))
         .route("/channels/:id/probe", axum::routing::post(probe_channel_models))
         .route("/channels/:id/test", get(test_channel))
         .route("/channels/:id/balance", get(get_channel_balance))
@@ -406,6 +407,12 @@ pub struct ChannelKeySummary {
     pub fingerprint: String,
     pub weight: i32,
     pub health: String,
+    pub total_requests: i64,
+    pub total_errors: i64,
+    pub consecutive_errors: i32,
+    pub last_error_code: Option<i32>,
+    pub last_error_at: Option<DateTime<Utc>>,
+    pub cooldown_until: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -444,6 +451,12 @@ async fn list_channel_keys(
                 fingerprint: r.key_fingerprint,
                 weight: r.weight,
                 health: r.health,
+                total_requests: r.total_requests,
+                total_errors: r.total_errors,
+                consecutive_errors: r.consecutive_errors,
+                last_error_code: r.last_error_code,
+                last_error_at: r.last_error_at,
+                cooldown_until: r.cooldown_until,
                 created_at: r.created_at,
             })
             .collect(),
@@ -501,6 +514,12 @@ async fn create_channel_key(
         fingerprint,
         weight: 1,
         health: "healthy".to_string(),
+        total_requests: 0,
+        total_errors: 0,
+        consecutive_errors: 0,
+        last_error_code: None,
+        last_error_at: None,
+        cooldown_until: None,
         created_at: Utc::now(),
     }))
 }
@@ -552,6 +571,12 @@ async fn rotate_channel_key(
         fingerprint,
         weight: 1,
         health: "healthy".to_string(),
+        total_requests: 0,
+        total_errors: 0,
+        consecutive_errors: 0,
+        last_error_code: None,
+        last_error_at: None,
+        cooldown_until: None,
         created_at: Utc::now(),
     }))
 }
@@ -580,6 +605,45 @@ async fn revoke_channel_key(
     );
 
     Ok(Json(serde_json::json!({"revoked": true})))
+}
+
+// ============================================================================
+// Channel Stats
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct ChannelStatsResponse {
+    pub channel: ChannelSummary,
+    pub keys_count: i64,
+    pub keys_healthy: i64,
+    pub total_requests: i64,
+    pub total_errors: i64,
+}
+
+async fn get_channel_stats(
+    State(app): State<AppState>,
+    Path(id): Path<Uuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<ChannelStatsResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelRead, Scope::Platform);
+
+    let channel_id = ChannelId::from(id);
+    let channel = app.repos.channels.find_by_id(channel_id).await?;
+    let keys = app.repos.channel_keys.list_by_channel(channel_id).await?;
+
+    let keys_count = keys.len() as i64;
+    let keys_healthy = keys.iter().filter(|k| k.health == "healthy").count() as i64;
+    let total_requests: i64 = keys.iter().map(|k| k.total_requests).sum();
+    let total_errors: i64 = keys.iter().map(|k| k.total_errors).sum();
+
+    Ok(Json(ChannelStatsResponse {
+        channel: record_to_summary(channel),
+        keys_count,
+        keys_healthy,
+        total_requests,
+        total_errors,
+    }))
 }
 
 // ============================================================================

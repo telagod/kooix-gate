@@ -1313,6 +1313,12 @@ mod tests {
             key_fingerprint: "fp-test".to_string(),
             weight: 1,
             health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
             created_at: now,
             updated_at: now,
         });
