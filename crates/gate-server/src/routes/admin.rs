@@ -561,6 +561,11 @@ async fn create_org(
 
     let org = app.repos.orgs.create(name, slug, *owner_id).await?;
 
+    app.repos
+        .memberships
+        .add_org_member(org.id, *owner_id, gate_core::identity::OrgRole::Owner)
+        .await?;
+
     app.audit.emit(
         &ctx,
         "org.create",

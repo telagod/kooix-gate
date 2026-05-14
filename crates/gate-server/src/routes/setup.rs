@@ -85,6 +85,11 @@ async fn setup(
         .create(&req.org_name, &req.org_slug, user.id)
         .await?;
 
+    app.repos
+        .memberships
+        .add_org_member(org.id, user.id, gate_core::identity::OrgRole::Owner)
+        .await?;
+
     let project = app
         .repos
         .projects
