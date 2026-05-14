@@ -22,17 +22,7 @@
 		least_latency:   { label: '最低延迟',   color: 'yellow', desc: '优先使用平均响应最快的渠道' },
 	};
 
-	const PROVIDER_COLORS: Record<string, string> = {
-		openai: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-		anthropic: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-		azure: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-		gemini: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
-		bedrock: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-		deepseek: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
-		mistral: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300',
-		ollama: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300',
-		cohere: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
-	};
+	const PROVIDER_COLOR = 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300';
 
 	// ── State ──
 	let groups = $state<ChannelGroup[]>([]);
@@ -71,17 +61,10 @@
 
 	// ── Helpers ──
 	function strategyMeta(s: string) { return STRATEGIES[s] ?? { label: s, color: 'gray', desc: '' }; }
-	function providerColor(p: string) { return PROVIDER_COLORS[p] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'; }
+	function providerColor(_p: string) { return PROVIDER_COLOR; }
 
-	function strategyBadgeClass(color: string) {
-		const map: Record<string, string> = {
-			blue:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-			green:  'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-			purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-			orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-			yellow: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-		};
-		return map[color] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+	function strategyBadgeClass(_color: string) {
+		return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300';
 	}
 
 	function healthDot(bindings: GroupBinding[]): string {
@@ -302,7 +285,7 @@
 			<Layers class="w-6 h-6 text-zinc-500" />
 			<h1 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">渠道分组管理</h1>
 		</div>
-		<button onclick={() => { showCreate = true; }} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+		<button onclick={() => { showCreate = true; }} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-colors">
 			<Plus class="w-4 h-4" /> 新建分组
 		</button>
 	</div>
@@ -337,7 +320,7 @@
 				<button
 					onclick={() => selectGroup(group.id)}
 					class="text-left bg-white dark:bg-zinc-800 rounded-lg border-2 p-4 transition-all hover:shadow-md
-						{isSelected ? 'border-blue-500 shadow-md ring-1 ring-blue-500/20' : 'border-zinc-200 dark:border-zinc-700'}"
+						{isSelected ? 'border-zinc-900 dark:border-zinc-100 shadow-md ring-1 ring-zinc-900/20 dark:ring-zinc-100/20' : 'border-zinc-200 dark:border-zinc-700'}"
 				>
 					<!-- Top row: name + toggle -->
 					<div class="flex items-start justify-between gap-2">
@@ -349,7 +332,7 @@
 							onclick={(e: MouseEvent) => { e.stopPropagation(); toggleEnabled(group); }}
 							onkeydown={(e: KeyboardEvent) => { e.stopPropagation(); if (e.key === 'Enter') toggleEnabled(group); }}
 							class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors
-								{group.enabled ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'}"
+								{group.enabled ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-600'}"
 						>
 							<span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5
 								{group.enabled ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}"></span>
@@ -415,11 +398,11 @@
 
 					<!-- Strategy impact notice -->
 					{#if g.strategy === 'weighted_random'}
-						<div class="mt-3 text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded px-3 py-1.5">
+						<div class="mt-3 text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 rounded px-3 py-1.5">
 							当前策略「加权随机」：weight 字段生效，priority 仅作排序参考
 						</div>
 					{:else if g.strategy === 'priority'}
-						<div class="mt-3 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded px-3 py-1.5">
+						<div class="mt-3 text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 rounded px-3 py-1.5">
 							当前策略「优先级」：priority 越小越优先，weight 字段不生效
 						</div>
 					{/if}
@@ -438,9 +421,9 @@
 									<button
 										onclick={() => { editForm.strategy = key; }}
 										class="text-left p-3 rounded-lg border-2 transition-colors
-											{editForm.strategy === key ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
+											{editForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
 									>
-										<span class="text-sm font-medium {editForm.strategy === key ? 'text-blue-700 dark:text-blue-300' : 'text-zinc-700 dark:text-zinc-300'}">{s.label}</span>
+										<span class="text-sm font-medium {editForm.strategy === key ? 'text-zinc-900 dark:text-zinc-100 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}">{s.label}</span>
 										<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{s.desc}</p>
 									</button>
 								{/each}
@@ -463,13 +446,13 @@
 							<label class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
 							<button onclick={() => { editForm.enabled = !editForm.enabled; }}
 								class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors
-									{editForm.enabled ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'}">
+									{editForm.enabled ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-600'}">
 								<span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform mt-0.5
 									{editForm.enabled ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}"></span>
 							</button>
 						</div>
 						<div class="flex gap-2">
-							<button onclick={handleUpdate} class="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700">保存</button>
+							<button onclick={handleUpdate} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200">保存</button>
 							<button onclick={() => { editing = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
 						</div>
 					</div>
@@ -485,7 +468,7 @@
 							<div class="flex items-center gap-2 flex-shrink-0">
 								<div class="px-3 py-2 rounded-lg border text-sm
 									{node.id === selectedId
-										? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-medium'
+										? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium'
 										: 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300'}">
 									<div>{node.name}</div>
 									<div class="text-xs text-zinc-400 mt-0.5">{strategyMeta(node.strategy).label}</div>
@@ -550,14 +533,14 @@
 											{#if isEditing}
 												<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
 											{:else}
-												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-blue-600 cursor-pointer font-mono">{b.priority}</button>
+												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.priority}</button>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2">
 											{#if isEditing}
 												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1 text-sm" />
 											{:else}
-												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-blue-600 cursor-pointer font-mono">{b.weight}</button>
+												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.weight}</button>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2">
@@ -576,7 +559,7 @@
 										</td>
 										<td class="py-2.5 px-2 text-right">
 											{#if isEditing}
-												<button onclick={saveBinding} class="p-1 rounded hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600"><Check class="w-4 h-4" /></button>
+												<button onclick={saveBinding} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300"><Check class="w-4 h-4" /></button>
 												<button onclick={() => { editingBindingId = null; }} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500"><X class="w-4 h-4" /></button>
 											{:else}
 												<button onclick={() => startEditBinding(b)} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500" title="编辑"><Pencil class="w-3.5 h-3.5" /></button>
@@ -621,7 +604,7 @@
 							<button
 								onclick={() => { createForm.strategy = key; }}
 								class="text-left p-3 rounded-lg border-2 transition-colors
-									{createForm.strategy === key ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
+									{createForm.strategy === key ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300'}"
 							>
 								<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(s.color)} mb-1">{s.label}</span>
 								<p class="text-xs text-zinc-500 dark:text-zinc-400">{s.desc}</p>
@@ -645,7 +628,7 @@
 			</div>
 			<div class="p-5 border-t border-zinc-200 dark:border-zinc-700 flex justify-end gap-2">
 				<button onclick={() => { showCreate = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
-				<button onclick={handleCreate} disabled={!createForm.name.trim()} class="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">创建</button>
+				<button onclick={handleCreate} disabled={!createForm.name.trim()} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50">创建</button>
 			</div>
 		</div>
 	</div>
@@ -719,10 +702,10 @@
 						<button
 							onclick={() => toggleChannel(ch.id)}
 							class="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors
-								{selectedChannels.has(ch.id) ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50 border border-transparent'}"
+								{selectedChannels.has(ch.id) ? 'bg-zinc-100 dark:bg-zinc-800 border border-zinc-400 dark:border-zinc-500' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50 border border-transparent'}"
 						>
 							<div class="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0
-								{selectedChannels.has(ch.id) ? 'border-blue-500 bg-blue-500' : 'border-zinc-300 dark:border-zinc-600'}">
+								{selectedChannels.has(ch.id) ? 'border-zinc-900 bg-zinc-900 dark:border-zinc-100 dark:bg-zinc-100' : 'border-zinc-300 dark:border-zinc-600'}">
 								{#if selectedChannels.has(ch.id)}<Check class="w-3 h-3 text-white" />{/if}
 							</div>
 							<div class="flex-1 min-w-0">
@@ -740,7 +723,7 @@
 				<span class="text-sm text-zinc-500">{selectedChannels.size} 个已选</span>
 				<div class="flex gap-2">
 					<button onclick={() => { showAddChannel = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
-					<button onclick={handleAddChannels} disabled={selectedChannels.size === 0} class="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+					<button onclick={handleAddChannels} disabled={selectedChannels.size === 0} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50">
 						添加选中 ({selectedChannels.size})
 					</button>
 				</div>
