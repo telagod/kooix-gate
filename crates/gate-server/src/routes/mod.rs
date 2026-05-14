@@ -15,6 +15,7 @@ pub mod health;
 pub mod me;
 pub mod projects;
 pub mod quotas;
+pub mod setup;
 pub mod sso;
 pub mod usage;
 
@@ -25,6 +26,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(health::router())
         .nest("/v1", v1_router())
+        .nest("/v1", setup::router())
 }
 
 /// 公开 v1 router 让 `build_router` 单独给它叠限流 middleware。

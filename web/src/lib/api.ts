@@ -83,6 +83,47 @@ async function apiFetch<T>(
 	return resp.json();
 }
 
+// ── System Status ─────────────────────────────────
+
+export interface SystemStatus {
+	initialized: boolean;
+	version: string;
+}
+
+export async function getSystemStatus(): Promise<SystemStatus> {
+	const resp = await fetch(`${BASE_URL}/health/status`);
+	if (!resp.ok) {
+		throw new ApiError(resp.status, 'error', 'Failed to check system status');
+	}
+	return resp.json();
+}
+
+export interface SetupRequest {
+	email: string;
+	password: string;
+	org_name?: string;
+	org_slug?: string;
+	project_name?: string;
+	project_slug?: string;
+}
+
+export interface SetupResponse {
+	user_id: string;
+	email: string;
+	org_id: string;
+	org_name: string;
+	project_id: string;
+	project_name: string;
+}
+
+export async function postSetup(data: SetupRequest): Promise<SetupResponse> {
+	return apiFetch<SetupResponse>('/v1/setup', {
+		method: 'POST',
+		body: JSON.stringify(data),
+		skipAuth: true
+	});
+}
+
 // ── Auth ──────────────────────────────────────────
 
 export interface LoginResult {

@@ -137,6 +137,10 @@ impl UserRepo for InMemoryUserRepo {
         self.inner.write().unwrap().failed.insert(id, 0);
         Ok(())
     }
+
+    async fn has_any_admin(&self) -> DbResult<bool> {
+        Ok(false)
+    }
 }
 
 // ----------------------------------------------------------------------------

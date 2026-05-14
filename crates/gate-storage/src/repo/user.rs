@@ -39,6 +39,8 @@ pub trait UserRepo: Send + Sync + 'static {
     async fn bump_failed_login(&self, id: UserId) -> DbResult<i32>;
 
     async fn reset_failed_login(&self, id: UserId) -> DbResult<()>;
+
+    async fn has_any_admin(&self) -> DbResult<bool>;
 }
 
 pub struct PgUserRepo {
@@ -174,5 +176,14 @@ impl UserRepo for PgUserRepo {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn has_any_admin(&self) -> DbResult<bool> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM platform_admins)",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists)
     }
 }

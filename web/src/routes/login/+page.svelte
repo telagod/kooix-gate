@@ -1,7 +1,8 @@
 <!-- /login — 邮箱密码登录表单 + SSO 入口 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { login, ssoStart } from '$lib/api.js';
+	import { onMount } from 'svelte';
+	import { login, ssoStart, getSystemStatus } from '$lib/api.js';
 	import { saveTokens, currentUser } from '$lib/auth.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
@@ -12,6 +13,20 @@
 	let error = $state('');
 	let loading = $state(false);
 	let ssoLoading = $state(false);
+	let ready = $state(false);
+
+	onMount(async () => {
+		try {
+			const status = await getSystemStatus();
+			if (!status.initialized) {
+				goto('/setup');
+				return;
+			}
+		} catch {
+			// 后端不可达，继续显示登录页
+		}
+		ready = true;
+	});
 
 	async function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
@@ -57,6 +72,11 @@
 	}
 </script>
 
+{#if !ready}
+<div class="min-h-screen bg-zinc-50 flex items-center justify-center">
+	<p class="text-zinc-400 text-sm">加载中...</p>
+</div>
+{:else}
 <div class="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
 	<Card class="w-full max-w-sm p-8">
 		<div class="mb-8 text-center">
@@ -114,3 +134,4 @@
 		</Button>
 	</Card>
 </div>
+{/if}

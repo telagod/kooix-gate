@@ -98,6 +98,7 @@ pub struct Repos {
     pub audit: Arc<dyn AuditRepo>,
     /// 计费聚合（G3 追加）—— 月度账单 + CSV 导出。
     pub billing: Arc<dyn BillingRepo>,
+    pg_pool: Option<sqlx::PgPool>,
 }
 
 impl Repos {
@@ -125,7 +126,8 @@ impl Repos {
             quotas: Arc::new(PgQuotaRepo::new(pool.clone())),
             model_aliases: Arc::new(PgModelAliasRepo::new(pool.clone())),
             audit: Arc::new(PgAuditRepo::new(pool.clone())),
-            billing: Arc::new(PgBillingRepo::new(pool)),
+            billing: Arc::new(PgBillingRepo::new(pool.clone())),
+            pg_pool: Some(pool),
         }
     }
 
@@ -155,7 +157,12 @@ impl Repos {
             model_aliases: Arc::new(InMemoryModelAliasRepo::new()),
             audit: Arc::new(InMemoryAuditRepo::new()),
             billing: Arc::new(InMemoryBillingRepo::new()),
+            pg_pool: None,
         }
+    }
+
+    pub fn pool(&self) -> Option<&sqlx::PgPool> {
+        self.pg_pool.as_ref()
     }
 }
 

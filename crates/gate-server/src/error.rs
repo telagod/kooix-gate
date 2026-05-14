@@ -30,6 +30,9 @@ pub enum AppError {
     #[error("bad request: {0}")]
     BadRequest(String),
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("not found")]
     NotFound,
 
@@ -146,6 +149,7 @@ impl IntoResponse for AppError {
             }
             AppError::Provider(_) => (StatusCode::BAD_GATEWAY, "upstream_error", self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request", self.to_string()),
+            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden", self.to_string()),
             AppError::NotFound => (
                 StatusCode::NOT_FOUND,
                 "not_found",
