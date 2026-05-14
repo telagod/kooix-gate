@@ -1,13 +1,34 @@
-// API 基础 URL，走 Vite 环境变量；本地默认 localhost:3000
+import { getAccessToken, getRefreshToken, saveTokens, clearTokens } from '$lib/auth.js';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
 
-class ApiError extends Error {
+export class ApiError extends Error {
 	constructor(
 		public status: number,
 		public code: string,
 		message: string
 	) {
 		super(message);
+	}
+}
+
+let refreshPromise: Promise<string | null> | null = null;
+
+async function tryRefresh(): Promise<string | null> {
+	const rt = getRefreshToken();
+	if (!rt) return null;
+	try {
+		const resp = await fetch(`${BASE_URL}/v1/auth/refresh`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ refresh_token: rt })
+		});
+		if (!resp.ok) return null;
+		const data = await resp.json();
+		saveTokens(data.access_token, rt);
+		return data.access_token;
+	} catch {
+		return null;
 	}
 }
 
@@ -23,18 +44,30 @@ async function apiFetch<T>(
 	}
 
 	if (!skipAuth) {
-		const token = getToken();
+		const token = getAccessToken();
 		if (token) {
 			headers.set('Authorization', `Bearer ${token}`);
 		}
 	}
 
-	const resp = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+	let resp = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+
+	if (resp.status === 401 && !skipAuth) {
+		if (!refreshPromise) {
+			refreshPromise = tryRefresh().finally(() => {
+				refreshPromise = null;
+			});
+		}
+		const newToken = await refreshPromise;
+		if (newToken) {
+			headers.set('Authorization', `Bearer ${newToken}`);
+			resp = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+		}
+	}
 
 	if (resp.status === 401) {
-		// 清 token，跳登录（避免无限跳转：只在非登录页跳）
 		if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-			clearToken();
+			clearTokens();
 			window.location.href = '/login';
 		}
 		const body = await resp.json().catch(() => ({}));
@@ -46,29 +79,11 @@ async function apiFetch<T>(
 		throw new ApiError(resp.status, body?.error?.code ?? 'error', body?.error?.message ?? resp.statusText);
 	}
 
-	// 204 No Content
 	if (resp.status === 204) return undefined as T;
-
 	return resp.json();
 }
 
-// ── token storage ──────────────────────────────────
-
-const TOKEN_KEY = 'kooix_access_token';
-const REFRESH_KEY = 'kooix_refresh_token';
-
-function getToken(): string | null {
-	if (typeof localStorage === 'undefined') return null;
-	return localStorage.getItem(TOKEN_KEY);
-}
-
-function clearToken(): void {
-	if (typeof localStorage === 'undefined') return;
-	localStorage.removeItem(TOKEN_KEY);
-	localStorage.removeItem(REFRESH_KEY);
-}
-
-// ── API calls ──────────────────────────────────────
+// ── Auth ──────────────────────────────────────────
 
 export interface LoginResult {
 	access_token: string;
@@ -77,19 +92,9 @@ export interface LoginResult {
 	user: { id: string; email: string; display_name: string | null };
 }
 
-export interface MeResult {
-	subject: { kind: string; user_id?: string };
-	current_org: string | null;
-	is_platform_admin: boolean;
-	orgs: string[];
-}
-
-export interface Project {
-	id: string;
-	org_id: string;
-	name: string;
-	slug: string;
-	status: string;
+export interface SsoStartResponse {
+	authorize_url: string;
+	state: string;
 }
 
 export async function login(email: string, password: string): Promise<LoginResult> {
@@ -100,7 +105,7 @@ export async function login(email: string, password: string): Promise<LoginResul
 	});
 }
 
-export async function refreshToken(refreshTk: string): Promise<{ access_token: string; expires_at: string }> {
+export async function refreshTokenApi(refreshTk: string): Promise<{ access_token: string; expires_at: string }> {
 	return apiFetch('/v1/auth/refresh', {
 		method: 'POST',
 		body: JSON.stringify({ refresh_token: refreshTk }),
@@ -112,10 +117,36 @@ export async function logout(): Promise<void> {
 	await apiFetch('/v1/auth/logout', { method: 'POST' }).catch(() => {});
 }
 
+export async function ssoStart(slug: string, redirectTo?: string): Promise<SsoStartResponse> {
+	const params = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
+	return apiFetch<SsoStartResponse>(`/v1/auth/sso/${slug}/start${params}`, {
+		skipAuth: true
+	});
+}
+
+// ── Me / Orgs ─────────────────────────────────────
+
+export interface MeResult {
+	subject: { kind: string; user_id?: string };
+	current_org: string | null;
+	is_platform_admin: boolean;
+	orgs: string[];
+}
+
 export async function getMe(orgId?: string): Promise<MeResult> {
 	const headers: Record<string, string> = {};
 	if (orgId) headers['X-Kooix-Org'] = orgId;
 	return apiFetch<MeResult>('/v1/me', { headers });
+}
+
+// ── Projects ──────────────────────────────────────
+
+export interface Project {
+	id: string;
+	org_id: string;
+	name: string;
+	slug: string;
+	status: string;
 }
 
 export async function listProjects(orgId: string): Promise<Project[]> {
@@ -132,7 +163,7 @@ export async function createProject(orgId: string, name: string, slug: string): 
 	});
 }
 
-// ── Usage ───────────────────────────────────────────
+// ── Usage ─────────────────────────────────────────
 
 export interface UsagePoint {
 	key: string;
@@ -163,18 +194,26 @@ export async function getUsage(
 	return apiFetch<UsageResponse>(`/v1/usage?${params}`, { headers });
 }
 
-// ── Channels (only listing) ─────────────────────────
+// ── Channels (Org-scoped read-only) ───────────────
 
 export interface Channel {
 	id: string;
 	code: string;
 	name: string;
 	provider_type: string;
-	base_url: string;
+	base_url?: string;
 	status: string;
 	health: string;
 	updated_at: string;
 }
+
+export async function listChannels(orgId: string): Promise<Channel[]> {
+	return apiFetch<Channel[]>(`/v1/orgs/${orgId}/channels`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+// ── Admin Channels ────────────────────────────────
 
 export interface CreateChannelRequest {
 	code: string;
@@ -190,12 +229,6 @@ export interface UpdateChannelRequest {
 	base_url?: string;
 	enabled?: boolean;
 	supported_models?: string[];
-}
-
-export async function listChannels(orgId: string): Promise<Channel[]> {
-	return apiFetch<Channel[]>(`/v1/orgs/${orgId}/channels`, {
-		headers: { 'X-Kooix-Org': orgId }
-	});
 }
 
 export async function listAdminChannels(): Promise<Channel[]> {
@@ -217,12 +250,80 @@ export async function updateChannel(id: string, data: UpdateChannelRequest): Pro
 }
 
 export async function deleteChannel(id: string): Promise<void> {
-	return apiFetch(`/v1/admin/channels/${id}`, {
-		method: 'DELETE'
+	return apiFetch(`/v1/admin/channels/${id}`, { method: 'DELETE' });
+}
+
+// ── Admin Channel Keys ────────────────────────────
+
+export interface ChannelKeySummary {
+	id: string;
+	channel_id: string;
+	label: string | null;
+	fingerprint: string;
+	weight: number;
+	health: string;
+	created_at: string;
+}
+
+export async function listChannelKeys(channelId: string): Promise<ChannelKeySummary[]> {
+	return apiFetch<ChannelKeySummary[]>(`/v1/admin/channels/${channelId}/keys`);
+}
+
+export async function createChannelKey(
+	channelId: string,
+	secret: string,
+	alias?: string
+): Promise<ChannelKeySummary> {
+	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${channelId}/keys`, {
+		method: 'POST',
+		body: JSON.stringify({ secret, alias })
 	});
 }
 
-// ── API Keys ───────────────────────────────────────
+export async function rotateChannelKey(
+	channelId: string,
+	secret: string,
+	alias?: string
+): Promise<ChannelKeySummary> {
+	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${channelId}/keys/rotate`, {
+		method: 'POST',
+		body: JSON.stringify({ secret, alias })
+	});
+}
+
+export async function revokeChannelKey(channelId: string, keyId: string): Promise<void> {
+	return apiFetch(`/v1/admin/channels/${channelId}/keys/${keyId}`, { method: 'DELETE' });
+}
+
+// ── Admin Audit Logs ──────────────────────────────
+
+export interface AuditLog {
+	id: string;
+	ts: string;
+	actor_kind: string;
+	actor_id: string | null;
+	action: string;
+	resource_kind: string;
+	resource_id: string | null;
+	org_id: string | null;
+	outcome: string;
+	after: Record<string, unknown> | null;
+}
+
+export async function listAuditLogs(
+	orgId: string,
+	limit = 50,
+	offset = 0
+): Promise<AuditLog[]> {
+	const params = new URLSearchParams({
+		org_id: orgId,
+		limit: String(limit),
+		offset: String(offset)
+	});
+	return apiFetch<AuditLog[]>(`/v1/admin/audit-logs?${params}`);
+}
+
+// ── API Keys ──────────────────────────────────────
 
 export interface ApiKey {
 	id: string;
@@ -264,7 +365,7 @@ export async function revokeKey(orgId: string, projectId: string, keyId: string)
 	});
 }
 
-// ── Quotas ─────────────────────────────────────────
+// ── Quotas ────────────────────────────────────────
 
 export interface Quota {
 	id: string;
@@ -307,18 +408,60 @@ export async function deleteQuota(orgId: string, quotaId: string): Promise<void>
 	});
 }
 
-// ── SSO ─────────────────────────────────────────────
+// ── Billing ───────────────────────────────────────
 
-export interface SsoStartResponse {
-	authorize_url: string;
-	state: string;
+export interface MonthlyBill {
+	org_id: string;
+	month: string;
+	total_cost_usd: string;
+	total_tokens_in: number;
+	total_tokens_out: number;
+	total_requests: number;
+	breakdown_by_project: { project_id: string; cost_usd: string; requests: number }[];
+	breakdown_by_model: {
+		model: string;
+		cost_usd: string;
+		tokens_in: number;
+		tokens_out: number;
+		requests: number;
+	}[];
 }
 
-export async function ssoStart(slug: string, redirectTo?: string): Promise<SsoStartResponse> {
-	const params = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
-	return apiFetch<SsoStartResponse>(`/v1/auth/sso/${slug}/start${params}`, {
-		skipAuth: true
+export interface QuotaAlert {
+	quota_id: string;
+	dimension: string;
+	scope_kind: string;
+	scope_id: string;
+	limit_value: number;
+	current_value: number;
+	percent: number;
+	level: 'approaching' | 'exceeded';
+}
+
+export async function getMonthlyBill(orgId: string, month: string): Promise<MonthlyBill> {
+	return apiFetch<MonthlyBill>(`/v1/orgs/${orgId}/billing/${month}`, {
+		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
-export { getToken, clearToken, ApiError };
+export async function exportBillingCsv(orgId: string, from: string, to: string): Promise<Blob> {
+	const token = getAccessToken();
+	const params = new URLSearchParams({ from, to });
+	const resp = await fetch(`${BASE_URL}/v1/orgs/${orgId}/billing/export?${params}`, {
+		headers: {
+			'X-Kooix-Org': orgId,
+			...(token ? { Authorization: `Bearer ${token}` } : {})
+		}
+	});
+	if (!resp.ok) {
+		const body = await resp.json().catch(() => ({}));
+		throw new ApiError(resp.status, body?.error?.code ?? 'error', body?.error?.message ?? 'Export failed');
+	}
+	return resp.blob();
+}
+
+export async function getQuotaAlerts(orgId: string): Promise<QuotaAlert[]> {
+	return apiFetch<QuotaAlert[]>(`/v1/orgs/${orgId}/quota-alerts`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}

@@ -1,16 +1,15 @@
-// Token 存取 + 登录状态 store
 import { browser } from '$app/environment';
-import { writable, get } from 'svelte/store';
+import { writable } from 'svelte/store';
 
 const TOKEN_KEY = 'kooix_access_token';
 const REFRESH_KEY = 'kooix_refresh_token';
 
-// ── stores ──────────────────────────────────────────
-
 export const isLoggedIn = writable(false);
-export const currentUser = writable<{ id: string; email: string; display_name: string | null } | null>(null);
-
-// ── token helpers ────────────────────────────────────
+export const currentUser = writable<{
+	id: string;
+	email: string;
+	display_name: string | null;
+} | null>(null);
 
 export function saveTokens(accessToken: string, refreshToken: string): void {
 	if (!browser) return;
@@ -39,6 +38,5 @@ export function clearTokens(): void {
 
 export function initAuth(): void {
 	if (!browser) return;
-	const token = localStorage.getItem(TOKEN_KEY);
-	isLoggedIn.set(!!token);
+	isLoggedIn.set(!!localStorage.getItem(TOKEN_KEY));
 }

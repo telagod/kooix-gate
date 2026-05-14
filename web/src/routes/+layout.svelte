@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/stores';
 	import NavBar from '$lib/components/NavBar.svelte';
+	import Toast from '$lib/components/Toast.svelte';
 	import '../app.css';
 
 	let { children } = $props();
@@ -22,3 +23,5 @@
 {:else}
 	{@render children()}
 {/if}
+
+<Toast />

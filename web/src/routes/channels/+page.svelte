@@ -315,6 +315,7 @@
 							{#if isPlatformAdmin}
 								<td class="px-4 py-3 text-right">
 									<div class="flex gap-1 justify-end">
+										<Button variant="ghost" size="sm" onclick={() => goto(`/channels/${ch.id}`)}>Keys</Button>
 										<Button variant="ghost" size="sm" onclick={() => startEdit(ch)}>编辑</Button>
 										<Button variant="ghost" size="sm" onclick={() => (deletingId = ch.id)}>
 											<span class="text-red-600">删除</span>

@@ -84,6 +84,7 @@
 		<div class="flex items-center justify-between mb-6">
 			<h1 class="text-2xl font-bold text-zinc-900">项目列表</h1>
 			<div class="flex gap-2">
+				<Button variant="outline" onclick={() => goto(`/orgs/${orgId}/billing`)}>账单</Button>
 				<Button variant="outline" onclick={() => goto(`/orgs/${orgId}/quotas`)}>配额管理</Button>
 				<Button onclick={() => (showCreate = !showCreate)}>
 					{showCreate ? '取消' : '+ 创建项目'}
