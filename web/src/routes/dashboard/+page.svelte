@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { shortId, rawId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getMe, getUsage, getQuotaAlerts, listProjects, listKeys, getDashboardStats } from '$lib/api.js';
@@ -119,7 +120,7 @@
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">总览</h1>
 				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">
 					{#if currentOrg}
-						当前组织：<span class="font-mono">{currentOrg.slice(0, 8)}...</span>
+						当前组织：<span class="font-mono">{shortId(currentOrg)}...</span>
 					{:else}
 						未加入任何组织
 					{/if}
@@ -289,7 +290,7 @@
 				<div class="space-y-1">
 					{#each exceededAlerts.slice(0, 3) as a}
 						<p class="text-xs text-red-600 dark:text-red-400">
-							{a.dimension} · {a.scope_kind}:{a.scope_id.slice(0, 8)}... — {a.percent.toFixed(0)}%
+							{a.dimension} · {a.scope_kind}:{shortId(a.scope_id)}... — {a.percent.toFixed(0)}%
 						</p>
 					{/each}
 				</div>
@@ -305,7 +306,7 @@
 				<div class="space-y-1">
 					{#each approachingAlerts.slice(0, 3) as a}
 						<p class="text-xs text-amber-600 dark:text-amber-400">
-							{a.dimension} · {a.scope_kind}:{a.scope_id.slice(0, 8)}... — {a.percent.toFixed(0)}%
+							{a.dimension} · {a.scope_kind}:{shortId(a.scope_id)}... — {a.percent.toFixed(0)}%
 						</p>
 					{/each}
 				</div>
@@ -345,7 +346,7 @@
 			{/if}
 
 			{#if currentOrg}
-				<button onclick={() => goto(`/orgs/${currentOrg}/projects`)} class="group flex items-center gap-3 p-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-500 transition-colors text-left">
+				<button onclick={() => goto(`/orgs/${rawId(currentOrg)}/projects`)} class="group flex items-center gap-3 p-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-500 transition-colors text-left">
 					<FolderOpen size={20} class="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors" />
 					<div class="flex-1">
 						<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">项目管理</p>

@@ -28,6 +28,7 @@ use gate_storage::{DbError, QuotaUpsert};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -75,17 +76,17 @@ pub struct UpsertQuotaRequest {
 
 async fn list_quotas(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<QuotaView>>> {
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::QuotaRead, Scope::Org(&org));
 
     // Org 本身
     let mut out: Vec<QuotaView> = app
         .repos
         .quotas
-        .list_by_scope("org", org_id)
+        .list_by_scope("org", *org_id)
         .await?
         .into_iter()
         .map(Into::into)
@@ -118,11 +119,11 @@ async fn list_quotas(
 
 async fn upsert_quota(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<UpsertQuotaRequest>,
 ) -> AppResult<Json<QuotaView>> {
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::QuotaWrite, Scope::Org(&org));
 
     // 验 Org 存在
@@ -151,7 +152,7 @@ async fn upsert_quota(
     // 越权写防御：scope_id 必须可归属当前 Org
     match req.scope_kind.as_str() {
         "org" => {
-            if req.scope_id != org_id {
+            if req.scope_id != *org_id {
                 return Err(AppError::BadRequest(
                     "scope_id must equal path org_id when scope_kind=org".into(),
                 ));
@@ -223,17 +224,17 @@ async fn upsert_quota(
 
 async fn delete_quota(
     State(app): State<AppState>,
-    Path((org_id, quota_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, quota_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::QuotaWrite, Scope::Org(&org));
 
     // 防越权：删除前先确认目标 quota 归属当前 Org
     // list 全部 Org 维度（含子层）然后定位 ID；规模可控因为 Org 级 quota 行数有限。
     let mut owned = false;
-    for r in app.repos.quotas.list_by_scope("org", org_id).await? {
-        if r.id == quota_id {
+    for r in app.repos.quotas.list_by_scope("org", *org_id).await? {
+        if r.id == *quota_id {
             owned = true;
             break;
         }
@@ -246,7 +247,7 @@ async fn delete_quota(
                 .list_by_scope("project", *p.id.as_uuid())
                 .await?
             {
-                if r.id == quota_id {
+                if r.id == *quota_id {
                     owned = true;
                     break;
                 }
@@ -261,7 +262,7 @@ async fn delete_quota(
                     .list_by_scope("api_key", *k.api_key_id.as_uuid())
                     .await?
                 {
-                    if r.id == quota_id {
+                    if r.id == *quota_id {
                         owned = true;
                         break;
                     }
@@ -279,13 +280,13 @@ async fn delete_quota(
         return Err(AppError::NotFound);
     }
 
-    match app.repos.quotas.delete(quota_id).await {
+    match app.repos.quotas.delete(*quota_id).await {
         Ok(()) => {
             app.audit.emit(
                 &ctx,
                 "quota.delete",
                 "quota",
-                Some(quota_id),
+                Some(*quota_id),
                 None,
             );
             Ok(Json(serde_json::json!({"deleted": true})))

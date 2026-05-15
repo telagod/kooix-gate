@@ -112,8 +112,7 @@ where
         .headers
         .get("x-kooix-org")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-        .map(OrgId::from);
+        .and_then(|s| s.parse::<OrgId>().ok());
 
     let current_org = header_org.or_else(|| claims.org.map(OrgId::from));
 

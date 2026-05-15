@@ -4,7 +4,8 @@
 
 - 编译期 SQL 校验：sqlx + `cargo sqlx prepare`，不用 ORM
 - 强类型 ID：`OrgId` / `ProjectId` 等编译期防串台
-- response 返裸 UUID，不用 typed_id Display（如 `org_xxx`）
+- API response 返带前缀 typed ID（如 `org_019e2c1ba7d17162842207e4b24f5f98`）
+- URL 路径参数用 `FlexUuid`，同时接受 typed ID 和裸 UUID
 - 新增 migration 后跨 crate 测试要先 `cargo clean -p gate-storage`
 - testcontainers 默认 `postgres:17-alpine`，可用 `KOOIX_TEST_PG_TAG` 覆盖
 

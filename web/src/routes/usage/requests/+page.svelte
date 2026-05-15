@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { getMe, listOrgRequests, getOrgFilterOptions } from '$lib/api.js';
 	import type { RequestRecord, RequestPage, OrgRequestListParams, MeResult, FilterOptions } from '$lib/api.js';
@@ -210,7 +211,7 @@
 		[
 			filterModel && `模型: ${filterModel}`,
 			filterModelRequested && `请求模型: ${filterModelRequested}`,
-			filterProject && `Project: ${filterProject.slice(0, 8)}`,
+			filterProject && `Project: ${shortId(filterProject)}`,
 			filterErrorCode && `错误码: ${filterErrorCode}`,
 			filterHasRetries === 'true' && '有重试',
 			filterHasRetries === 'false' && '无重试',
@@ -273,7 +274,7 @@
 				<p class="text-xs text-zinc-500 dark:text-zinc-400">
 					当前组织的 API 请求历史
 					{#if currentOrg}
-						· <span class="font-mono">{currentOrg.slice(0, 8)}...</span>
+						· <span class="font-mono">{shortId(currentOrg)}...</span>
 					{/if}
 				</p>
 			</div>
@@ -362,7 +363,7 @@
 						<select bind:value={filterProject} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
 							<option value="">全部</option>
 							{#each filterOpts.projects as p}
-								<option value={p.id}>{p.label ?? p.id.slice(0, 8)}</option>
+								<option value={p.id}>{p.label ?? shortId(p.id)}</option>
 							{/each}
 						</select>
 					{:else}
@@ -520,7 +521,7 @@
 										</div>
 										<div>
 											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Project</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.project_id.slice(0, 8)}...</p>
+											<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.project_id)}...</p>
 										</div>
 										<div>
 											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">TTFB</p>

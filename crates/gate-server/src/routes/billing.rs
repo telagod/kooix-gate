@@ -20,6 +20,7 @@ use gate_core::id::OrgId;
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -62,11 +63,11 @@ struct ModelLineView {
 
 async fn get_monthly_bill(
     State(app): State<AppState>,
-    Path((org_id, month)): Path<(Uuid, String)>,
+    Path((org_id, month)): Path<(FlexUuid, String)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<MonthlyBillResponse>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::OrgBillingRead, Scope::Org(&org));
 
     // Validate month format: YYYY-MM
@@ -89,7 +90,7 @@ async fn get_monthly_bill(
             .breakdown_by_project
             .into_iter()
             .map(|p| ProjectLineView {
-                project_id: p.project_id.as_uuid().to_string(),
+                project_id: p.project_id.to_string(),
                 cost_usd: p.cost_usd.normalize().to_string(),
                 requests: p.requests,
             })
@@ -139,12 +140,12 @@ pub struct ExportQuery {
 
 async fn export_csv(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Query(q): Query<ExportQuery>,
 ) -> AppResult<Response> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::UsageExport, Scope::Org(&org));
 
     if q.from >= q.to {
@@ -207,11 +208,11 @@ async fn export_csv(
 
 async fn get_quota_alerts(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<QuotaAlert>>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::QuotaRead, Scope::Org(&org));
 
     let alert_list = alerts::compute_alerts(org, &app.repos.quotas, &app.repos.usage).await;

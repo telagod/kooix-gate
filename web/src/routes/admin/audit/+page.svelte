@@ -1,5 +1,6 @@
 <!-- /admin/audit — 审计日志 (platform admin only) -->
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { getMe, listAuditLogs } from '$lib/api.js';
 	import type { AuditLog } from '$lib/api.js';
@@ -169,11 +170,11 @@
 						>
 							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{formatDate(log.ts)}</td>
 							<td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">
-								<span class="text-zinc-500 dark:text-zinc-400">{log.actor_kind}/</span>{log.actor_id?.slice(0, 8) ?? '—'}
+								<span class="text-zinc-500 dark:text-zinc-400">{log.actor_kind}/</span>{shortId(log.actor_id?) ?? '—'}
 							</td>
 							<td class="px-4 py-3 font-mono text-xs text-zinc-900 dark:text-zinc-100">{log.action}</td>
 							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">{log.resource_kind}</td>
-							<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{log.resource_id?.slice(0, 8) ?? '—'}</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{shortId(log.resource_id?) ?? '—'}</td>
 							<td class="px-4 py-3">
 								<span class="inline-block px-2 py-0.5 rounded text-xs font-medium {outcomeBadge(log.outcome)}">
 									{log.outcome}

@@ -10,6 +10,7 @@ use gate_core::id::{OrgId, ProjectId};
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ModelAliasView {
@@ -38,13 +39,13 @@ pub fn router() -> Router<AppState> {
 
 async fn list_aliases(
     State(app): State<AppState>,
-    Path((org_id, project_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, project_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<ModelAliasView>>> {
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ProjectRead, Scope::Org(&org));
 
-    let pid = ProjectId::from(project_id);
+    let pid = ProjectId::from(project_id.0);
     let records = app.repos.model_aliases.list_by_project(pid).await?;
     Ok(Json(records.into_iter().map(|r| ModelAliasView {
         id: r.id.to_string(),
@@ -57,19 +58,19 @@ async fn list_aliases(
 
 async fn upsert_alias(
     State(app): State<AppState>,
-    Path((org_id, project_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, project_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
     Json(req): Json<UpsertAliasRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ModelAliasManage, Scope::Org(&org));
 
     if req.alias.trim().is_empty() || req.target_model.trim().is_empty() {
         return Err(AppError::BadRequest("alias and target_model required".into()));
     }
 
-    let pid = ProjectId::from(project_id);
+    let pid = ProjectId::from(project_id.0);
     app.repos.model_aliases.upsert(pid, req.alias.trim(), req.target_model.trim()).await?;
 
     app.audit.emit(&ctx, "model_alias.upsert", "model_alias", None,
@@ -80,14 +81,14 @@ async fn upsert_alias(
 
 async fn delete_alias(
     State(app): State<AppState>,
-    Path((org_id, project_id, alias)): Path<(Uuid, Uuid, String)>,
+    Path((org_id, project_id, alias)): Path<(FlexUuid, FlexUuid, String)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ModelAliasManage, Scope::Org(&org));
 
-    let pid = ProjectId::from(project_id);
+    let pid = ProjectId::from(project_id.0);
     app.repos.model_aliases.delete(pid, &alias).await?;
 
     Ok(Json(serde_json::json!({"deleted": true})))

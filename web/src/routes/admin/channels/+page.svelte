@@ -1,5 +1,6 @@
 <!-- /admin/channels — 渠道仪表盘：总览 + 健康地图 + 导入/导出 -->
 <script lang="ts">
+	import { rawId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { listAdminChannels } from '$lib/api.js';
 	import type { Channel } from '$lib/api.js';
@@ -253,7 +254,7 @@
 						{#each recentErrors as ch}
 							<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
 								<td class="px-4 py-3">
-									<a href="/channels/{ch.id}" class="font-mono text-zinc-900 dark:text-zinc-100 hover:underline text-xs">{ch.code}</a>
+									<a href="/channels/{rawId(ch.id)}" class="font-mono text-zinc-900 dark:text-zinc-100 hover:underline text-xs">{ch.code}</a>
 								</td>
 								<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{ch.provider_type}</td>
 								<td class="px-4 py-3 text-red-600 dark:text-red-400 text-xs max-w-[300px] truncate">{ch.last_error}</td>

@@ -1,5 +1,6 @@
 <!-- /orgs/[orgId]/projects — Org 下的 Project 列表 + 创建 -->
 <script lang="ts">
+	import { shortId, rawId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -60,7 +61,7 @@
 
 <div>
 	<div class="px-6 py-6">
-		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 项目</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {shortId(orgId)}... / 项目</p>
 		<div class="flex items-center justify-between mb-6">
 			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">项目列表</h1>
 			<div class="flex gap-2">

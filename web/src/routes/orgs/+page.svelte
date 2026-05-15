@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { shortId, rawId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getMe, listAllOrgs, createOrg, updateOrg } from '$lib/api.js';
@@ -135,7 +136,7 @@
 								<span class="text-xs bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2 py-0.5 rounded">当前</span>
 							{/if}
 						</div>
-						<Button size="sm" onclick={() => goto(`/orgs/${orgId}/projects`)}>查看项目</Button>
+						<Button size="sm" onclick={() => goto(`/orgs/${rawId(orgId)}/projects`)}>查看项目</Button>
 					</Card>
 				{/each}
 			</div>
@@ -176,7 +177,7 @@
 								<Building2 size={18} class="text-zinc-400" />
 								<div>
 									<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{org.name}</p>
-									<p class="text-xs text-zinc-600 dark:text-zinc-300 font-mono">{org.slug} · {org.id.slice(0, 8)}...</p>
+									<p class="text-xs text-zinc-600 dark:text-zinc-300 font-mono">{org.slug} · {shortId(org.id)}...</p>
 								</div>
 								<span class="text-[10px] px-1.5 py-0.5 rounded-full {
 									org.status === 'active'
@@ -189,7 +190,7 @@
 								<Button variant="ghost" size="sm" onclick={() => startEdit(org)}>
 									<Settings size={14} />
 								</Button>
-								<Button size="sm" onclick={() => goto(`/orgs/${org.id}/projects`)}>项目</Button>
+								<Button size="sm" onclick={() => goto(`/orgs/${rawId(org.id)}/projects`)}>项目</Button>
 							</div>
 						</div>
 					{/if}

@@ -360,7 +360,7 @@ async fn me_returns_user_summary() {
     let (status, body) = call(&f.router, "GET", "/v1/me", Some(&tok), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["subject"]["kind"], "user");
-    assert_eq!(body["current_org"], f.org_a.as_uuid().to_string());
+    assert_eq!(body["current_org"], f.org_a.to_string());
     assert_eq!(body["is_platform_admin"], false);
 }
 

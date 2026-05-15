@@ -18,6 +18,7 @@ pub mod audit;
 pub mod auth;
 pub mod billing_emit;
 pub mod channel_rate_limit;
+pub mod flex_uuid;
 pub mod config;
 pub mod cost_estimate;
 pub mod error;

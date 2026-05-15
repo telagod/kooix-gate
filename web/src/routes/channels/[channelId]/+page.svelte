@@ -1,5 +1,6 @@
 <!-- /channels/[channelId] — Channel 详情页：Overview + Keys + Models + Logs -->
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import {
@@ -324,7 +325,7 @@
 <div class="px-6 py-6">
 	<!-- Breadcrumb -->
 	<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
-		<a href="/channels" class="hover:underline">渠道</a> / {channelId.slice(0, 8)}...
+		<a href="/channels" class="hover:underline">渠道</a> / {shortId(channelId)}...
 	</p>
 
 	{#if loading}
@@ -579,7 +580,7 @@
 								<tr>
 									<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">{fmtDate(log.ts)}</td>
 									<td class="px-4 py-3 text-zinc-900 dark:text-zinc-100 font-mono text-xs">{log.action}</td>
-									<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{log.actor_kind}:{log.actor_id?.slice(0, 8) ?? '—'}</td>
+									<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{log.actor_kind}:{shortId(log.actor_id?) ?? '—'}</td>
 									<td class="px-4 py-3">
 										<span class="px-2 py-0.5 rounded text-xs {log.outcome === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'}">{log.outcome}</span>
 									</td>

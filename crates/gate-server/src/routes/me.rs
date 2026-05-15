@@ -43,7 +43,7 @@ async fn me(Authed(ctx): Authed) -> AppResult<Json<MeResponse>> {
             user_id,
             session_id,
         } => SubjectView::User {
-            user_id: user_id.as_uuid().to_string(),
+            user_id: user_id.to_string(),
             session_id: session_id.to_string(),
         },
         Subject::ApiKey {
@@ -51,21 +51,21 @@ async fn me(Authed(ctx): Authed) -> AppResult<Json<MeResponse>> {
             project_id,
             org_id,
         } => SubjectView::ApiKey {
-            api_key_id: api_key_id.as_uuid().to_string(),
-            project_id: project_id.as_uuid().to_string(),
-            org_id: org_id.as_uuid().to_string(),
+            api_key_id: api_key_id.to_string(),
+            project_id: project_id.to_string(),
+            org_id: org_id.to_string(),
         },
         Subject::System => SubjectView::System,
     };
 
     Ok(Json(MeResponse {
         subject,
-        current_org: ctx.current_org().map(|o: OrgId| o.as_uuid().to_string()),
+        current_org: ctx.current_org().map(|o: OrgId| o.to_string()),
         is_platform_admin: ctx.is_super_admin(),
         orgs: ctx
             .accessible_orgs()
             .iter()
-            .map(|o| o.as_uuid().to_string())
+            .map(|o| o.to_string())
             .collect(),
     }))
 }

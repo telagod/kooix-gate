@@ -19,6 +19,7 @@ use gate_core::id::OrgId;
 use gate_core::rbac::{Permission, Scope};
 use serde::Serialize;
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ChannelView {
@@ -37,11 +38,11 @@ pub fn router() -> Router<AppState> {
 
 async fn list_channels(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<ChannelView>>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::OrgRead, Scope::Org(&org));
 
     let records = app.repos.channels.list_admin_view().await?;
@@ -49,7 +50,7 @@ async fn list_channels(
         records
             .into_iter()
             .map(|r| ChannelView {
-                id: r.channel_id.as_uuid().to_string(),
+                id: r.channel_id.to_string(),
                 code: r.code,
                 name: r.name,
                 provider_type: r.provider_type,

@@ -9,6 +9,7 @@ use gate_core::rbac::{Permission, Scope};
 use gate_storage::RequestFilter;
 use serde::Deserialize;
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Deserialize)]
 pub struct RequestListQuery {
@@ -131,12 +132,12 @@ async fn list_requests(
 async fn get_request(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path(request_id): Path<Uuid>,
+    Path(request_id): Path<FlexUuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::AuditRead, Scope::Platform);
 
-    let record = app.repos.request_logs.find_by_request_id(request_id).await?;
+    let record = app.repos.request_logs.find_by_request_id(*request_id).await?;
     Ok(Json(serde_json::to_value(&record).unwrap_or_default()))
 }
 

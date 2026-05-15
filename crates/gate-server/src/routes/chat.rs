@@ -335,9 +335,8 @@ async fn extract_project_id(
         return Ok(None);
     };
 
-    let project_uuid = uuid::Uuid::parse_str(raw.trim())
-        .map_err(|_| AppError::BadRequest("invalid X-Kooix-Project: not a UUID".into()))?;
-    let project_id = ProjectId::from(project_uuid);
+    let project_id: ProjectId = raw.trim().parse()
+        .map_err(|_| AppError::BadRequest("invalid X-Kooix-Project".into()))?;
 
     // 越权校验：project.org_id 必须匹配 ctx.current_org
     let project = app.repos.projects.find_by_id(project_id).await?;

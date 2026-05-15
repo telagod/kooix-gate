@@ -1,4 +1,5 @@
 import { getAccessToken, getRefreshToken, saveTokens, clearTokens } from '$lib/auth.js';
+import { rawId } from '$lib/id.js';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -191,13 +192,13 @@ export interface Project {
 }
 
 export async function listProjects(orgId: string): Promise<Project[]> {
-	return apiFetch<Project[]>(`/v1/orgs/${orgId}/projects`, {
+	return apiFetch<Project[]>(`/v1/orgs/${rawId(orgId)}/projects`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
 export async function createProject(orgId: string, name: string, slug: string): Promise<Project> {
-	return apiFetch<Project>(`/v1/orgs/${orgId}/projects`, {
+	return apiFetch<Project>(`/v1/orgs/${rawId(orgId)}/projects`, {
 		method: 'POST',
 		body: JSON.stringify({ name, slug }),
 		headers: { 'X-Kooix-Org': orgId }
@@ -238,7 +239,7 @@ export async function getUsage(
 // ── Channels (Org-scoped read-only) ───────────────
 
 export async function listChannels(orgId: string): Promise<Channel[]> {
-	return apiFetch<Channel[]>(`/v1/orgs/${orgId}/channels`, {
+	return apiFetch<Channel[]>(`/v1/orgs/${rawId(orgId)}/channels`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
@@ -338,14 +339,14 @@ export async function createChannel(data: CreateChannelRequest): Promise<Channel
 }
 
 export async function updateChannel(id: string, data: UpdateChannelRequest): Promise<Channel> {
-	return apiFetch<Channel>(`/v1/admin/channels/${id}`, {
+	return apiFetch<Channel>(`/v1/admin/channels/${rawId(id)}`, {
 		method: 'PUT',
 		body: JSON.stringify(data)
 	});
 }
 
 export async function deleteChannel(id: string): Promise<void> {
-	return apiFetch(`/v1/admin/channels/${id}`, { method: 'DELETE' });
+	return apiFetch(`/v1/admin/channels/${rawId(id)}`, { method: 'DELETE' });
 }
 
 export async function batchEnableChannels(ids: string[]): Promise<{ affected: number }> {
@@ -379,7 +380,7 @@ export interface ChannelStats {
 }
 
 export async function getChannelStats(channelId: string): Promise<ChannelStats> {
-	return apiFetch<ChannelStats>(`/v1/admin/channels/${channelId}/stats`);
+	return apiFetch<ChannelStats>(`/v1/admin/channels/${rawId(channelId)}/stats`);
 }
 
 // Channel probe (model discovery)
@@ -390,7 +391,7 @@ export interface ProbeResponse {
 }
 
 export async function probeChannel(channelId: string): Promise<ProbeResponse> {
-	return apiFetch<ProbeResponse>(`/v1/admin/channels/${channelId}/probe`, { method: 'POST' });
+	return apiFetch<ProbeResponse>(`/v1/admin/channels/${rawId(channelId)}/probe`, { method: 'POST' });
 }
 
 // Channel test
@@ -404,7 +405,7 @@ export interface TestResponse {
 
 export async function testChannel(channelId: string, model?: string): Promise<TestResponse> {
 	const params = model ? `?model=${encodeURIComponent(model)}` : '';
-	return apiFetch<TestResponse>(`/v1/admin/channels/${channelId}/test${params}`);
+	return apiFetch<TestResponse>(`/v1/admin/channels/${rawId(channelId)}/test${params}`);
 }
 
 // Channel balance
@@ -418,7 +419,7 @@ export interface BalanceResponse {
 }
 
 export async function getChannelBalance(channelId: string): Promise<BalanceResponse> {
-	return apiFetch<BalanceResponse>(`/v1/admin/channels/${channelId}/balance`);
+	return apiFetch<BalanceResponse>(`/v1/admin/channels/${rawId(channelId)}/balance`);
 }
 
 // ── Admin Channel Keys ────────────────────────────
@@ -440,7 +441,7 @@ export interface ChannelKeySummary {
 }
 
 export async function listChannelKeys(channelId: string): Promise<ChannelKeySummary[]> {
-	return apiFetch<ChannelKeySummary[]>(`/v1/admin/channels/${channelId}/keys`);
+	return apiFetch<ChannelKeySummary[]>(`/v1/admin/channels/${rawId(channelId)}/keys`);
 }
 
 export async function createChannelKey(
@@ -448,7 +449,7 @@ export async function createChannelKey(
 	secret: string,
 	alias?: string
 ): Promise<ChannelKeySummary> {
-	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${channelId}/keys`, {
+	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${rawId(channelId)}/keys`, {
 		method: 'POST',
 		body: JSON.stringify({ secret, alias })
 	});
@@ -459,14 +460,14 @@ export async function rotateChannelKey(
 	secret: string,
 	alias?: string
 ): Promise<ChannelKeySummary> {
-	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${channelId}/keys/rotate`, {
+	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${rawId(channelId)}/keys/rotate`, {
 		method: 'POST',
 		body: JSON.stringify({ secret, alias })
 	});
 }
 
 export async function revokeChannelKey(channelId: string, keyId: string): Promise<void> {
-	return apiFetch(`/v1/admin/channels/${channelId}/keys/${keyId}`, { method: 'DELETE' });
+	return apiFetch(`/v1/admin/channels/${rawId(channelId)}/keys/${rawId(keyId)}`, { method: 'DELETE' });
 }
 
 // ── Admin Audit Logs ──────────────────────────────
@@ -519,13 +520,13 @@ export interface CreateKeyResponse {
 }
 
 export async function listKeys(orgId: string, projectId: string): Promise<ApiKey[]> {
-	return apiFetch<ApiKey[]>(`/v1/orgs/${orgId}/projects/${projectId}/api-keys`, {
+	return apiFetch<ApiKey[]>(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/api-keys`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
 export async function createKey(orgId: string, projectId: string, name: string): Promise<CreateKeyResponse> {
-	return apiFetch<CreateKeyResponse>(`/v1/orgs/${orgId}/projects/${projectId}/api-keys`, {
+	return apiFetch<CreateKeyResponse>(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/api-keys`, {
 		method: 'POST',
 		body: JSON.stringify({ name }),
 		headers: { 'X-Kooix-Org': orgId }
@@ -533,7 +534,7 @@ export async function createKey(orgId: string, projectId: string, name: string):
 }
 
 export async function revokeKey(orgId: string, projectId: string, keyId: string): Promise<void> {
-	return apiFetch(`/v1/orgs/${orgId}/projects/${projectId}/api-keys/${keyId}`, {
+	return apiFetch(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/api-keys/${rawId(keyId)}`, {
 		method: 'DELETE',
 		headers: { 'X-Kooix-Org': orgId }
 	});
@@ -562,13 +563,13 @@ export interface UpsertQuotaRequest {
 }
 
 export async function listQuotas(orgId: string): Promise<Quota[]> {
-	return apiFetch<Quota[]>(`/v1/orgs/${orgId}/quotas`, {
+	return apiFetch<Quota[]>(`/v1/orgs/${rawId(orgId)}/quotas`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
 export async function upsertQuota(orgId: string, data: UpsertQuotaRequest): Promise<Quota> {
-	return apiFetch<Quota>(`/v1/orgs/${orgId}/quotas`, {
+	return apiFetch<Quota>(`/v1/orgs/${rawId(orgId)}/quotas`, {
 		method: 'POST',
 		body: JSON.stringify(data),
 		headers: { 'X-Kooix-Org': orgId }
@@ -576,7 +577,7 @@ export async function upsertQuota(orgId: string, data: UpsertQuotaRequest): Prom
 }
 
 export async function deleteQuota(orgId: string, quotaId: string): Promise<void> {
-	return apiFetch(`/v1/orgs/${orgId}/quotas/${quotaId}`, {
+	return apiFetch(`/v1/orgs/${rawId(orgId)}/quotas/${rawId(quotaId)}`, {
 		method: 'DELETE',
 		headers: { 'X-Kooix-Org': orgId }
 	});
@@ -613,7 +614,7 @@ export interface QuotaAlert {
 }
 
 export async function getMonthlyBill(orgId: string, month: string): Promise<MonthlyBill> {
-	return apiFetch<MonthlyBill>(`/v1/orgs/${orgId}/billing/${month}`, {
+	return apiFetch<MonthlyBill>(`/v1/orgs/${rawId(orgId)}/billing/${month}`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
@@ -621,7 +622,7 @@ export async function getMonthlyBill(orgId: string, month: string): Promise<Mont
 export async function exportBillingCsv(orgId: string, from: string, to: string): Promise<Blob> {
 	const token = getAccessToken();
 	const params = new URLSearchParams({ from, to });
-	const resp = await fetch(`${BASE_URL}/v1/orgs/${orgId}/billing/export?${params}`, {
+	const resp = await fetch(`${BASE_URL}/v1/orgs/${rawId(orgId)}/billing/export?${params}`, {
 		headers: {
 			'X-Kooix-Org': orgId,
 			...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -635,7 +636,7 @@ export async function exportBillingCsv(orgId: string, from: string, to: string):
 }
 
 export async function getQuotaAlerts(orgId: string): Promise<QuotaAlert[]> {
-	return apiFetch<QuotaAlert[]>(`/v1/orgs/${orgId}/quota-alerts`, {
+	return apiFetch<QuotaAlert[]>(`/v1/orgs/${rawId(orgId)}/quota-alerts`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
@@ -665,7 +666,7 @@ export async function createOrg(name: string, slug: string): Promise<OrgDetail> 
 }
 
 export async function updateOrg(id: string, data: { name?: string; billing_email?: string }): Promise<OrgDetail> {
-	return apiFetch<OrgDetail>(`/v1/admin/orgs/${id}`, {
+	return apiFetch<OrgDetail>(`/v1/admin/orgs/${rawId(id)}`, {
 		method: 'PUT',
 		body: JSON.stringify(data)
 	});
@@ -698,13 +699,13 @@ export async function updateUserStatus(id: string, status: string): Promise<User
 // ── Project Detail ────────────────────────────────
 
 export async function getProject(orgId: string, projectId: string): Promise<Project> {
-	return apiFetch<Project>(`/v1/orgs/${orgId}/projects/${projectId}`, {
+	return apiFetch<Project>(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
 export async function updateProject(orgId: string, projectId: string, data: { name?: string; status?: string }): Promise<Project> {
-	return apiFetch<Project>(`/v1/orgs/${orgId}/projects/${projectId}`, {
+	return apiFetch<Project>(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}`, {
 		method: 'PUT',
 		body: JSON.stringify(data),
 		headers: { 'X-Kooix-Org': orgId }
@@ -771,26 +772,26 @@ export async function updateGroup(id: string, data: {
 	description?: string;
 	fallback_group_id?: string | null;
 }): Promise<ChannelGroup> {
-	return apiFetch<ChannelGroup>(`/v1/admin/groups/${id}`, {
+	return apiFetch<ChannelGroup>(`/v1/admin/groups/${rawId(id)}`, {
 		method: 'PUT',
 		body: JSON.stringify(data)
 	});
 }
 
 export async function deleteGroup(id: string): Promise<void> {
-	return apiFetch(`/v1/admin/groups/${id}`, { method: 'DELETE' });
+	return apiFetch(`/v1/admin/groups/${rawId(id)}`, { method: 'DELETE' });
 }
 
 export async function getGroupDetail(groupId: string): Promise<GroupDetail> {
-	return apiFetch<GroupDetail>(`/v1/admin/groups/${groupId}/detail`);
+	return apiFetch<GroupDetail>(`/v1/admin/groups/${rawId(groupId)}/detail`);
 }
 
 export async function listGroupBindings(groupId: string): Promise<GroupBinding[]> {
-	return apiFetch<GroupBinding[]>(`/v1/admin/groups/${groupId}/bindings`);
+	return apiFetch<GroupBinding[]>(`/v1/admin/groups/${rawId(groupId)}/bindings`);
 }
 
 export async function addGroupBinding(groupId: string, channelId: string, priority?: number, weight?: number): Promise<void> {
-	return apiFetch(`/v1/admin/groups/${groupId}/bindings`, {
+	return apiFetch(`/v1/admin/groups/${rawId(groupId)}/bindings`, {
 		method: 'POST',
 		body: JSON.stringify({ channel_id: channelId, priority, weight })
 	});
@@ -802,18 +803,18 @@ export async function updateGroupBinding(groupId: string, channelId: string, dat
 	model_filter?: string[];
 	enabled?: boolean;
 }): Promise<void> {
-	return apiFetch(`/v1/admin/groups/${groupId}/bindings/${channelId}`, {
+	return apiFetch(`/v1/admin/groups/${rawId(groupId)}/bindings/${rawId(channelId)}`, {
 		method: 'PUT',
 		body: JSON.stringify(data)
 	});
 }
 
 export async function removeGroupBinding(groupId: string, channelId: string): Promise<void> {
-	return apiFetch(`/v1/admin/groups/${groupId}/bindings/${channelId}`, { method: 'DELETE' });
+	return apiFetch(`/v1/admin/groups/${rawId(groupId)}/bindings/${rawId(channelId)}`, { method: 'DELETE' });
 }
 
 export async function setProjectDefaultGroup(projectId: string, groupId: string): Promise<void> {
-	return apiFetch(`/v1/admin/projects/${projectId}/default-group`, {
+	return apiFetch(`/v1/admin/projects/${rawId(projectId)}/default-group`, {
 		method: 'PUT',
 		body: JSON.stringify({ group_id: groupId })
 	});
@@ -830,13 +831,13 @@ export interface ModelAlias {
 }
 
 export async function listModelAliases(orgId: string, projectId: string): Promise<ModelAlias[]> {
-	return apiFetch<ModelAlias[]>(`/v1/orgs/${orgId}/projects/${projectId}/model-aliases`, {
+	return apiFetch<ModelAlias[]>(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/model-aliases`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
 export async function upsertModelAlias(orgId: string, projectId: string, alias: string, targetModel: string): Promise<void> {
-	return apiFetch(`/v1/orgs/${orgId}/projects/${projectId}/model-aliases`, {
+	return apiFetch(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/model-aliases`, {
 		method: 'POST',
 		body: JSON.stringify({ alias, target_model: targetModel }),
 		headers: { 'X-Kooix-Org': orgId }
@@ -844,7 +845,7 @@ export async function upsertModelAlias(orgId: string, projectId: string, alias: 
 }
 
 export async function deleteModelAlias(orgId: string, projectId: string, alias: string): Promise<void> {
-	return apiFetch(`/v1/orgs/${orgId}/projects/${projectId}/model-aliases/${encodeURIComponent(alias)}`, {
+	return apiFetch(`/v1/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/model-aliases/${encodeURIComponent(alias)}`, {
 		method: 'DELETE',
 		headers: { 'X-Kooix-Org': orgId }
 	});
@@ -1118,7 +1119,7 @@ export async function listRequests(params: RequestListParams = {}): Promise<Requ
 }
 
 export async function getRequest(requestId: string): Promise<RequestRecord> {
-	return apiFetch<RequestRecord>(`/v1/admin/requests/${requestId}`);
+	return apiFetch<RequestRecord>(`/v1/admin/requests/${rawId(requestId)}`);
 }
 
 // ── Org-scoped Request Logs ──────────────────────
@@ -1158,13 +1159,13 @@ export async function listOrgRequests(orgId: string, params: OrgRequestListParam
 	if (params.stream != null) qs.set('stream', String(params.stream));
 	if (params.has_retries != null) qs.set('has_retries', String(params.has_retries));
 	const q = qs.toString();
-	return apiFetch<RequestPage>(`/v1/orgs/${orgId}/requests${q ? '?' + q : ''}`, {
+	return apiFetch<RequestPage>(`/v1/orgs/${rawId(orgId)}/requests${q ? '?' + q : ''}`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
 
 export async function getOrgRequest(orgId: string, requestId: string): Promise<RequestRecord> {
-	return apiFetch<RequestRecord>(`/v1/orgs/${orgId}/requests/${requestId}`, {
+	return apiFetch<RequestRecord>(`/v1/orgs/${rawId(orgId)}/requests/${rawId(requestId)}`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
@@ -1225,7 +1226,7 @@ export async function getFilterOptions(orgId?: string, hours = 168): Promise<Fil
 
 export async function getOrgFilterOptions(orgId: string, hours = 168): Promise<FilterOptions> {
 	const qs = new URLSearchParams({ hours: String(hours) });
-	return apiFetch<FilterOptions>(`/v1/orgs/${orgId}/requests/filters?${qs}`, {
+	return apiFetch<FilterOptions>(`/v1/orgs/${rawId(orgId)}/requests/filters?${qs}`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }

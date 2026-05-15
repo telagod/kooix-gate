@@ -1,5 +1,6 @@
 <!-- /channels — 渠道管理 -->
 <script lang="ts">
+	import { rawId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import {
@@ -531,7 +532,7 @@
 			{ label: '测试连通性', icon: Zap, disabled: isTesting, onclick: () => handleTest(ch) },
 			{ label: 'Probe 模型', icon: Radar, onclick: () => handleProbe(ch) },
 			{ label: '编辑', icon: Pencil, onclick: () => startEdit(ch) },
-			{ label: '管理 Keys', icon: Key, onclick: () => goto(`/channels/${ch.id}`) },
+			{ label: '管理 Keys', icon: Key, onclick: () => goto(`/channels/${rawId(ch.id)}`) },
 		];
 		items.push({ label: '删除', icon: Trash2, danger: true, onclick: () => (deletingId = ch.id) });
 		return items;

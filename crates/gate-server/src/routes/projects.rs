@@ -14,6 +14,7 @@ use gate_core::id::ProjectId;
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ProjectSummary {
@@ -49,10 +50,10 @@ pub fn router() -> Router<AppState> {
 
 async fn list_projects(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<ProjectSummary>>> {
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ProjectRead, Scope::Org(&org));
 
     let projects = app.repos.projects.list_in_org(org).await?;
@@ -60,7 +61,7 @@ async fn list_projects(
         projects
             .into_iter()
             .map(|p| ProjectSummary {
-                id: p.id.as_uuid().to_string(),
+                id: p.id.to_string(),
                 name: p.name,
                 slug: p.slug,
                 status: format!("{:?}", p.status).to_lowercase(),
@@ -71,12 +72,12 @@ async fn list_projects(
 
 async fn create_project(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<CreateProjectRequest>,
 ) -> AppResult<Json<ProjectSummary>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ProjectCreate, Scope::Org(&org));
 
     let name = req.name.trim();
@@ -90,7 +91,7 @@ async fn create_project(
 
     let p = app.repos.projects.create(org, name, slug).await?;
     Ok(Json(ProjectSummary {
-        id: p.id.as_uuid().to_string(),
+        id: p.id.to_string(),
         name: p.name,
         slug: p.slug,
         status: format!("{:?}", p.status).to_lowercase(),
@@ -99,16 +100,16 @@ async fn create_project(
 
 async fn get_project(
     State(app): State<AppState>,
-    Path((org_id, project_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, project_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<ProjectSummary>> {
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ProjectRead, Scope::Org(&org));
 
-    let pid = ProjectId::from(project_id);
+    let pid = ProjectId::from(project_id.0);
     let p = app.repos.projects.find_by_id(pid).await?;
     Ok(Json(ProjectSummary {
-        id: p.id.as_uuid().to_string(),
+        id: p.id.to_string(),
         name: p.name,
         slug: p.slug,
         status: format!("{:?}", p.status).to_lowercase(),
@@ -117,12 +118,12 @@ async fn get_project(
 
 async fn update_project(
     State(app): State<AppState>,
-    Path((org_id, project_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, project_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
     Json(req): Json<UpdateProjectRequest>,
 ) -> AppResult<Json<ProjectSummary>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::ProjectUpdate, Scope::Org(&org));
 
     if let Some(ref s) = req.status {
@@ -132,14 +133,14 @@ async fn update_project(
         }
     }
 
-    let pid = ProjectId::from(project_id);
+    let pid = ProjectId::from(project_id.0);
     let p = app
         .repos
         .projects
         .update(pid, req.name.as_deref(), req.status.as_deref())
         .await?;
     Ok(Json(ProjectSummary {
-        id: p.id.as_uuid().to_string(),
+        id: p.id.to_string(),
         name: p.name,
         slug: p.slug,
         status: format!("{:?}", p.status).to_lowercase(),

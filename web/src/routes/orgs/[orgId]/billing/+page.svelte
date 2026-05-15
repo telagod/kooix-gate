@@ -1,5 +1,6 @@
 <!-- /orgs/[orgId]/billing — 月账单 + CSV 导出 + 配额告警 -->
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { getMonthlyBill, exportBillingCsv, getQuotaAlerts, getMe } from '$lib/api.js';
@@ -80,7 +81,7 @@
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `billing-${orgId.slice(0, 8)}-${selectedMonth}.csv`;
+			a.download = `billing-${shortId(orgId)}-${selectedMonth}.csv`;
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err: any) {
@@ -113,7 +114,7 @@
 <div>
 	<!-- 面包屑 -->
 	<div class="px-6 py-6">
-		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 账单</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {shortId(orgId)}... / 账单</p>
 		<!-- 标题行 -->
 		<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
 			<div>
@@ -268,7 +269,7 @@
 										</span>
 										<span class="text-sm font-medium text-red-900 dark:text-red-300">{alert.dimension}</span>
 										<span class="text-xs text-red-600 dark:text-red-400">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-red-500 dark:text-red-400">{alert.scope_id.slice(0, 8)}…</span>
+										<span class="text-xs font-mono text-red-500 dark:text-red-400">{shortId(alert.scope_id)}…</span>
 									</div>
 									<div class="flex items-center gap-4 text-xs text-red-700 dark:text-red-400 tabular-nums">
 										<span>当前：<strong>{fmtNum(alert.current_value)}</strong></span>
@@ -295,7 +296,7 @@
 										</span>
 										<span class="text-sm font-medium text-yellow-900 dark:text-amber-300">{alert.dimension}</span>
 										<span class="text-xs text-yellow-600 dark:text-amber-400">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-yellow-500 dark:text-amber-400">{alert.scope_id.slice(0, 8)}…</span>
+										<span class="text-xs font-mono text-yellow-500 dark:text-amber-400">{shortId(alert.scope_id)}…</span>
 									</div>
 									<div class="flex items-center gap-4 text-xs text-yellow-700 dark:text-amber-400 tabular-nums">
 										<span>当前：<strong>{fmtNum(alert.current_value)}</strong></span>

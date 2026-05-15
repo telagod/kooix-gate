@@ -1,5 +1,6 @@
 <!-- /orgs/[orgId]/quotas — Org 配额管理 -->
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -230,7 +231,7 @@
 <div>
 	<!-- 面包屑 -->
 	<div class="px-6 py-6">
-		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {orgId.slice(0, 8)}... / 配额</p>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {shortId(orgId)}... / 配额</p>
 		<div class="flex items-center justify-between mb-6">
 			<div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">配额管理</h1>
@@ -273,7 +274,7 @@
 									<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
 										<td class="px-4 py-3 text-zinc-900 dark:text-zinc-100 font-medium">{dimensionLabel(q.dimension)}</td>
 										<td class="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{q.limit_value}</td>
-										<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">{q.scope_id.slice(0, 8)}...</td>
+										<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">{shortId(q.scope_id)}...</td>
 										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">{q.model_filter ?? '全部'}</td>
 										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
 											{q.window_seconds ? `${q.window_seconds}s` : '—'}

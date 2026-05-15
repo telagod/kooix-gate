@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import {
 		getMe, listGroups, createGroup, updateGroup, deleteGroup,
@@ -77,7 +78,7 @@
 
 	function groupName(id: string | null | undefined): string {
 		if (!id) return '';
-		return groups.find(g => g.id === id)?.name ?? id.slice(0, 8);
+		return groups.find(g => g.id === id)?.name ?? shortId(id);
 	}
 
 	// Fallback chain builder

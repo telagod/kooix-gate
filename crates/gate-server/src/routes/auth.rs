@@ -145,7 +145,7 @@ async fn login(
         refresh_token,
         expires_at,
         user: UserSummary {
-            id: user.id.as_uuid().to_string(),
+            id: user.id.to_string(),
             email: user.email,
             display_name: user.display_name,
         },

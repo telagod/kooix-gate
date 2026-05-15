@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { getMe, getProject, updateProject, listKeys, createKey, revokeKey, listModelAliases, upsertModelAlias, deleteModelAlias } from '$lib/api.js';
@@ -125,7 +126,7 @@
 		</Card>
 	{:else if project}
 		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-1">{project.name}</h1>
-		<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6 font-mono">{project.slug} · {projectId.slice(0, 8)}...</p>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6 font-mono">{project.slug} · {shortId(projectId)}...</p>
 
 		<!-- Settings -->
 		<Card class="p-5 mb-6">

@@ -21,6 +21,7 @@ use gate_core::rbac::{Permission, Scope};
 use gate_storage::{RequestFilter, UsageGroupBy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Deserialize)]
 pub struct UsageQuery {
@@ -209,15 +210,15 @@ fn default_filter_options_hours() -> i64 { 168 }
 async fn list_org_requests(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Query(q): Query<OrgRequestListQuery>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::UsageRead, Scope::Org(&org));
 
     let filter = RequestFilter {
-        org_id: Some(org_id),
+        org_id: Some(*org_id),
         project_id: q.project_id,
         channel_id: None,
         api_key_id: None,
@@ -262,15 +263,15 @@ async fn list_org_requests(
 async fn get_org_request(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path((org_id, request_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, request_id)): Path<(FlexUuid, FlexUuid)>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::UsageRead, Scope::Org(&org));
 
-    let record = app.repos.request_logs.find_by_request_id(request_id).await?;
+    let record = app.repos.request_logs.find_by_request_id(*request_id).await?;
 
-    if record.org_id != org_id {
+    if record.org_id != *org_id {
         return Err(AppError::NotFound);
     }
 
@@ -280,14 +281,14 @@ async fn get_org_request(
 async fn get_org_filter_options(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Query(q): Query<OrgFilterOptionsQuery>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
-    let org = OrgId::from(org_id);
+    let org = OrgId::from(org_id.0);
     require!(ctx, Permission::UsageRead, Scope::Org(&org));
 
     let hours = q.hours.clamp(1, 720);
-    let options = app.repos.request_logs.filter_options(Some(org_id), hours).await?;
+    let options = app.repos.request_logs.filter_options(Some(*org_id), hours).await?;
     Ok(Json(serde_json::to_value(&options).unwrap_or_default()))
 }

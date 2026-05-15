@@ -28,6 +28,7 @@ use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ChannelSummary {
@@ -213,7 +214,7 @@ async fn list_channels(
 
 fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummary {
     ChannelSummary {
-        id: r.channel_id.as_uuid().to_string(),
+        id: r.channel_id.to_string(),
         code: r.code,
         name: r.name,
         provider_type: r.provider_type,
@@ -298,14 +299,14 @@ async fn create_channel(
 
 async fn update_channel(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<UpdateChannelRequest>,
 ) -> AppResult<Json<ChannelSummary>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelUpdate, Scope::Platform);
 
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     let record = app
         .repos
         .channels
@@ -330,7 +331,7 @@ async fn update_channel(
         &ctx,
         "channel.update",
         "channel",
-        Some(id),
+        Some(*id),
         None,
     );
 
@@ -339,20 +340,20 @@ async fn update_channel(
 
 async fn delete_channel(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelDelete, Scope::Platform);
 
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     app.repos.channels.soft_delete(channel_id).await?;
 
     app.audit.emit(
         &ctx,
         "channel.delete",
         "channel",
-        Some(id),
+        Some(*id),
         None,
     );
 
@@ -437,20 +438,20 @@ fn key_fingerprint(secret: &str) -> String {
 
 async fn list_channel_keys(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<ChannelKeySummary>>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
 
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     let records = app.repos.channel_keys.list_by_channel(channel_id).await?;
     Ok(Json(
         records
             .into_iter()
             .map(|r| ChannelKeySummary {
-                id: r.id.as_uuid().to_string(),
-                channel_id: r.channel_id.as_uuid().to_string(),
+                id: r.id.to_string(),
+                channel_id: r.channel_id.to_string(),
                 label: r.label,
                 fingerprint: r.key_fingerprint,
                 weight: r.weight,
@@ -469,7 +470,7 @@ async fn list_channel_keys(
 
 async fn create_channel_key(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<CreateKeyRequest>,
 ) -> AppResult<Json<ChannelKeySummary>> {
@@ -484,7 +485,7 @@ async fn create_channel_key(
         AppError::Internal("crypto (EnvelopeKms) not configured; cannot encrypt channel key".into())
     })?;
 
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     // 先确认 channel 存在
     let _ = app.repos.channels.find_by_id(channel_id).await?;
 
@@ -512,8 +513,8 @@ async fn create_channel_key(
     );
 
     Ok(Json(ChannelKeySummary {
-        id: key_id.as_uuid().to_string(),
-        channel_id: channel_id.as_uuid().to_string(),
+        id: key_id.to_string(),
+        channel_id: channel_id.to_string(),
         label: req.alias,
         fingerprint,
         weight: 1,
@@ -530,7 +531,7 @@ async fn create_channel_key(
 
 async fn rotate_channel_key(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<CreateKeyRequest>,
 ) -> AppResult<Json<ChannelKeySummary>> {
@@ -545,7 +546,7 @@ async fn rotate_channel_key(
         AppError::Internal("crypto (EnvelopeKms) not configured; cannot encrypt channel key".into())
     })?;
 
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     let _ = app.repos.channels.find_by_id(channel_id).await?;
 
     let fingerprint = key_fingerprint(&req.secret);
@@ -569,8 +570,8 @@ async fn rotate_channel_key(
     );
 
     Ok(Json(ChannelKeySummary {
-        id: key_id.as_uuid().to_string(),
-        channel_id: channel_id.as_uuid().to_string(),
+        id: key_id.to_string(),
+        channel_id: channel_id.to_string(),
         label: req.alias,
         fingerprint,
         weight: 1,
@@ -587,24 +588,24 @@ async fn rotate_channel_key(
 
 async fn revoke_channel_key(
     State(app): State<AppState>,
-    Path((id, key_id)): Path<(Uuid, Uuid)>,
+    Path((id, key_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
 
     // 验证 channel 存在
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     let _ = app.repos.channels.find_by_id(channel_id).await?;
 
-    let ck_id = ChannelKeyId::from(key_id);
+    let ck_id = ChannelKeyId::from(key_id.0);
     app.repos.channel_keys.revoke(ck_id).await?;
 
     app.audit.emit(
         &ctx,
         "channel_key.revoke",
         "channel_key",
-        Some(key_id),
+        Some(*key_id),
         Some(serde_json::json!({"channel_id": id.to_string()})),
     );
 
@@ -626,13 +627,13 @@ pub struct ChannelStatsResponse {
 
 async fn get_channel_stats(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<ChannelStatsResponse>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelRead, Scope::Platform);
 
-    let channel_id = ChannelId::from(id);
+    let channel_id = ChannelId::from(id.0);
     let channel = app.repos.channels.find_by_id(channel_id).await?;
     let keys = app.repos.channel_keys.list_by_channel(channel_id).await?;
 
@@ -797,31 +798,31 @@ async fn create_org(
 
 async fn update_org(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<UpdateOrgRequest>,
 ) -> AppResult<Json<OrgView>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let org_id = gate_core::id::OrgId::from(id);
+    let org_id = gate_core::id::OrgId::from(id.0);
     let org = app
         .repos
         .orgs
         .update(org_id, req.name.as_deref(), req.billing_email.as_deref())
         .await?;
 
-    app.audit.emit(&ctx, "org.update", "org", Some(id), None);
+    app.audit.emit(&ctx, "org.update", "org", Some(*id), None);
 
     Ok(Json(org_to_view(org)))
 }
 
 fn org_to_view(o: gate_core::identity::Organization) -> OrgView {
     OrgView {
-        id: o.id.as_uuid().to_string(),
+        id: o.id.to_string(),
         name: o.name,
         slug: o.slug,
-        owner_user_id: o.owner_user_id.as_uuid().to_string(),
+        owner_user_id: o.owner_user_id.to_string(),
         status: format!("{:?}", o.status).to_lowercase(),
         billing_email: o.billing_email,
         created_at: o.created_at,
@@ -873,7 +874,7 @@ async fn list_users(
 
 async fn update_user_status(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<UpdateStatusRequest>,
 ) -> AppResult<Json<UserView>> {
@@ -888,14 +889,14 @@ async fn update_user_status(
         )));
     }
 
-    let user_id = gate_core::id::UserId::from(id);
+    let user_id = gate_core::id::UserId::from(id.0);
     let user = app.repos.users.update_status(user_id, &req.status).await?;
 
     app.audit.emit(
         &ctx,
         "user.update_status",
         "user",
-        Some(id),
+        Some(*id),
         Some(serde_json::json!({"status": &req.status})),
     );
 
@@ -904,7 +905,7 @@ async fn update_user_status(
 
 fn user_to_view(u: gate_core::identity::User) -> UserView {
     UserView {
-        id: u.id.as_uuid().to_string(),
+        id: u.id.to_string(),
         email: u.email,
         display_name: u.display_name,
         status: format!("{:?}", u.status).to_lowercase(),
@@ -979,12 +980,12 @@ async fn list_groups(
     for g in groups {
         let bindings = app.repos.channel_groups.list_bindings(g.group_id).await?;
         views.push(GroupView {
-            id: g.group_id.as_uuid().to_string(),
+            id: g.group_id.to_string(),
             name: g.name,
             description: g.description,
             strategy: g.strategy,
             enabled: g.enabled,
-            fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+            fallback_group_id: g.fallback_group_id.map(|fb| fb.to_string()),
             channel_count: bindings.len() as i64,
             created_at: g.created_at,
             updated_at: g.updated_at,
@@ -1010,12 +1011,12 @@ async fn create_group(
     app.audit.emit(&ctx, "channel_group.create", "channel_group", Some(*g.group_id.as_uuid()), None);
 
     Ok(Json(GroupView {
-        id: g.group_id.as_uuid().to_string(),
+        id: g.group_id.to_string(),
         name: g.name,
         description: g.description,
         strategy: g.strategy,
         enabled: g.enabled,
-        fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+        fallback_group_id: g.fallback_group_id.map(|fb| fb.to_string()),
         channel_count: 0,
         created_at: g.created_at,
         updated_at: g.updated_at,
@@ -1024,7 +1025,7 @@ async fn create_group(
 
 async fn update_group(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<UpdateGroupRequest>,
 ) -> AppResult<Json<GroupView>> {
@@ -1039,7 +1040,7 @@ async fn update_group(
         }
     }
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
 
     // Parse fallback_group_id: Option<Option<String>> -> Option<Option<ChannelGroupId>>
     let fallback: Option<Option<gate_core::id::ChannelGroupId>> = match req.fallback_group_id {
@@ -1059,17 +1060,17 @@ async fn update_group(
         fallback,
         req.description.as_deref(),
     ).await?;
-    app.audit.emit(&ctx, "channel_group.update", "channel_group", Some(id), None);
+    app.audit.emit(&ctx, "channel_group.update", "channel_group", Some(*id), None);
 
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
 
     Ok(Json(GroupView {
-        id: g.group_id.as_uuid().to_string(),
+        id: g.group_id.to_string(),
         name: g.name,
         description: g.description,
         strategy: g.strategy,
         enabled: g.enabled,
-        fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+        fallback_group_id: g.fallback_group_id.map(|fb| fb.to_string()),
         channel_count: bindings.len() as i64,
         created_at: g.created_at,
         updated_at: g.updated_at,
@@ -1078,31 +1079,31 @@ async fn update_group(
 
 async fn delete_group(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
     app.repos.channel_groups.delete(gid).await?;
-    app.audit.emit(&ctx, "channel_group.delete", "channel_group", Some(id), None);
+    app.audit.emit(&ctx, "channel_group.delete", "channel_group", Some(*id), None);
 
     Ok(Json(serde_json::json!({"deleted": true})))
 }
 
 async fn list_group_bindings(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<BindingView>>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
     Ok(Json(bindings.into_iter().map(|b| BindingView {
-        channel_id: b.channel.channel_id.as_uuid().to_string(),
+        channel_id: b.channel.channel_id.to_string(),
         channel_code: b.channel.code,
         channel_name: b.channel.name,
         provider_type: b.channel.provider_type,
@@ -1117,14 +1118,14 @@ async fn list_group_bindings(
 
 async fn add_group_binding(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<AddBindingRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
     let cid = gate_core::id::ChannelId::from(req.channel_id);
     app.repos.channel_groups.add_binding(gid, cid, req.priority.unwrap_or(100), req.weight.unwrap_or(1)).await?;
 
@@ -1133,14 +1134,14 @@ async fn add_group_binding(
 
 async fn remove_group_binding(
     State(app): State<AppState>,
-    Path((id, channel_id)): Path<(Uuid, Uuid)>,
+    Path((id, channel_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
-    let cid = gate_core::id::ChannelId::from(channel_id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
+    let cid = gate_core::id::ChannelId::from(channel_id.0);
     app.repos.channel_groups.remove_binding(gid, cid).await?;
 
     Ok(Json(serde_json::json!({"removed": true})))
@@ -1156,15 +1157,15 @@ pub struct UpdateBindingRequest {
 
 async fn update_group_binding(
     State(app): State<AppState>,
-    Path((id, channel_id)): Path<(Uuid, Uuid)>,
+    Path((id, channel_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
     Json(req): Json<UpdateBindingRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
-    let cid = gate_core::id::ChannelId::from(channel_id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
+    let cid = gate_core::id::ChannelId::from(channel_id.0);
     app.repos.channel_groups.update_binding(gid, cid, req.priority, req.weight, req.model_filter, req.enabled).await?;
 
     Ok(Json(serde_json::json!({"ok": true})))
@@ -1180,19 +1181,19 @@ pub struct GroupDetailView {
 
 async fn get_group_detail(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<GroupDetailView>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let gid = gate_core::id::ChannelGroupId::from(id);
+    let gid = gate_core::id::ChannelGroupId::from(id.0);
     let g = app.repos.channel_groups.find_by_id(gid).await?;
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
     let projects = app.repos.channel_groups.list_projects_using_group(gid).await?;
 
     let binding_views: Vec<BindingView> = bindings.into_iter().map(|b| BindingView {
-        channel_id: b.channel.channel_id.as_uuid().to_string(),
+        channel_id: b.channel.channel_id.to_string(),
         channel_code: b.channel.code,
         channel_name: b.channel.name,
         provider_type: b.channel.provider_type,
@@ -1206,18 +1207,18 @@ async fn get_group_detail(
 
     Ok(Json(GroupDetailView {
         group: GroupView {
-            id: g.group_id.as_uuid().to_string(),
+            id: g.group_id.to_string(),
             name: g.name,
             description: g.description,
             strategy: g.strategy,
             enabled: g.enabled,
-            fallback_group_id: g.fallback_group_id.map(|fb| fb.as_uuid().to_string()),
+            fallback_group_id: g.fallback_group_id.map(|fb| fb.to_string()),
             channel_count: binding_views.len() as i64,
             created_at: g.created_at,
             updated_at: g.updated_at,
         },
         bindings: binding_views,
-        projects_using: projects.into_iter().map(|p| p.as_uuid().to_string()).collect(),
+        projects_using: projects.into_iter().map(|p| p.to_string()).collect(),
     }))
 }
 
@@ -1228,14 +1229,14 @@ pub struct SetDefaultGroupRequest {
 
 async fn set_project_default_group(
     State(app): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<SetDefaultGroupRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let project_id = gate_core::id::ProjectId::from(id);
+    let project_id = gate_core::id::ProjectId::from(id.0);
     // Validate the project exists
     let _ = app.repos.projects.find_by_id(project_id).await?;
 
@@ -1252,7 +1253,7 @@ async fn set_project_default_group(
 
     app.repos.channel_groups.set_project_default_group(project_id, group_id).await?;
 
-    app.audit.emit(&ctx, "project.set_default_group", "project", Some(id),
+    app.audit.emit(&ctx, "project.set_default_group", "project", Some(*id),
         Some(serde_json::json!({"group_id": req.group_id})));
 
     Ok(Json(serde_json::json!({"ok": true})))
@@ -1279,16 +1280,16 @@ pub struct AddMemberRequest {
 
 async fn list_org_members(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<MemberView>>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let org = gate_core::id::OrgId::from(org_id);
+    let org = gate_core::id::OrgId::from(org_id.0);
     let members = app.repos.memberships.list_org_members(org).await?;
     Ok(Json(members.into_iter().map(|m| MemberView {
-        user_id: m.user_id.as_uuid().to_string(),
+        user_id: m.user_id.to_string(),
         email: m.email,
         display_name: m.display_name,
         role: m.role,
@@ -1298,7 +1299,7 @@ async fn list_org_members(
 
 async fn add_org_member(
     State(app): State<AppState>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<FlexUuid>,
     Authed(ctx): Authed,
     Json(req): Json<AddMemberRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
@@ -1320,7 +1321,7 @@ async fn add_org_member(
         _ => gate_core::identity::OrgRole::Member,
     };
 
-    let org = gate_core::id::OrgId::from(org_id);
+    let org = gate_core::id::OrgId::from(org_id.0);
     app.repos.memberships.add_org_member(org, user.id, role).await?;
 
     app.audit.emit(&ctx, "membership.add", "membership", None,
@@ -1331,17 +1332,17 @@ async fn add_org_member(
 
 async fn remove_org_member_handler(
     State(app): State<AppState>,
-    Path((org_id, user_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, user_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let org = gate_core::id::OrgId::from(org_id);
-    let uid = gate_core::id::UserId::from(user_id);
+    let org = gate_core::id::OrgId::from(org_id.0);
+    let uid = gate_core::id::UserId::from(user_id.0);
     app.repos.memberships.remove_org_member(org, uid).await?;
 
-    app.audit.emit(&ctx, "membership.remove", "membership", Some(user_id), None);
+    app.audit.emit(&ctx, "membership.remove", "membership", Some(*user_id), None);
 
     Ok(Json(serde_json::json!({"removed": true})))
 }
@@ -1354,19 +1355,19 @@ async fn remove_org_member_handler(
 async fn probe_channel_models(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path(channel_id): Path<Uuid>,
+    Path(channel_id): Path<FlexUuid>,
 ) -> AppResult<Json<ProbeResponse>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id)).await?;
+    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id.0)).await?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id), &ch.code).await;
+    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id.0), &ch.code).await;
 
     let base = ch.base_url.trim_end_matches('/');
 
@@ -1442,13 +1443,13 @@ struct ProbeResponse {
 async fn test_channel(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path(channel_id): Path<Uuid>,
+    Path(channel_id): Path<FlexUuid>,
     Query(query): Query<TestChannelQuery>,
 ) -> AppResult<Json<TestResponse>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id)).await?;
+    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id.0)).await?;
 
     let test_model = query.model.clone().unwrap_or_else(|| {
         ch.supported_models
@@ -1457,7 +1458,7 @@ async fn test_channel(
             .unwrap_or_else(|| "gpt-4o-mini".to_string())
     });
 
-    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id), &ch.code).await;
+    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id.0), &ch.code).await;
 
     let timeout_ms = (ch.timeout_ms as u64).max(5000);
     let opts = gate_providers::ProviderOpts { timeout_ms };
@@ -1554,13 +1555,13 @@ struct TestResponse {
 async fn get_channel_balance(
     State(app): State<AppState>,
     Authed(ctx): Authed,
-    Path(channel_id): Path<Uuid>,
+    Path(channel_id): Path<FlexUuid>,
 ) -> AppResult<Json<BalanceResponse>> {
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id)).await?;
-    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id), &ch.code).await;
+    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id.0)).await?;
+    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id.0), &ch.code).await;
 
     match ch.provider_type.as_str() {
         "openai" => {
@@ -1589,7 +1590,7 @@ async fn get_channel_balance(
                     let used = body.get("soft_limit_usd").and_then(|v| v.as_f64());
 
                     if let Some(limit) = hard_limit {
-                        update_channel_balance(&app, ChannelId::from(channel_id), limit).await;
+                        update_channel_balance(&app, ChannelId::from(channel_id.0), limit).await;
                     }
 
                     Ok(Json(BalanceResponse {

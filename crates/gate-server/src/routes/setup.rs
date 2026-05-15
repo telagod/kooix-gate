@@ -97,11 +97,11 @@ async fn setup(
         .await?;
 
     Ok(Json(SetupResponse {
-        user_id: user.id.as_uuid().to_string(),
+        user_id: user.id.to_string(),
         email: user.email,
-        org_id: org.id.as_uuid().to_string(),
+        org_id: org.id.to_string(),
         org_name: org.name,
-        project_id: project.id.as_uuid().to_string(),
+        project_id: project.id.to_string(),
         project_name: project.name,
     }))
 }

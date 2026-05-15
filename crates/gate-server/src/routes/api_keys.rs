@@ -17,6 +17,7 @@ use gate_core::id::{ApiKeyId, OrgId, ProjectId};
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::flex_uuid::FlexUuid;
 
 #[derive(Deserialize)]
 pub struct CreateApiKeyRequest {
@@ -61,15 +62,15 @@ pub fn router() -> Router<AppState> {
 
 async fn create(
     State(app): State<AppState>,
-    Path((org_id, project_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, project_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> AppResult<Json<CreateApiKeyResponse>> {
     // 拒绝 API key 创建 API key（安全：凭证不自我繁殖）
     require_user!(ctx);
 
-    let org = OrgId::from(org_id);
-    let project = ProjectId::from(project_id);
+    let org = OrgId::from(org_id.0);
+    let project = ProjectId::from(project_id.0);
     require!(
         ctx,
         Permission::ApiKeyCreate,
@@ -118,7 +119,7 @@ async fn create(
     );
 
     Ok(Json(CreateApiKeyResponse {
-        id: id.as_uuid().to_string(),
+        id: id.to_string(),
         name: req.name,
         plaintext: generated.plaintext.to_string(),
         prefix: generated.prefix,
@@ -128,11 +129,11 @@ async fn create(
 
 async fn list(
     State(app): State<AppState>,
-    Path((org_id, project_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, project_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<Vec<ApiKeySummary>>> {
-    let org = OrgId::from(org_id);
-    let project = ProjectId::from(project_id);
+    let org = OrgId::from(org_id.0);
+    let project = ProjectId::from(project_id.0);
     require!(
         ctx,
         Permission::ApiKeyRead,
@@ -153,7 +154,7 @@ async fn list(
         records
             .into_iter()
             .map(|r| ApiKeySummary {
-                id: r.api_key_id.as_uuid().to_string(),
+                id: r.api_key_id.to_string(),
                 name: r.name,
                 prefix: r.prefix,
                 last4: r.last4,
@@ -168,13 +169,13 @@ async fn list(
 
 async fn revoke(
     State(app): State<AppState>,
-    Path((org_id, project_id, key_id)): Path<(Uuid, Uuid, Uuid)>,
+    Path((org_id, project_id, key_id)): Path<(FlexUuid, FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
 
-    let org = OrgId::from(org_id);
-    let project = ProjectId::from(project_id);
+    let org = OrgId::from(org_id.0);
+    let project = ProjectId::from(project_id.0);
     require!(
         ctx,
         Permission::ApiKeyRevoke,
@@ -190,14 +191,14 @@ async fn revoke(
 
     app.repos
         .api_keys
-        .revoke(ApiKeyId::from(key_id), user_id, None)
+        .revoke(ApiKeyId::from(key_id.0), user_id, None)
         .await?;
 
     app.audit.emit(
         &ctx,
         "api_key.revoke",
         "api_key",
-        Some(key_id),
+        Some(*key_id),
         None,
     );
 

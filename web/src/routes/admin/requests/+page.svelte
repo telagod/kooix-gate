@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { getMe, listRequests, getFilterOptions } from '$lib/api.js';
 	import type { RequestRecord, RequestPage, RequestListParams, MeResult, FilterOptions } from '$lib/api.js';
@@ -223,12 +224,12 @@
 		[
 			filterModel && `模型: ${filterModel}`,
 			filterModelRequested && `请求模型: ${filterModelRequested}`,
-			filterChannel && `Channel: ${filterChannel.slice(0, 8)}`,
-			filterProject && `Project: ${filterProject.slice(0, 8)}`,
-			filterOrgId && `Org: ${filterOrgId.slice(0, 8)}`,
-			filterGroupId && `Group: ${filterGroupId.slice(0, 8)}`,
-			filterUserId && `User: ${filterUserId.slice(0, 8)}`,
-			filterApiKeyId && `API Key: ${filterApiKeyId.slice(0, 8)}`,
+			filterChannel && `Channel: ${shortId(filterChannel)}`,
+			filterProject && `Project: ${shortId(filterProject)}`,
+			filterOrgId && `Org: ${shortId(filterOrgId)}`,
+			filterGroupId && `Group: ${shortId(filterGroupId)}`,
+			filterUserId && `User: ${shortId(filterUserId)}`,
+			filterApiKeyId && `API Key: ${shortId(filterApiKeyId)}`,
 			filterErrorCode && `错误码: ${filterErrorCode}`,
 			filterHasRetries === 'true' && '有重试',
 			filterHasRetries === 'false' && '无重试',
@@ -375,7 +376,7 @@
 						<select bind:value={filterChannel} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
 							<option value="">全部</option>
 							{#each filterOpts.channels as ch}
-								<option value={ch.id}>{ch.label ?? ch.id.slice(0, 8)}</option>
+								<option value={ch.id}>{ch.label ?? shortId(ch.id)}</option>
 							{/each}
 						</select>
 					{:else}
@@ -388,7 +389,7 @@
 						<select bind:value={filterProject} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
 							<option value="">全部</option>
 							{#each filterOpts.projects as p}
-								<option value={p.id}>{p.label ?? p.id.slice(0, 8)}</option>
+								<option value={p.id}>{p.label ?? shortId(p.id)}</option>
 							{/each}
 						</select>
 					{:else}
@@ -550,7 +551,7 @@
 								<span class="text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_out)}</span>
 							</td>
 							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono">{formatCost(req.cost_usd)}</td>
-							<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[100px]">{req.channel_id.slice(0, 8)}...</td>
+							<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[100px]">{shortId(req.channel_id)}...</td>
 							<td class="px-4 py-3 text-right">
 								{#if expandedId === req.request_id}
 									<ChevronUp size={14} class="text-zinc-400" />
@@ -569,11 +570,11 @@
 										</div>
 										<div>
 											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Org / Project</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.org_id.slice(0, 8)}... / {req.project_id.slice(0, 8)}...</p>
+											<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.org_id)}... / {shortId(req.project_id)}...</p>
 										</div>
 										<div>
 											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">API Key</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.api_key_id.slice(0, 8)}...</p>
+											<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.api_key_id)}...</p>
 										</div>
 										<div>
 											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Client IP</p>

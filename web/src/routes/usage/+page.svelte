@@ -1,5 +1,6 @@
 <!-- /usage — 用量仪表盘：stat cards + 双 SVG 折线图 + 维度切换 -->
 <script lang="ts">
+	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { getUsage, getMe } from '$lib/api.js';
 	import type { UsageResponse } from '$lib/api.js';
