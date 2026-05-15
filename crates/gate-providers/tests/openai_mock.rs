@@ -9,15 +9,13 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 fn make_req(model: &str) -> ChatRequest {
     ChatRequest {
         model: model.into(),
-        messages: vec![ChatMessage {
-            role: Role::User,
-            content: "Hi".into(),
-            name: None,
-        }],
+        messages: vec![ChatMessage::text(Role::User, "Hi")],
         temperature: Some(0.5),
         top_p: None,
         max_tokens: Some(16),
         stream: false,
+        tools: None,
+        tool_choice: None,
         extra: Default::default(),
     }
 }
@@ -44,7 +42,7 @@ async fn non_stream_happy_path() {
     let p = OpenAiProvider::new(format!("{}/v1", server.uri()), "test-key").unwrap();
     let resp = p.chat(make_req("gpt-4o-mini")).await.unwrap();
     assert_eq!(resp.id, "chatcmpl-abc");
-    assert_eq!(resp.choices[0].message.content, "hello!");
+    assert_eq!(resp.choices[0].message.content_text(), "hello!");
     assert_eq!(resp.usage.total_tokens, 7);
 }
 

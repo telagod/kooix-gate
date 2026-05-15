@@ -7,106 +7,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] — 2026-05-14
+## [0.1.5] — 2026-05-15
 
-第一个里程碑。覆盖从领域建模到控制台的完整闭环，单机生产可用的最小集。
+从 v0.1.0 到 0.1.5，大量功能增强和 bug 修复。覆盖 9 provider 多模态、可视化编排、多维度计费、全面 UI 重做。
 
-**Workspace**: 8 crates · 11+ migrations · 170 tests (all green) · `clippy -D warnings` 通过
+**Workspace**: 9 crates · 24 migrations · 241 tests (all green) · SvelteKit 控制台全功能
 
-### Crates
+### Added — Provider 插件架构
 
-| Crate | 职责 |
-|---|---|
-| `gate-core` | 强类型 ID / Identity / RBAC / Quota domain types |
-| `gate-crypto` | Envelope encryption + KMS 抽象 |
-| `gate-storage` | PostgreSQL Repository（trait + Pg + InMemory 双实现） |
-| `gate-auth` | Argon2 password / JWT / API Key / OIDC / AuthContext |
-| `gate-cache` | Redis Lua: sliding window + quota debit/refund |
-| `gate-providers` | OpenAI-compatible Provider trait + ProviderRouter |
-| `gate-billing` | Outbox UsageEvent + Pricing + cost_micros |
-| `gate-server` | Axum HTTP 网关（auth / chat / sso / usage / quota / channels） |
-| `kgctl` | 部署运维 CLI |
+- 9 provider 适配器：OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock
+- Tool calling + Embeddings + Models 列表 API
+- Anthropic Messages API ↔ OpenAI 格式双向翻译
+- Gemini REST API 适配（role mapping + part 结构转换）
+- 每 provider 独立超时、重试、参数覆写
 
-### Added — 多租户基座
+### Added — 路由策略增强
 
-- 三层租户模型：Org → Project → ApiKey，永不耦合
-- 强类型 ID（`OrgId`/`ProjectId`/`ApiKeyId` 等），编译期阻止串台
-- RBAC：Platform / Org / Project 三套 Role，复合权限点
-- `AuthContext::can()` / `require()` 统一权限门面，禁止外部直接读角色映射
-- `require!` / `require_user!` macro 编译期对齐授权检查
-- 11 个 SQL migration（含 RLS policies）
+- 4 种路由策略：`priority` / `weighted_random` / `round_robin` / `least_conn` / `least_latency`
+- Channel Group fallback 链（最深 5 级，防环）
+- Model filter：`supported_models` + `model_filter` 双层匹配
+- Channel RPM/TPM 限速（滑动窗口，超限自动跳下一个）
+- 滑动窗口成功率追踪 + 自动禁用（低于阈值自动标记 disabled）
+- Model alias 路由（alias → target_model 翻译）
+- Channel balance 管理（余额不足自动跳过）
 
-### Added — 鉴权
+### Added — 多维度计费引擎
 
-- Argon2id 密码（自适应 cost）+ 5 次失败锁定 (`/v1/auth/login`)
-- JWT access (15min) + refresh (30d) 分 audience 隔离
-- API Key (`sk-kg-*`) SHA-256 hash + constant-time 比较 + CIDR allowlist
-- OIDC/SSO：discovery → PKCE → JIT provisioning → user_identities 绑定
-  - 平台级 IdP (`identity_providers.org_id IS NULL`) + Org 级 SSO
-  - 邮箱域白名单 + auto_join_org_role
-- `AuthContextLoader` trait（`InMemoryLoader` / `PgLoader` 双实现，dev/prod 切换）
-- `Authed` / `MaybeAuthed` extractor + `X-Kooix-Org` 切换租户 + 越权防护
+- `pricing_rules` 表：dimension × unit × conditions JSON 匹配
+- 支持维度：`prompt_tokens` / `completion_tokens` / `cached_tokens` / `reasoning_tokens` / `images_generated` / `audio_seconds_in` / `tts_characters` 等
+- `conditions` JSONB 匹配：quality / size / cache_ttl / context_above / batch / region
+- Priority + channel specificity 排序，`ROW_NUMBER() OVER (PARTITION BY dimension)` CTE
+- 自动同步 LiteLLM 定价数据（启动时 + 每 24h 从 GitHub 拉取 `model_prices_and_context_window.json`）
 
-### Added — 路由 & 计费
+### Added — 可视化编排 Playground
 
-- `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式）
-- `ProviderRouter` 按 `project_id + model` 选 channel（priority 策略）
-  - 返回 `RoutedProvider { provider, channel_id }`，channel_id 透传到计费
-- `X-Kooix-Project` header 让 User 主体也能命中 channel 路由（含越权校验）
-- 流式 token 计费：强制注入 `stream_options.include_usage`；流尾捕获 usage 后 `tokio::spawn` 推 outbox，不阻塞客户端
-- Outbox pattern：`UsageEvent → outbox_events → Consumer → usage_records`（幂等 `ON CONFLICT DO NOTHING on (ts, request_id)`）
-- `ModelPricing` 查询 + `compute_cost_micros`（channel 优先 → 全局 fallback）
+- @xyflow/svelte 节点式流程编辑器（取代原有 tab 式 Playground）
+- 8 种节点：TextInput / ImageUpload / AudioUpload / LLMChat / ImageGen / TTS / STT / Preview
+- 拓扑排序 DAG 执行引擎
+- 左侧节点面板 + 拖放 + 4 个快速启动模板
+- localStorage 持久化（可选云端同步预留）
+- Handle 百分比定位（自适应端口数量）
 
-### Added — 限流 & 配额
+### Added — 控制台全面重做
 
-- 全局限流 middleware（subject-bucketed，挂在 `/v1/*`，fail-open）
-  - 优先级：ApiKey > User > X-Forwarded-For IP
-  - 健康检查 `/health` 不受限流影响
-- Quota middleware（rate / budget 双维度）
-  - rpm / tpm / daily_budget_usd / monthly_budget_usd / lifetime_tokens
-  - Redis Lua：sliding window ZSET + 原子预扣/退还
-  - `peek` 模式：chat 路径只读判断已超额，不预扣
-- `/v1/orgs/:org/quotas` CRUD（含跨 Org 越权写校验）
+- Channel 管理：创建/编辑/健康检查/导入导出/全局仪表盘
+- Channel Key 加密存储 + 轮转
+- Channel Group 管理 + 绑定编辑
+- API Key CRUD + 撤销
+- Quota CRUD（org/project/api_key 多级）
+- 月度账单 + CSV 导出 + 配额告警
+- 请求日志：20+ 维度高级过滤 + Dashboard 统计（Admin 面板）
+- Usage 仪表盘增强：sparkline + 模型排行 + 错误列表
+- Org / User / Project 完整 CRUD
+- Settings 页面（密码修改等）
+- ModalityBadge 组件：自动检测模型类型（Chat / Image / TTS / STT / Embedding）
 
-### Added — 控制台
+### Added — UI 设计系统
 
-- `/v1/usage` 聚合 endpoint（`?range=7d|30d&group_by=day|model|channel`）
-  - SuperAdmin 可跨 Org，普通用户锁定 `current_org`
-- `/v1/orgs/:org/channels` 只读 admin 视图（不返回密钥）
-- SvelteKit + TypeScript + Tailwind 控制台
-  - `/login` 密码 + Google SSO 双入口
-  - `/usage` 三 stat cards + 零依赖 SVG 折线图（7d/30d 切换）
-  - `/channels` 状态/健康度 badge 表格
-  - `/orgs` + `/orgs/[orgId]/projects` 列表 + inline 创建
-  - 共享 NavBar，未登录自动跳 `/login`
+- Monochrome zinc-only 调色板 + 语义色（green / amber / red）
+- Inter + JetBrains Mono 字体
+- lucide-svelte 统一 icon + Provider 品牌色 SVG logo（20 个）
+- Dark mode 全面适配（class-based + anti-FOUC inline script）
+- Sidebar 浅色米白 / 深色暗黑
+- 全宽布局（移除 max-w 限制）
+- DropdownMenu fixed positioning（解决 overflow 裁剪）
+- ProviderSelect combobox 组件
 
-### Added — 运维
+### Added — 运维增强
 
-- `kgctl migrate [--dry-run]`：sqlx migration runner
-- `kgctl admin create --email [--password]`：写 users + platform_admins(super_admin)，幂等保护
-- `kgctl doctor`：MASTER_KEY / JWT_SECRET / DB / Redis 四项 preflight
-- `kgctl seed-pricing`：5 个主流模型默认 USD/M token 价格（幂等）
-- `kgctl init / key / env`：首次部署密钥生成 + env 清单
+- `kgctl setup`：交互式首次引导
+- Docker Compose 一键部署（Dockerfile + docker-compose.yml）
+- GitHub Actions CI（测试 + Docker 构建 + Release 工作流）
+- OpenTelemetry tracing + Prometheus metrics endpoint
+- RLS 强化（quota 表 + 审计隔离）
+- 审计日志：关键操作自动记录
+
+### Added — 安全增强
+
+- Channel key envelope encryption + KMS 解密路由
+- RLS 全表激活 + gate_app 角色隔离
+- 审计日志跨 Org 隔离
+
+### Fixed
+
+- 上游 Auth 错误正确映射为 502（修复 `AppError::Internal` 吞掉类型信息）
+- Quota scope check 约束补全（加入 `api_key` + `membership` scope_kind）
+- Channel group strategy check 对齐（`weighted_random` 替代 `weighted`）
+- 测试 fixture FK 约束修复（usage_records / outbox_consumer / RLS 测试）
+- `apiFetch` 导入修复（channel detail 页使用 `getChannelStats` 导出函数）
+- Provider logo 品牌色（替代 `dark:invert` hack）
+- Sidebar 浅色模式米白色
+- Flow editor handle 百分比定位
+- Playground dark mode 完整适配
 
 ### Tests
 
-- 170 测试全绿（unit + integration）
+- 241 测试全绿（unit + integration）
 - testcontainers 17-alpine（`KOOIX_TEST_PG_TAG` env override）
 - wiremock 假装上游 OpenAI / OIDC IdP
-- InMemory repo 与 Pg repo 跑同一份契约测试
+- InMemory repo 与 Pg repo 双实现契约测试
+- 前端 vitest 50 测试
 
-### Security
+### Known Limitations
 
-- 跨 Org 重放防护：project_memberships 用 `(OrgId, ProjectId)` 复合 key
-- SuperAdmin 短路所有权限检查（且仅平台级 token 能拿到）
-- API key 撤销立即生效（每次请求查 `revoked_at`）
-- OIDC state 一次性消费（`DELETE ... RETURNING`，state 仅存 SHA-256）
-- client_secret 全程密文，envelope encryption + AAD 绑定 provider_id
+- API response 返裸 UUID，typed ID 前缀格式待下版本迁移
+- Pricing rules API + CLI CRUD 延后到下一迭代
+- `inflight_requests` 流式预扣尚未接入 chat handler
+- WASM 插件延后
 
-### Known limitations
-
-- D5 待办：`inflight_requests` 表已建但流式预扣还没接 chat handler
-- 多 provider 翻译：当前只有 OpenAI 兼容，Anthropic / Gemini 待补
-- WASM 插件延后：trait 抽象稳定后再开 ABI
-
+[0.1.5]: https://github.com/telagod/kooix-gate/compare/v0.1.0...v0.1.5
 [0.1.0]: https://github.com/telagod/kooix-gate/releases/tag/v0.1.0

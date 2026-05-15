@@ -205,6 +205,7 @@ async fn fixture() -> Fixture {
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         pg_pool: None,
     };
 

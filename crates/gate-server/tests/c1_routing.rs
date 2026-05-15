@@ -53,6 +53,8 @@ fn make_channel(id: ChannelId, code: &str, base_url: &str) -> ChannelRecord {
 /// ProviderRouter 按 priority 选中优先级最高（数字最小）的 channel。
 #[tokio::test]
 async fn provider_router_selects_highest_priority() {
+    // SAFETY: test is single-threaded at this point
+    unsafe { std::env::set_var("KOOIX_API_KEY", "test-key"); }
     let group_id = ChannelGroupId::new();
     let ch_high = ChannelId::new(); // priority=10
     let ch_low = ChannelId::new(); // priority=20
@@ -105,6 +107,8 @@ async fn provider_router_selects_highest_priority() {
 /// 完整链路：api_key → project → group → channel → wiremock upstream
 #[tokio::test]
 async fn full_chain_api_key_to_upstream() {
+    // SAFETY: test is single-threaded at this point
+    unsafe { std::env::set_var("KOOIX_API_KEY", "test-key"); }
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
@@ -197,6 +201,7 @@ async fn full_chain_api_key_to_upstream() {
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         pg_pool: None,
     };
 

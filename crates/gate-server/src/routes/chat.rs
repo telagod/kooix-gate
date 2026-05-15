@@ -233,7 +233,7 @@ async fn chat_completions(
                         });
                     }
                 }
-                return Err(AppError::Internal(e.to_string()));
+                return Err(AppError::Provider(e));
             }
         };
 

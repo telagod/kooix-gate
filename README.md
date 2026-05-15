@@ -1,25 +1,37 @@
 # Kooix Gate
 
-> Rust + Svelte 打造的 LLM 网关。多 Org 三层租户、流式正确计费、配额拦截、SSO/OIDC。
+> Rust + Svelte 打造的 LLM 网关。多 Org 三层租户、9 Provider 多模态、流式正确计费、可视化编排、配额拦截、SSO/OIDC。
 
 竞品定位：NewAPI / OneAPI / LiteLLM 的「底盘加强版」——把它们反复踩的雷（权限粗、限流单一、租户隔离漏、流式漏扣）先治好，再谈渠道接入。
 
-[![Tests](https://img.shields.io/badge/tests-170%20passed-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-241%20passed-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
-## 当前版本：v0.1.0
+## 当前版本：v0.1.5
 
-第一个里程碑里完成的能力（详见 [CHANGELOG.md](./CHANGELOG.md)）：
+详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### 核心能力
 
 - ✅ 多 Org × Project × ApiKey 三层租户 + RBAC + RLS 兜底
-- ✅ Argon2 密码 / JWT / API Key / OIDC SSO（JIT provisioning）
-- ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式）
-- ✅ ProviderRouter 按 project + model 选 channel
-- ✅ 流式 token 正确计费（outbox pattern + Pricing 查询）
+- ✅ 9 Provider 适配（OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock）
+- ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
+- ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
+- ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价）
 - ✅ Quota 拦截（rpm / tpm / budget，Redis Lua 原子）
-- ✅ SvelteKit 控制台（usage 仪表盘 / channels 视图 / SSO 登录）
-- ✅ `kgctl` 部署 CLI（migrate / admin / doctor / seed-pricing）
+- ✅ 可视化编排 Playground（@xyflow/svelte 节点式流程编辑器）
+- ✅ SvelteKit 控制台（channel 管理 / 请求日志 / usage 仪表盘 / 月度账单 / SSO）
+- ✅ `kgctl` 部署 CLI + Docker Compose 一键部署 + GitHub Actions CI
+
+### v0.1.5 新增亮点
+
+- 🔌 9 Provider 插件架构 + tool calling + embeddings
+- 🎯 5 种路由策略 + model filter + channel RPM/TPM 限速 + 自动禁用
+- 💰 多维度计费引擎 + LiteLLM 自动同步定价
+- 🎨 节点式可视化编排 Playground
+- 📊 请求日志 20+ 维度过滤 + Dashboard 统计面板
+- 🎭 全面 UI 重做：monochrome 设计系统 + dark mode + 品牌色 logo
 
 ## 技术栈
 
@@ -27,10 +39,10 @@
 |---|---|
 | Backend | Rust 2024 · Axum 0.7 · Tokio · sqlx 0.8 |
 | Storage | PostgreSQL 15+（可选 TimescaleDB）· Redis (fred) |
-| Frontend | SvelteKit 2 · TypeScript · Tailwind |
+| Frontend | SvelteKit 2 · Svelte 5 · TypeScript · Tailwind v4 · @xyflow/svelte |
 | Auth | Argon2id + JWT (HS256) + API Key (SHA-256) + OIDC |
 | Crypto | AES-256-GCM envelope encryption + KMS 抽象 |
-| Observability | tracing + OpenTelemetry-ready |
+| Observability | tracing + OpenTelemetry + Prometheus |
 
 ## Workspace 结构
 
@@ -44,11 +56,11 @@ kooix-gate/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）
 │   ├── gate-crypto/            # Envelope encryption + KMS 抽象
 │   ├── gate-storage/           # PostgreSQL Repository (Pg + InMemory)
-│   │   └── migrations/         # 12+ SQL 文件，含 RLS
+│   │   └── migrations/         # 24 SQL 文件，含 RLS
 │   ├── gate-auth/              # Password / JWT / API Key / OIDC / AuthContext
 │   ├── gate-cache/             # Redis Lua（rate limit + quota）
-│   ├── gate-providers/         # Provider trait + OpenAI + ProviderRouter
-│   ├── gate-billing/           # Outbox + Pricing + cost compute
+│   ├── gate-providers/         # Provider trait + 9 adapters + ProviderRouter
+│   ├── gate-billing/           # Outbox + Multi-dimensional Pricing + LiteLLM sync
 │   ├── gate-server/            # Axum HTTP 网关（主二进制）
 │   └── kgctl/                  # 部署运维 CLI
 └── web/                        # SvelteKit 控制台
@@ -129,13 +141,14 @@ curl http://localhost:8080/v1/chat/completions \
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
 - **强类型 ID**：编译期阻止 `OrgId` 当 `UserId` 传
 - **AuthContext 单一权限门面**：禁止外部读 raw 角色映射，全走 `can()` / `require!`
+- **多维度计费**：按 dimension × conditions 精准匹配，支持缓存折扣、批量折扣、分层定价
 
 详细架构见 [DESIGN.md](./DESIGN.md)。
 
 ## 测试
 
 ```bash
-# 全量（170 tests，含 testcontainers 集成测试，需要 Docker）
+# 全量（241 tests，含 testcontainers 集成测试，需要 Docker）
 cargo test --workspace
 
 # 仅快速 unit（无 Docker）

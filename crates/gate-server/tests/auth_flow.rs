@@ -278,6 +278,7 @@ fn build_repos(
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         pg_pool: None,
     }
 }
@@ -359,7 +360,7 @@ async fn me_returns_user_summary() {
     let (status, body) = call(&f.router, "GET", "/v1/me", Some(&tok), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["subject"]["kind"], "user");
-    assert_eq!(body["current_org"], f.org_a.to_string());
+    assert_eq!(body["current_org"], f.org_a.as_uuid().to_string());
     assert_eq!(body["is_platform_admin"], false);
 }
 
@@ -583,6 +584,7 @@ async fn create_apikey_emits_audit_record() {
         model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
         audit: audit_repo.clone(),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         pg_pool: None,
     };
 

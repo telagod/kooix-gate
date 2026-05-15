@@ -32,7 +32,7 @@ async fn start_pg() -> (testcontainers::ContainerAsync<Postgres>, sqlx::PgPool) 
 
 /// Seed an org + user so FK constraints are satisfied, then insert a project
 /// belonging to that org. Returns (org_id, project_id).
-async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId) {
+async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId, Uuid) {
     let org_id = OrgId::new();
     let user_id = Uuid::now_v7();
     let proj_id = ProjectId::new();
@@ -81,7 +81,21 @@ async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId) {
     .await
     .unwrap();
 
-    (org_id, proj_id)
+    // api_key
+    let api_key_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO api_keys (id, project_id, name, key_hash, key_prefix, key_last4, created_by)
+         VALUES ($1, $2, 'rls-test', $3, 'sk-kg-rls', 'rlst', $4)",
+    )
+    .bind(api_key_id)
+    .bind(proj_id.as_uuid())
+    .bind(format!("hash_rls_{}", api_key_id))
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    (org_id, proj_id, api_key_id)
 }
 
 /// When scoped to org_a, projects belonging to org_b must be invisible.
@@ -89,8 +103,8 @@ async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId) {
 async fn rls_isolates_projects_across_orgs() {
     let (_c, pool) = start_pg().await;
 
-    let (org_a, proj_a) = seed_org_with_project(&pool).await;
-    let (org_b, proj_b) = seed_org_with_project(&pool).await;
+    let (org_a, proj_a, _key_a) = seed_org_with_project(&pool).await;
+    let (org_b, proj_b, _key_b) = seed_org_with_project(&pool).await;
 
     // Verify both projects exist (superuser sees all)
     let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
@@ -146,8 +160,8 @@ async fn rls_isolates_projects_across_orgs() {
 async fn rls_platform_admin_sees_all() {
     let (_c, pool) = start_pg().await;
 
-    let (_org_a, proj_a) = seed_org_with_project(&pool).await;
-    let (_org_b, proj_b) = seed_org_with_project(&pool).await;
+    let (_org_a, proj_a, _key_a) = seed_org_with_project(&pool).await;
+    let (_org_b, proj_b, _key_b) = seed_org_with_project(&pool).await;
 
     let ctx = RlsContext::platform_admin();
     let mut tx = ctx.begin(&pool).await.unwrap();
@@ -177,7 +191,7 @@ async fn rls_platform_admin_sees_all() {
 async fn rls_no_context_sees_nothing() {
     let (_c, pool) = start_pg().await;
 
-    let (_org, _proj) = seed_org_with_project(&pool).await;
+    let (_org, _proj, _key) = seed_org_with_project(&pool).await;
 
     // No RLS context — empty org_id, not platform admin
     let ctx = RlsContext {
@@ -208,17 +222,18 @@ async fn rls_no_context_sees_nothing() {
 async fn rls_isolates_usage_records() {
     let (_c, pool) = start_pg().await;
 
-    let (org_a, proj_a) = seed_org_with_project(&pool).await;
-    let (org_b, proj_b) = seed_org_with_project(&pool).await;
+    let (org_a, proj_a, key_a) = seed_org_with_project(&pool).await;
+    let (org_b, proj_b, key_b) = seed_org_with_project(&pool).await;
 
     // Insert usage records for both orgs
-    for (org, proj) in [(&org_a, &proj_a), (&org_b, &proj_b)] {
+    for (org, proj, key) in [(&org_a, &proj_a, &key_a), (&org_b, &proj_b, &key_b)] {
         sqlx::query(
             "INSERT INTO usage_records (ts, request_id, org_id, project_id, api_key_id, channel_id, model_requested, model_actual, tokens_in, tokens_out, cost_usd, status)
-             VALUES (NOW(), gen_random_uuid(), $1, $2, gen_random_uuid(), gen_random_uuid(), 'gpt-4', 'gpt-4', 100, 50, 0.0015, 200)",
+             VALUES (NOW(), gen_random_uuid(), $1, $2, $3, NULL, 'gpt-4', 'gpt-4', 100, 50, 0.0015, 200)",
         )
         .bind(org.as_uuid())
         .bind(proj.as_uuid())
+        .bind(key)
         .execute(&pool)
         .await
         .unwrap();

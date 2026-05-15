@@ -97,7 +97,7 @@ async fn find_default_for_project() {
 
     // 插入 group
     let group_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO channel_groups (name, strategy) VALUES ('proj-group', 'weighted') RETURNING id",
+        "INSERT INTO channel_groups (name, strategy) VALUES ('proj-group', 'weighted_random') RETURNING id",
     )
     .fetch_one(&pool)
     .await

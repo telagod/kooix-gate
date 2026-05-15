@@ -164,7 +164,7 @@ async fn me_works_with_pg_loader() {
     let (status, body) = call(&f.router, "GET", "/v1/me", Some(&tok)).await;
     assert_eq!(status, StatusCode::OK, "body={body}");
     assert_eq!(body["subject"]["kind"], "user");
-    assert_eq!(body["current_org"], f.org.to_string());
+    assert_eq!(body["current_org"], f.org.as_uuid().to_string());
 }
 
 #[tokio::test]

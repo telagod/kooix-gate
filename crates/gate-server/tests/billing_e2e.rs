@@ -436,6 +436,8 @@ async fn routed_chat_records_channel_id_in_outbox() {
     let channel_id = ChannelId::new();
 
     // Channel + group
+    // SAFETY: test is single-threaded at this point, no concurrent env reads
+    unsafe { std::env::set_var("KOOIX_CH_WM_KEY", "test-key"); }
     let ch_repo = Arc::new(InMemoryChannelRepo::new());
     let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
     let now = chrono::Utc::now();
@@ -533,8 +535,10 @@ async fn routed_chat_records_channel_id_in_outbox() {
         ))
         .unwrap();
     let resp = router.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let _ = resp.into_body().collect().await.unwrap();
+    let status = resp.status();
+    let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body_str = String::from_utf8_lossy(&body_bytes);
+    assert_eq!(status, StatusCode::OK, "response body: {body_str}");
 
     yield_for_emit().await;
 
