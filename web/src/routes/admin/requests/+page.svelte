@@ -5,6 +5,7 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import FilterPills from '$lib/components/ui/FilterPills.svelte';
+	import ModalityBadge from '$lib/components/ui/ModalityBadge.svelte';
 	import {
 		ScrollText,
 		Search,
@@ -523,7 +524,10 @@
 							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatDate(req.ts)}</td>
 							<td class="px-4 py-3">
 								<div class="flex flex-col">
-									<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{req.model_actual}</span>
+									<div class="flex items-center gap-1.5">
+										<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{req.model_actual}</span>
+										<ModalityBadge model={req.model_actual} metadata={req.metadata} />
+									</div>
 									{#if req.model_requested !== req.model_actual}
 										<span class="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[180px]">{req.model_requested}</span>
 									{/if}

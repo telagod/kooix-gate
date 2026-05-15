@@ -6,6 +6,7 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Stat from '$lib/components/Stat.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import ModalityBadge from '$lib/components/ui/ModalityBadge.svelte';
 	import {
 		TrendingUp,
 		AlertTriangle,
@@ -205,7 +206,10 @@
 									<span class="w-5 text-right text-[10px] font-mono text-zinc-400">{i + 1}</span>
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center justify-between mb-0.5">
-											<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{m.model}</span>
+											<div class="flex items-center gap-1.5">
+												<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{m.model}</span>
+												<ModalityBadge model={m.model} />
+											</div>
 											<span class="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono ml-2 shrink-0">{fmt(m.requests)} · {fmtCost(m.cost_usd)}</span>
 										</div>
 										<div class="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
@@ -237,6 +241,7 @@
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-2">
 											<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{err.model_actual}</span>
+											<ModalityBadge model={err.model_actual} metadata={err.metadata} />
 											<span class="text-[10px] px-1.5 py-px rounded bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 font-mono">{err.status}</span>
 										</div>
 										<p class="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono truncate">{err.error_code ?? '—'}</p>
