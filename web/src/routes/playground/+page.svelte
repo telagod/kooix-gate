@@ -392,22 +392,58 @@
 </script>
 
 <div class="flex flex-col h-full overflow-hidden">
-	<!-- Tab Navigation -->
-	<div class="flex items-center gap-1 px-4 py-1.5 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-		{#each tabs as tab}
-			<button
-				onclick={() => activeTab = tab.id}
-				class={clsx(
-					'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
-					activeTab === tab.id
-						? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium'
-						: 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-				)}
-			>
-				<svelte:component this={tab.icon} size={14} />
-				{tab.label}
-			</button>
-		{/each}
+	<!-- Unified Header: Tabs + Controls -->
+	<div class="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
+		<div class="flex items-center gap-1">
+			{#if activeTab === 'chat'}
+				<button onclick={() => showSidebar = !showSidebar} class="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors mr-1">
+					{#if showSidebar}
+						<ChevronLeft size={16} class="text-zinc-500" />
+					{:else}
+						<MessageSquare size={16} class="text-zinc-500" />
+					{/if}
+				</button>
+			{/if}
+			{#each tabs as tab}
+				<button
+					onclick={() => activeTab = tab.id}
+					class={clsx(
+						'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+						activeTab === tab.id
+							? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium'
+							: 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+					)}
+				>
+					<svelte:component this={tab.icon} size={14} />
+					{tab.label}
+				</button>
+			{/each}
+		</div>
+		<div class="flex items-center gap-1.5">
+			{#if activeTab === 'chat' && active}
+				<select
+					bind:value={active.model}
+					onchange={() => { if (active) { active.updatedAt = Date.now(); saveConversations(); }}}
+					class="text-xs border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 max-w-[200px]"
+				>
+					{#each modelOptions as m}
+						<option value={m}>{m}</option>
+					{/each}
+				</select>
+				<button
+					onclick={() => showSettings = !showSettings}
+					class={clsx(
+						'p-1.5 rounded-lg transition-colors',
+						showSettings ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'
+					)}
+				>
+					<Settings2 size={14} />
+				</button>
+				<button onclick={resetConversation} class="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition-colors">
+					<RotateCcw size={14} />
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Tab Content -->
@@ -415,7 +451,7 @@
 		<div class="flex flex-1 overflow-hidden">
 	<!-- Conversation Sidebar -->
 	{#if showSidebar}
-		<div class="w-64 shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 flex flex-col">
+		<div class="w-60 shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 flex flex-col">
 			<div class="p-3 border-b border-zinc-200 dark:border-zinc-700">
 				<Button variant="default" size="sm" class="w-full" onclick={newConversation}>
 					<Plus size={14} />
@@ -454,45 +490,6 @@
 
 	<!-- Main Chat Area -->
 	<div class="flex-1 flex flex-col min-w-0">
-		<!-- Header -->
-		<div class="flex items-center justify-between px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-			<div class="flex items-center gap-2">
-				<button onclick={() => showSidebar = !showSidebar} class="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-					{#if showSidebar}
-						<ChevronLeft size={16} class="text-zinc-500" />
-					{:else}
-						<MessageSquare size={16} class="text-zinc-500" />
-					{/if}
-				</button>
-				<h1 class="text-base font-bold text-zinc-900 dark:text-zinc-100">Playground</h1>
-				{#if active}
-					<select
-						bind:value={active.model}
-						onchange={() => { if (active) { active.updatedAt = Date.now(); saveConversations(); }}}
-						class="text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400"
-					>
-						{#each modelOptions as m}
-							<option value={m}>{m}</option>
-						{/each}
-					</select>
-				{/if}
-			</div>
-			<div class="flex items-center gap-1">
-				<button
-					onclick={() => showSettings = !showSettings}
-					class={clsx(
-						'p-2 rounded-lg transition-colors',
-						showSettings ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'
-					)}
-				>
-					<Settings2 size={16} />
-				</button>
-				<button onclick={resetConversation} class="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition-colors">
-					<RotateCcw size={16} />
-				</button>
-			</div>
-		</div>
-
 		<div class="flex flex-1 overflow-hidden">
 			<!-- Messages -->
 			<div class="flex-1 flex flex-col min-w-0">
