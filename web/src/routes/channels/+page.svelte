@@ -794,9 +794,9 @@
 {/if}
 
 <!-- Main content -->
-<div class="px-6 py-8">
+<div class="flex flex-col h-full px-6 py-6">
 	<!-- Header -->
-	<div class="flex items-start justify-between mb-8">
+	<div class="flex items-start justify-between mb-5">
 		<div>
 			<div class="flex items-center gap-3 mb-1">
 				<div class="w-9 h-9 rounded-lg bg-zinc-900 dark:bg-zinc-100 flex items-center justify-center">
@@ -896,7 +896,8 @@
 		</div>
 	{:else}
 		<!-- Table -->
-		<div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm overflow-hidden">
+		<div class="flex-1 min-h-0 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm overflow-hidden flex flex-col">
+			<div class="flex-1 overflow-y-auto">
 			<table class="w-full text-sm">
 				<thead>
 					<tr class="border-b border-zinc-100 dark:border-zinc-800">
@@ -955,7 +956,9 @@
 							<!-- Channel -->
 							<td class="px-4 py-4">
 								<div class="flex items-center gap-3">
-									<img src="/providers/{ch.provider_type}.svg" alt="" class="w-7 h-7 dark:invert rounded-md p-0.5 bg-zinc-50 dark:bg-zinc-800 shrink-0" />
+									<div class="w-8 h-8 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 flex items-center justify-center shrink-0">
+										<img src="/providers/{ch.provider_type}.svg" alt="" class="w-5 h-5" />
+									</div>
 									<div class="min-w-0">
 										<p class="font-medium text-zinc-900 dark:text-zinc-100 truncate">{ch.code}</p>
 										{#if ch.name && ch.name !== ch.code}
@@ -1084,14 +1087,14 @@
 					{/each}
 				</tbody>
 			</table>
-		</div>
+			</div>
 
-		<!-- Pagination -->
-		{#if totalPages > 1}
-			<div class="flex items-center justify-between mt-5">
-				<p class="text-xs text-zinc-500 dark:text-zinc-400">
-					{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} / {total}
-				</p>
+			<!-- Pagination (inside card as footer) -->
+			{#if totalPages > 1}
+				<div class="flex items-center justify-between px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
+					<p class="text-xs text-zinc-500 dark:text-zinc-400">
+						{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} / {total}
+					</p>
 				<div class="flex items-center gap-1">
 					<button
 						disabled={page <= 1}
@@ -1122,9 +1125,9 @@
 				</div>
 			</div>
 		{/if}
-
+		</div>
 		<!-- Keyboard hint -->
-		<p class="text-[10px] text-zinc-400 dark:text-zinc-600 mt-4 text-center">
+		<p class="text-[10px] text-zinc-400 dark:text-zinc-600 mt-2 text-center shrink-0">
 			<kbd class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-mono">j</kbd>/<kbd class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-mono">k</kbd> 导航
 			<kbd class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-mono ml-2">Enter</kbd> 展开
 			<kbd class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-mono ml-2">e</kbd> 编辑

@@ -19,6 +19,21 @@
 	} = $props();
 
 	let open = $state(false);
+	let btnEl: HTMLButtonElement | undefined = $state();
+	let menuStyle = $state('');
+
+	function toggle() {
+		if (open) { open = false; return; }
+		if (btnEl) {
+			const rect = btnEl.getBoundingClientRect();
+			const spaceBelow = window.innerHeight - rect.bottom;
+			const menuH = items.length * 36 + 8;
+			const top = spaceBelow < menuH ? rect.top - menuH : rect.bottom + 4;
+			const left = Math.min(rect.right - 160, window.innerWidth - 170);
+			menuStyle = `position: fixed; top: ${top}px; left: ${left}px;`;
+		}
+		open = true;
+	}
 
 	function handleClick(item: MenuItem) {
 		if (item.disabled) return;
@@ -29,15 +44,18 @@
 
 <div class="relative {className}">
 	<button
+		bind:this={btnEl}
 		type="button"
-		onclick={() => (open = !open)}
+		onclick={toggle}
 		class="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
 	>
 		<MoreHorizontal size={16} />
 	</button>
 
 	{#if open}
-		<div class="absolute right-0 z-50 mt-1 min-w-[160px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg py-1 animate-fade-in">
+		<div class="fixed inset-0 z-40" onclick={() => (open = false)}></div>
+		<div class="z-50 min-w-[160px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl py-1 animate-fade-in"
+			style={menuStyle}>
 			{#each items as item}
 				<button
 					type="button"
@@ -58,6 +76,5 @@
 				</button>
 			{/each}
 		</div>
-		<div class="fixed inset-0 z-40" onclick={() => (open = false)}></div>
 	{/if}
 </div>
