@@ -61,22 +61,22 @@
 	function linkCls(pattern: string): string {
 		const base = 'flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-medium transition-colors mb-0.5';
 		return active(pattern)
-			? `${base} bg-white/10 text-white`
-			: `${base} text-zinc-400 hover:text-zinc-200 hover:bg-white/5`;
+			? `${base} bg-zinc-200 dark:bg-white/10 text-zinc-900 dark:text-white`
+			: `${base} text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5`;
 	}
 
 	const iconSize = 18;
 </script>
 
-<aside class="flex flex-col h-full {collapsed ? 'w-14' : 'w-56'} bg-zinc-950 transition-all duration-200 shrink-0 select-none">
+<aside class="flex flex-col h-full {collapsed ? 'w-14' : 'w-56'} bg-stone-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-200 shrink-0 select-none">
 	<!-- Header -->
-	<div class="flex items-center justify-between px-3 h-14 border-b border-white/[0.06]">
+	<div class="flex items-center justify-between px-3 h-14 border-b border-zinc-200 dark:border-white/[0.06]">
 		{#if !collapsed}
 			<a href="/orgs" class="flex items-center gap-2 truncate">
 				<div class="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
 					<span class="text-white text-[10px] font-bold">K</span>
 				</div>
-				<span class="text-[13px] font-semibold text-zinc-100 tracking-tight">Kooix Gate</span>
+				<span class="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">Kooix Gate</span>
 			</a>
 		{:else}
 			<div class="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mx-auto">
@@ -86,7 +86,7 @@
 		{#if !collapsed}
 			<button
 				onclick={() => (collapsed = !collapsed)}
-				class="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+				class="p-1.5 rounded-md text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors"
 				title="收起侧栏"
 			>
 				<PanelLeftClose size={15} />
@@ -98,7 +98,7 @@
 		<div class="flex justify-center pt-3 pb-1">
 			<button
 				onclick={() => (collapsed = !collapsed)}
-				class="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+				class="p-1.5 rounded-md text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors"
 				title="展开侧栏"
 			>
 				<PanelLeftOpen size={15} />
@@ -111,7 +111,7 @@
 		<!-- Main -->
 		<div>
 			{#if !collapsed}
-				<p class="px-2.5 mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">导航</p>
+				<p class="px-2.5 mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">导航</p>
 			{/if}
 			<a href="/dashboard" class={linkCls('/dashboard')} title={collapsed ? '总览' : ''}>
 				<LayoutDashboard size={iconSize} />
@@ -139,7 +139,7 @@
 		{#if currentOrg}
 			<div>
 				{#if !collapsed}
-					<p class="px-2.5 mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">当前组织</p>
+					<p class="px-2.5 mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">当前组织</p>
 				{/if}
 				<a href="/orgs/{currentOrg}/projects" class={linkCls(`/orgs/${currentOrg}/projects`)} title={collapsed ? '项目' : ''}>
 					<FolderOpen size={iconSize} />
@@ -161,8 +161,8 @@
 			<div>
 				{#if !collapsed}
 					<div class="px-2.5 mb-2 flex items-center gap-1.5">
-						<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">管理</p>
-						<span class="inline-block px-1.5 py-px rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 tracking-wide">ADMIN</span>
+						<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">管理</p>
+						<span class="inline-block px-1.5 py-px rounded text-[9px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 tracking-wide">ADMIN</span>
 					</div>
 				{:else}
 					<div class="flex justify-center mb-1">
@@ -198,7 +198,7 @@
 	</nav>
 
 	<!-- Bottom -->
-	<div class="border-t border-white/[0.06] p-2 space-y-0.5">
+	<div class="border-t border-zinc-200 dark:border-white/[0.06] p-2 space-y-0.5">
 		<a href="/settings" class={linkCls('/settings')} title={collapsed ? '设置' : ''}>
 			<Settings size={iconSize} />
 			{#if !collapsed}<span class="truncate">个人设置</span>{/if}
@@ -207,7 +207,7 @@
 		<button
 			onclick={toggleTheme}
 			title={collapsed ? '切换主题' : ''}
-			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors"
 		>
 			{#if $theme === 'light'}
 				<Sun size={iconSize} />
@@ -224,17 +224,17 @@
 		<button
 			onclick={() => { clearTokens(); goto('/login'); }}
 			title={collapsed ? '登出' : ''}
-			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+			class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors"
 		>
 			<LogOut size={iconSize} />
 			{#if !collapsed}<span class="truncate">登出</span>{/if}
 		</button>
 
 		{#if !collapsed && me}
-			<div class="px-2.5 py-2 mt-1 rounded-md bg-white/[0.04]">
+			<div class="px-2.5 py-2 mt-1 rounded-md bg-zinc-100 dark:bg-white/[0.04]">
 				<p class="text-[11px] text-zinc-500 truncate">
 					{#if isAdmin}
-						<span class="text-amber-400 font-medium">Admin</span> ·
+						<span class="text-amber-600 dark:text-amber-400 font-medium">Admin</span> ·
 					{/if}
 					{me.subject?.user_id?.slice(0, 8) ?? ''}...
 				</p>
