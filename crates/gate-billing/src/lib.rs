@@ -1,13 +1,15 @@
-//! gate-billing: 计费 outbox 消费层。
+//! gate-billing: 多维度计费引擎 + outbox 消费层。
 //!
 //! 主要组件：
-//! - [`UsageEvent`] — 用量事件结构，与 usage_records 表对齐
-//! - [`OutboxRepo`] — outbox_events 表读写 trait
-//! - [`PgOutboxRepo`] / [`InMemoryOutboxRepo`] — 持久 / 内存实现
-//! - [`PricingRepo`] — model_pricing 查询 trait
+//! - [`PricingRule`] — 多维度定价规则
+//! - [`CostContext`] — 一次请求的全部用量维度
+//! - [`compute_cost`] — rules × context → cost_micros
+//! - [`PricingRepo`] — pricing_rules 查询/CRUD trait
 //! - [`PgPricingRepo`] / [`InMemoryPricingRepo`] — 持久 / 内存实现
-//! - [`compute_cost_micros`] — usage × pricing → cost_micros
-//! - [`Consumer`] — 消费循环：拉批 → commit_usage → mark_done
+//! - [`compute_cost_micros`] — Legacy compat (Usage × ModelPricing)
+//! - [`UsageEvent`] — 用量事件结构
+//! - [`OutboxRepo`] — outbox_events 表读写 trait
+//! - [`Consumer`] — 消费循环
 
 pub mod consumer;
 pub mod outbox;
@@ -17,7 +19,8 @@ pub mod types;
 pub use consumer::Consumer;
 pub use outbox::{InMemoryOutboxRepo, OutboxRepo, PgOutboxRepo};
 pub use pricing::{
-    InMemoryPricingRepo, ModelPricing, PgPricingRepo, PricingRepo, compute_cost_micros,
+    CostContext, InMemoryPricingRepo, ModelPricing, PgPricingRepo, PricingRepo, PricingRule,
+    compute_cost, compute_cost_micros,
 };
 pub use types::UsageEvent;
 

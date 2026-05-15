@@ -33,9 +33,7 @@ async fn start_pg() -> (testcontainers::ContainerAsync<Postgres>, PgPool) {
     (container, pool)
 }
 
-/// 直接 SQL 插一行 pricing —— migration 6 表里没现成 seed 路径，最直接的方式。
-///
-/// channel_id 为 Some 时必须先在 channels 表里存在；测试里我们 seed 一个最小 channel。
+/// 直接 SQL 插 pricing_rules（每次插 input + output 两条）。
 async fn insert_pricing(
     pool: &PgPool,
     channel_id: Option<Uuid>,
@@ -46,9 +44,10 @@ async fn insert_pricing(
     eff_until: Option<DateTime<Utc>>,
 ) {
     sqlx::query(
-        "INSERT INTO model_pricing \
-         (channel_id, model, input_per_million, output_per_million, effective_from, effective_until) \
-         VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6)",
+        "INSERT INTO pricing_rules \
+         (channel_id, model, dimension, unit, rate, conditions, effective_from, effective_until, priority) \
+         VALUES ($1, $2, 'input_tokens', 'per_million_tokens', $3::numeric, '{}'::jsonb, $5, $6, 0), \
+                ($1, $2, 'output_tokens', 'per_million_tokens', $4::numeric, '{}'::jsonb, $5, $6, 0)",
     )
     .bind(channel_id)
     .bind(model)
@@ -170,7 +169,7 @@ async fn inmemory_channel_specific_wins_over_global() {
     let ch = Uuid::now_v7();
     // 全局默认 $1/M, channel 特价 $0.5/M
     repo.seed_global("gpt-4o-mini", 1.0, 2.0);
-    repo.seed(ModelPricing {
+    repo.seed_legacy(ModelPricing {
         channel_id: Some(ch),
         model: "gpt-4o-mini".into(),
         input_per_million: 0.5,
@@ -212,7 +211,7 @@ async fn inmemory_effective_window_filters_correctly() {
     let t2 = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
 
     // 旧价 2024 → 2025
-    repo.seed(ModelPricing {
+    repo.seed_legacy(ModelPricing {
         channel_id: None,
         model: "gpt-4o-mini".into(),
         input_per_million: 0.30,
@@ -222,7 +221,7 @@ async fn inmemory_effective_window_filters_correctly() {
         effective_until: Some(t1),
     });
     // 新价 2025 起
-    repo.seed(ModelPricing {
+    repo.seed_legacy(ModelPricing {
         channel_id: None,
         model: "gpt-4o-mini".into(),
         input_per_million: 0.15,
@@ -273,7 +272,7 @@ async fn inmemory_past_effective_until_excluded() {
     let repo = InMemoryPricingRepo::new();
     let t0 = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
     let t1 = Utc.with_ymd_and_hms(2022, 1, 1, 0, 0, 0).unwrap();
-    repo.seed(ModelPricing {
+    repo.seed_legacy(ModelPricing {
         channel_id: None,
         model: "legacy".into(),
         input_per_million: 1.0,
