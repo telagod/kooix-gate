@@ -185,7 +185,9 @@ fn row_to_channel(row: &sqlx::postgres::PgRow) -> DbResult<ChannelRecord> {
         rpm_limit: row.try_get("rpm_limit")?,
         tpm_limit: row.try_get("tpm_limit")?,
         tags: row.try_get("tags").unwrap_or_default(),
-        model_mapping: row.try_get("model_mapping").unwrap_or(serde_json::Value::Object(Default::default())),
+        model_mapping: row
+            .try_get("model_mapping")
+            .unwrap_or(serde_json::Value::Object(Default::default())),
         balance: row.try_get("balance").unwrap_or(None),
         balance_updated_at: row.try_get("balance_updated_at").unwrap_or(None),
         last_error: row.try_get("last_error").unwrap_or(None),
@@ -263,9 +265,25 @@ impl ChannelRepo for PgChannelRepo {
     }
 
     async fn list_admin_paginated(&self, q: ListChannelsQuery) -> DbResult<PaginatedChannels> {
-        let valid_sorts = ["code", "name", "provider_type", "status", "health", "created_at", "updated_at"];
-        let sort_col = if valid_sorts.contains(&q.sort_by.as_str()) { &q.sort_by } else { "created_at" };
-        let sort_dir = if q.sort_dir.eq_ignore_ascii_case("desc") { "DESC" } else { "ASC" };
+        let valid_sorts = [
+            "code",
+            "name",
+            "provider_type",
+            "status",
+            "health",
+            "created_at",
+            "updated_at",
+        ];
+        let sort_col = if valid_sorts.contains(&q.sort_by.as_str()) {
+            &q.sort_by
+        } else {
+            "created_at"
+        };
+        let sort_dir = if q.sort_dir.eq_ignore_ascii_case("desc") {
+            "DESC"
+        } else {
+            "ASC"
+        };
         let page = q.page.max(1);
         let page_size = q.page_size.clamp(1, 100);
         let offset = (page - 1) * page_size;
@@ -274,40 +292,42 @@ impl ChannelRepo for PgChannelRepo {
         let mut bind_idx = 1u32;
         let mut bind_values: Vec<String> = Vec::new();
 
-        if let Some(ref search) = q.search {
-            if !search.is_empty() {
-                bind_idx += 1;
-                conditions.push(format!("(code ILIKE ${bind_idx} OR name ILIKE ${bind_idx})"));
-                bind_values.push(format!("%{search}%"));
-            }
+        if let Some(ref search) = q.search
+            && !search.is_empty()
+        {
+            bind_idx += 1;
+            conditions.push(format!(
+                "(code ILIKE ${bind_idx} OR name ILIKE ${bind_idx})"
+            ));
+            bind_values.push(format!("%{search}%"));
         }
-        if let Some(ref provider) = q.provider {
-            if !provider.is_empty() {
-                bind_idx += 1;
-                conditions.push(format!("provider_type = ${bind_idx}"));
-                bind_values.push(provider.clone());
-            }
+        if let Some(ref provider) = q.provider
+            && !provider.is_empty()
+        {
+            bind_idx += 1;
+            conditions.push(format!("provider_type = ${bind_idx}"));
+            bind_values.push(provider.clone());
         }
-        if let Some(ref status) = q.status {
-            if !status.is_empty() {
-                bind_idx += 1;
-                conditions.push(format!("status = ${bind_idx}"));
-                bind_values.push(status.clone());
-            }
+        if let Some(ref status) = q.status
+            && !status.is_empty()
+        {
+            bind_idx += 1;
+            conditions.push(format!("status = ${bind_idx}"));
+            bind_values.push(status.clone());
         }
-        if let Some(ref health) = q.health {
-            if !health.is_empty() {
-                bind_idx += 1;
-                conditions.push(format!("health = ${bind_idx}"));
-                bind_values.push(health.clone());
-            }
+        if let Some(ref health) = q.health
+            && !health.is_empty()
+        {
+            bind_idx += 1;
+            conditions.push(format!("health = ${bind_idx}"));
+            bind_values.push(health.clone());
         }
-        if let Some(ref tag) = q.tag {
-            if !tag.is_empty() {
-                bind_idx += 1;
-                conditions.push(format!("${bind_idx} = ANY(tags)"));
-                bind_values.push(tag.clone());
-            }
+        if let Some(ref tag) = q.tag
+            && !tag.is_empty()
+        {
+            bind_idx += 1;
+            conditions.push(format!("${bind_idx} = ANY(tags)"));
+            bind_values.push(tag.clone());
         }
 
         let where_clause = conditions.join(" AND ");
@@ -337,12 +357,19 @@ impl ChannelRepo for PgChannelRepo {
         let rows = data_q.fetch_all(&self.pool).await?;
         let data: Vec<ChannelRecord> = rows.iter().map(row_to_channel).collect::<DbResult<_>>()?;
 
-        Ok(PaginatedChannels { data, total, page, page_size })
+        Ok(PaginatedChannels {
+            data,
+            total,
+            page,
+            page_size,
+        })
     }
 
     async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
         let status = if input.enabled { "active" } else { "disabled" };
-        let mapping = input.model_mapping.unwrap_or(serde_json::Value::Object(Default::default()));
+        let mapping = input
+            .model_mapping
+            .unwrap_or(serde_json::Value::Object(Default::default()));
         let timeout = input.timeout_ms.unwrap_or(60000);
         let retries = input.max_retries.unwrap_or(2);
         let row = sqlx::query(
@@ -464,7 +491,9 @@ impl ChannelRepo for PgChannelRepo {
     }
 
     async fn batch_set_enabled(&self, ids: &[ChannelId], enabled: bool) -> DbResult<u64> {
-        if ids.is_empty() { return Ok(0); }
+        if ids.is_empty() {
+            return Ok(0);
+        }
         let uuids: Vec<Uuid> = ids.iter().map(|id| *id.as_uuid()).collect();
         let status = if enabled { "active" } else { "disabled" };
         let res = sqlx::query(
@@ -479,7 +508,9 @@ impl ChannelRepo for PgChannelRepo {
     }
 
     async fn batch_soft_delete(&self, ids: &[ChannelId]) -> DbResult<u64> {
-        if ids.is_empty() { return Ok(0); }
+        if ids.is_empty() {
+            return Ok(0);
+        }
         let uuids: Vec<Uuid> = ids.iter().map(|id| *id.as_uuid()).collect();
         let res = sqlx::query(
             "UPDATE channels SET deleted_at = NOW(), status = 'disabled', updated_at = now() \
@@ -532,21 +563,50 @@ pub struct ChannelGroupRecord {
 #[async_trait]
 pub trait ChannelGroupRepo: Send + Sync + 'static {
     async fn find_by_id(&self, id: ChannelGroupId) -> DbResult<ChannelGroupRecord>;
-    async fn find_default_for_project(&self, project_id: ProjectId) -> DbResult<ChannelGroupRecord>;
+    async fn find_default_for_project(&self, project_id: ProjectId)
+    -> DbResult<ChannelGroupRecord>;
     async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>>;
     async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord>;
     /// Update group fields. `fallback_group_id`: outer None = don't change, Some(None) = clear, Some(Some(id)) = set.
-    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>, fallback_group_id: Option<Option<ChannelGroupId>>, description: Option<&str>) -> DbResult<ChannelGroupRecord>;
+    async fn update(
+        &self,
+        id: ChannelGroupId,
+        name: Option<&str>,
+        strategy: Option<&str>,
+        enabled: Option<bool>,
+        fallback_group_id: Option<Option<ChannelGroupId>>,
+        description: Option<&str>,
+    ) -> DbResult<ChannelGroupRecord>;
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()>;
     async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>>;
-    async fn add_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId, priority: i32, weight: i32) -> DbResult<()>;
-    async fn remove_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId) -> DbResult<()>;
+    async fn add_binding(
+        &self,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        priority: i32,
+        weight: i32,
+    ) -> DbResult<()>;
+    async fn remove_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId)
+    -> DbResult<()>;
     /// Update binding fields (all optional — None means keep current).
-    async fn update_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId, priority: Option<i32>, weight: Option<i32>, model_filter: Option<Vec<String>>, enabled: Option<bool>) -> DbResult<()>;
+    async fn update_binding(
+        &self,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        priority: Option<i32>,
+        weight: Option<i32>,
+        model_filter: Option<Vec<String>>,
+        enabled: Option<bool>,
+    ) -> DbResult<()>;
     /// List projects whose `default_group_id` references this group.
-    async fn list_projects_using_group(&self, group_id: ChannelGroupId) -> DbResult<Vec<ProjectId>>;
+    async fn list_projects_using_group(&self, group_id: ChannelGroupId)
+    -> DbResult<Vec<ProjectId>>;
     /// Set a project's default_group_id.
-    async fn set_project_default_group(&self, project_id: ProjectId, group_id: Option<ChannelGroupId>) -> DbResult<()>;
+    async fn set_project_default_group(
+        &self,
+        project_id: ProjectId,
+        group_id: Option<ChannelGroupId>,
+    ) -> DbResult<()>;
 }
 
 pub struct PgChannelGroupRepo {
@@ -565,7 +625,9 @@ fn row_to_group(row: &sqlx::postgres::PgRow) -> DbResult<ChannelGroupRecord> {
     Ok(ChannelGroupRecord {
         group_id: ChannelGroupId::from(id),
         name: row.try_get("name")?,
-        description: row.try_get::<Option<String>, _>("description")?.unwrap_or_default(),
+        description: row
+            .try_get::<Option<String>, _>("description")?
+            .unwrap_or_default(),
         strategy: row.try_get("strategy")?,
         fallback_group_id: fallback.map(ChannelGroupId::from),
         enabled: row.try_get("enabled")?,
@@ -640,9 +702,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         // $6 = boolean flag: true means "apply fallback change", false means "keep current"
         // $7 = the new fallback_group_id (may be NULL to clear)
         let change_fallback = fallback_group_id.is_some();
-        let new_fallback: Option<Uuid> = fallback_group_id
-            .flatten()
-            .map(|gid| *gid.as_uuid());
+        let new_fallback: Option<Uuid> = fallback_group_id.flatten().map(|gid| *gid.as_uuid());
 
         let row = sqlx::query(
             "UPDATE channel_groups SET \
@@ -673,7 +733,9 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
             .bind(id.as_uuid())
             .execute(&self.pool)
             .await?;
-        if res.rows_affected() == 0 { return Err(DbError::NotFound); }
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 
@@ -693,13 +755,15 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         .fetch_all(&self.pool)
         .await?;
         rows.iter()
-            .map(|r| Ok(ChannelBinding {
-                channel: row_to_channel(r)?,
-                priority: r.try_get("priority")?,
-                weight: r.try_get("weight")?,
-                model_filter: r.try_get("model_filter").unwrap_or_default(),
-                enabled: r.try_get("enabled").unwrap_or(true),
-            }))
+            .map(|r| {
+                Ok(ChannelBinding {
+                    channel: row_to_channel(r)?,
+                    priority: r.try_get("priority")?,
+                    weight: r.try_get("weight")?,
+                    model_filter: r.try_get("model_filter").unwrap_or_default(),
+                    enabled: r.try_get("enabled").unwrap_or(true),
+                })
+            })
             .collect()
     }
 
@@ -736,7 +800,9 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         .bind(channel_id.as_uuid())
         .execute(&self.pool)
         .await?;
-        if res.rows_affected() == 0 { return Err(DbError::NotFound); }
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 
@@ -775,16 +841,17 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         &self,
         group_id: ChannelGroupId,
     ) -> DbResult<Vec<ProjectId>> {
-        let rows = sqlx::query(
-            "SELECT id FROM projects WHERE default_group_id = $1",
-        )
-        .bind(group_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.iter().map(|r| {
-            let id: Uuid = r.try_get("id").unwrap();
-            ProjectId::from(id)
-        }).collect())
+        let rows = sqlx::query("SELECT id FROM projects WHERE default_group_id = $1")
+            .bind(group_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let id: Uuid = r.try_get("id").unwrap();
+                ProjectId::from(id)
+            })
+            .collect())
     }
 
     async fn set_project_default_group(
@@ -812,8 +879,8 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
 // InMemory 版（测试 / dev 模式）
 // ============================================================================
 
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct InMemoryChannelRepo {
@@ -912,23 +979,46 @@ impl ChannelRepo for InMemoryChannelRepo {
         let inner = self.inner.read();
         let mut out: Vec<ChannelRecord> = inner.channels.values().cloned().collect();
 
-        if let Some(ref s) = q.search {
-            if !s.is_empty() {
-                let s = s.to_lowercase();
-                out.retain(|c| c.code.to_lowercase().contains(&s) || c.name.to_lowercase().contains(&s));
-            }
+        if let Some(ref s) = q.search
+            && !s.is_empty()
+        {
+            let s = s.to_lowercase();
+            out.retain(|c| {
+                c.code.to_lowercase().contains(&s) || c.name.to_lowercase().contains(&s)
+            });
         }
-        if let Some(ref p) = q.provider { if !p.is_empty() { out.retain(|c| c.provider_type == *p); } }
-        if let Some(ref s) = q.status { if !s.is_empty() { out.retain(|c| c.status == *s); } }
-        if let Some(ref h) = q.health { if !h.is_empty() { out.retain(|c| c.health == *h); } }
+        if let Some(ref p) = q.provider
+            && !p.is_empty()
+        {
+            out.retain(|c| c.provider_type == *p);
+        }
+        if let Some(ref s) = q.status
+            && !s.is_empty()
+        {
+            out.retain(|c| c.status == *s);
+        }
+        if let Some(ref h) = q.health
+            && !h.is_empty()
+        {
+            out.retain(|c| c.health == *h);
+        }
 
         let total = out.len() as i64;
         let page = q.page.max(1);
         let page_size = q.page_size.clamp(1, 100);
         let offset = ((page - 1) * page_size) as usize;
         out.sort_by_key(|c| c.created_at);
-        let data: Vec<ChannelRecord> = out.into_iter().skip(offset).take(page_size as usize).collect();
-        Ok(PaginatedChannels { data, total, page, page_size })
+        let data: Vec<ChannelRecord> = out
+            .into_iter()
+            .skip(offset)
+            .take(page_size as usize)
+            .collect();
+        Ok(PaginatedChannels {
+            data,
+            total,
+            page,
+            page_size,
+        })
     }
 
     async fn create(&self, input: CreateChannel) -> DbResult<ChannelRecord> {
@@ -960,7 +1050,9 @@ impl ChannelRepo for InMemoryChannelRepo {
             rpm_limit: input.rpm_limit,
             tpm_limit: input.tpm_limit,
             tags: input.tags,
-            model_mapping: input.model_mapping.unwrap_or(serde_json::Value::Object(Default::default())),
+            model_mapping: input
+                .model_mapping
+                .unwrap_or(serde_json::Value::Object(Default::default())),
             balance: None,
             balance_updated_at: None,
             last_error: None,
@@ -1045,7 +1137,11 @@ impl ChannelRepo for InMemoryChannelRepo {
         let mut count = 0u64;
         for id in ids {
             if let Some(ch) = inner.channels.get_mut(id) {
-                ch.status = if enabled { "active".into() } else { "disabled".into() };
+                ch.status = if enabled {
+                    "active".into()
+                } else {
+                    "disabled".into()
+                };
                 ch.updated_at = Utc::now();
                 count += 1;
             }
@@ -1097,17 +1193,11 @@ impl InMemoryChannelGroupRepo {
     }
 
     pub fn seed_group(&self, record: ChannelGroupRecord) {
-        self.inner
-            .write()
-            .groups
-            .insert(record.group_id, record);
+        self.inner.write().groups.insert(record.group_id, record);
     }
 
     pub fn seed_default(&self, project_id: ProjectId, group_id: ChannelGroupId) {
-        self.inner
-            .write()
-            .defaults
-            .insert(project_id, group_id);
+        self.inner.write().defaults.insert(project_id, group_id);
     }
 }
 
@@ -1139,27 +1229,53 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         let now = Utc::now();
         let id = ChannelGroupId::from(Uuid::now_v7());
         let rec = ChannelGroupRecord {
-            group_id: id, name: name.to_string(), description: String::new(), strategy: strategy.to_string(),
-            fallback_group_id: None, enabled: true, created_at: now, updated_at: now,
+            group_id: id,
+            name: name.to_string(),
+            description: String::new(),
+            strategy: strategy.to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
         };
         self.inner.write().groups.insert(id, rec.clone());
         Ok(rec)
     }
 
-    async fn update(&self, id: ChannelGroupId, name: Option<&str>, strategy: Option<&str>, enabled: Option<bool>, fallback_group_id: Option<Option<ChannelGroupId>>, description: Option<&str>) -> DbResult<ChannelGroupRecord> {
+    async fn update(
+        &self,
+        id: ChannelGroupId,
+        name: Option<&str>,
+        strategy: Option<&str>,
+        enabled: Option<bool>,
+        fallback_group_id: Option<Option<ChannelGroupId>>,
+        description: Option<&str>,
+    ) -> DbResult<ChannelGroupRecord> {
         let mut inner = self.inner.write();
         let g = inner.groups.get_mut(&id).ok_or(DbError::NotFound)?;
-        if let Some(n) = name { g.name = n.to_string(); }
-        if let Some(s) = strategy { g.strategy = s.to_string(); }
-        if let Some(e) = enabled { g.enabled = e; }
-        if let Some(d) = description { g.description = d.to_string(); }
-        if let Some(fb) = fallback_group_id { g.fallback_group_id = fb; }
+        if let Some(n) = name {
+            g.name = n.to_string();
+        }
+        if let Some(s) = strategy {
+            g.strategy = s.to_string();
+        }
+        if let Some(e) = enabled {
+            g.enabled = e;
+        }
+        if let Some(d) = description {
+            g.description = d.to_string();
+        }
+        if let Some(fb) = fallback_group_id {
+            g.fallback_group_id = fb;
+        }
         g.updated_at = Utc::now();
         Ok(g.clone())
     }
 
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()> {
-        if self.inner.write().groups.remove(&id).is_none() { return Err(DbError::NotFound); }
+        if self.inner.write().groups.remove(&id).is_none() {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 
@@ -1167,31 +1283,62 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         Ok(vec![])
     }
 
-    async fn add_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId, _priority: i32, _weight: i32) -> DbResult<()> {
+    async fn add_binding(
+        &self,
+        _group_id: ChannelGroupId,
+        _channel_id: ChannelId,
+        _priority: i32,
+        _weight: i32,
+    ) -> DbResult<()> {
         Ok(())
     }
 
-    async fn remove_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId) -> DbResult<()> {
+    async fn remove_binding(
+        &self,
+        _group_id: ChannelGroupId,
+        _channel_id: ChannelId,
+    ) -> DbResult<()> {
         Ok(())
     }
 
-    async fn update_binding(&self, _group_id: ChannelGroupId, _channel_id: ChannelId, _priority: Option<i32>, _weight: Option<i32>, _model_filter: Option<Vec<String>>, _enabled: Option<bool>) -> DbResult<()> {
+    async fn update_binding(
+        &self,
+        _group_id: ChannelGroupId,
+        _channel_id: ChannelId,
+        _priority: Option<i32>,
+        _weight: Option<i32>,
+        _model_filter: Option<Vec<String>>,
+        _enabled: Option<bool>,
+    ) -> DbResult<()> {
         Ok(())
     }
 
-    async fn list_projects_using_group(&self, group_id: ChannelGroupId) -> DbResult<Vec<ProjectId>> {
+    async fn list_projects_using_group(
+        &self,
+        group_id: ChannelGroupId,
+    ) -> DbResult<Vec<ProjectId>> {
         let inner = self.inner.read();
-        Ok(inner.defaults.iter()
+        Ok(inner
+            .defaults
+            .iter()
             .filter(|(_, gid)| **gid == group_id)
             .map(|(pid, _)| *pid)
             .collect())
     }
 
-    async fn set_project_default_group(&self, project_id: ProjectId, group_id: Option<ChannelGroupId>) -> DbResult<()> {
+    async fn set_project_default_group(
+        &self,
+        project_id: ProjectId,
+        group_id: Option<ChannelGroupId>,
+    ) -> DbResult<()> {
         let mut inner = self.inner.write();
         match group_id {
-            Some(gid) => { inner.defaults.insert(project_id, gid); }
-            None => { inner.defaults.remove(&project_id); }
+            Some(gid) => {
+                inner.defaults.insert(project_id, gid);
+            }
+            None => {
+                inner.defaults.remove(&project_id);
+            }
         }
         Ok(())
     }

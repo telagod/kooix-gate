@@ -188,11 +188,9 @@ impl UserRepo for PgUserRepo {
     }
 
     async fn has_any_admin(&self) -> DbResult<bool> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM platform_admins)",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM platform_admins)")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(exists)
     }
 
@@ -225,7 +223,7 @@ impl UserRepo for PgUserRepo {
     async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()> {
         let result = sqlx::query(
             "UPDATE users SET password_hash = $2, updated_at = now() \
-             WHERE id = $1 AND deleted_at IS NULL"
+             WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id.as_uuid())
         .bind(password_hash)

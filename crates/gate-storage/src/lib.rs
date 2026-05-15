@@ -9,12 +9,12 @@ pub mod repo;
 pub mod rls;
 
 pub use error::{DbError, DbResult};
+pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord, PgApiKeyRepo};
 pub use repo::audit::{AuditRecord, AuditRepo, InMemoryAuditRepo, PgAuditRepo};
 pub use repo::billing::{
     BillingRepo, BillingSeed, InMemoryBillingRepo, ModelBillLine, MonthlyBill, PgBillingRepo,
     ProjectBillLine, UsageExportRow,
 };
-pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord, PgApiKeyRepo};
 pub use repo::channel::{
     ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelRecord, ChannelRepo,
     CreateChannel, InMemoryChannelGroupRepo, InMemoryChannelRepo, ListChannelsQuery,
@@ -29,6 +29,9 @@ pub use repo::identity::{
     PgIdentityProviderRepo, PgOidcStateRepo, PgUserIdentityRepo, UserIdentityRecord,
     UserIdentityRepo,
 };
+pub use repo::inflight::{
+    ExpiredInFlight, InFlightRecord, InFlightRepo, InMemoryInFlightRepo, PgInFlightRepo,
+};
 pub use repo::membership::{MembershipRepo, OrgMemberView, PgMembershipRepo, UserMemberships};
 pub use repo::memory::{
     InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,
@@ -40,16 +43,15 @@ pub use repo::model_alias::{
 pub use repo::org::{OrgRepo, PgOrgRepo};
 pub use repo::project::{PgProjectRepo, ProjectRepo};
 pub use repo::quota::{InMemoryQuotaRepo, PgQuotaRepo, QuotaRecord, QuotaRepo, QuotaUpsert};
-pub use repo::usage::{
-    GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, UsageBucket, UsageRepo, UsageSeed,
-    UsageTotals,
-};
 pub use repo::request_log::{
     DashboardStats, FilterOptionItem, FilterOptions, HourlyBucket, InMemoryRequestLogRepo,
     ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
 };
+pub use repo::usage::{
+    GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, UsageBucket, UsageRepo, UsageSeed,
+    UsageTotals,
+};
 pub use repo::user::{PgUserRepo, UserRepo};
-pub use repo::inflight::{InFlightRecord, InFlightRepo, PgInFlightRepo, InMemoryInFlightRepo, ExpiredInFlight};
 pub use rls::RlsContext;
 pub use sqlx::PgPool;
 

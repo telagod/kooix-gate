@@ -6,6 +6,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::{
@@ -16,8 +17,6 @@ use gate_auth::{require, require_user};
 use gate_core::id::{ApiKeyId, OrgId, ProjectId};
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Deserialize)]
 pub struct CreateApiKeyRequest {
@@ -194,13 +193,8 @@ async fn revoke(
         .revoke(ApiKeyId::from(key_id.0), user_id, None)
         .await?;
 
-    app.audit.emit(
-        &ctx,
-        "api_key.revoke",
-        "api_key",
-        Some(*key_id),
-        None,
-    );
+    app.audit
+        .emit(&ctx, "api_key.revoke", "api_key", Some(*key_id), None);
 
     Ok(Json(serde_json::json!({"revoked": true})))
 }

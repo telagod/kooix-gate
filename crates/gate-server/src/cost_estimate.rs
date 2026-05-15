@@ -59,14 +59,20 @@ mod tests {
     fn short_message_default_max_tokens() {
         // 12 chars / 4 = 3 prompt tokens + 1024 completion = 1027 tokens × 3 = 3081
         let req = make_req(&["Hello world!"], None);
-        assert_eq!(estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS), 3_081);
+        assert_eq!(
+            estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS),
+            3_081
+        );
     }
 
     #[test]
     fn explicit_max_tokens() {
         // 8 chars / 4 = 2 + 100 = 102 × 3 = 306
         let req = make_req(&["hi there"], Some(100));
-        assert_eq!(estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS), 306);
+        assert_eq!(
+            estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS),
+            306
+        );
     }
 
     #[test]
@@ -75,7 +81,10 @@ mod tests {
         let long_msg = "x".repeat(200_000); // 200k chars / 4 = 50k tokens
         let req = make_req(&[&long_msg], Some(50_000));
         // (50000 + 50000) × 3 = 300_000 → still under 5_000_000
-        assert_eq!(estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS), 300_000);
+        assert_eq!(
+            estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS),
+            300_000
+        );
     }
 
     #[test]
@@ -84,13 +93,19 @@ mod tests {
         let long_msg = "x".repeat(4_000_000); // 4M chars / 4 = 1M tokens
         let req = make_req(&[&long_msg], Some(1_000_000));
         // (1_000_000 + 1_000_000) × 3 = 6_000_000 → capped at 5_000_000
-        assert_eq!(estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS), MAX_ESTIMATE_MICROS);
+        assert_eq!(
+            estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS),
+            MAX_ESTIMATE_MICROS
+        );
     }
 
     #[test]
     fn empty_messages() {
         let req = make_req(&[], Some(512));
         // 0 + 512 = 512 × 3 = 1536
-        assert_eq!(estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS), 1_536);
+        assert_eq!(
+            estimate_cost_micros(&req, DEFAULT_RATE_PER_TOKEN_MICROS),
+            1_536
+        );
     }
 }

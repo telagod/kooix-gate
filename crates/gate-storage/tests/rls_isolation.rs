@@ -59,14 +59,12 @@ async fn seed_org_with_project(pool: &sqlx::PgPool) -> (OrgId, ProjectId, Uuid) 
         .unwrap();
 
     // membership
-    sqlx::query(
-        "INSERT INTO org_memberships (org_id, user_id, role) VALUES ($1, $2, 'owner')",
-    )
-    .bind(org_id.as_uuid())
-    .bind(user_id)
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO org_memberships (org_id, user_id, role) VALUES ($1, $2, 'owner')")
+        .bind(org_id.as_uuid())
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .unwrap();
 
     // project
     sqlx::query(

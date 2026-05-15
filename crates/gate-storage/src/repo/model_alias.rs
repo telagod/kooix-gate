@@ -9,9 +9,9 @@ use crate::error::{DbError, DbResult};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use gate_core::id::ProjectId;
+use parking_lot::RwLock;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// model_aliases 行快照。
@@ -49,12 +49,7 @@ pub trait ModelAliasRepo: Send + Sync + 'static {
     async fn list_by_project(&self, project_id: ProjectId) -> DbResult<Vec<ModelAliasRecord>>;
 
     /// UPSERT：(project_id, alias) 命中则更新 target_model。
-    async fn upsert(
-        &self,
-        project_id: ProjectId,
-        alias: &str,
-        target_model: &str,
-    ) -> DbResult<()>;
+    async fn upsert(&self, project_id: ProjectId, alias: &str, target_model: &str) -> DbResult<()>;
 
     /// 删除一条 alias（硬删）。
     async fn delete(&self, project_id: ProjectId, alias: &str) -> DbResult<()>;
@@ -110,8 +105,13 @@ impl ModelAliasRepo for PgModelAliasRepo {
         match row {
             Some(r) => {
                 let target: String = r.try_get("target_model")?;
-                let params: serde_json::Value = r.try_get("params_override").unwrap_or(serde_json::json!({}));
-                Ok(Some(ResolvedAlias { target_model: target, params_override: params }))
+                let params: serde_json::Value = r
+                    .try_get("params_override")
+                    .unwrap_or(serde_json::json!({}));
+                Ok(Some(ResolvedAlias {
+                    target_model: target,
+                    params_override: params,
+                }))
             }
             None => Ok(None),
         }
@@ -128,20 +128,14 @@ impl ModelAliasRepo for PgModelAliasRepo {
         rows.iter().map(row_to_record).collect()
     }
 
-    async fn upsert(
-        &self,
-        project_id: ProjectId,
-        alias: &str,
-        target_model: &str,
-    ) -> DbResult<()> {
+    async fn upsert(&self, project_id: ProjectId, alias: &str, target_model: &str) -> DbResult<()> {
         // 先查存在性
-        let existing = sqlx::query(
-            "SELECT id FROM model_aliases WHERE project_id = $1 AND alias = $2",
-        )
-        .bind(project_id.as_uuid())
-        .bind(alias)
-        .fetch_optional(&self.pool)
-        .await?;
+        let existing =
+            sqlx::query("SELECT id FROM model_aliases WHERE project_id = $1 AND alias = $2")
+                .bind(project_id.as_uuid())
+                .bind(alias)
+                .fetch_optional(&self.pool)
+                .await?;
 
         if let Some(row) = existing {
             let id: Uuid = row.try_get("id")?;
@@ -168,13 +162,11 @@ impl ModelAliasRepo for PgModelAliasRepo {
     }
 
     async fn delete(&self, project_id: ProjectId, alias: &str) -> DbResult<()> {
-        let res = sqlx::query(
-            "DELETE FROM model_aliases WHERE project_id = $1 AND alias = $2",
-        )
-        .bind(project_id.as_uuid())
-        .bind(alias)
-        .execute(&self.pool)
-        .await?;
+        let res = sqlx::query("DELETE FROM model_aliases WHERE project_id = $1 AND alias = $2")
+            .bind(project_id.as_uuid())
+            .bind(alias)
+            .execute(&self.pool)
+            .await?;
         if res.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
@@ -236,12 +228,7 @@ impl ModelAliasRepo for InMemoryModelAliasRepo {
         Ok(out)
     }
 
-    async fn upsert(
-        &self,
-        project_id: ProjectId,
-        alias: &str,
-        target_model: &str,
-    ) -> DbResult<()> {
+    async fn upsert(&self, project_id: ProjectId, alias: &str, target_model: &str) -> DbResult<()> {
         let pid = *project_id.as_uuid();
         let key = (pid, alias.to_string());
         let now = Utc::now();

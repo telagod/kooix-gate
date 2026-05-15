@@ -303,9 +303,11 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         let est_micros: Vec<i64> = guards.iter().map(|g| g.estimated_micros).collect();
 
         let (proj_id, key_id) = match ctx.subject() {
-            Some(gate_auth::context::Subject::ApiKey { project_id, api_key_id, .. }) => {
-                (Some(*project_id.as_uuid()), Some(*api_key_id.as_uuid()))
-            }
+            Some(gate_auth::context::Subject::ApiKey {
+                project_id,
+                api_key_id,
+                ..
+            }) => (Some(*project_id.as_uuid()), Some(*api_key_id.as_uuid())),
             _ => (None, None),
         };
 
@@ -332,9 +334,10 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         });
 
         // Attach DB cleanup to guards
-        let guards: Vec<_> = guards.into_iter().map(|g| {
-            g.with_db(request_id, inflight_repo.clone())
-        }).collect();
+        let guards: Vec<_> = guards
+            .into_iter()
+            .map(|g| g.with_db(request_id, inflight_repo.clone()))
+            .collect();
 
         parts.extensions.insert(InflightGuards::new(guards));
     }

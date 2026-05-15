@@ -6,9 +6,9 @@
 use crate::error::DbResult;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
 use sqlx::{PgPool, Row};
 use std::collections::VecDeque;
-use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// 审计日志行（与 `audit_logs` 表 1:1 映射）。

@@ -5,7 +5,7 @@
 //!
 //! Run:  cargo bench --package gate-providers -- routing
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -35,14 +35,14 @@ fn make_channel(code: &str, models: Vec<String>) -> ChannelRecord {
         timeout_ms: 60000,
         max_retries: 2,
         rpm_limit: None,
-            tpm_limit: None,
-            tags: vec![],
-            model_mapping: serde_json::Value::Object(Default::default()),
-            balance: None,
-            balance_updated_at: None,
-            last_error: None,
-            last_error_at: None,
-            created_at: now,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
         updated_at: now,
     }
 }

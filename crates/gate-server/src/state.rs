@@ -11,8 +11,8 @@ use gate_crypto::EnvelopeKms;
 use gate_providers::{AudioProvider, ImageProvider, Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo,
-    IdentityProviderRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo,
-    QuotaRepo, RequestLogRepo, UsageRepo, InFlightRepo, UserIdentityRepo, UserRepo,
+    IdentityProviderRepo, InFlightRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo,
+    ProjectRepo, QuotaRepo, RequestLogRepo, UsageRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -146,9 +146,9 @@ impl Repos {
         use gate_storage::{
             InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryBillingRepo, InMemoryChannelGroupRepo,
             InMemoryChannelKeyRepo, InMemoryChannelRepo, InMemoryIdentityProviderRepo,
-            InMemoryMembershipRepo, InMemoryModelAliasRepo, InMemoryOidcStateRepo,
-            InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryRequestLogRepo,
-            InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryMembershipRepo, InMemoryModelAliasRepo, InMemoryOidcStateRepo, InMemoryOrgRepo,
+            InMemoryProjectRepo, InMemoryQuotaRepo, InMemoryRequestLogRepo, InMemoryUsageRepo,
+            InMemoryUserIdentityRepo, InMemoryUserRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),

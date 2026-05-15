@@ -143,15 +143,32 @@ fn main() {
         } => run_async(admin::create(email, password)),
         Cmd::Doctor => run_async(doctor::run()),
         Cmd::SeedPricing => run_async(pricing::seed()),
-        Cmd::Pricing { sub: PricingCmd::List { model, channel_id } } => {
-            run_async(pricing::list(model, channel_id))
-        }
-        Cmd::Pricing { sub: PricingCmd::Set { model, dimension, unit, rate, channel_id, priority, description } } => {
-            run_async(pricing::set(model, dimension, unit, rate, channel_id, priority, description))
-        }
-        Cmd::Pricing { sub: PricingCmd::Delete { id } } => {
-            run_async(pricing::delete(id))
-        }
+        Cmd::Pricing {
+            sub: PricingCmd::List { model, channel_id },
+        } => run_async(pricing::list(model, channel_id)),
+        Cmd::Pricing {
+            sub:
+                PricingCmd::Set {
+                    model,
+                    dimension,
+                    unit,
+                    rate,
+                    channel_id,
+                    priority,
+                    description,
+                },
+        } => run_async(pricing::set(
+            model,
+            dimension,
+            unit,
+            rate,
+            channel_id,
+            priority,
+            description,
+        )),
+        Cmd::Pricing {
+            sub: PricingCmd::Delete { id },
+        } => run_async(pricing::delete(id)),
     };
 
     if let Err(e) = result {

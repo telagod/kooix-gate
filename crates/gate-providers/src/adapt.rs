@@ -33,7 +33,14 @@ fn adapt_anthropic(req: &mut ChatRequest) {
     // {"type": "json_object"} since 2024-10.
     drop_keys(
         req,
-        &["logprobs", "top_logprobs", "logit_bias", "n", "seed", "user"],
+        &[
+            "logprobs",
+            "top_logprobs",
+            "logit_bias",
+            "n",
+            "seed",
+            "user",
+        ],
     );
 }
 
@@ -73,7 +80,10 @@ fn adapt_gemini(req: &mut ChatRequest) {
 
 fn adapt_cohere(req: &mut ChatRequest) {
     // Cohere OpenAI-compat endpoint: drop unsupported params
-    drop_keys(req, &["logprobs", "top_logprobs", "logit_bias", "n", "seed"]);
+    drop_keys(
+        req,
+        &["logprobs", "top_logprobs", "logit_bias", "n", "seed"],
+    );
 }
 
 /// Remove the given keys from `ChatRequest.extra` (the flattened serde map).
@@ -127,8 +137,18 @@ mod tests {
             "stream_options": {"include_usage": true}
         }));
         adapt_for_provider(&mut req, "anthropic");
-        for key in &["logprobs", "top_logprobs", "logit_bias", "n", "seed", "user"] {
-            assert!(!req.extra.contains_key(*key), "key '{key}' should have been dropped");
+        for key in &[
+            "logprobs",
+            "top_logprobs",
+            "logit_bias",
+            "n",
+            "seed",
+            "user",
+        ] {
+            assert!(
+                !req.extra.contains_key(*key),
+                "key '{key}' should have been dropped"
+            );
         }
         // response_format is kept — Anthropic supports JSON mode
         assert!(req.extra.contains_key("response_format"));
@@ -195,7 +215,10 @@ mod tests {
         }));
         adapt_for_provider(&mut req, "cohere");
         for key in &["logprobs", "top_logprobs", "logit_bias", "n", "seed"] {
-            assert!(!req.extra.contains_key(*key), "key '{key}' should have been dropped");
+            assert!(
+                !req.extra.contains_key(*key),
+                "key '{key}' should have been dropped"
+            );
         }
         // response_format is NOT in cohere drop list
         assert!(req.extra.contains_key("response_format"));

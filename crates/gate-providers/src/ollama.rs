@@ -1,11 +1,11 @@
 //! Ollama provider — local model serving, OpenAI-compatible API.
 
-use crate::openai::OpenAiProvider;
-use crate::{EmbeddingProvider, Provider};
 use crate::error::ProviderResult;
+use crate::openai::OpenAiProvider;
 use crate::types::{
     ChatRequest, ChatResponse, ChatStreamChunk, EmbeddingRequest, EmbeddingResponse,
 };
+use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 

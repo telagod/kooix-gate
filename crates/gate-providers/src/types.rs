@@ -17,8 +17,14 @@ pub enum Role {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ContentPart {
-    Text { r#type: ContentType, text: String },
-    ImageUrl { r#type: ContentType, image_url: ImageUrl },
+    Text {
+        r#type: ContentType,
+        text: String,
+    },
+    ImageUrl {
+        r#type: ContentType,
+        image_url: ImageUrl,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,20 +52,27 @@ impl MessageContent {
     pub fn as_text(&self) -> &str {
         match self {
             Self::Text(s) => s,
-            Self::Parts(parts) => parts.iter().find_map(|p| match p {
-                ContentPart::Text { text, .. } => Some(text.as_str()),
-                _ => None,
-            }).unwrap_or("")
+            Self::Parts(parts) => parts
+                .iter()
+                .find_map(|p| match p {
+                    ContentPart::Text { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .unwrap_or(""),
         }
     }
 
     pub fn to_text(&self) -> String {
         match self {
             Self::Text(s) => s.clone(),
-            Self::Parts(parts) => parts.iter().filter_map(|p| match p {
-                ContentPart::Text { text, .. } => Some(text.as_str()),
-                _ => None,
-            }).collect::<Vec<_>>().join("")
+            Self::Parts(parts) => parts
+                .iter()
+                .filter_map(|p| match p {
+                    ContentPart::Text { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(""),
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::{Json, Router, routing::get};
@@ -9,8 +10,6 @@ use gate_auth::{require, require_user};
 use gate_core::id::{OrgId, ProjectId};
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ModelAliasView {
@@ -28,13 +27,15 @@ pub struct UpsertAliasRequest {
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route(
-        "/orgs/:org_id/projects/:project_id/model-aliases",
-        get(list_aliases).post(upsert_alias),
-    ).route(
-        "/orgs/:org_id/projects/:project_id/model-aliases/:alias",
-        axum::routing::delete(delete_alias),
-    )
+    Router::new()
+        .route(
+            "/orgs/:org_id/projects/:project_id/model-aliases",
+            get(list_aliases).post(upsert_alias),
+        )
+        .route(
+            "/orgs/:org_id/projects/:project_id/model-aliases/:alias",
+            axum::routing::delete(delete_alias),
+        )
 }
 
 async fn list_aliases(
@@ -47,13 +48,18 @@ async fn list_aliases(
 
     let pid = ProjectId::from(project_id.0);
     let records = app.repos.model_aliases.list_by_project(pid).await?;
-    Ok(Json(records.into_iter().map(|r| ModelAliasView {
-        id: r.id.to_string(),
-        alias: r.alias,
-        target_model: r.target_model,
-        enabled: r.enabled,
-        created_at: r.created_at.to_rfc3339(),
-    }).collect()))
+    Ok(Json(
+        records
+            .into_iter()
+            .map(|r| ModelAliasView {
+                id: r.id.to_string(),
+                alias: r.alias,
+                target_model: r.target_model,
+                enabled: r.enabled,
+                created_at: r.created_at.to_rfc3339(),
+            })
+            .collect(),
+    ))
 }
 
 async fn upsert_alias(
@@ -67,14 +73,24 @@ async fn upsert_alias(
     require!(ctx, Permission::ModelAliasManage, Scope::Org(&org));
 
     if req.alias.trim().is_empty() || req.target_model.trim().is_empty() {
-        return Err(AppError::BadRequest("alias and target_model required".into()));
+        return Err(AppError::BadRequest(
+            "alias and target_model required".into(),
+        ));
     }
 
     let pid = ProjectId::from(project_id.0);
-    app.repos.model_aliases.upsert(pid, req.alias.trim(), req.target_model.trim()).await?;
+    app.repos
+        .model_aliases
+        .upsert(pid, req.alias.trim(), req.target_model.trim())
+        .await?;
 
-    app.audit.emit(&ctx, "model_alias.upsert", "model_alias", None,
-        Some(serde_json::json!({"project_id": project_id.to_string(), "alias": req.alias})));
+    app.audit.emit(
+        &ctx,
+        "model_alias.upsert",
+        "model_alias",
+        None,
+        Some(serde_json::json!({"project_id": project_id.to_string(), "alias": req.alias})),
+    );
 
     Ok(Json(serde_json::json!({"ok": true})))
 }

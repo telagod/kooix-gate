@@ -44,16 +44,10 @@ pub struct ChannelKeyRecord {
 #[async_trait]
 pub trait ChannelKeyRepo: Send + Sync + 'static {
     /// 取该 channel 的「当前最佳可用 key」——健康、不在冷却期、按 weight 降序。
-    async fn find_active_for_channel(
-        &self,
-        channel_id: ChannelId,
-    ) -> DbResult<ChannelKeyRecord>;
+    async fn find_active_for_channel(&self, channel_id: ChannelId) -> DbResult<ChannelKeyRecord>;
 
     /// 列出某 channel 的全部 key（admin 视图，含 disabled）。
-    async fn list_by_channel(
-        &self,
-        channel_id: ChannelId,
-    ) -> DbResult<Vec<ChannelKeyRecord>>;
+    async fn list_by_channel(&self, channel_id: ChannelId) -> DbResult<Vec<ChannelKeyRecord>>;
 
     /// 新增一把 key（加密后的 secret + fingerprint）。
     async fn create(
@@ -127,10 +121,7 @@ fn row_to_channel_key(row: &sqlx::postgres::PgRow) -> DbResult<ChannelKeyRecord>
 
 #[async_trait]
 impl ChannelKeyRepo for PgChannelKeyRepo {
-    async fn find_active_for_channel(
-        &self,
-        channel_id: ChannelId,
-    ) -> DbResult<ChannelKeyRecord> {
+    async fn find_active_for_channel(&self, channel_id: ChannelId) -> DbResult<ChannelKeyRecord> {
         let row = sqlx::query(
             "SELECT id, channel_id, label, key_enc, key_fingerprint, weight, \
                     health, consecutive_errors, total_requests, total_errors, \
@@ -150,10 +141,7 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         row_to_channel_key(&row)
     }
 
-    async fn list_by_channel(
-        &self,
-        channel_id: ChannelId,
-    ) -> DbResult<Vec<ChannelKeyRecord>> {
+    async fn list_by_channel(&self, channel_id: ChannelId) -> DbResult<Vec<ChannelKeyRecord>> {
         let rows = sqlx::query(
             "SELECT id, channel_id, label, key_enc, key_fingerprint, weight, \
                     health, consecutive_errors, total_requests, total_errors, \
@@ -189,9 +177,7 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         .await
         .map_err(|e| match &e {
             sqlx::Error::Database(db) if db.constraint().is_some() => {
-                DbError::Conflict(
-                    "duplicate key fingerprint for channel".to_string(),
-                )
+                DbError::Conflict("duplicate key fingerprint for channel".to_string())
             }
             _ => DbError::from(e),
         })?;
@@ -206,7 +192,11 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         new_fingerprint: &str,
         label: Option<&str>,
     ) -> DbResult<ChannelKeyId> {
-        let mut tx = self.pool.begin().await.map_err(|e| DbError::Internal(e.to_string()))?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?;
 
         // disable 全部旧 healthy key
         sqlx::query(
@@ -231,25 +221,23 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         .await
         .map_err(|e| match &e {
             sqlx::Error::Database(db) if db.constraint().is_some() => {
-                DbError::Conflict(
-                    "duplicate key fingerprint for channel".to_string(),
-                )
+                DbError::Conflict("duplicate key fingerprint for channel".to_string())
             }
             _ => DbError::from(e),
         })?;
 
-        tx.commit().await.map_err(|e| DbError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?;
         let id: Uuid = row.try_get("id")?;
         Ok(ChannelKeyId::from(id))
     }
 
     async fn revoke(&self, key_id: ChannelKeyId) -> DbResult<()> {
-        let res = sqlx::query(
-            "UPDATE channel_keys SET health = 'disabled' WHERE id = $1",
-        )
-        .bind(key_id.as_uuid())
-        .execute(&self.pool)
-        .await?;
+        let res = sqlx::query("UPDATE channel_keys SET health = 'disabled' WHERE id = $1")
+            .bind(key_id.as_uuid())
+            .execute(&self.pool)
+            .await?;
         if res.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
@@ -303,8 +291,8 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
 // InMemory 版（测试 / dev）
 // ============================================================================
 
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct InMemoryChannelKeyRepo {
@@ -329,27 +317,18 @@ impl InMemoryChannelKeyRepo {
 
 #[async_trait]
 impl ChannelKeyRepo for InMemoryChannelKeyRepo {
-    async fn find_active_for_channel(
-        &self,
-        channel_id: ChannelId,
-    ) -> DbResult<ChannelKeyRecord> {
+    async fn find_active_for_channel(&self, channel_id: ChannelId) -> DbResult<ChannelKeyRecord> {
         let inner = self.inner.read();
         inner
             .keys
             .values()
-            .filter(|k| {
-                k.channel_id == channel_id
-                    && k.health == "healthy"
-            })
+            .filter(|k| k.channel_id == channel_id && k.health == "healthy")
             .max_by_key(|k| (k.weight, std::cmp::Reverse(k.created_at)))
             .cloned()
             .ok_or(DbError::NotFound)
     }
 
-    async fn list_by_channel(
-        &self,
-        channel_id: ChannelId,
-    ) -> DbResult<Vec<ChannelKeyRecord>> {
+    async fn list_by_channel(&self, channel_id: ChannelId) -> DbResult<Vec<ChannelKeyRecord>> {
         let inner = self.inner.read();
         let mut out: Vec<_> = inner
             .keys
@@ -523,7 +502,10 @@ mod tests {
     async fn inmemory_rotate() {
         let repo = InMemoryChannelKeyRepo::new();
         let ch = test_channel_id();
-        let old_id = repo.create(ch, b"k-old", "fp-old", Some("old")).await.unwrap();
+        let old_id = repo
+            .create(ch, b"k-old", "fp-old", Some("old"))
+            .await
+            .unwrap();
         let new_id = repo
             .rotate(ch, b"k-new", "fp-new", Some("new"))
             .await

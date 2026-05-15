@@ -437,7 +437,9 @@ async fn routed_chat_records_channel_id_in_outbox() {
 
     // Channel + group
     // SAFETY: test is single-threaded at this point, no concurrent env reads
-    unsafe { std::env::set_var("KOOIX_CH_WM_KEY", "test-key"); }
+    unsafe {
+        std::env::set_var("KOOIX_CH_WM_KEY", "test-key");
+    }
     let ch_repo = Arc::new(InMemoryChannelRepo::new());
     let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
     let now = chrono::Utc::now();
@@ -453,14 +455,14 @@ async fn routed_chat_records_channel_id_in_outbox() {
         timeout_ms: 60_000,
         max_retries: 1,
         rpm_limit: None,
-            tpm_limit: None,
-            tags: vec![],
-            model_mapping: serde_json::Value::Object(Default::default()),
-            balance: None,
-            balance_updated_at: None,
-            last_error: None,
-            last_error_at: None,
-            created_at: now,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
         updated_at: now,
     });
     ch_repo.seed_binding(group_id, channel_id, 10, 1);

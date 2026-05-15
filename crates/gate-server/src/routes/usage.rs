@@ -11,6 +11,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
@@ -21,7 +22,6 @@ use gate_core::rbac::{Permission, Scope};
 use gate_storage::{RequestFilter, UsageGroupBy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Deserialize)]
 pub struct UsageQuery {
@@ -58,7 +58,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/usage", get(get_usage))
         .route("/orgs/:org_id/requests", get(list_org_requests))
-        .route("/orgs/:org_id/requests/filters", get(get_org_filter_options))
+        .route(
+            "/orgs/:org_id/requests/filters",
+            get(get_org_filter_options),
+        )
         .route("/orgs/:org_id/requests/:request_id", get(get_org_request))
 }
 
@@ -197,7 +200,9 @@ pub struct OrgRequestListQuery {
     pub limit: i64,
 }
 
-fn default_request_limit() -> i64 { 50 }
+fn default_request_limit() -> i64 {
+    50
+}
 
 #[derive(Deserialize)]
 pub struct OrgFilterOptionsQuery {
@@ -205,7 +210,9 @@ pub struct OrgFilterOptionsQuery {
     pub hours: i64,
 }
 
-fn default_filter_options_hours() -> i64 { 168 }
+fn default_filter_options_hours() -> i64 {
+    168
+}
 
 async fn list_org_requests(
     State(app): State<AppState>,
@@ -269,7 +276,11 @@ async fn get_org_request(
     let org = OrgId::from(org_id.0);
     require!(ctx, Permission::UsageRead, Scope::Org(&org));
 
-    let record = app.repos.request_logs.find_by_request_id(*request_id).await?;
+    let record = app
+        .repos
+        .request_logs
+        .find_by_request_id(*request_id)
+        .await?;
 
     if record.org_id != *org_id {
         return Err(AppError::NotFound);
@@ -289,6 +300,10 @@ async fn get_org_filter_options(
     require!(ctx, Permission::UsageRead, Scope::Org(&org));
 
     let hours = q.hours.clamp(1, 720);
-    let options = app.repos.request_logs.filter_options(Some(*org_id), hours).await?;
+    let options = app
+        .repos
+        .request_logs
+        .filter_options(Some(*org_id), hours)
+        .await?;
     Ok(Json(serde_json::to_value(&options).unwrap_or_default()))
 }

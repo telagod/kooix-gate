@@ -16,6 +16,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
@@ -28,7 +29,6 @@ use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ChannelSummary {
@@ -79,10 +79,18 @@ pub struct ChannelListParams {
     pub sort_dir: String,
 }
 
-fn default_page() -> i64 { 1 }
-fn default_page_size() -> i64 { 20 }
-fn default_sort_by() -> String { "created_at".into() }
-fn default_sort_dir() -> String { "asc".into() }
+fn default_page() -> i64 {
+    1
+}
+fn default_page_size() -> i64 {
+    20
+}
+fn default_sort_by() -> String {
+    "created_at".into()
+}
+fn default_sort_dir() -> String {
+    "asc".into()
+}
 
 #[derive(Deserialize)]
 pub struct CreateChannelRequest {
@@ -150,14 +158,24 @@ pub fn router() -> Router<AppState> {
             "/channels/:id",
             axum::routing::put(update_channel).delete(delete_channel),
         )
-        .route("/channels/batch-enable", axum::routing::post(batch_enable_channels))
-        .route("/channels/batch-disable", axum::routing::post(batch_disable_channels))
-        .route("/channels/batch-delete", axum::routing::post(batch_delete_channels))
+        .route(
+            "/channels/batch-enable",
+            axum::routing::post(batch_enable_channels),
+        )
+        .route(
+            "/channels/batch-disable",
+            axum::routing::post(batch_disable_channels),
+        )
+        .route(
+            "/channels/batch-delete",
+            axum::routing::post(batch_delete_channels),
+        )
         .route(
             "/channels/:id/keys",
             get(list_channel_keys).post(create_channel_key),
         )
-        .route("/channels/:id/keys/rotate",
+        .route(
+            "/channels/:id/keys/rotate",
             axum::routing::post(rotate_channel_key),
         )
         .route(
@@ -165,7 +183,10 @@ pub fn router() -> Router<AppState> {
             axum::routing::delete(revoke_channel_key),
         )
         .route("/channels/:id/stats", get(get_channel_stats))
-        .route("/channels/:id/probe", axum::routing::post(probe_channel_models))
+        .route(
+            "/channels/:id/probe",
+            axum::routing::post(probe_channel_models),
+        )
         .route("/channels/:id/test", get(test_channel))
         .route("/channels/:id/balance", get(get_channel_balance))
         .route("/audit-logs", get(list_audit_logs))
@@ -174,15 +195,39 @@ pub fn router() -> Router<AppState> {
         .route("/users", get(list_users))
         .route("/users/:id/status", axum::routing::put(update_user_status))
         .route("/groups", get(list_groups).post(create_group))
-        .route("/groups/:id", axum::routing::put(update_group).delete(delete_group))
-        .route("/groups/:id/bindings", get(list_group_bindings).post(add_group_binding))
-        .route("/groups/:id/bindings/:channel_id", axum::routing::put(update_group_binding).delete(remove_group_binding))
+        .route(
+            "/groups/:id",
+            axum::routing::put(update_group).delete(delete_group),
+        )
+        .route(
+            "/groups/:id/bindings",
+            get(list_group_bindings).post(add_group_binding),
+        )
+        .route(
+            "/groups/:id/bindings/:channel_id",
+            axum::routing::put(update_group_binding).delete(remove_group_binding),
+        )
         .route("/groups/:id/detail", get(get_group_detail))
-        .route("/projects/:id/default-group", axum::routing::put(set_project_default_group))
-        .route("/orgs/:org_id/members", get(list_org_members).post(add_org_member))
-        .route("/orgs/:org_id/members/:user_id", axum::routing::delete(remove_org_member_handler))
-        .route("/pricing-rules", get(list_pricing_rules).post(upsert_pricing_rule))
-        .route("/pricing-rules/:id", axum::routing::delete(delete_pricing_rule))
+        .route(
+            "/projects/:id/default-group",
+            axum::routing::put(set_project_default_group),
+        )
+        .route(
+            "/orgs/:org_id/members",
+            get(list_org_members).post(add_org_member),
+        )
+        .route(
+            "/orgs/:org_id/members/:user_id",
+            axum::routing::delete(remove_org_member_handler),
+        )
+        .route(
+            "/pricing-rules",
+            get(list_pricing_rules).post(upsert_pricing_rule),
+        )
+        .route(
+            "/pricing-rules/:id",
+            axum::routing::delete(delete_pricing_rule),
+        )
 }
 
 async fn list_channels(
@@ -251,14 +296,33 @@ async fn create_channel(
     if code.is_empty() {
         return Err(AppError::BadRequest("code is required".into()));
     }
-    if !code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') || code.len() > 64 {
-        return Err(AppError::BadRequest("code must be 1-64 chars: [a-zA-Z0-9_-]".into()));
+    if !code
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        || code.len() > 64
+    {
+        return Err(AppError::BadRequest(
+            "code must be 1-64 chars: [a-zA-Z0-9_-]".into(),
+        ));
     }
 
     let valid_types = [
-        "openai", "anthropic", "gemini", "azure", "bedrock", "deepseek",
-        "ollama", "mistral", "cohere", "groq", "together", "openrouter",
-        "moonshot", "zhipu", "qwen", "yi",
+        "openai",
+        "anthropic",
+        "gemini",
+        "azure",
+        "bedrock",
+        "deepseek",
+        "ollama",
+        "mistral",
+        "cohere",
+        "groq",
+        "together",
+        "openrouter",
+        "moonshot",
+        "zhipu",
+        "qwen",
+        "yi",
     ];
     if !valid_types.contains(&req.provider_type.as_str()) {
         return Err(AppError::BadRequest(format!(
@@ -329,13 +393,8 @@ async fn update_channel(
         )
         .await?;
 
-    app.audit.emit(
-        &ctx,
-        "channel.update",
-        "channel",
-        Some(*id),
-        None,
-    );
+    app.audit
+        .emit(&ctx, "channel.update", "channel", Some(*id), None);
 
     Ok(Json(record_to_summary(record)))
 }
@@ -351,13 +410,8 @@ async fn delete_channel(
     let channel_id = ChannelId::from(id.0);
     app.repos.channels.soft_delete(channel_id).await?;
 
-    app.audit.emit(
-        &ctx,
-        "channel.delete",
-        "channel",
-        Some(*id),
-        None,
-    );
+    app.audit
+        .emit(&ctx, "channel.delete", "channel", Some(*id), None);
 
     Ok(Json(serde_json::json!({"deleted": true})))
 }
@@ -371,7 +425,13 @@ async fn batch_enable_channels(
     require!(ctx, Permission::ChannelUpdate, Scope::Platform);
     let ids: Vec<ChannelId> = req.ids.into_iter().map(ChannelId::from).collect();
     let affected = app.repos.channels.batch_set_enabled(&ids, true).await?;
-    app.audit.emit(&ctx, "channel.batch_enable", "channel", None, Some(serde_json::json!({"count": affected})));
+    app.audit.emit(
+        &ctx,
+        "channel.batch_enable",
+        "channel",
+        None,
+        Some(serde_json::json!({"count": affected})),
+    );
     Ok(Json(BatchResult { affected }))
 }
 
@@ -384,7 +444,13 @@ async fn batch_disable_channels(
     require!(ctx, Permission::ChannelUpdate, Scope::Platform);
     let ids: Vec<ChannelId> = req.ids.into_iter().map(ChannelId::from).collect();
     let affected = app.repos.channels.batch_set_enabled(&ids, false).await?;
-    app.audit.emit(&ctx, "channel.batch_disable", "channel", None, Some(serde_json::json!({"count": affected})));
+    app.audit.emit(
+        &ctx,
+        "channel.batch_disable",
+        "channel",
+        None,
+        Some(serde_json::json!({"count": affected})),
+    );
     Ok(Json(BatchResult { affected }))
 }
 
@@ -397,7 +463,13 @@ async fn batch_delete_channels(
     require!(ctx, Permission::ChannelDelete, Scope::Platform);
     let ids: Vec<ChannelId> = req.ids.into_iter().map(ChannelId::from).collect();
     let affected = app.repos.channels.batch_soft_delete(&ids).await?;
-    app.audit.emit(&ctx, "channel.batch_delete", "channel", None, Some(serde_json::json!({"count": affected})));
+    app.audit.emit(
+        &ctx,
+        "channel.batch_delete",
+        "channel",
+        None,
+        Some(serde_json::json!({"count": affected})),
+    );
     Ok(Json(BatchResult { affected }))
 }
 
@@ -496,9 +568,10 @@ async fn create_channel_key(
     // AAD 用 channel_id：同 channel 的所有 key 共享 AAD context，
     // 防止密文跨 channel 移植，同时避免先有 key_id 再加密的鸡生蛋问题。
     let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
-    let key_enc = crypto.seal(req.secret.as_bytes(), &aad).await.map_err(|e| {
-        AppError::Internal(format!("encrypt channel key failed: {e}"))
-    })?;
+    let key_enc = crypto
+        .seal(req.secret.as_bytes(), &aad)
+        .await
+        .map_err(|e| AppError::Internal(format!("encrypt channel key failed: {e}")))?;
 
     let key_id = app
         .repos
@@ -553,9 +626,10 @@ async fn rotate_channel_key(
 
     let fingerprint = key_fingerprint(&req.secret);
     let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
-    let key_enc = crypto.seal(req.secret.as_bytes(), &aad).await.map_err(|e| {
-        AppError::Internal(format!("encrypt channel key failed: {e}"))
-    })?;
+    let key_enc = crypto
+        .seal(req.secret.as_bytes(), &aad)
+        .await
+        .map_err(|e| AppError::Internal(format!("encrypt channel key failed: {e}")))?;
 
     let key_id = app
         .repos
@@ -1004,13 +1078,31 @@ async fn create_group(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let valid = ["priority", "weighted_random", "round_robin", "least_conn", "least_latency"];
+    let valid = [
+        "priority",
+        "weighted_random",
+        "round_robin",
+        "least_conn",
+        "least_latency",
+    ];
     if !valid.contains(&req.strategy.as_str()) {
-        return Err(AppError::BadRequest(format!("strategy must be one of: {valid:?}")));
+        return Err(AppError::BadRequest(format!(
+            "strategy must be one of: {valid:?}"
+        )));
     }
 
-    let g = app.repos.channel_groups.create(&req.name, &req.strategy).await?;
-    app.audit.emit(&ctx, "channel_group.create", "channel_group", Some(*g.group_id.as_uuid()), None);
+    let g = app
+        .repos
+        .channel_groups
+        .create(&req.name, &req.strategy)
+        .await?;
+    app.audit.emit(
+        &ctx,
+        "channel_group.create",
+        "channel_group",
+        Some(*g.group_id.as_uuid()),
+        None,
+    );
 
     Ok(Json(GroupView {
         id: g.group_id.to_string(),
@@ -1036,9 +1128,17 @@ async fn update_group(
 
     // Validate strategy if provided
     if let Some(ref s) = req.strategy {
-        let valid = ["priority", "weighted_random", "round_robin", "least_conn", "least_latency"];
+        let valid = [
+            "priority",
+            "weighted_random",
+            "round_robin",
+            "least_conn",
+            "least_latency",
+        ];
         if !valid.contains(&s.as_str()) {
-            return Err(AppError::BadRequest(format!("strategy must be one of: {valid:?}")));
+            return Err(AppError::BadRequest(format!(
+                "strategy must be one of: {valid:?}"
+            )));
         }
     }
 
@@ -1046,23 +1146,35 @@ async fn update_group(
 
     // Parse fallback_group_id: Option<Option<String>> -> Option<Option<ChannelGroupId>>
     let fallback: Option<Option<gate_core::id::ChannelGroupId>> = match req.fallback_group_id {
-        None => None,                   // don't change
-        Some(None) => Some(None),       // clear
+        None => None,             // don't change
+        Some(None) => Some(None), // clear
         Some(Some(ref s)) => {
-            let fb_uuid = s.parse::<Uuid>().map_err(|_| AppError::BadRequest("invalid fallback_group_id UUID".into()))?;
+            let fb_uuid = s
+                .parse::<Uuid>()
+                .map_err(|_| AppError::BadRequest("invalid fallback_group_id UUID".into()))?;
             Some(Some(gate_core::id::ChannelGroupId::from(fb_uuid)))
         }
     };
 
-    let g = app.repos.channel_groups.update(
-        gid,
-        req.name.as_deref(),
-        req.strategy.as_deref(),
-        req.enabled,
-        fallback,
-        req.description.as_deref(),
-    ).await?;
-    app.audit.emit(&ctx, "channel_group.update", "channel_group", Some(*id), None);
+    let g = app
+        .repos
+        .channel_groups
+        .update(
+            gid,
+            req.name.as_deref(),
+            req.strategy.as_deref(),
+            req.enabled,
+            fallback,
+            req.description.as_deref(),
+        )
+        .await?;
+    app.audit.emit(
+        &ctx,
+        "channel_group.update",
+        "channel_group",
+        Some(*id),
+        None,
+    );
 
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
 
@@ -1089,7 +1201,13 @@ async fn delete_group(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     app.repos.channel_groups.delete(gid).await?;
-    app.audit.emit(&ctx, "channel_group.delete", "channel_group", Some(*id), None);
+    app.audit.emit(
+        &ctx,
+        "channel_group.delete",
+        "channel_group",
+        Some(*id),
+        None,
+    );
 
     Ok(Json(serde_json::json!({"deleted": true})))
 }
@@ -1104,18 +1222,23 @@ async fn list_group_bindings(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
-    Ok(Json(bindings.into_iter().map(|b| BindingView {
-        channel_id: b.channel.channel_id.to_string(),
-        channel_code: b.channel.code,
-        channel_name: b.channel.name,
-        provider_type: b.channel.provider_type,
-        priority: b.priority,
-        weight: b.weight,
-        model_filter: b.model_filter,
-        enabled: b.enabled,
-        channel_status: b.channel.status,
-        channel_health: b.channel.health,
-    }).collect()))
+    Ok(Json(
+        bindings
+            .into_iter()
+            .map(|b| BindingView {
+                channel_id: b.channel.channel_id.to_string(),
+                channel_code: b.channel.code,
+                channel_name: b.channel.name,
+                provider_type: b.channel.provider_type,
+                priority: b.priority,
+                weight: b.weight,
+                model_filter: b.model_filter,
+                enabled: b.enabled,
+                channel_status: b.channel.status,
+                channel_health: b.channel.health,
+            })
+            .collect(),
+    ))
 }
 
 async fn add_group_binding(
@@ -1129,7 +1252,15 @@ async fn add_group_binding(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let cid = gate_core::id::ChannelId::from(req.channel_id);
-    app.repos.channel_groups.add_binding(gid, cid, req.priority.unwrap_or(100), req.weight.unwrap_or(1)).await?;
+    app.repos
+        .channel_groups
+        .add_binding(
+            gid,
+            cid,
+            req.priority.unwrap_or(100),
+            req.weight.unwrap_or(1),
+        )
+        .await?;
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1168,7 +1299,17 @@ async fn update_group_binding(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let cid = gate_core::id::ChannelId::from(channel_id.0);
-    app.repos.channel_groups.update_binding(gid, cid, req.priority, req.weight, req.model_filter, req.enabled).await?;
+    app.repos
+        .channel_groups
+        .update_binding(
+            gid,
+            cid,
+            req.priority,
+            req.weight,
+            req.model_filter,
+            req.enabled,
+        )
+        .await?;
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1192,20 +1333,27 @@ async fn get_group_detail(
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let g = app.repos.channel_groups.find_by_id(gid).await?;
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
-    let projects = app.repos.channel_groups.list_projects_using_group(gid).await?;
+    let projects = app
+        .repos
+        .channel_groups
+        .list_projects_using_group(gid)
+        .await?;
 
-    let binding_views: Vec<BindingView> = bindings.into_iter().map(|b| BindingView {
-        channel_id: b.channel.channel_id.to_string(),
-        channel_code: b.channel.code,
-        channel_name: b.channel.name,
-        provider_type: b.channel.provider_type,
-        priority: b.priority,
-        weight: b.weight,
-        model_filter: b.model_filter,
-        enabled: b.enabled,
-        channel_status: b.channel.status,
-        channel_health: b.channel.health,
-    }).collect();
+    let binding_views: Vec<BindingView> = bindings
+        .into_iter()
+        .map(|b| BindingView {
+            channel_id: b.channel.channel_id.to_string(),
+            channel_code: b.channel.code,
+            channel_name: b.channel.name,
+            provider_type: b.channel.provider_type,
+            priority: b.priority,
+            weight: b.weight,
+            model_filter: b.model_filter,
+            enabled: b.enabled,
+            channel_status: b.channel.status,
+            channel_health: b.channel.health,
+        })
+        .collect();
 
     Ok(Json(GroupDetailView {
         group: GroupView {
@@ -1245,7 +1393,9 @@ async fn set_project_default_group(
     let group_id = match req.group_id {
         None => None,
         Some(ref s) => {
-            let gid_uuid = s.parse::<Uuid>().map_err(|_| AppError::BadRequest("invalid group_id UUID".into()))?;
+            let gid_uuid = s
+                .parse::<Uuid>()
+                .map_err(|_| AppError::BadRequest("invalid group_id UUID".into()))?;
             let gid = gate_core::id::ChannelGroupId::from(gid_uuid);
             // Validate the group exists
             let _ = app.repos.channel_groups.find_by_id(gid).await?;
@@ -1253,10 +1403,18 @@ async fn set_project_default_group(
         }
     };
 
-    app.repos.channel_groups.set_project_default_group(project_id, group_id).await?;
+    app.repos
+        .channel_groups
+        .set_project_default_group(project_id, group_id)
+        .await?;
 
-    app.audit.emit(&ctx, "project.set_default_group", "project", Some(*id),
-        Some(serde_json::json!({"group_id": req.group_id})));
+    app.audit.emit(
+        &ctx,
+        "project.set_default_group",
+        "project",
+        Some(*id),
+        Some(serde_json::json!({"group_id": req.group_id})),
+    );
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1290,13 +1448,18 @@ async fn list_org_members(
 
     let org = gate_core::id::OrgId::from(org_id.0);
     let members = app.repos.memberships.list_org_members(org).await?;
-    Ok(Json(members.into_iter().map(|m| MemberView {
-        user_id: m.user_id.to_string(),
-        email: m.email,
-        display_name: m.display_name,
-        role: m.role,
-        joined_at: m.joined_at,
-    }).collect()))
+    Ok(Json(
+        members
+            .into_iter()
+            .map(|m| MemberView {
+                user_id: m.user_id.to_string(),
+                email: m.email,
+                display_name: m.display_name,
+                role: m.role,
+                joined_at: m.joined_at,
+            })
+            .collect(),
+    ))
 }
 
 async fn add_org_member(
@@ -1310,10 +1473,16 @@ async fn add_org_member(
 
     let valid_roles = ["owner", "admin", "billing_viewer", "member"];
     if !valid_roles.contains(&req.role.as_str()) {
-        return Err(AppError::BadRequest(format!("role must be one of: {valid_roles:?}")));
+        return Err(AppError::BadRequest(format!(
+            "role must be one of: {valid_roles:?}"
+        )));
     }
 
-    let user = app.repos.users.find_by_email(&req.email).await
+    let user = app
+        .repos
+        .users
+        .find_by_email(&req.email)
+        .await
         .map_err(|_| AppError::BadRequest(format!("user '{}' not found", req.email)))?;
 
     let role = match req.role.as_str() {
@@ -1324,10 +1493,18 @@ async fn add_org_member(
     };
 
     let org = gate_core::id::OrgId::from(org_id.0);
-    app.repos.memberships.add_org_member(org, user.id, role).await?;
+    app.repos
+        .memberships
+        .add_org_member(org, user.id, role)
+        .await?;
 
-    app.audit.emit(&ctx, "membership.add", "membership", None,
-        Some(serde_json::json!({"org_id": org_id.to_string(), "email": req.email})));
+    app.audit.emit(
+        &ctx,
+        "membership.add",
+        "membership",
+        None,
+        Some(serde_json::json!({"org_id": org_id.to_string(), "email": req.email})),
+    );
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1344,7 +1521,13 @@ async fn remove_org_member_handler(
     let uid = gate_core::id::UserId::from(user_id.0);
     app.repos.memberships.remove_org_member(org, uid).await?;
 
-    app.audit.emit(&ctx, "membership.remove", "membership", Some(*user_id), None);
+    app.audit.emit(
+        &ctx,
+        "membership.remove",
+        "membership",
+        Some(*user_id),
+        None,
+    );
 
     Ok(Json(serde_json::json!({"removed": true})))
 }
@@ -1362,7 +1545,11 @@ async fn probe_channel_models(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id.0)).await?;
+    let ch = app
+        .repos
+        .channels
+        .find_by_id(ChannelId::from(channel_id.0))
+        .await?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -1377,17 +1564,21 @@ async fn probe_channel_models(
         "anthropic" => {
             let url = format!("{base}/v1/models");
             let mut h = reqwest::header::HeaderMap::new();
-            if let Ok(v) = api_key.parse() { h.insert("x-api-key", v); }
-            if let Ok(v) = "2023-06-01".parse() { h.insert("anthropic-version", v); }
+            if let Ok(v) = api_key.parse() {
+                h.insert("x-api-key", v);
+            }
+            if let Ok(v) = "2023-06-01".parse() {
+                h.insert("anthropic-version", v);
+            }
             (url, h)
         }
         _ => {
             let url = format!("{base}/models");
             let mut h = reqwest::header::HeaderMap::new();
-            if !api_key.is_empty() {
-                if let Ok(v) = format!("Bearer {api_key}").parse() {
-                    h.insert("authorization", v);
-                }
+            if !api_key.is_empty()
+                && let Ok(v) = format!("Bearer {api_key}").parse()
+            {
+                h.insert("authorization", v);
             }
             (url, h)
         }
@@ -1409,7 +1600,9 @@ async fn probe_channel_models(
             body = %body,
             "probe upstream returned error"
         );
-        return Err(AppError::Internal(format!("probe failed: upstream returned {status}")));
+        return Err(AppError::Internal(format!(
+            "probe failed: upstream returned {status}"
+        )));
     }
 
     let body: serde_json::Value = resp
@@ -1422,7 +1615,11 @@ async fn probe_channel_models(
         .and_then(|d| d.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                .filter_map(|m| {
+                    m.get("id")
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -1451,7 +1648,11 @@ async fn test_channel(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id.0)).await?;
+    let ch = app
+        .repos
+        .channels
+        .find_by_id(ChannelId::from(channel_id.0))
+        .await?;
 
     let test_model = query.model.clone().unwrap_or_else(|| {
         ch.supported_models
@@ -1475,21 +1676,12 @@ async fn test_channel(
             .map_err(|e| AppError::Internal(e.to_string()))?,
         ),
         "azure" => Arc::new(
-            gate_providers::azure::AzureProvider::new_with_opts(
-                &ch.base_url,
-                &api_key,
-                None,
-                opts,
-            )
-            .map_err(|e| AppError::Internal(e.to_string()))?,
+            gate_providers::azure::AzureProvider::new_with_opts(&ch.base_url, &api_key, None, opts)
+                .map_err(|e| AppError::Internal(e.to_string()))?,
         ),
         _ => Arc::new(
-            gate_providers::openai::OpenAiProvider::new_with_opts(
-                &ch.base_url,
-                &api_key,
-                opts,
-            )
-            .map_err(|e| AppError::Internal(e.to_string()))?,
+            gate_providers::openai::OpenAiProvider::new_with_opts(&ch.base_url, &api_key, opts)
+                .map_err(|e| AppError::Internal(e.to_string()))?,
         ),
     };
 
@@ -1562,7 +1754,11 @@ async fn get_channel_balance(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let ch = app.repos.channels.find_by_id(ChannelId::from(channel_id.0)).await?;
+    let ch = app
+        .repos
+        .channels
+        .find_by_id(ChannelId::from(channel_id.0))
+        .await?;
     let api_key = resolve_probe_key(&app, ChannelId::from(channel_id.0), &ch.code).await;
 
     match ch.provider_type.as_str() {
@@ -1576,11 +1772,7 @@ async fn get_channel_balance(
                 "{}/dashboard/billing/subscription",
                 ch.base_url.trim_end_matches('/')
             );
-            let resp = client
-                .get(&url)
-                .bearer_auth(&api_key)
-                .send()
-                .await;
+            let resp = client.get(&url).bearer_auth(&api_key).send().await;
 
             match resp {
                 Ok(r) if r.status().is_success() => {
@@ -1662,14 +1854,17 @@ async fn update_channel_balance(app: &AppState, id: ChannelId, balance: f64) {
 /// 优先从 DB 加密 key 池取；fallback 到环境变量。
 async fn resolve_probe_key(app: &AppState, channel_id: ChannelId, code: &str) -> String {
     if let (Ok(record), Some(crypto)) = (
-        app.repos.channel_keys.find_active_for_channel(channel_id).await,
+        app.repos
+            .channel_keys
+            .find_active_for_channel(channel_id)
+            .await,
         app.crypto.as_ref(),
     ) {
         let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
-        if let Ok(plaintext) = crypto.open(&record.key_enc, &aad).await {
-            if let Ok(s) = String::from_utf8(plaintext.to_vec()) {
-                return s;
-            }
+        if let Ok(plaintext) = crypto.open(&record.key_enc, &aad).await
+            && let Ok(s) = String::from_utf8(plaintext.to_vec())
+        {
+            return s;
         }
     }
     // Fallback: 环境变量
@@ -1711,7 +1906,9 @@ struct PricingRuleRow {
 fn rule_to_row(r: &gate_billing::PricingRule) -> PricingRuleRow {
     PricingRuleRow {
         id: r.id.to_string(),
-        channel_id: r.channel_id.map(|c| gate_core::id::ChannelId::from(c).to_string()),
+        channel_id: r
+            .channel_id
+            .map(|c| gate_core::id::ChannelId::from(c).to_string()),
         model: r.model.clone(),
         dimension: r.dimension.clone(),
         unit: r.unit.clone(),
@@ -1730,8 +1927,13 @@ async fn list_pricing_rules(
     Query(q): Query<PricingRulesQuery>,
 ) -> AppResult<Json<Vec<PricingRuleRow>>> {
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
-    let pricing = app.pricing.as_ref().ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
-    let rules = pricing.list_rules(q.channel_id, q.model.as_deref()).await
+    let pricing = app
+        .pricing
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+    let rules = pricing
+        .list_rules(q.channel_id, q.model.as_deref())
+        .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(Json(rules.iter().map(rule_to_row).collect()))
 }
@@ -1759,7 +1961,10 @@ async fn upsert_pricing_rule(
     Json(req): Json<UpsertPricingRuleRequest>,
 ) -> AppResult<Json<PricingRuleRow>> {
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
-    let pricing = app.pricing.as_ref().ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+    let pricing = app
+        .pricing
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
 
     let rule = gate_billing::PricingRule {
         id: req.id.unwrap_or_else(Uuid::now_v7),
@@ -1768,17 +1973,24 @@ async fn upsert_pricing_rule(
         dimension: req.dimension,
         unit: req.unit,
         rate: req.rate,
-        conditions: if req.conditions.is_null() { serde_json::json!({}) } else { req.conditions },
+        conditions: if req.conditions.is_null() {
+            serde_json::json!({})
+        } else {
+            req.conditions
+        },
         effective_from: req.effective_from.unwrap_or_else(Utc::now),
         effective_until: req.effective_until,
         priority: req.priority,
         description: req.description,
     };
 
-    let saved = pricing.upsert_rule(&rule).await
+    let saved = pricing
+        .upsert_rule(&rule)
+        .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    app.audit.emit(&ctx, "pricing_rule.upsert", "pricing_rule", None, None);
+    app.audit
+        .emit(&ctx, "pricing_rule.upsert", "pricing_rule", None, None);
 
     Ok(Json(rule_to_row(&saved)))
 }
@@ -1789,16 +2001,22 @@ async fn delete_pricing_rule(
     Path(id): Path<FlexUuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
-    let pricing = app.pricing.as_ref().ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+    let pricing = app
+        .pricing
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
 
-    let deleted = pricing.delete_rule(*id).await
+    let deleted = pricing
+        .delete_rule(*id)
+        .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
     if !deleted {
         return Err(AppError::NotFound);
     }
 
-    app.audit.emit(&ctx, "pricing_rule.delete", "pricing_rule", None, None);
+    app.audit
+        .emit(&ctx, "pricing_rule.delete", "pricing_rule", None, None);
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

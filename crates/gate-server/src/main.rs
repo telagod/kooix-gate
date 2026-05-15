@@ -78,7 +78,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Envelope KMS: 用于解密 channel key 和 SSO client_secret
-    let kms_arc: Option<Arc<gate_crypto::EnvelopeKms>> = match gate_crypto::kms::EnvKms::from_env("KOOIX_MASTER_KEY") {
+    let kms_arc: Option<Arc<gate_crypto::EnvelopeKms>> = match gate_crypto::kms::EnvKms::from_env(
+        "KOOIX_MASTER_KEY",
+    ) {
         Ok(k) => {
             let kms = gate_crypto::EnvelopeKms::new(k);
             let arc = Arc::new(kms);
@@ -107,7 +109,8 @@ async fn main() -> anyhow::Result<()> {
             router = router.with_crypto(kms.clone());
         }
         if let Some(ref rl) = redis_rate_limiter {
-            let channel_rl = gate_server::channel_rate_limit::RedisChannelRateLimiter::new(rl.clone());
+            let channel_rl =
+                gate_server::channel_rate_limit::RedisChannelRateLimiter::new(rl.clone());
             router = router.with_rate_limiter(Arc::new(channel_rl));
             tracing::info!("channel rate limiter (Redis) injected into ProviderRouter");
         }
@@ -132,9 +135,7 @@ async fn main() -> anyhow::Result<()> {
             Err(e) => tracing::warn!(error = %e, "fallback openai provider init failed"),
         }
     } else {
-        tracing::info!(
-            "KOOIX_OPENAI_BASE_URL not set; requests without channel routing will 400"
-        );
+        tracing::info!("KOOIX_OPENAI_BASE_URL not set; requests without channel routing will 400");
     }
 
     let app = build_router(state.clone());
@@ -150,7 +151,9 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             // 启动时立即同步一次
             match gate_billing::pricing_sync::sync_from_litellm_upsert(&pool).await {
-                Ok((n, s)) => tracing::info!(upserted = n, skipped = s, "initial pricing sync done"),
+                Ok((n, s)) => {
+                    tracing::info!(upserted = n, skipped = s, "initial pricing sync done")
+                }
                 Err(e) => tracing::warn!(error = %e, "initial pricing sync failed"),
             }
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
@@ -178,7 +181,9 @@ async fn main() -> anyhow::Result<()> {
                         Ok(expired) if !expired.is_empty() => {
                             let count = expired.len();
                             for row in expired {
-                                for (key, micros) in row.quota_keys.iter().zip(row.estimated_micros.iter()) {
+                                for (key, micros) in
+                                    row.quota_keys.iter().zip(row.estimated_micros.iter())
+                                {
                                     let _ = qc.refund(key, *micros).await;
                                 }
                             }

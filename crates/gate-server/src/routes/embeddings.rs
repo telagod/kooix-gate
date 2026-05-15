@@ -30,7 +30,10 @@ async fn create_embedding(
     Json(req): Json<EmbeddingRequest>,
 ) -> AppResult<Json<EmbeddingResponse>> {
     let provider = resolve_embedding_provider(&app, &ctx, &headers, &req).await?;
-    let resp = provider.embed(req).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    let resp = provider
+        .embed(req)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(Json(resp))
 }
 
@@ -94,7 +97,9 @@ async fn extract_project_id(
         return Ok(None);
     };
 
-    let project_id: ProjectId = raw.trim().parse()
+    let project_id: ProjectId = raw
+        .trim()
+        .parse()
         .map_err(|_| AppError::BadRequest("invalid X-Kooix-Project".into()))?;
 
     // 越权校验：project.org_id 必须匹配 ctx.current_org

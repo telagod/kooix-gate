@@ -33,7 +33,12 @@ pub struct OrgMemberView {
 pub trait MembershipRepo: Send + Sync + 'static {
     async fn load_for_user(&self, user_id: UserId) -> DbResult<UserMemberships>;
     async fn add_org_member(&self, org: OrgId, user: UserId, role: OrgRole) -> DbResult<()>;
-    async fn add_project_member(&self, project: ProjectId, user: UserId, role: ProjectRole) -> DbResult<()>;
+    async fn add_project_member(
+        &self,
+        project: ProjectId,
+        user: UserId,
+        role: ProjectRole,
+    ) -> DbResult<()>;
     async fn list_org_members(&self, org: OrgId) -> DbResult<Vec<OrgMemberView>>;
     async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()>;
 }
@@ -189,27 +194,29 @@ impl MembershipRepo for PgMembershipRepo {
         .bind(org.as_uuid())
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(|r| {
-            let uid: Uuid = r.try_get("user_id")?;
-            Ok(OrgMemberView {
-                user_id: UserId::from(uid),
-                email: r.try_get("email")?,
-                display_name: r.try_get("display_name")?,
-                role: r.try_get("role")?,
-                joined_at: r.try_get("joined_at")?,
+        rows.iter()
+            .map(|r| {
+                let uid: Uuid = r.try_get("user_id")?;
+                Ok(OrgMemberView {
+                    user_id: UserId::from(uid),
+                    email: r.try_get("email")?,
+                    display_name: r.try_get("display_name")?,
+                    role: r.try_get("role")?,
+                    joined_at: r.try_get("joined_at")?,
+                })
             })
-        }).collect()
+            .collect()
     }
 
     async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()> {
-        let res = sqlx::query(
-            "DELETE FROM org_memberships WHERE org_id = $1 AND user_id = $2",
-        )
-        .bind(org.as_uuid())
-        .bind(user.as_uuid())
-        .execute(&self.pool)
-        .await?;
-        if res.rows_affected() == 0 { return Err(DbError::NotFound); }
+        let res = sqlx::query("DELETE FROM org_memberships WHERE org_id = $1 AND user_id = $2")
+            .bind(org.as_uuid())
+            .bind(user.as_uuid())
+            .execute(&self.pool)
+            .await?;
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 }

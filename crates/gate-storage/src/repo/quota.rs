@@ -11,10 +11,10 @@
 use crate::error::{DbError, DbResult};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use parking_lot::RwLock;
 use uuid::Uuid;
 
 /// quota 行的存储快照。

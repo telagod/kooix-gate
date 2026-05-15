@@ -34,12 +34,7 @@ async fn health() -> Json<Health> {
 }
 
 async fn system_status(State(app): State<AppState>) -> Json<SystemStatus> {
-    let initialized = app
-        .repos
-        .users
-        .has_any_admin()
-        .await
-        .unwrap_or(false);
+    let initialized = app.repos.users.has_any_admin().await.unwrap_or(false);
     Json(SystemStatus {
         initialized,
         version: env!("CARGO_PKG_VERSION"),

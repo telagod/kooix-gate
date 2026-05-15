@@ -27,7 +27,10 @@ async fn create_speech(
         .as_ref()
         .ok_or_else(|| AppError::BadRequest("TTS not configured".into()))?;
 
-    let format = req.response_format.clone().unwrap_or_else(|| "mp3".to_string());
+    let format = req
+        .response_format
+        .clone()
+        .unwrap_or_else(|| "mp3".to_string());
     let content_type = match format.as_str() {
         "opus" => "audio/opus",
         "aac" => "audio/aac",
@@ -63,18 +66,28 @@ async fn create_transcription(
     let mut model = "whisper-1".to_string();
     let mut language: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" => {
                 if let Some(fname) = field.file_name() {
                     filename = fname.to_string();
                 }
-                let data = field.bytes().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
                 audio_data = Some(data);
             }
             "model" => {
-                model = field.text().await.unwrap_or_else(|_| "whisper-1".to_string());
+                model = field
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "whisper-1".to_string());
             }
             "language" => {
                 let text = field.text().await.unwrap_or_default();

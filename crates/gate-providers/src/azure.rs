@@ -1,11 +1,11 @@
 //! Azure OpenAI provider — deployment-based URL routing.
 
-use crate::openai::{check_status, sse_to_chunks};
-use crate::{EmbeddingProvider, Provider};
 use crate::error::{ProviderError, ProviderResult};
+use crate::openai::{check_status, sse_to_chunks};
 use crate::types::{
     ChatRequest, ChatResponse, ChatStreamChunk, EmbeddingRequest, EmbeddingResponse,
 };
+use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt};
 
@@ -23,7 +23,12 @@ impl AzureProvider {
         api_key: impl Into<String>,
         api_version: Option<String>,
     ) -> ProviderResult<Self> {
-        Self::new_with_opts(endpoint, api_key, api_version, crate::ProviderOpts::default())
+        Self::new_with_opts(
+            endpoint,
+            api_key,
+            api_version,
+            crate::ProviderOpts::default(),
+        )
     }
 
     pub fn new_with_opts(

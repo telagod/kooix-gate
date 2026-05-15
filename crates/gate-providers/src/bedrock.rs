@@ -24,7 +24,12 @@ impl BedrockProvider {
         access_key: impl Into<String>,
         secret_key: impl Into<String>,
     ) -> ProviderResult<Self> {
-        Self::new_with_opts(region, access_key, secret_key, crate::ProviderOpts::default())
+        Self::new_with_opts(
+            region,
+            access_key,
+            secret_key,
+            crate::ProviderOpts::default(),
+        )
     }
 
     pub fn new_with_opts(
@@ -53,6 +58,7 @@ impl BedrockProvider {
         )
     }
 
+    #[allow(dead_code)]
     fn converse_stream_url(&self, model_id: &str) -> String {
         format!(
             "https://bedrock-runtime.{}.amazonaws.com/model/{}/converse-stream",
@@ -60,10 +66,7 @@ impl BedrockProvider {
         )
     }
 
-    fn sign_request(
-        &self,
-        builder: reqwest::RequestBuilder,
-    ) -> reqwest::RequestBuilder {
+    fn sign_request(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         // Simplified: in production this would use proper AWS SigV4 signing.
         // For now we pass credentials as headers that Bedrock accepts when
         // configured with IAM identity-based policies.

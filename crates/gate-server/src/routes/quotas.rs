@@ -15,6 +15,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::{
@@ -28,7 +29,6 @@ use gate_storage::{DbError, QuotaUpsert};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -282,13 +282,8 @@ async fn delete_quota(
 
     match app.repos.quotas.delete(*quota_id).await {
         Ok(()) => {
-            app.audit.emit(
-                &ctx,
-                "quota.delete",
-                "quota",
-                Some(*quota_id),
-                None,
-            );
+            app.audit
+                .emit(&ctx, "quota.delete", "quota", Some(*quota_id), None);
             Ok(Json(serde_json::json!({"deleted": true})))
         }
         Err(DbError::NotFound) => Err(AppError::NotFound),

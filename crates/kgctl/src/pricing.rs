@@ -7,7 +7,6 @@
 //!   kgctl pricing seed  (legacy: 写入默认定价到旧 model_pricing 表)
 
 use anyhow::{Context, Result};
-use chrono::Utc;
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
 use std::str::FromStr;
@@ -32,30 +31,48 @@ pub async fn list(model: Option<String>, channel_id: Option<String>) -> Result<(
         .map(|s| Uuid::parse_str(&s).with_context(|| "invalid channel_id UUID"))
         .transpose()?;
 
-    let rows: Vec<(Uuid, Option<Uuid>, String, String, String, Decimal, serde_json::Value, i32, Option<String>)> =
-        sqlx::query_as(
-            "SELECT id, channel_id, model, dimension, unit, rate, conditions, priority, description
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(
+        Uuid,
+        Option<Uuid>,
+        String,
+        String,
+        String,
+        Decimal,
+        serde_json::Value,
+        i32,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT id, channel_id, model, dimension, unit, rate, conditions, priority, description
              FROM pricing_rules
              WHERE ($1::uuid IS NULL OR channel_id = $1 OR (channel_id IS NULL AND $1 IS NULL))
                AND ($2::text IS NULL OR model = $2)
-             ORDER BY model, dimension, priority DESC"
-        )
-        .bind(ch_id)
-        .bind(model.as_deref())
-        .fetch_all(&pool)
-        .await?;
+             ORDER BY model, dimension, priority DESC",
+    )
+    .bind(ch_id)
+    .bind(model.as_deref())
+    .fetch_all(&pool)
+    .await?;
 
     if rows.is_empty() {
         println!("(no pricing rules found)");
         return Ok(());
     }
 
-    println!("{:<36} {:<6} {:<20} {:<16} {:<14} {:>10} {:<4} {}", "ID", "CH", "MODEL", "DIMENSION", "UNIT", "RATE", "PRI", "DESC");
+    println!(
+        "{:<36} {:<6} {:<20} {:<16} {:<14} {:>10} {:<4} DESC",
+        "ID", "CH", "MODEL", "DIMENSION", "UNIT", "RATE", "PRI"
+    );
     println!("{}", "─".repeat(120));
     for (id, ch, model, dim, unit, rate, _cond, pri, desc) in &rows {
-        let ch_short = ch.map(|c| format!("{}…", &c.to_string()[..8])).unwrap_or_else(|| "global".into());
+        let ch_short = ch
+            .map(|c| format!("{}…", &c.to_string()[..8]))
+            .unwrap_or_else(|| "global".into());
         let desc_str = desc.as_deref().unwrap_or("");
-        println!("{:<36} {:<6} {:<20} {:<16} {:<14} {:>10} {:<4} {}", id, ch_short, model, dim, unit, rate, pri, desc_str);
+        println!(
+            "{:<36} {:<6} {:<20} {:<16} {:<14} {:>10} {:<4} {}",
+            id, ch_short, model, dim, unit, rate, pri, desc_str
+        );
     }
     println!("\n{} rules", rows.len());
     Ok(())
@@ -139,7 +156,7 @@ pub async fn seed() -> Result<()> {
     for (model, input, output, cached) in DEFAULTS {
         let inp = Decimal::from_str(input)?;
         let out = Decimal::from_str(output)?;
-        let cached_dec = cached.map(|c| Decimal::from_str(c)).transpose()?;
+        let cached_dec = cached.map(Decimal::from_str).transpose()?;
 
         let affected = sqlx::query(
             "INSERT INTO model_pricing
@@ -151,8 +168,12 @@ pub async fn seed() -> Result<()> {
                  WHERE channel_id IS NULL AND model = $1 AND effective_until IS NULL
              )",
         )
-        .bind(model).bind(inp).bind(out).bind(cached_dec)
-        .execute(&pool).await
+        .bind(model)
+        .bind(inp)
+        .bind(out)
+        .bind(cached_dec)
+        .execute(&pool)
+        .await
         .with_context(|| format!("插入 {model} 定价失败"))?;
 
         if affected.rows_affected() == 1 {

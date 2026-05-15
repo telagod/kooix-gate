@@ -8,6 +8,7 @@
 use crate::alerts::{self, QuotaAlert};
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -19,8 +20,6 @@ use gate_auth::{require, require_user};
 use gate_core::id::OrgId;
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -149,12 +148,14 @@ async fn export_csv(
     require!(ctx, Permission::UsageExport, Scope::Org(&org));
 
     if q.from >= q.to {
-        return Err(AppError::BadRequest(
-            "'from' must be before 'to'".into(),
-        ));
+        return Err(AppError::BadRequest("'from' must be before 'to'".into()));
     }
 
-    let rows = app.repos.billing.export_usage_csv(org, q.from, q.to).await?;
+    let rows = app
+        .repos
+        .billing
+        .export_usage_csv(org, q.from, q.to)
+        .await?;
 
     // Build CSV
     let mut wtr = csv::Writer::from_writer(Vec::new());

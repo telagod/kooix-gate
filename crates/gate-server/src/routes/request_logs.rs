@@ -1,5 +1,6 @@
 use crate::auth::Authed;
 use crate::error::AppResult;
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
@@ -9,7 +10,6 @@ use gate_core::rbac::{Permission, Scope};
 use gate_storage::RequestFilter;
 use serde::Deserialize;
 use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Deserialize)]
 pub struct RequestListQuery {
@@ -137,7 +137,11 @@ async fn get_request(
     require_user!(ctx);
     require!(ctx, Permission::AuditRead, Scope::Platform);
 
-    let record = app.repos.request_logs.find_by_request_id(*request_id).await?;
+    let record = app
+        .repos
+        .request_logs
+        .find_by_request_id(*request_id)
+        .await?;
     Ok(Json(serde_json::to_value(&record).unwrap_or_default()))
 }
 
@@ -150,7 +154,11 @@ async fn get_filter_options(
     require!(ctx, Permission::AuditRead, Scope::Platform);
 
     let hours = q.hours.clamp(1, 720);
-    let options = app.repos.request_logs.filter_options(q.org_id, hours).await?;
+    let options = app
+        .repos
+        .request_logs
+        .filter_options(q.org_id, hours)
+        .await?;
     Ok(Json(serde_json::to_value(&options).unwrap_or_default()))
 }
 
@@ -163,6 +171,10 @@ async fn dashboard_stats(
     require!(ctx, Permission::UsageRead, Scope::Platform);
 
     let hours = q.hours.clamp(1, 720);
-    let stats = app.repos.request_logs.dashboard_stats(q.org_id, hours).await?;
+    let stats = app
+        .repos
+        .request_logs
+        .dashboard_stats(q.org_id, hours)
+        .await?;
     Ok(Json(serde_json::to_value(&stats).unwrap_or_default()))
 }

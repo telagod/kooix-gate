@@ -5,6 +5,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::{Json, Router, routing::get};
@@ -13,8 +14,6 @@ use gate_core::id::OrgId;
 use gate_core::id::ProjectId;
 use gate_core::rbac::{Permission, Scope};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ProjectSummary {
@@ -129,7 +128,9 @@ async fn update_project(
     if let Some(ref s) = req.status {
         let valid = ["active", "archived"];
         if !valid.contains(&s.as_str()) {
-            return Err(AppError::BadRequest(format!("status must be one of: {valid:?}")));
+            return Err(AppError::BadRequest(format!(
+                "status must be one of: {valid:?}"
+            )));
         }
     }
 

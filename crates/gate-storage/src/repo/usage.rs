@@ -15,8 +15,8 @@ use crate::error::{DbError, DbResult};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use gate_core::id::OrgId;
-use sqlx::{PgPool, Row};
 use parking_lot::RwLock;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 // ============================================================================

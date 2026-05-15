@@ -28,9 +28,7 @@ impl RetryConfig {
         match err {
             ProviderError::RateLimited { .. } => true,
             ProviderError::Network(_) => true,
-            ProviderError::Upstream { status, .. } => {
-                self.retryable_status_codes.contains(status)
-            }
+            ProviderError::Upstream { status, .. } => self.retryable_status_codes.contains(status),
             _ => false,
         }
     }
@@ -41,10 +39,7 @@ impl RetryConfig {
     }
 }
 
-pub async fn with_retry<F, Fut, T>(
-    config: &RetryConfig,
-    mut f: F,
-) -> ProviderResult<T>
+pub async fn with_retry<F, Fut, T>(config: &RetryConfig, mut f: F) -> ProviderResult<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = ProviderResult<T>>,

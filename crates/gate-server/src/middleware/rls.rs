@@ -35,9 +35,7 @@ pub async fn rls_inject(State(state): State<AppState>, req: Request, next: Next)
 
     let rls = match ctx.subject() {
         Some(Subject::ApiKey {
-            org_id,
-            project_id,
-            ..
+            org_id, project_id, ..
         }) => RlsContext {
             org_id: Some(*org_id),
             project_id: Some(*project_id),

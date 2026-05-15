@@ -51,7 +51,7 @@ impl InFlightRepo for PgInFlightRepo {
               estimated_cost_usd, estimated_tokens, started_at, expires_at, \
               quota_keys, estimated_micros) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
-             ON CONFLICT (request_id) DO NOTHING"
+             ON CONFLICT (request_id) DO NOTHING",
         )
         .bind(r.request_id)
         .bind(r.project_id)
@@ -80,26 +80,42 @@ impl InFlightRepo for PgInFlightRepo {
     async fn sweep_expired(&self) -> crate::DbResult<Vec<ExpiredInFlight>> {
         let rows: Vec<(Uuid, Vec<String>, Vec<i64>)> = sqlx::query_as(
             "DELETE FROM inflight_requests WHERE expires_at < NOW() \
-             RETURNING request_id, quota_keys, estimated_micros"
+             RETURNING request_id, quota_keys, estimated_micros",
         )
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|(request_id, quota_keys, estimated_micros)| {
-            ExpiredInFlight { request_id, quota_keys, estimated_micros }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(
+                |(request_id, quota_keys, estimated_micros)| ExpiredInFlight {
+                    request_id,
+                    quota_keys,
+                    estimated_micros,
+                },
+            )
+            .collect())
     }
 }
 
+#[derive(Default)]
 pub struct InMemoryInFlightRepo;
 
 impl InMemoryInFlightRepo {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 #[async_trait]
 impl InFlightRepo for InMemoryInFlightRepo {
-    async fn insert(&self, _record: &InFlightRecord) -> crate::DbResult<()> { Ok(()) }
-    async fn delete(&self, _request_id: Uuid) -> crate::DbResult<()> { Ok(()) }
-    async fn sweep_expired(&self) -> crate::DbResult<Vec<ExpiredInFlight>> { Ok(vec![]) }
+    async fn insert(&self, _record: &InFlightRecord) -> crate::DbResult<()> {
+        Ok(())
+    }
+    async fn delete(&self, _request_id: Uuid) -> crate::DbResult<()> {
+        Ok(())
+    }
+    async fn sweep_expired(&self) -> crate::DbResult<Vec<ExpiredInFlight>> {
+        Ok(vec![])
+    }
 }

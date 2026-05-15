@@ -120,12 +120,7 @@ async fn enqueue_and_consume_three() {
         outbox.enqueue(&make_event(&fix)).await.unwrap();
     }
 
-    let consumer = Consumer::new(
-        outbox.clone(),
-        pool.clone(),
-        10,
-        Duration::from_secs(9999),
-    );
+    let consumer = Consumer::new(outbox.clone(), pool.clone(), 10, Duration::from_secs(9999));
     consumer.tick().await.unwrap();
 
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usage_records")

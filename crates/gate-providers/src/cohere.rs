@@ -1,9 +1,9 @@
 //! Cohere provider — native API for chat + embeddings.
 
-use crate::openai::{check_status, sse_to_chunks};
-use crate::{EmbeddingProvider, Provider};
 use crate::error::{ProviderError, ProviderResult};
+use crate::openai::{check_status, sse_to_chunks};
 use crate::types::*;
+use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};

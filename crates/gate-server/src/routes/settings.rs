@@ -33,13 +33,14 @@ async fn change_password(
         _ => return Err(AppError::Forbidden("only user subjects".into())),
     };
 
-    let (_, existing_hash) = app.repos.users.find_credentials(
-        &app.repos.users.find_by_id(*user_id).await?.email,
-    ).await?;
+    let (_, existing_hash) = app
+        .repos
+        .users
+        .find_credentials(&app.repos.users.find_by_id(*user_id).await?.email)
+        .await?;
 
-    let hash = existing_hash.ok_or_else(|| {
-        AppError::BadRequest("SSO users cannot change password".into())
-    })?;
+    let hash = existing_hash
+        .ok_or_else(|| AppError::BadRequest("SSO users cannot change password".into()))?;
 
     gate_auth::password::verify(&req.current_password, &hash)
         .map_err(|_| AppError::BadRequest("current password is incorrect".into()))?;
@@ -49,7 +50,13 @@ async fn change_password(
 
     app.repos.users.update_password(*user_id, &new_hash).await?;
 
-    app.audit.emit(&ctx, "user.change_password", "user", Some(*user_id.as_uuid()), None);
+    app.audit.emit(
+        &ctx,
+        "user.change_password",
+        "user",
+        Some(*user_id.as_uuid()),
+        None,
+    );
 
     Ok(Json(ChangePasswordResponse { ok: true }))
 }

@@ -39,12 +39,12 @@ use axum::{Extension, Json, Router};
 use futures::stream::StreamExt;
 use gate_auth::AuthError;
 use gate_auth::context::Subject;
-use gate_core::id::ProjectId;
-use gate_providers::{ChannelMetrics, ChatRequest, ChatResponse, Provider, Usage};
-use gate_providers::retry::{RetryConfig, with_retry};
 use gate_core::id::ChannelId;
-use std::convert::Infallible;
+use gate_core::id::ProjectId;
+use gate_providers::retry::{RetryConfig, with_retry};
+use gate_providers::{ChannelMetrics, ChatRequest, ChatResponse, Provider, Usage};
 use parking_lot::Mutex;
+use std::convert::Infallible;
 use std::sync::Arc;
 
 pub fn router() -> Router<AppState> {
@@ -75,7 +75,8 @@ async fn chat_completions(
     guards: Option<Extension<InflightGuards>>,
     Json(mut req): Json<ChatRequest>,
 ) -> AppResult<axum::response::Response> {
-    let (provider, channel_id, retry_config, params_override, provider_type, routed_metrics) = resolve_provider(&app, &ctx, &headers, &req).await?;
+    let (provider, channel_id, retry_config, params_override, provider_type, routed_metrics) =
+        resolve_provider(&app, &ctx, &headers, &req).await?;
 
     // Apply params_override from model alias (if any)
     apply_params_override(&mut req, &params_override);
@@ -97,7 +98,11 @@ async fn chat_completions(
             if m.should_disable(ch_id) {
                 let repos = app.repos.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = repos.channels.auto_disable(ch_id, "success rate below threshold").await {
+                    if let Err(e) = repos
+                        .channels
+                        .auto_disable(ch_id, "success rate below threshold")
+                        .await
+                    {
                         tracing::warn!(channel_id = %ch_id.as_uuid(), error = %e, "auto_disable failed");
                     } else {
                         tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
@@ -141,11 +146,11 @@ async fn chat_completions(
             }
 
             // 记录 token 消耗到 per-channel TPM 计数器
-            if let (Some(rl), Some(ch_id)) = (&rate_limiter_for_tpm, tpm_channel_id) {
-                if let Some(ref u) = usage {
-                    let total_tokens = u.prompt_tokens + u.completion_tokens;
-                    rl.record_tokens(ch_id, total_tokens).await;
-                }
+            if let (Some(rl), Some(ch_id)) = (&rate_limiter_for_tpm, tpm_channel_id)
+                && let Some(ref u) = usage
+            {
+                let total_tokens = u.prompt_tokens + u.completion_tokens;
+                rl.record_tokens(ch_id, total_tokens).await;
             }
 
             // 结算 inflight guards（F3）
@@ -207,7 +212,11 @@ async fn chat_completions(
                     if m.should_disable(ch_id) {
                         let repos = app.repos.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = repos.channels.auto_disable(ch_id, "success rate below threshold").await {
+                            if let Err(e) = repos
+                                .channels
+                                .auto_disable(ch_id, "success rate below threshold")
+                                .await
+                            {
                                 tracing::warn!(channel_id = %ch_id.as_uuid(), error = %e, "auto_disable failed");
                             } else {
                                 tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
@@ -225,7 +234,11 @@ async fn chat_completions(
                     if m.should_disable(ch_id) {
                         let repos = app.repos.clone();
                         tokio::spawn(async move {
-                            if let Err(de) = repos.channels.auto_disable(ch_id, "success rate below threshold").await {
+                            if let Err(de) = repos
+                                .channels
+                                .auto_disable(ch_id, "success rate below threshold")
+                                .await
+                            {
                                 tracing::warn!(channel_id = %ch_id.as_uuid(), error = %de, "auto_disable failed");
                             } else {
                                 tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
@@ -279,7 +292,14 @@ async fn resolve_provider(
     ctx: &gate_auth::AuthContext,
     headers: &HeaderMap,
     req: &ChatRequest,
-) -> AppResult<(Arc<dyn Provider>, Option<uuid::Uuid>, RetryConfig, serde_json::Value, String, Option<Arc<ChannelMetrics>>)> {
+) -> AppResult<(
+    Arc<dyn Provider>,
+    Option<uuid::Uuid>,
+    RetryConfig,
+    serde_json::Value,
+    String,
+    Option<Arc<ChannelMetrics>>,
+)> {
     // 尝试从 ProviderRouter 获取
     if let Some(router) = &app.provider_router {
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
@@ -289,7 +309,14 @@ async fn resolve_provider(
                 Ok(Some(routed)) => {
                     let provider_type = routed.provider_type.clone();
                     let metrics = routed.metrics.clone();
-                    return Ok((routed.provider, Some(*routed.channel_id.as_uuid()), routed.retry_config, routed.params_override, provider_type, metrics));
+                    return Ok((
+                        routed.provider,
+                        Some(*routed.channel_id.as_uuid()),
+                        routed.retry_config,
+                        routed.params_override,
+                        provider_type,
+                        metrics,
+                    ));
                 }
                 Ok(None) => {
                     tracing::debug!(
@@ -309,7 +336,14 @@ async fn resolve_provider(
         .provider
         .clone()
         .ok_or_else(|| AppError::BadRequest("no provider configured".into()))?;
-    Ok((provider, None, RetryConfig::default(), serde_json::json!({}), "openai".to_string(), None))
+    Ok((
+        provider,
+        None,
+        RetryConfig::default(),
+        serde_json::json!({}),
+        "openai".to_string(),
+        None,
+    ))
 }
 
 /// 从 AuthContext + headers 提取 project_id（带越权校验）。
@@ -335,7 +369,9 @@ async fn extract_project_id(
         return Ok(None);
     };
 
-    let project_id: ProjectId = raw.trim().parse()
+    let project_id: ProjectId = raw
+        .trim()
+        .parse()
         .map_err(|_| AppError::BadRequest("invalid X-Kooix-Project".into()))?;
 
     // 越权校验：project.org_id 必须匹配 ctx.current_org
@@ -387,7 +423,9 @@ fn apply_params_override(req: &mut ChatRequest, overrides: &serde_json::Value) {
     for (k, v) in obj {
         match k.as_str() {
             "temperature" | "max_tokens" | "top_p" => {} // already handled
-            _ => { req.extra.insert(k.clone(), v.clone()); }
+            _ => {
+                req.extra.insert(k.clone(), v.clone());
+            }
         }
     }
 }

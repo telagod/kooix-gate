@@ -82,7 +82,10 @@ async fn evaluate_budget_quota(
         _ => return None,
     };
 
-    let totals = usage.totals(Some(org_id), from, to + Duration::seconds(1)).await.ok()?;
+    let totals = usage
+        .totals(Some(org_id), from, to + Duration::seconds(1))
+        .await
+        .ok()?;
     let used = Decimal::try_from(totals.cost_usd).ok()?;
     let limit = q.limit_value;
 
@@ -91,11 +94,9 @@ async fn evaluate_budget_quota(
     }
 
     let ratio = (used * Decimal::from(100)) / limit;
-    let pct = ratio.to_u8().unwrap_or(if ratio > Decimal::from(255) {
-        255
-    } else {
-        0
-    });
+    let pct = ratio
+        .to_u8()
+        .unwrap_or(if ratio > Decimal::from(255) { 255 } else { 0 });
 
     let status = if ratio >= Decimal::from(100) {
         AlertStatus::Exceeded

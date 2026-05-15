@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use gate_auth::AuthContext;
 use gate_core::id::*;
 use gate_core::identity::{OrgRole, PlatformRole, ProjectRole};
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 /// 从用户 ID 加载完整角色快照；从 api_key 明文加载 ApiKey 上下文。
 ///

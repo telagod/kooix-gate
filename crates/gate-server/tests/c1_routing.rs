@@ -38,14 +38,14 @@ fn make_channel(id: ChannelId, code: &str, base_url: &str) -> ChannelRecord {
         timeout_ms: 60000,
         max_retries: 2,
         rpm_limit: None,
-            tpm_limit: None,
-            tags: vec![],
-            model_mapping: serde_json::Value::Object(Default::default()),
-            balance: None,
-            balance_updated_at: None,
-            last_error: None,
-            last_error_at: None,
-            created_at: chrono::Utc::now(),
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }
 }
@@ -54,7 +54,9 @@ fn make_channel(id: ChannelId, code: &str, base_url: &str) -> ChannelRecord {
 #[tokio::test]
 async fn provider_router_selects_highest_priority() {
     // SAFETY: test is single-threaded at this point
-    unsafe { std::env::set_var("KOOIX_API_KEY", "test-key"); }
+    unsafe {
+        std::env::set_var("KOOIX_API_KEY", "test-key");
+    }
     let group_id = ChannelGroupId::new();
     let ch_high = ChannelId::new(); // priority=10
     let ch_low = ChannelId::new(); // priority=20
@@ -108,7 +110,9 @@ async fn provider_router_selects_highest_priority() {
 #[tokio::test]
 async fn full_chain_api_key_to_upstream() {
     // SAFETY: test is single-threaded at this point
-    unsafe { std::env::set_var("KOOIX_API_KEY", "test-key"); }
+    unsafe {
+        std::env::set_var("KOOIX_API_KEY", "test-key");
+    }
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))

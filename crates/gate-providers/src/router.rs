@@ -29,10 +29,10 @@ use crate::openai::OpenAiProvider;
 use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use parking_lot::{Mutex, RwLock};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Instant;
 
 /// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）+ 实际使用的 model。
@@ -91,7 +91,7 @@ impl ChannelMetrics {
     /// 记录一次请求结果（true = 成功，false = 失败）。
     pub fn record(&self, channel_id: ChannelId, success: bool) {
         let mut windows = self.windows.lock();
-        let window = windows.entry(channel_id).or_insert_with(VecDeque::new);
+        let window = windows.entry(channel_id).or_default();
         if window.len() >= self.window_size {
             window.pop_front();
         }
@@ -115,7 +115,7 @@ impl ChannelMetrics {
     /// 记录响应延迟（毫秒）。
     pub fn record_latency(&self, channel_id: ChannelId, latency_ms: u64) {
         let mut latencies = self.latencies.lock();
-        let window = latencies.entry(channel_id).or_insert_with(VecDeque::new);
+        let window = latencies.entry(channel_id).or_default();
         if window.len() >= self.window_size {
             window.pop_front();
         }
@@ -431,7 +431,11 @@ fn order_channels_by_strategy<'a>(
         "weighted_random" => {
             // 首选 = weighted random pick，其余按 priority 排
             let first = select_weighted_random(compatible);
-            let mut rest: Vec<_> = compatible.iter().filter(|c| c.channel.channel_id != first.channel.channel_id).copied().collect();
+            let mut rest: Vec<_> = compatible
+                .iter()
+                .filter(|c| c.channel.channel_id != first.channel.channel_id)
+                .copied()
+                .collect();
             rest.sort_by_key(|c| c.priority);
             let mut result = vec![first];
             result.extend(rest);
@@ -440,7 +444,11 @@ fn order_channels_by_strategy<'a>(
         "round_robin" => {
             // 首选 = round_robin pick，其余按 priority 排
             let first = select_round_robin(compatible, rr_counter);
-            let mut rest: Vec<_> = compatible.iter().filter(|c| c.channel.channel_id != first.channel.channel_id).copied().collect();
+            let mut rest: Vec<_> = compatible
+                .iter()
+                .filter(|c| c.channel.channel_id != first.channel.channel_id)
+                .copied()
+                .collect();
             rest.sort_by_key(|c| c.priority);
             let mut result = vec![first];
             result.extend(rest);
@@ -491,13 +499,17 @@ fn build_provider(
             let access = api_key;
             let secret_env = format!(
                 "KOOIX_CH_{}_SECRET",
-                channel.code.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_")
+                channel
+                    .code
+                    .to_uppercase()
+                    .replace(|c: char| !c.is_alphanumeric(), "_")
             );
-            let secret = std::env::var(&secret_env)
-                .map_err(|_| ProviderError::Config(format!(
+            let secret = std::env::var(&secret_env).map_err(|_| {
+                ProviderError::Config(format!(
                     "missing {} env var for bedrock channel '{}'",
                     secret_env, channel.code
-                )))?;
+                ))
+            })?;
             let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
             let p = BedrockProvider::new_with_opts(region, access, secret, opts)
                 .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
@@ -593,10 +605,12 @@ fn resolve_api_key_for_channel(code: &str) -> ProviderResult<String> {
     );
     std::env::var(&env_key)
         .or_else(|_| std::env::var("KOOIX_API_KEY"))
-        .map_err(|_| ProviderError::Config(format!(
-            "no API key found for channel '{}' (tried {} and KOOIX_API_KEY)",
-            code, env_key
-        )))
+        .map_err(|_| {
+            ProviderError::Config(format!(
+                "no API key found for channel '{}' (tried {} and KOOIX_API_KEY)",
+                code, env_key
+            ))
+        })
 }
 
 /// 静态 fallback 链：model → 可尝试的替代模型列表。
@@ -613,10 +627,10 @@ fn fallback_models(model: &str) -> &'static [&'static str] {
 }
 
 fn resolve_model_mapping(mapping: &serde_json::Value, model: &str) -> String {
-    if let serde_json::Value::Object(map) = mapping {
-        if let Some(serde_json::Value::String(target)) = map.get(model) {
-            return target.clone();
-        }
+    if let serde_json::Value::Object(map) = mapping
+        && let Some(serde_json::Value::String(target)) = map.get(model)
+    {
+        return target.clone();
     }
     model.to_string()
 }
@@ -810,12 +824,12 @@ impl ProviderRouter {
                 return Ok(None);
             }
 
-            if current_group.enabled {
-                if let Some(routed) =
-                    self.try_route_embedding_in_group(&current_group, model).await?
-                {
-                    return Ok(Some(routed));
-                }
+            if current_group.enabled
+                && let Some(routed) = self
+                    .try_route_embedding_in_group(&current_group, model)
+                    .await?
+            {
+                return Ok(Some(routed));
             }
 
             match current_group.fallback_group_id {
@@ -878,7 +892,11 @@ impl ProviderRouter {
 
         for candidate in &ordered {
             // RPM 检查
-            if !self.rate_limiter.check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit).await {
+            if !self
+                .rate_limiter
+                .check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit)
+                .await
+            {
                 tracing::info!(
                     channel = %candidate.channel.code,
                     rpm_limit = ?candidate.channel.rpm_limit,
@@ -888,7 +906,11 @@ impl ProviderRouter {
             }
 
             // TPM 检查
-            if !self.rate_limiter.check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit).await {
+            if !self
+                .rate_limiter
+                .check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit)
+                .await
+            {
                 tracing::info!(
                     channel = %candidate.channel.code,
                     tpm_limit = ?candidate.channel.tpm_limit,
@@ -904,7 +926,8 @@ impl ProviderRouter {
                 timeout_ms: candidate.channel.timeout_ms as u64,
             };
 
-            let provider: Arc<dyn EmbeddingProvider> = build_embedding_provider(&candidate.channel, api_key, opts)?;
+            let provider: Arc<dyn EmbeddingProvider> =
+                build_embedding_provider(&candidate.channel, api_key, opts)?;
 
             return Ok(Some(RoutedEmbeddingProvider {
                 provider,
@@ -1092,7 +1115,11 @@ impl ProviderRouter {
         // Try each channel in order until one passes rate limits
         for candidate in &ordered {
             // RPM 检查
-            if !self.rate_limiter.check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit).await {
+            if !self
+                .rate_limiter
+                .check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit)
+                .await
+            {
                 tracing::info!(
                     channel = %candidate.channel.code,
                     rpm_limit = ?candidate.channel.rpm_limit,
@@ -1102,7 +1129,11 @@ impl ProviderRouter {
             }
 
             // TPM 检查（pre-flight）
-            if !self.rate_limiter.check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit).await {
+            if !self
+                .rate_limiter
+                .check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit)
+                .await
+            {
                 tracing::info!(
                     channel = %candidate.channel.code,
                     tpm_limit = ?candidate.channel.tpm_limit,
@@ -1125,7 +1156,9 @@ impl ProviderRouter {
             );
 
             // Step 4: 根据 provider_type 构造对应 Provider
-            let (api_key, key_id) = self.resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code).await?;
+            let (api_key, key_id) = self
+                .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
+                .await?;
             let opts = crate::ProviderOpts {
                 timeout_ms: candidate.channel.timeout_ms as u64,
             };
@@ -1187,15 +1220,9 @@ impl ProviderRouter {
                 // AAD = channel_key(channel_id) — 与 admin handler 加密时一致
                 let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
                 let key_id = record.id;
-                let plaintext = crypto
-                    .open(&record.key_enc, &aad)
-                    .await
-                    .map_err(|e| {
-                        ProviderError::Config(format!(
-                            "decrypt channel key {}: {e}",
-                            record.id
-                        ))
-                    })?;
+                let plaintext = crypto.open(&record.key_enc, &aad).await.map_err(|e| {
+                    ProviderError::Config(format!("decrypt channel key {}: {e}", record.id))
+                })?;
                 let key_str = String::from_utf8(plaintext.to_vec()).map_err(|e| {
                     ProviderError::Config(format!("channel key is not valid UTF-8: {e}"))
                 })?;
@@ -1270,7 +1297,11 @@ mod tests {
 
     // ---- helpers for model-filter routing tests (G7) ----
 
-    fn make_channel_with_models(code: &str, provider_type: &str, models: Vec<String>) -> ChannelRecord {
+    fn make_channel_with_models(
+        code: &str,
+        provider_type: &str,
+        models: Vec<String>,
+    ) -> ChannelRecord {
         let now = Utc::now();
         ChannelRecord {
             channel_id: ChannelId::from(Uuid::now_v7()),
@@ -1332,11 +1363,12 @@ mod tests {
 
     #[tokio::test]
     async fn model_filter_matching_channel_selected() {
-        let (pid, router) = setup_fixtures(&[
-            ("ch-gpt", "openai", vec!["gpt-4o".into()], 1),
-        ]);
+        let (pid, router) = setup_fixtures(&[("ch-gpt", "openai", vec!["gpt-4o".into()], 1)]);
         let result = router.route(pid, "gpt-4o").await.unwrap();
-        assert!(result.is_some(), "channel with matching model should be routed");
+        assert!(
+            result.is_some(),
+            "channel with matching model should be routed"
+        );
         assert_eq!(result.unwrap().resolved_model, "gpt-4o");
     }
 
@@ -1354,11 +1386,12 @@ mod tests {
 
     #[tokio::test]
     async fn model_filter_empty_supported_models_is_wildcard() {
-        let (pid, router) = setup_fixtures(&[
-            ("ch-wildcard", "openai", vec![], 1),
-        ]);
+        let (pid, router) = setup_fixtures(&[("ch-wildcard", "openai", vec![], 1)]);
         let result = router.route(pid, "any-model-name").await.unwrap();
-        assert!(result.is_some(), "empty supported_models should match any model");
+        assert!(
+            result.is_some(),
+            "empty supported_models should match any model"
+        );
         assert_eq!(result.unwrap().resolved_model, "any-model-name");
     }
 
@@ -1369,7 +1402,10 @@ mod tests {
             ("ch-claude", "openai", vec!["claude-3".into()], 2),
         ]);
         let result = router.route(pid, "gemini-pro").await.unwrap();
-        assert!(result.is_none(), "no channel supports gemini-pro, should return None");
+        assert!(
+            result.is_none(),
+            "no channel supports gemini-pro, should return None"
+        );
     }
 
     #[tokio::test]
@@ -1395,9 +1431,7 @@ mod tests {
 
     #[tokio::test]
     async fn model_filter_fallback_model_also_filtered() {
-        let (pid, router) = setup_fixtures(&[
-            ("ch-mini", "openai", vec!["gpt-4o-mini".into()], 1),
-        ]);
+        let (pid, router) = setup_fixtures(&[("ch-mini", "openai", vec!["gpt-4o-mini".into()], 1)]);
         let result = router.route(pid, "gpt-4o").await.unwrap();
         assert!(result.is_some(), "should fallback to gpt-4o-mini");
         assert_eq!(result.unwrap().resolved_model, "gpt-4o-mini");
@@ -1436,9 +1470,7 @@ mod tests {
         (id, rec)
     }
 
-    async fn build_router_with_key(
-        secret: &str,
-    ) -> (ProviderRouter, ChannelId, ProjectId) {
+    async fn build_router_with_key(secret: &str) -> (ProviderRouter, ChannelId, ProjectId) {
         use gate_crypto::kms::{EnvKms, generate_master_key_b64};
 
         let (ch_id, ch_rec) = make_channel_simple("test-ch");
@@ -1497,8 +1529,7 @@ mod tests {
 
     #[tokio::test]
     async fn router_prefers_db_key_over_env() {
-        let (router, _ch_id, project_id) =
-            build_router_with_key("sk-from-database-secret").await;
+        let (router, _ch_id, project_id) = build_router_with_key("sk-from-database-secret").await;
         let result = router.route(project_id, "gpt-4o").await.unwrap();
         assert!(result.is_some());
         let routed = result.unwrap();
@@ -1530,11 +1561,13 @@ mod tests {
         grp_repo.seed_default(project_id, group_id);
 
         let ck_repo = Arc::new(InMemoryChannelKeyRepo::new());
-        let router = ProviderRouter::new(ch_repo, grp_repo)
-            .with_channel_key_repo(ck_repo);
+        let router = ProviderRouter::new(ch_repo, grp_repo).with_channel_key_repo(ck_repo);
 
         let result = router.route(project_id, "gpt-4o").await.unwrap();
-        assert!(result.is_some(), "should fallback to env var and still route");
+        assert!(
+            result.is_some(),
+            "should fallback to env var and still route"
+        );
     }
 
     #[tokio::test]
@@ -1577,7 +1610,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resolved, secret);
-        assert!(key_id.is_some(), "key_id should be Some when resolved from DB");
+        assert!(
+            key_id.is_some(),
+            "key_id should be Some when resolved from DB"
+        );
     }
 
     // ============================================================================
@@ -1680,7 +1716,8 @@ mod tests {
         // Should cycle: A, B, C, A, B, C, A, B, C
         for i in 0..9 {
             assert_eq!(
-                sequence[i], ch_ids[i % 3],
+                sequence[i],
+                ch_ids[i % 3],
                 "round_robin mismatch at position {i}"
             );
         }
@@ -1688,8 +1725,7 @@ mod tests {
 
     #[tokio::test]
     async fn round_robin_single_channel() {
-        let (pid, router, ch_ids) =
-            setup_strategy_fixtures("round_robin", &[("ch-only", 1, 1)]);
+        let (pid, router, ch_ids) = setup_strategy_fixtures("round_robin", &[("ch-only", 1, 1)]);
 
         for _ in 0..10 {
             let routed = router.route(pid, "any").await.unwrap().unwrap();
@@ -1701,10 +1737,8 @@ mod tests {
 
     #[tokio::test]
     async fn least_conn_prefers_channel_with_fewer_inflight() {
-        let (pid, router, ch_ids) = setup_strategy_fixtures(
-            "least_conn",
-            &[("ch-a", 1, 1), ("ch-b", 2, 1)],
-        );
+        let (pid, router, ch_ids) =
+            setup_strategy_fixtures("least_conn", &[("ch-a", 1, 1), ("ch-b", 2, 1)]);
 
         // First request → both at 0, should pick first (A) due to min_by_key stability
         let r1 = router.route(pid, "any").await.unwrap().unwrap();
@@ -1712,11 +1746,17 @@ mod tests {
 
         // A now has inflight=1, B has 0 → next should go to B
         let r2 = router.route(pid, "any").await.unwrap().unwrap();
-        assert_eq!(r2.channel_id, ch_ids[1], "second request should go to B (less inflight)");
+        assert_eq!(
+            r2.channel_id, ch_ids[1],
+            "second request should go to B (less inflight)"
+        );
 
         // Both have inflight=1 → should pick A (first in iter with equal count)
         let r3 = router.route(pid, "any").await.unwrap().unwrap();
-        assert_eq!(r3.channel_id, ch_ids[0], "third request should go to A (tie-break by priority)");
+        assert_eq!(
+            r3.channel_id, ch_ids[0],
+            "third request should go to A (tie-break by priority)"
+        );
 
         // Release A twice → A has 0, B has 1
         router.release_channel(ch_ids[0]);
@@ -1746,10 +1786,8 @@ mod tests {
 
     #[tokio::test]
     async fn priority_strategy_still_picks_lowest_priority() {
-        let (pid, router, ch_ids) = setup_strategy_fixtures(
-            "priority",
-            &[("ch-low", 10, 1), ("ch-high", 1, 1)],
-        );
+        let (pid, router, ch_ids) =
+            setup_strategy_fixtures("priority", &[("ch-low", 10, 1), ("ch-high", 1, 1)]);
 
         // Should always pick ch-high (priority=1)
         for _ in 0..10 {
@@ -1760,10 +1798,8 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_strategy_falls_back_to_priority() {
-        let (pid, router, ch_ids) = setup_strategy_fixtures(
-            "unknown_strat",
-            &[("ch-low", 10, 1), ("ch-high", 1, 1)],
-        );
+        let (pid, router, ch_ids) =
+            setup_strategy_fixtures("unknown_strat", &[("ch-low", 10, 1), ("ch-high", 1, 1)]);
 
         let routed = router.route(pid, "any").await.unwrap().unwrap();
         assert_eq!(routed.channel_id, ch_ids[1]);
@@ -1815,7 +1851,8 @@ mod tests {
             created_at: now,
             updated_at: now,
         });
-        let ch_claude = make_channel_with_models("ch-claude", "anthropic", vec!["claude-3-haiku".into()]);
+        let ch_claude =
+            make_channel_with_models("ch-claude", "anthropic", vec!["claude-3-haiku".into()]);
         let ch_claude_id = ch_claude.channel_id;
         channel_repo.seed_channel(ch_claude);
         channel_repo.seed_binding(fallback_group_id, ch_claude_id, 1, 1);
@@ -1857,7 +1894,10 @@ mod tests {
 
         let router = ProviderRouter::new(channel_repo, group_repo);
         let result = router.route(project_id, "gpt-4o").await.unwrap();
-        assert!(result.is_none(), "disabled group with no fallback should return None");
+        assert!(
+            result.is_none(),
+            "disabled group with no fallback should return None"
+        );
     }
 
     /// Disabled primary group → fallback to enabled group with a channel.
@@ -1901,7 +1941,10 @@ mod tests {
 
         let router = ProviderRouter::new(channel_repo, group_repo);
         let result = router.route(project_id, "gpt-4o").await.unwrap();
-        assert!(result.is_some(), "should route through fallback after disabled primary");
+        assert!(
+            result.is_some(),
+            "should route through fallback after disabled primary"
+        );
         assert_eq!(result.unwrap().channel_id, ch_id);
     }
 

@@ -369,8 +369,8 @@ impl UserIdentityRepo for PgUserIdentityRepo {
 // In-memory 实现（测试用）
 // ----------------------------------------------------------------------------
 
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct InMemoryIdentityProviderRepo {

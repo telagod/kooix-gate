@@ -123,9 +123,7 @@ fn normalize_path(path: &str) -> String {
 /// Quick heuristic: 32-36 chars of hex + dashes.
 fn looks_like_uuid(s: &str) -> bool {
     let len = s.len();
-    (len == 32 || len == 36)
-        && s.chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-')
+    (len == 32 || len == 36) && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
 #[cfg(test)]
@@ -146,14 +144,15 @@ mod tests {
 
     #[test]
     fn normalize_multiple_uuids() {
-        let path = "/v1/orgs/550e8400e29b41d4a716446655440000/projects/660e8400e29b41d4a716446655440001";
+        let path =
+            "/v1/orgs/550e8400e29b41d4a716446655440000/projects/660e8400e29b41d4a716446655440001";
         assert_eq!(normalize_path(path), "/v1/orgs/:id/projects/:id");
     }
 
     #[test]
     fn uuid_detection() {
         assert!(looks_like_uuid("550e8400-e29b-41d4-a716-446655440000")); // 36 chars dashed
-        assert!(looks_like_uuid("550e8400e29b41d4a716446655440000"));     // 32 chars simple
+        assert!(looks_like_uuid("550e8400e29b41d4a716446655440000")); // 32 chars simple
         assert!(!looks_like_uuid("projects"));
         assert!(!looks_like_uuid("me"));
     }

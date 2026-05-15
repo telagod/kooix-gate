@@ -17,8 +17,8 @@ use gate_core::identity::{
     OrgRole, OrgStatus, Organization, PlatformRole, Project, ProjectRole, ProjectStatus, User,
     UserStatus,
 };
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 // ----------------------------------------------------------------------------
@@ -142,7 +142,13 @@ impl UserRepo for InMemoryUserRepo {
     }
 
     async fn list_all(&self, _limit: i64, _offset: i64) -> DbResult<Vec<User>> {
-        Ok(self.inner.read().users.values().map(|(u, _)| u.clone()).collect())
+        Ok(self
+            .inner
+            .read()
+            .users
+            .values()
+            .map(|(u, _)| u.clone())
+            .collect())
     }
 
     async fn update_status(&self, id: UserId, status: &str) -> DbResult<User> {
@@ -242,11 +248,20 @@ impl OrgRepo for InMemoryOrgRepo {
         Ok(self.inner.read().orgs.values().cloned().collect())
     }
 
-    async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization> {
+    async fn update(
+        &self,
+        id: OrgId,
+        name: Option<&str>,
+        billing_email: Option<&str>,
+    ) -> DbResult<Organization> {
         let mut g = self.inner.write();
         let org = g.orgs.get_mut(&id).ok_or(DbError::NotFound)?;
-        if let Some(n) = name { org.name = n.to_string(); }
-        if let Some(e) = billing_email { org.billing_email = Some(e.to_string()); }
+        if let Some(n) = name {
+            org.name = n.to_string();
+        }
+        if let Some(e) = billing_email {
+            org.billing_email = Some(e.to_string());
+        }
         org.updated_at = Utc::now();
         Ok(org.clone())
     }
@@ -273,11 +288,7 @@ impl InMemoryProjectRepo {
 #[async_trait]
 impl ProjectRepo for InMemoryProjectRepo {
     async fn find_by_id(&self, id: ProjectId) -> DbResult<Project> {
-        self.inner
-            .read()
-            .get(&id)
-            .cloned()
-            .ok_or(DbError::NotFound)
+        self.inner.read().get(&id).cloned().ok_or(DbError::NotFound)
     }
 
     async fn list_in_org(&self, org_id: OrgId) -> DbResult<Vec<Project>> {
@@ -314,10 +325,17 @@ impl ProjectRepo for InMemoryProjectRepo {
         Ok(project)
     }
 
-    async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project> {
+    async fn update(
+        &self,
+        id: ProjectId,
+        name: Option<&str>,
+        status: Option<&str>,
+    ) -> DbResult<Project> {
         let mut g = self.inner.write();
         let project = g.get_mut(&id).ok_or(DbError::NotFound)?;
-        if let Some(n) = name { project.name = n.to_string(); }
+        if let Some(n) = name {
+            project.name = n.to_string();
+        }
         if let Some(s) = status {
             project.status = match s {
                 "active" => ProjectStatus::Active,

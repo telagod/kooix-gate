@@ -1,12 +1,11 @@
 //! OpenAI 兼容 provider —— 直接透传 + embedding。
 
-use crate::{AudioProvider, EmbeddingProvider, ImageProvider, Provider};
 use crate::error::{ProviderError, ProviderResult};
 use crate::types::{
-    AudioSpeechRequest, AudioTranscriptionResponse,
-    ChatRequest, ChatResponse, ChatStreamChunk, EmbeddingRequest, EmbeddingResponse,
-    ImageGenerationRequest, ImageGenerationResponse,
+    AudioSpeechRequest, AudioTranscriptionResponse, ChatRequest, ChatResponse, ChatStreamChunk,
+    EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, ImageGenerationResponse,
 };
+use crate::{AudioProvider, EmbeddingProvider, ImageProvider, Provider};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};

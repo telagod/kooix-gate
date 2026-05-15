@@ -99,9 +99,9 @@ impl RedisChannelRateLimiter {
         let v: fred::types::RedisValue = self.limiter.pool().next().get(key.to_string()).await?;
         match v {
             fred::types::RedisValue::Null => Ok(0),
-            other => other
-                .as_u64()
-                .ok_or_else(|| gate_cache::CacheError::Shape(format!("expected int, got {other:?}"))),
+            other => other.as_u64().ok_or_else(|| {
+                gate_cache::CacheError::Shape(format!("expected int, got {other:?}"))
+            }),
         }
     }
 

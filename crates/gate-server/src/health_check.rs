@@ -114,9 +114,12 @@ impl HealthChecker {
             }
 
             // catch_unwind 隔离单个渠道的 panic
-            let result = std::panic::AssertUnwindSafe(
-                self.check_one(client, ch, consecutive_failures, is_cooldown),
-            );
+            let result = std::panic::AssertUnwindSafe(self.check_one(
+                client,
+                ch,
+                consecutive_failures,
+                is_cooldown,
+            ));
             if let Err(e) = futures::FutureExt::catch_unwind(result).await {
                 tracing::error!(
                     channel = %ch.code,
@@ -143,19 +146,23 @@ impl HealthChecker {
             "anthropic" => {
                 let url = format!("{base}/v1/models");
                 let mut h = reqwest::header::HeaderMap::new();
-                if let Some(ref token) = bearer_token {
-                    if let Ok(v) = token.parse() { h.insert("x-api-key", v); }
+                if let Some(ref token) = bearer_token
+                    && let Ok(v) = token.parse()
+                {
+                    h.insert("x-api-key", v);
                 }
-                if let Ok(v) = "2023-06-01".parse() { h.insert("anthropic-version", v); }
+                if let Ok(v) = "2023-06-01".parse() {
+                    h.insert("anthropic-version", v);
+                }
                 (url, h)
             }
             _ => {
                 let url = format!("{base}/v1/models");
                 let mut h = reqwest::header::HeaderMap::new();
-                if let Some(ref token) = bearer_token {
-                    if let Ok(v) = format!("Bearer {token}").parse() {
-                        h.insert("authorization", v);
-                    }
+                if let Some(ref token) = bearer_token
+                    && let Ok(v) = format!("Bearer {token}").parse()
+                {
+                    h.insert("authorization", v);
                 }
                 (url, h)
             }
@@ -180,13 +187,22 @@ impl HealthChecker {
                                 .and_then(|d| d.as_array())
                                 .map(|arr| {
                                     arr.iter()
-                                        .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                                        .filter_map(|m| {
+                                            m.get("id")
+                                                .and_then(|id| id.as_str())
+                                                .map(|s| s.to_string())
+                                        })
                                         .collect()
                                 })
                                 .unwrap_or_default();
 
                             if !models.is_empty() {
-                                match self.repos.channels.sync_models(ch.channel_id, &models).await {
+                                match self
+                                    .repos
+                                    .channels
+                                    .sync_models(ch.channel_id, &models)
+                                    .await
+                                {
                                     Ok(true) => {
                                         tracing::info!(
                                             channel = %ch.code,
@@ -252,12 +268,8 @@ impl HealthChecker {
                     }
                     408 => {
                         // 超时：累计失败，≥3 次 auto_disable
-                        self.handle_transient_failure(
-                            ch,
-                            consecutive_failures,
-                            "timeout: 408",
-                        )
-                        .await;
+                        self.handle_transient_failure(ch, consecutive_failures, "timeout: 408")
+                            .await;
                     }
                     other => {
                         // 其他错误码：累计

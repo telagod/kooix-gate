@@ -23,10 +23,18 @@ pub struct SetupRequest {
     pub project_slug: String,
 }
 
-fn default_org_name() -> String { "default".into() }
-fn default_org_slug() -> String { "default".into() }
-fn default_project_name() -> String { "default".into() }
-fn default_project_slug() -> String { "default".into() }
+fn default_org_name() -> String {
+    "default".into()
+}
+fn default_org_slug() -> String {
+    "default".into()
+}
+fn default_project_name() -> String {
+    "default".into()
+}
+fn default_project_slug() -> String {
+    "default".into()
+}
 
 #[derive(Serialize)]
 pub struct SetupResponse {
@@ -69,9 +77,10 @@ async fn setup(
         .create(req.email.trim(), Some(&phash), None)
         .await?;
 
-    let pool = app.repos.pool().ok_or_else(|| {
-        AppError::Internal("setup 需要 PostgreSQL 连接".into())
-    })?;
+    let pool = app
+        .repos
+        .pool()
+        .ok_or_else(|| AppError::Internal("setup 需要 PostgreSQL 连接".into()))?;
 
     sqlx::query("INSERT INTO platform_admins (user_id, role) VALUES ($1, 'super_admin')")
         .bind(user.id.as_uuid())

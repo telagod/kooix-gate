@@ -24,14 +24,17 @@ pub mod router;
 pub mod types;
 
 pub use error::{ProviderError, ProviderResult};
-pub use router::{ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter, InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider};
+pub use router::{
+    ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,
+    InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider,
+};
 pub use types::{
-    AudioSpeechRequest, AudioTranscriptionResponse,
-    ChatChoice, ChatDelta, ChatMessage, ChatRequest, ChatResponse, ChatStreamChunk,
-    ChatStreamChoice, ContentPart, ContentType, EmbeddingInput, EmbeddingRequest,
-    EmbeddingResponse, EmbeddingUsage, FinishReason, FunctionCall, FunctionDef,
-    ImageData, ImageGenerationRequest, ImageGenerationResponse, ImageUrl,
-    MessageContent, ModelInfo, ModelListResponse, Role, ToolCall, ToolCallDelta, ToolDef, Usage,
+    AudioSpeechRequest, AudioTranscriptionResponse, ChatChoice, ChatDelta, ChatMessage,
+    ChatRequest, ChatResponse, ChatStreamChoice, ChatStreamChunk, ContentPart, ContentType,
+    EmbeddingInput, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage, FinishReason,
+    FunctionCall, FunctionDef, ImageData, ImageGenerationRequest, ImageGenerationResponse,
+    ImageUrl, MessageContent, ModelInfo, ModelListResponse, Role, ToolCall, ToolCallDelta, ToolDef,
+    Usage,
 };
 
 use async_trait::async_trait;
@@ -44,7 +47,9 @@ pub struct ProviderOpts {
 
 impl Default for ProviderOpts {
     fn default() -> Self {
-        Self { timeout_ms: 600_000 } // 10 min default
+        Self {
+            timeout_ms: 600_000,
+        } // 10 min default
     }
 }
 

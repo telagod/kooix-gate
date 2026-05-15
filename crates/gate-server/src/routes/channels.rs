@@ -10,6 +10,7 @@
 
 use crate::auth::Authed;
 use crate::error::AppResult;
+use crate::flex_uuid::FlexUuid;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::{Json, Router, routing::get};
@@ -18,8 +19,6 @@ use gate_auth::{require, require_user};
 use gate_core::id::OrgId;
 use gate_core::rbac::{Permission, Scope};
 use serde::Serialize;
-use uuid::Uuid;
-use crate::flex_uuid::FlexUuid;
 
 #[derive(Serialize)]
 pub struct ChannelView {

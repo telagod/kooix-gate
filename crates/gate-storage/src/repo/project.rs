@@ -16,7 +16,12 @@ pub trait ProjectRepo: Send + Sync + 'static {
 
     async fn create(&self, org_id: OrgId, name: &str, slug: &str) -> DbResult<Project>;
 
-    async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project>;
+    async fn update(
+        &self,
+        id: ProjectId,
+        name: Option<&str>,
+        status: Option<&str>,
+    ) -> DbResult<Project>;
 }
 
 pub struct PgProjectRepo {
@@ -100,7 +105,12 @@ impl ProjectRepo for PgProjectRepo {
         row_to_project(&row)
     }
 
-    async fn update(&self, id: ProjectId, name: Option<&str>, status: Option<&str>) -> DbResult<Project> {
+    async fn update(
+        &self,
+        id: ProjectId,
+        name: Option<&str>,
+        status: Option<&str>,
+    ) -> DbResult<Project> {
         let row = sqlx::query(&format!(
             "UPDATE projects SET \
              name = COALESCE($2, name), \

@@ -1,9 +1,9 @@
 //! 渠道健康探活后台任务。
 
 use crate::state::AppState;
+use gate_core::id::ChannelId;
 use std::collections::HashMap;
 use std::time::Duration;
-use gate_core::id::ChannelId;
 use tokio::time::interval;
 
 pub fn spawn(state: AppState) {
@@ -20,13 +20,23 @@ pub fn spawn(state: AppState) {
             ticker.tick().await;
             let channels = match state.repos.channels.list_admin_view().await {
                 Ok(c) => c,
-                Err(e) => { tracing::warn!(error = %e, "health_probe: failed to list channels"); continue; }
+                Err(e) => {
+                    tracing::warn!(error = %e, "health_probe: failed to list channels");
+                    continue;
+                }
             };
 
             for ch in &channels {
-                if ch.status != "active" { continue; }
+                if ch.status != "active" {
+                    continue;
+                }
                 let url = format!("{}/models", ch.base_url.trim_end_matches('/'));
-                let ok = client.get(&url).timeout(Duration::from_secs(5)).send().await.is_ok();
+                let ok = client
+                    .get(&url)
+                    .timeout(Duration::from_secs(5))
+                    .send()
+                    .await
+                    .is_ok();
 
                 let count = failures.entry(ch.channel_id).or_insert(0);
                 if ok {
@@ -49,7 +59,13 @@ pub fn spawn(state: AppState) {
             for ch in &channels {
                 if ch.status == "disabled" && ch.health == "unhealthy" {
                     let url = format!("{}/models", ch.base_url.trim_end_matches('/'));
-                    if client.get(&url).timeout(Duration::from_secs(5)).send().await.is_ok() {
+                    if client
+                        .get(&url)
+                        .timeout(Duration::from_secs(5))
+                        .send()
+                        .await
+                        .is_ok()
+                    {
                         if let Err(e) = state.repos.channels.re_enable(ch.channel_id).await {
                             tracing::warn!(
                                 channel = %ch.code,

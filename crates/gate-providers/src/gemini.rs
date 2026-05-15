@@ -1,9 +1,9 @@
 //! Gemini 适配器 — Google OpenAI-compat endpoint.
 
-use crate::{EmbeddingProvider, Provider};
 use crate::error::ProviderResult;
 use crate::openai::OpenAiProvider;
 use crate::types::*;
+use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 
@@ -31,7 +31,9 @@ impl GeminiProvider {
 
 #[async_trait]
 impl Provider for GeminiProvider {
-    fn name(&self) -> &'static str { "gemini" }
+    fn name(&self) -> &'static str {
+        "gemini"
+    }
 
     async fn chat(&self, req: ChatRequest) -> ProviderResult<ChatResponse> {
         self.inner.chat(req).await
@@ -47,7 +49,9 @@ impl Provider for GeminiProvider {
 
 #[async_trait]
 impl EmbeddingProvider for GeminiProvider {
-    fn name(&self) -> &'static str { "gemini" }
+    fn name(&self) -> &'static str {
+        "gemini"
+    }
 
     async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse> {
         self.inner.embed(req).await

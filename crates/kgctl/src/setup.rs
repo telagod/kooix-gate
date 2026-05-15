@@ -72,10 +72,9 @@ pub async fn run() -> Result<()> {
     if env_exists {
         println!("[ 1/6 ] 检测到 .env 已存在，从中读取配置。");
         load_dotenv();
-        db_url = std::env::var("KOOIX_DATABASE_URL")
-            .context("KOOIX_DATABASE_URL 未在 .env 中设置")?;
-        redis_url = std::env::var("KOOIX_REDIS_URL")
-            .context("KOOIX_REDIS_URL 未在 .env 中设置")?;
+        db_url =
+            std::env::var("KOOIX_DATABASE_URL").context("KOOIX_DATABASE_URL 未在 .env 中设置")?;
+        redis_url = std::env::var("KOOIX_REDIS_URL").context("KOOIX_REDIS_URL 未在 .env 中设置")?;
     } else {
         println!("[ 1/6 ] 生成 .env 配置文件");
         println!();
@@ -106,8 +105,7 @@ RUST_LOG=info,gate_server=debug
 "
         );
 
-        std::fs::write(ENV_FILE, &env_content)
-            .with_context(|| format!("写 {ENV_FILE} 失败"))?;
+        std::fs::write(ENV_FILE, &env_content).with_context(|| format!("写 {ENV_FILE} 失败"))?;
         println!("  ✓ .env 已写入（密钥已自动生成）");
         println!();
 
@@ -143,23 +141,19 @@ RUST_LOG=info,gate_server=debug
     gate_storage::run_migrations(&pool)
         .await
         .context("migration 执行失败")?;
-    let version: Option<i64> = sqlx::query_scalar(
-        "SELECT MAX(version) FROM _sqlx_migrations",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(None);
+    let version: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(None);
     println!("  ✓ 迁移完成 (latest: {})", version.unwrap_or(0));
     println!();
 
     // ── Step 4: Super Admin ───────────────────────────────────
     println!("[ 4/6 ] 创建平台管理员");
-    let admin_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM platform_admins)",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(false);
+    let admin_exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM platform_admins)")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(false);
 
     let admin_email;
     let admin_user_id: Uuid;
@@ -183,8 +177,7 @@ RUST_LOG=info,gate_server=debug
             anyhow::bail!("密码至少 8 个字符");
         }
 
-        let phash = gate_auth::password::hash(&admin_password)
-            .context("密码哈希失败")?;
+        let phash = gate_auth::password::hash(&admin_password).context("密码哈希失败")?;
 
         admin_user_id = Uuid::now_v7();
         let mut tx = pool.begin().await?;
@@ -199,13 +192,11 @@ RUST_LOG=info,gate_server=debug
         .await
         .context("创建用户失败")?;
 
-        sqlx::query(
-            "INSERT INTO platform_admins (user_id, role) VALUES ($1, 'super_admin')",
-        )
-        .bind(admin_user_id)
-        .execute(&mut *tx)
-        .await
-        .context("授予管理员失败")?;
+        sqlx::query("INSERT INTO platform_admins (user_id, role) VALUES ($1, 'super_admin')")
+            .bind(admin_user_id)
+            .execute(&mut *tx)
+            .await
+            .context("授予管理员失败")?;
 
         tx.commit().await?;
         println!("  ✓ 管理员 {admin_email} 已创建");
@@ -214,22 +205,20 @@ RUST_LOG=info,gate_server=debug
 
     // ── Step 5: Default Org + Project ─────────────────────────
     println!("[ 5/6 ] 创建默认组织和项目");
-    let org_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM organizations WHERE owner_user_id = $1)",
-    )
-    .bind(admin_user_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(false);
+    let org_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM organizations WHERE owner_user_id = $1)")
+            .bind(admin_user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(false);
 
     let org_id: Uuid;
     if org_exists {
-        let row = sqlx::query(
-            "SELECT id, name FROM organizations WHERE owner_user_id = $1 LIMIT 1",
-        )
-        .bind(admin_user_id)
-        .fetch_one(&pool)
-        .await?;
+        let row =
+            sqlx::query("SELECT id, name FROM organizations WHERE owner_user_id = $1 LIMIT 1")
+                .bind(admin_user_id)
+                .fetch_one(&pool)
+                .await?;
         org_id = row.try_get("id")?;
         let org_name: String = row.try_get("name")?;
         println!("  → 已有组织: {org_name} (跳过)");
@@ -251,26 +240,23 @@ RUST_LOG=info,gate_server=debug
         .await
         .context("创建组织失败")?;
 
-        sqlx::query(
-            "INSERT INTO org_memberships (org_id, user_id, role) VALUES ($1, $2, 'owner')",
-        )
-        .bind(org_id)
-        .bind(admin_user_id)
-        .execute(&mut *tx)
-        .await
-        .context("创建组织成员关系失败")?;
+        sqlx::query("INSERT INTO org_memberships (org_id, user_id, role) VALUES ($1, $2, 'owner')")
+            .bind(org_id)
+            .bind(admin_user_id)
+            .execute(&mut *tx)
+            .await
+            .context("创建组织成员关系失败")?;
 
         tx.commit().await?;
         println!("  ✓ 组织 \"{org_name}\" 已创建");
     }
 
-    let proj_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM projects WHERE org_id = $1)",
-    )
-    .bind(org_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(false);
+    let proj_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM projects WHERE org_id = $1)")
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(false);
 
     if proj_exists {
         println!("  → 已有项目 (跳过)");

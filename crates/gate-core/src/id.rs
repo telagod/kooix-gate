@@ -30,7 +30,8 @@ fn parse_typed_or_raw(prefix: &str, s: &str) -> Result<Uuid, String> {
     if let Some(hex) = s.strip_prefix(&expected_prefix) {
         Uuid::parse_str(hex).map_err(|e| format!("invalid {prefix} id: {e}"))
     } else {
-        Uuid::parse_str(s).map_err(|e| format!("invalid id (expected {prefix}_... or raw UUID): {e}"))
+        Uuid::parse_str(s)
+            .map_err(|e| format!("invalid id (expected {prefix}_... or raw UUID): {e}"))
     }
 }
 
@@ -108,19 +109,27 @@ pub struct FlexUuid(pub Uuid);
 
 impl std::ops::Deref for FlexUuid {
     type Target = Uuid;
-    fn deref(&self) -> &Uuid { &self.0 }
+    fn deref(&self) -> &Uuid {
+        &self.0
+    }
 }
 
 impl fmt::Display for FlexUuid {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 impl From<FlexUuid> for Uuid {
-    fn from(f: FlexUuid) -> Self { f.0 }
+    fn from(f: FlexUuid) -> Self {
+        f.0
+    }
 }
 
 impl PartialEq<Uuid> for FlexUuid {
-    fn eq(&self, other: &Uuid) -> bool { self.0 == *other }
+    fn eq(&self, other: &Uuid) -> bool {
+        self.0 == *other
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for FlexUuid {
@@ -130,7 +139,9 @@ impl<'de> serde::Deserialize<'de> for FlexUuid {
             Some(idx) => &s[idx + 1..],
             None => &s,
         };
-        Uuid::parse_str(stripped).map(FlexUuid).map_err(serde::de::Error::custom)
+        Uuid::parse_str(stripped)
+            .map(FlexUuid)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -147,13 +158,19 @@ mod tests {
     #[test]
     fn from_str_prefixed() {
         let id: OrgId = "org_019e2c1ba7d17162842207e4b24f5f98".parse().unwrap();
-        assert_eq!(id.0, Uuid::parse_str("019e2c1b-a7d1-7162-8422-07e4b24f5f98").unwrap());
+        assert_eq!(
+            id.0,
+            Uuid::parse_str("019e2c1b-a7d1-7162-8422-07e4b24f5f98").unwrap()
+        );
     }
 
     #[test]
     fn from_str_raw_uuid() {
         let id: OrgId = "019e2c1b-a7d1-7162-8422-07e4b24f5f98".parse().unwrap();
-        assert_eq!(id.0, Uuid::parse_str("019e2c1b-a7d1-7162-8422-07e4b24f5f98").unwrap());
+        assert_eq!(
+            id.0,
+            Uuid::parse_str("019e2c1b-a7d1-7162-8422-07e4b24f5f98").unwrap()
+        );
     }
 
     #[test]
@@ -167,7 +184,11 @@ mod tests {
 
     #[test]
     fn deserialize_raw_uuid_compat() {
-        let parsed: OrgId = serde_json::from_str("\"019e2c1b-a7d1-7162-8422-07e4b24f5f98\"").unwrap();
-        assert_eq!(*parsed.as_uuid(), Uuid::parse_str("019e2c1b-a7d1-7162-8422-07e4b24f5f98").unwrap());
+        let parsed: OrgId =
+            serde_json::from_str("\"019e2c1b-a7d1-7162-8422-07e4b24f5f98\"").unwrap();
+        assert_eq!(
+            *parsed.as_uuid(),
+            Uuid::parse_str("019e2c1b-a7d1-7162-8422-07e4b24f5f98").unwrap()
+        );
     }
 }

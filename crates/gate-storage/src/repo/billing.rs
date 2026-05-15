@@ -7,10 +7,10 @@ use crate::error::{DbError, DbResult};
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use gate_core::id::{OrgId, ProjectId};
+use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use parking_lot::RwLock;
 use uuid::Uuid;
 
 // ============================================================================
@@ -306,9 +306,10 @@ impl BillingRepo for InMemoryBillingRepo {
         // By project — use HashMap keyed on Uuid (ProjectId has no Ord)
         let mut proj_map: HashMap<Uuid, (ProjectId, Decimal, i64)> = HashMap::new();
         for r in &filtered {
-            let e = proj_map
-                .entry(*r.project_id.as_uuid())
-                .or_insert((r.project_id, Decimal::ZERO, 0));
+            let e =
+                proj_map
+                    .entry(*r.project_id.as_uuid())
+                    .or_insert((r.project_id, Decimal::ZERO, 0));
             e.1 += r.cost_usd;
             e.2 += 1;
         }

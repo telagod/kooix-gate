@@ -20,7 +20,12 @@ pub trait OrgRepo: Send + Sync + 'static {
 
     async fn create(&self, name: &str, slug: &str, owner: UserId) -> DbResult<Organization>;
 
-    async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization>;
+    async fn update(
+        &self,
+        id: OrgId,
+        name: Option<&str>,
+        billing_email: Option<&str>,
+    ) -> DbResult<Organization>;
 }
 
 pub struct PgOrgRepo {
@@ -129,7 +134,12 @@ impl OrgRepo for PgOrgRepo {
         rows.iter().map(row_to_org).collect()
     }
 
-    async fn update(&self, id: OrgId, name: Option<&str>, billing_email: Option<&str>) -> DbResult<Organization> {
+    async fn update(
+        &self,
+        id: OrgId,
+        name: Option<&str>,
+        billing_email: Option<&str>,
+    ) -> DbResult<Organization> {
         let row = sqlx::query(&format!(
             "UPDATE organizations SET \
              name = COALESCE($2, name), \
