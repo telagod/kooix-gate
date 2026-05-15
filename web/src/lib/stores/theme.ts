@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -20,6 +20,8 @@ function shouldBeDark(theme: Theme): boolean {
 }
 
 export const theme = writable<Theme>(getInitial());
+
+export const isDark = derived(theme, ($t) => shouldBeDark($t));
 
 function apply(t: Theme) {
 	if (!browser) return;
@@ -44,6 +46,9 @@ export function initTheme() {
 
 	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 		const t = getInitial();
-		if (t === 'system') apply('system');
+		if (t === 'system') {
+			apply('system');
+			theme.set('system');
+		}
 	});
 }

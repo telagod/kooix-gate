@@ -16,6 +16,7 @@
 	import { NODE_CATALOG, PORT_COLORS } from '$lib/flow/types.js';
 	import { canConnect, executeFlow } from '$lib/flow/engine.js';
 	import { loadWorkflows, saveWorkflows, loadActiveId, saveActiveId, createWorkflow } from '$lib/flow/storage.js';
+	import { isDark } from '$lib/stores/theme';
 	import { clsx } from 'clsx';
 	import {
 		Play, Square, Plus, Trash2, ChevronDown, Type,
@@ -58,7 +59,7 @@
 	let showSidebar = $state(true);
 	let showNodeMenu = $state(false);
 	let nodeMenuPos = $state({ x: 0, y: 0 });
-	let colorMode = $state<'light' | 'dark'>('light');
+	let colorMode = $derived<'light' | 'dark'>($isDark ? 'dark' : 'light');
 
 	const nodeIcons: Record<FlowNodeKind, any> = {
 		textInput: Type,
@@ -91,12 +92,6 @@
 			activeId = w.id;
 		}
 		syncFromActive();
-
-		const detectDark = () => { colorMode = document.documentElement.classList.contains('dark') ? 'dark' : 'light'; };
-		detectDark();
-		const obs = new MutationObserver(detectDark);
-		obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-		return () => obs.disconnect();
 	});
 
 	function syncFromActive() {

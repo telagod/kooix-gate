@@ -5,6 +5,8 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import { theme, toggleTheme } from '$lib/stores/theme';
+	import { Sun, Moon, Monitor } from 'lucide-svelte';
 
 	let step = $state(1);
 	let email = $state('');
@@ -80,6 +82,13 @@
 </script>
 
 <div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
+	<button
+		onclick={toggleTheme}
+		class="fixed top-4 right-4 p-2 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 transition-colors"
+		title={$theme === 'light' ? '浅色' : $theme === 'dark' ? '深色' : '跟随系统'}
+	>
+		{#if $theme === 'light'}<Sun size={16} />{:else if $theme === 'dark'}<Moon size={16} />{:else}<Monitor size={16} />{/if}
+	</button>
 	<Card class="w-full max-w-lg p-8">
 		{#if done}
 			<div class="text-center">
