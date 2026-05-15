@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import {
 		getMe,
+		getChannelStats,
 		listChannelKeys,
 		createChannelKey,
 		rotateChannelKey,
@@ -13,7 +14,7 @@
 		updateChannel,
 		listAuditLogs
 	} from '$lib/api.js';
-	import type { ChannelKeySummary, TestResponse, ProbeResponse, AuditLog } from '$lib/api.js';
+	import type { ChannelKeySummary, ChannelStats, TestResponse, ProbeResponse, AuditLog } from '$lib/api.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -25,8 +26,8 @@
 	let loading = $state(true);
 	let error = $state('');
 
-	// Channel info (fetched via stats endpoint)
-	let channelStats = $state<any>(null);
+	// Channel info
+	let channelStats = $state<ChannelStats | null>(null);
 
 	// Keys
 	let keys = $state<ChannelKeySummary[]>([]);
@@ -87,10 +88,7 @@
 
 	async function loadStats() {
 		try {
-			const resp = await fetch(`/api/v1/admin/channels/${channelId}/stats`);
-			// Fallback: use apiFetch pattern
-			const { apiFetch } = await import('$lib/api.js');
-			channelStats = await (apiFetch as any)(`/v1/admin/channels/${channelId}/stats`);
+			channelStats = await getChannelStats(channelId);
 		} catch (err: any) {
 			error = err?.message ?? '加载失败';
 		}

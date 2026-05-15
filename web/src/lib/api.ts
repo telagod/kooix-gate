@@ -369,6 +369,19 @@ export async function batchDeleteChannels(ids: string[]): Promise<{ affected: nu
 	});
 }
 
+// Channel stats (single channel detail)
+export interface ChannelStats {
+	channel: Channel;
+	keys_count: number;
+	keys_healthy: number;
+	total_requests: number;
+	total_errors: number;
+}
+
+export async function getChannelStats(channelId: string): Promise<ChannelStats> {
+	return apiFetch<ChannelStats>(`/v1/admin/channels/${channelId}/stats`);
+}
+
 // Channel probe (model discovery)
 export interface ProbeResponse {
 	channel_id: string;
