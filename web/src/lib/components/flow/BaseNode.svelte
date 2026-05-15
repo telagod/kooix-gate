@@ -6,6 +6,12 @@
 
 	let { data, id }: { data: FlowNodeData; id: string } = $props();
 	let meta = $derived(NODE_CATALOG[data.kind]);
+
+	function handleTop(index: number, total: number): string {
+		if (total === 1) return '50%';
+		const step = 100 / (total + 1);
+		return `${step * (index + 1)}%`;
+	}
 </script>
 
 <div class={clsx(
@@ -45,31 +51,23 @@
 		</div>
 	{/if}
 
-	<!-- Input handles -->
+	<!-- Input handles (left) -->
 	{#each meta.inputs as port, i}
 		<Handle
 			type="target"
 			position={Position.Left}
 			id={port.id}
-			style="top: {40 + (i + 1) * 28}px; background: {PORT_COLORS[port.type]}; width: 10px; height: 10px; border: 2px solid white;"
+			style="top: {handleTop(i, meta.inputs.length)}; background: {PORT_COLORS[port.type]}; width: 10px; height: 10px; border: 2px solid white;"
 		/>
-		<div class="absolute text-[9px] text-zinc-400 dark:text-zinc-500 pointer-events-none"
-			style="left: 14px; top: {34 + (i + 1) * 28}px;">
-			{port.label}
-		</div>
 	{/each}
 
-	<!-- Output handles -->
+	<!-- Output handles (right) -->
 	{#each meta.outputs as port, i}
 		<Handle
 			type="source"
 			position={Position.Right}
 			id={port.id}
-			style="top: {40 + (i + 1) * 28}px; background: {PORT_COLORS[port.type]}; width: 10px; height: 10px; border: 2px solid white;"
+			style="top: {handleTop(i, meta.outputs.length)}; background: {PORT_COLORS[port.type]}; width: 10px; height: 10px; border: 2px solid white;"
 		/>
-		<div class="absolute text-[9px] text-zinc-400 dark:text-zinc-500 pointer-events-none text-right"
-			style="right: 14px; top: {34 + (i + 1) * 28}px;">
-			{port.label}
-		</div>
 	{/each}
 </div>
