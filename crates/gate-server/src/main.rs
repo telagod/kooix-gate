@@ -144,6 +144,27 @@ async fn main() -> anyhow::Result<()> {
     // 带 auth + advisory lock + 分级处理的健康巡检
     gate_server::health_check::spawn(&state);
 
+    // 定价自动同步（每 24h 从 LiteLLM 拉取）
+    if let Some(pool) = state.repos.pool() {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            // 启动时立即同步一次
+            match gate_billing::pricing_sync::sync_from_litellm_upsert(&pool).await {
+                Ok((n, s)) => tracing::info!(upserted = n, skipped = s, "initial pricing sync done"),
+                Err(e) => tracing::warn!(error = %e, "initial pricing sync failed"),
+            }
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                match gate_billing::pricing_sync::sync_from_litellm_upsert(&pool).await {
+                    Ok((n, s)) => tracing::info!(upserted = n, skipped = s, "pricing sync done"),
+                    Err(e) => tracing::warn!(error = %e, "pricing sync failed"),
+                }
+            }
+        });
+    }
+
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
         .await
         .context("binding listener")?;

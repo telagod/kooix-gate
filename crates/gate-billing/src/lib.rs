@@ -14,6 +14,7 @@
 pub mod consumer;
 pub mod outbox;
 pub mod pricing;
+pub mod pricing_sync;
 pub mod types;
 
 pub use consumer::Consumer;
