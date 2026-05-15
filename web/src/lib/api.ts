@@ -1230,3 +1230,50 @@ export async function getOrgFilterOptions(orgId: string, hours = 168): Promise<F
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }
+
+// ── Pricing Rules ────────────────────────────────
+
+export interface PricingRule {
+	id: string;
+	channel_id: string | null;
+	model: string;
+	dimension: string;
+	unit: string;
+	rate: number;
+	conditions: Record<string, any>;
+	effective_from: string;
+	effective_until: string | null;
+	priority: number;
+	description: string | null;
+}
+
+export interface UpsertPricingRuleRequest {
+	id?: string;
+	channel_id?: string | null;
+	model: string;
+	dimension: string;
+	unit: string;
+	rate: number;
+	conditions?: Record<string, any>;
+	priority?: number;
+	description?: string | null;
+}
+
+export async function listPricingRules(channelId?: string, model?: string): Promise<PricingRule[]> {
+	const params = new URLSearchParams();
+	if (channelId) params.set('channel_id', channelId);
+	if (model) params.set('model', model);
+	const q = params.toString();
+	return apiFetch<PricingRule[]>(`/v1/admin/pricing-rules${q ? '?' + q : ''}`);
+}
+
+export async function upsertPricingRule(data: UpsertPricingRuleRequest): Promise<PricingRule> {
+	return apiFetch<PricingRule>('/v1/admin/pricing-rules', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function deletePricingRule(id: string): Promise<void> {
+	await apiFetch(`/v1/admin/pricing-rules/${rawId(id)}`, { method: 'DELETE' });
+}

@@ -181,6 +181,8 @@ pub fn router() -> Router<AppState> {
         .route("/projects/:id/default-group", axum::routing::put(set_project_default_group))
         .route("/orgs/:org_id/members", get(list_org_members).post(add_org_member))
         .route("/orgs/:org_id/members/:user_id", axum::routing::delete(remove_org_member_handler))
+        .route("/pricing-rules", get(list_pricing_rules).post(upsert_pricing_rule))
+        .route("/pricing-rules/:id", axum::routing::delete(delete_pricing_rule))
 }
 
 async fn list_channels(
@@ -1681,4 +1683,122 @@ async fn resolve_probe_key(app: &AppState, channel_id: ChannelId, code: &str) ->
     std::env::var(&env_key)
         .or_else(|_| std::env::var("KOOIX_API_KEY"))
         .unwrap_or_default()
+}
+
+// ─── Pricing Rules CRUD ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PricingRulesQuery {
+    channel_id: Option<Uuid>,
+    model: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PricingRuleRow {
+    id: String,
+    channel_id: Option<String>,
+    model: String,
+    dimension: String,
+    unit: String,
+    rate: f64,
+    conditions: serde_json::Value,
+    effective_from: DateTime<Utc>,
+    effective_until: Option<DateTime<Utc>>,
+    priority: i32,
+    description: Option<String>,
+}
+
+fn rule_to_row(r: &gate_billing::PricingRule) -> PricingRuleRow {
+    PricingRuleRow {
+        id: r.id.to_string(),
+        channel_id: r.channel_id.map(|c| gate_core::id::ChannelId::from(c).to_string()),
+        model: r.model.clone(),
+        dimension: r.dimension.clone(),
+        unit: r.unit.clone(),
+        rate: r.rate,
+        conditions: r.conditions.clone(),
+        effective_from: r.effective_from,
+        effective_until: r.effective_until,
+        priority: r.priority,
+        description: r.description.clone(),
+    }
+}
+
+async fn list_pricing_rules(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Query(q): Query<PricingRulesQuery>,
+) -> AppResult<Json<Vec<PricingRuleRow>>> {
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+    let pricing = app.pricing.as_ref().ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+    let rules = pricing.list_rules(q.channel_id, q.model.as_deref()).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(Json(rules.iter().map(rule_to_row).collect()))
+}
+
+#[derive(Deserialize)]
+struct UpsertPricingRuleRequest {
+    id: Option<Uuid>,
+    channel_id: Option<Uuid>,
+    model: String,
+    dimension: String,
+    unit: String,
+    rate: f64,
+    #[serde(default)]
+    conditions: serde_json::Value,
+    effective_from: Option<DateTime<Utc>>,
+    effective_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    priority: i32,
+    description: Option<String>,
+}
+
+async fn upsert_pricing_rule(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<UpsertPricingRuleRequest>,
+) -> AppResult<Json<PricingRuleRow>> {
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+    let pricing = app.pricing.as_ref().ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+
+    let rule = gate_billing::PricingRule {
+        id: req.id.unwrap_or_else(Uuid::now_v7),
+        channel_id: req.channel_id,
+        model: req.model,
+        dimension: req.dimension,
+        unit: req.unit,
+        rate: req.rate,
+        conditions: if req.conditions.is_null() { serde_json::json!({}) } else { req.conditions },
+        effective_from: req.effective_from.unwrap_or_else(Utc::now),
+        effective_until: req.effective_until,
+        priority: req.priority,
+        description: req.description,
+    };
+
+    let saved = pricing.upsert_rule(&rule).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    app.audit.emit(&ctx, "pricing_rule.upsert", "pricing_rule", None, None);
+
+    Ok(Json(rule_to_row(&saved)))
+}
+
+async fn delete_pricing_rule(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Path(id): Path<FlexUuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+    let pricing = app.pricing.as_ref().ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+
+    let deleted = pricing.delete_rule(*id).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    if !deleted {
+        return Err(AppError::NotFound);
+    }
+
+    app.audit.emit(&ctx, "pricing_rule.delete", "pricing_rule", None, None);
+
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }

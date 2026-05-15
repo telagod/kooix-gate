@@ -28,7 +28,8 @@
 		PanelLeftOpen,
 		Shield,
 		ChevronDown,
-		ScrollText
+		ScrollText,
+		DollarSign
 	} from 'lucide-svelte';
 
 	let currentPath = $derived($page.url.pathname);
@@ -55,6 +56,7 @@
 		if (pattern === '/admin/groups') return currentPath.startsWith('/admin/groups');
 		if (pattern === '/admin/audit') return currentPath.startsWith('/admin/audit');
 		if (pattern === '/admin/requests') return currentPath.startsWith('/admin/requests');
+		if (pattern === '/admin/pricing') return currentPath.startsWith('/admin/pricing');
 		return currentPath.startsWith(pattern);
 	}
 
@@ -192,6 +194,10 @@
 				<a href="/admin/requests" class={linkCls('/admin/requests')} title={collapsed ? '请求日志' : ''}>
 					<ScrollText size={iconSize} />
 					{#if !collapsed}<span class="truncate">请求日志</span>{/if}
+				</a>
+				<a href="/admin/pricing" class={linkCls('/admin/pricing')} title={collapsed ? '定价规则' : ''}>
+					<DollarSign size={iconSize} />
+					{#if !collapsed}<span class="truncate">定价规则</span>{/if}
 				</a>
 			</div>
 		{/if}

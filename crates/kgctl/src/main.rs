@@ -52,8 +52,13 @@ enum Cmd {
     },
     /// 部署体检：env 完整性 + DB / Redis 可达性
     Doctor,
-    /// 写入主流模型的默认计费定价（幂等）
+    /// 写入主流模型的默认计费定价（幂等，legacy model_pricing 表）
     SeedPricing,
+    /// 定价规则管理（pricing_rules 表）
+    Pricing {
+        #[command(subcommand)]
+        sub: PricingCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -74,6 +79,39 @@ enum AdminCmd {
         /// 初始密码；不传则自动生成 24-byte base64url 随机密码并打印一次
         #[arg(long)]
         password: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PricingCmd {
+    /// 列出定价规则
+    List {
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        channel_id: Option<String>,
+    },
+    /// 创建/更新定价规则
+    Set {
+        #[arg(long)]
+        model: String,
+        #[arg(long)]
+        dimension: String,
+        #[arg(long)]
+        unit: String,
+        #[arg(long)]
+        rate: f64,
+        #[arg(long)]
+        channel_id: Option<String>,
+        #[arg(long, default_value = "0")]
+        priority: i32,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// 删除定价规则
+    Delete {
+        #[arg(long)]
+        id: String,
     },
 }
 
@@ -105,6 +143,15 @@ fn main() {
         } => run_async(admin::create(email, password)),
         Cmd::Doctor => run_async(doctor::run()),
         Cmd::SeedPricing => run_async(pricing::seed()),
+        Cmd::Pricing { sub: PricingCmd::List { model, channel_id } } => {
+            run_async(pricing::list(model, channel_id))
+        }
+        Cmd::Pricing { sub: PricingCmd::Set { model, dimension, unit, rate, channel_id, priority, description } } => {
+            run_async(pricing::set(model, dimension, unit, rate, channel_id, priority, description))
+        }
+        Cmd::Pricing { sub: PricingCmd::Delete { id } } => {
+            run_async(pricing::delete(id))
+        }
     };
 
     if let Err(e) = result {

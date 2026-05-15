@@ -2564,6 +2564,7 @@ dependencies = [
  "predicates",
  "rand 0.8.6",
  "rust_decimal",
+ "serde_json",
  "sqlx",
  "testcontainers",
  "testcontainers-modules",
