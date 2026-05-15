@@ -49,6 +49,7 @@ pub use repo::request_log::{
     ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
 };
 pub use repo::user::{PgUserRepo, UserRepo};
+pub use repo::inflight::{InFlightRecord, InFlightRepo, PgInFlightRepo, InMemoryInFlightRepo, ExpiredInFlight};
 pub use rls::RlsContext;
 pub use sqlx::PgPool;
 

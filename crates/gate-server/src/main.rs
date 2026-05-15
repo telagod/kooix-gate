@@ -165,6 +165,33 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Inflight 清扫任务（每 60s 扫 expired 行退还 quota）
+    {
+        let inflight_repo = state.repos.inflight.clone();
+        let quota_counter = state.quota_counter.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                if let Some(ref qc) = quota_counter {
+                    match inflight_repo.sweep_expired().await {
+                        Ok(expired) if !expired.is_empty() => {
+                            let count = expired.len();
+                            for row in expired {
+                                for (key, micros) in row.quota_keys.iter().zip(row.estimated_micros.iter()) {
+                                    let _ = qc.refund(key, *micros).await;
+                                }
+                            }
+                            tracing::info!(count, "inflight sweep: refunded expired pre-debits");
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!(error = %e, "inflight sweep failed"),
+                    }
+                }
+            }
+        });
+    }
+
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
         .await
         .context("binding listener")?;

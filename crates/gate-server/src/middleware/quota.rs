@@ -297,6 +297,45 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
 
     // 把 guards 通过 extension 传给 handler
     if !guards.is_empty() {
+        // Write inflight DB record for crash recovery
+        let request_id = uuid::Uuid::now_v7();
+        let quota_keys: Vec<String> = guards.iter().map(|g| g.key.clone()).collect();
+        let est_micros: Vec<i64> = guards.iter().map(|g| g.estimated_micros).collect();
+
+        let (proj_id, key_id) = match ctx.subject() {
+            Some(gate_auth::context::Subject::ApiKey { project_id, api_key_id, .. }) => {
+                (Some(*project_id.as_uuid()), Some(*api_key_id.as_uuid()))
+            }
+            _ => (None, None),
+        };
+
+        let inflight_repo = state.repos.inflight.clone();
+        let record = gate_storage::InFlightRecord {
+            request_id,
+            project_id: proj_id.unwrap_or_default(),
+            api_key_id: key_id.unwrap_or_default(),
+            channel_id: None,
+            model: String::new(),
+            estimated_cost_usd: estimated_micros as f64 / 1_000_000.0,
+            estimated_tokens: 0,
+            started_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
+            quota_keys: quota_keys.clone(),
+            estimated_micros: est_micros.clone(),
+        };
+        // Best-effort write: don't block request on DB failure
+        let repo_for_insert = inflight_repo.clone();
+        tokio::spawn(async move {
+            if let Err(e) = repo_for_insert.insert(&record).await {
+                tracing::warn!(error = %e, "inflight insert failed (crash recovery degraded)");
+            }
+        });
+
+        // Attach DB cleanup to guards
+        let guards: Vec<_> = guards.into_iter().map(|g| {
+            g.with_db(request_id, inflight_repo.clone())
+        }).collect();
+
         parts.extensions.insert(InflightGuards::new(guards));
     }
 

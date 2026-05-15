@@ -12,7 +12,7 @@ use gate_providers::{AudioProvider, ImageProvider, Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo,
     IdentityProviderRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo,
-    QuotaRepo, RequestLogRepo, UsageRepo, UserIdentityRepo, UserRepo,
+    QuotaRepo, RequestLogRepo, UsageRepo, InFlightRepo, UserIdentityRepo, UserRepo,
 };
 use std::sync::Arc;
 
@@ -104,6 +104,7 @@ pub struct Repos {
     pub billing: Arc<dyn BillingRepo>,
     /// 请求日志（H1 追加）—— 逐条请求记录 + Dashboard 聚合。
     pub request_logs: Arc<dyn RequestLogRepo>,
+    pub inflight: Arc<dyn InFlightRepo>,
     #[doc(hidden)]
     pub pg_pool: Option<sqlx::PgPool>,
 }
@@ -135,6 +136,7 @@ impl Repos {
             audit: Arc::new(PgAuditRepo::new(pool.clone())),
             billing: Arc::new(PgBillingRepo::new(pool.clone())),
             request_logs: Arc::new(PgRequestLogRepo::new(pool.clone())),
+            inflight: Arc::new(gate_storage::PgInFlightRepo::new(pool.clone())),
             pg_pool: Some(pool),
         }
     }
@@ -166,6 +168,7 @@ impl Repos {
             audit: Arc::new(InMemoryAuditRepo::new()),
             billing: Arc::new(InMemoryBillingRepo::new()),
             request_logs: Arc::new(InMemoryRequestLogRepo::new()),
+            inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
             pg_pool: None,
         }
     }

@@ -202,6 +202,7 @@ async fn full_chain_api_key_to_upstream() {
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
+        inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         pg_pool: None,
     };
 

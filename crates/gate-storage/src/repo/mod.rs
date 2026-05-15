@@ -15,6 +15,7 @@ pub mod billing;
 pub mod channel;
 pub mod channel_key;
 pub mod identity;
+pub mod inflight;
 pub mod membership;
 pub mod memory;
 pub mod model_alias;

@@ -279,6 +279,7 @@ fn build_repos(
         audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
+        inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         pg_pool: None,
     }
 }
@@ -585,6 +586,7 @@ async fn create_apikey_emits_audit_record() {
         audit: audit_repo.clone(),
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
+        inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         pg_pool: None,
     };
 
