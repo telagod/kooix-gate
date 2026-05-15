@@ -70,8 +70,7 @@ pub async fn list(model: Option<String>, channel_id: Option<String>) -> Result<(
             .unwrap_or_else(|| "global".into());
         let desc_str = desc.as_deref().unwrap_or("");
         println!(
-            "{:<36} {:<6} {:<20} {:<16} {:<14} {:>10} {:<4} {}",
-            id, ch_short, model, dim, unit, rate, pri, desc_str
+            "{id:<36} {ch_short:<6} {model:<20} {dim:<16} {unit:<14} {rate:>10} {pri:<4} {desc_str}"
         );
     }
     println!("\n{} rules", rows.len());
@@ -92,7 +91,7 @@ pub async fn set(
         .map(|s| Uuid::parse_str(&s).with_context(|| "invalid channel_id UUID"))
         .transpose()?;
 
-    let rate_dec = Decimal::from_str_exact(&format!("{:.8}", rate))
+    let rate_dec = Decimal::from_str_exact(&format!("{rate:.8}"))
         .with_context(|| format!("invalid rate: {rate}"))?;
 
     let id: Uuid = sqlx::query_scalar(

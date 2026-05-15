@@ -607,8 +607,7 @@ fn resolve_api_key_for_channel(code: &str) -> ProviderResult<String> {
         .or_else(|_| std::env::var("KOOIX_API_KEY"))
         .map_err(|_| {
             ProviderError::Config(format!(
-                "no API key found for channel '{}' (tried {} and KOOIX_API_KEY)",
-                code, env_key
+                "no API key found for channel '{code}' (tried {env_key} and KOOIX_API_KEY)"
             ))
         })
 }

@@ -960,8 +960,7 @@ async fn update_user_status(
     let valid = ["active", "suspended"];
     if !valid.contains(&req.status.as_str()) {
         return Err(AppError::BadRequest(format!(
-            "status must be one of: {:?}",
-            valid
+            "status must be one of: {valid:?}"
         )));
     }
 

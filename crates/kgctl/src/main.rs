@@ -257,6 +257,6 @@ fn print_env() {
     println!("{:<32} {:<6} 说明", "变量", "必/可");
     println!("{}", "─".repeat(80));
     for (k, req, desc) in entries {
-        println!("{:<32} {:<6} {}", k, req, desc);
+        println!("{k:<32} {req:<6} {desc}");
     }
 }

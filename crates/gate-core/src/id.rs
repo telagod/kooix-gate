@@ -26,7 +26,7 @@ fn deserialize_typed_id<'de, D: serde::Deserializer<'de>>(
 }
 
 fn parse_typed_or_raw(prefix: &str, s: &str) -> Result<Uuid, String> {
-    let expected_prefix = format!("{}_", prefix);
+    let expected_prefix = format!("{prefix}_");
     if let Some(hex) = s.strip_prefix(&expected_prefix) {
         Uuid::parse_str(hex).map_err(|e| format!("invalid {prefix} id: {e}"))
     } else {

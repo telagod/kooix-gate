@@ -321,7 +321,7 @@ async fn callback(
         if !allowed {
             return Err(AppError::Auth(AuthError::Forbidden {
                 action: "sso_login".into(),
-                resource: format!("email_domain:{}", email),
+                resource: format!("email_domain:{email}"),
             }));
         }
     }
@@ -567,7 +567,7 @@ mod urlencoding {
                 b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                     (b as char).to_string()
                 }
-                _ => format!("%{:02X}", b),
+                _ => format!("%{b:02X}"),
             })
             .collect()
     }
