@@ -58,6 +58,7 @@
 	let showSidebar = $state(true);
 	let showNodeMenu = $state(false);
 	let nodeMenuPos = $state({ x: 0, y: 0 });
+	let colorMode = $state<'light' | 'dark'>('light');
 
 	const nodeIcons: Record<FlowNodeKind, any> = {
 		textInput: Type,
@@ -90,6 +91,12 @@
 			activeId = w.id;
 		}
 		syncFromActive();
+
+		const detectDark = () => { colorMode = document.documentElement.classList.contains('dark') ? 'dark' : 'light'; };
+		detectDark();
+		const obs = new MutationObserver(detectDark);
+		obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+		return () => obs.disconnect();
 	});
 
 	function syncFromActive() {
@@ -246,7 +253,7 @@
 
 <svelte:window onclick={() => { if (showNodeMenu) showNodeMenu = false; }} />
 
-<div class="flex h-full overflow-hidden bg-white dark:bg-zinc-950">
+<div class="flex h-full overflow-hidden bg-zinc-50 dark:bg-zinc-950">
 	<!-- Sidebar: workflow list -->
 	{#if showSidebar}
 		<div class="w-56 shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 flex flex-col">
@@ -337,6 +344,7 @@
 				bind:edges
 				{nodeTypes}
 				{isValidConnection}
+				{colorMode}
 				onconnect={onConnect}
 				onnodecontextmenu={onNodeContextMenu}
 				onpanecontextmenu={onPaneContextMenu}
@@ -383,8 +391,40 @@
 
 <style>
 	:global(.svelte-flow) {
-		--xy-background-color: transparent;
 		--xy-node-border-radius: 12px;
+	}
+	:global(.svelte-flow.dark) {
+		--xy-background-color: var(--color-zinc-950);
+		--xy-edge-stroke-default: var(--color-zinc-600);
+		--xy-edge-stroke-selected-default: var(--color-zinc-400);
+		--xy-connectionline-stroke-default: var(--color-zinc-500);
+		--xy-background-pattern-dots-color-default: var(--color-zinc-700);
+		--xy-minimap-background-color-default: var(--color-zinc-900);
+		--xy-minimap-mask-background-color-default: rgba(9, 9, 11, 0.6);
+		--xy-minimap-node-background-color-default: var(--color-zinc-700);
+		--xy-node-color-default: var(--color-zinc-100);
+		--xy-node-border-default: 1px solid var(--color-zinc-700);
+		--xy-node-background-color-default: var(--color-zinc-900);
+		--xy-node-boxshadow-hover-default: 0 1px 4px 1px rgba(255, 255, 255, 0.06);
+		--xy-node-boxshadow-selected-default: 0 0 0 0.5px var(--color-zinc-500);
+		--xy-handle-background-color-default: var(--color-zinc-400);
+		--xy-handle-border-color-default: var(--color-zinc-900);
+		--xy-selection-background-color-default: rgba(161, 161, 170, 0.08);
+		--xy-selection-border-default: 1px dotted rgba(161, 161, 170, 0.5);
+		--xy-controls-button-background-color-default: var(--color-zinc-900);
+		--xy-controls-button-background-color-hover-default: var(--color-zinc-800);
+		--xy-controls-button-color-default: var(--color-zinc-400);
+		--xy-controls-button-color-hover-default: var(--color-zinc-200);
+		--xy-controls-button-border-color-default: var(--color-zinc-700);
+		--xy-controls-box-shadow-default: 0 0 2px 1px rgba(0, 0, 0, 0.3);
+		--xy-edge-label-background-color-default: var(--color-zinc-900);
+		--xy-edge-label-color-default: var(--color-zinc-300);
+	}
+	:global(.svelte-flow:not(.dark)) {
+		--xy-background-color: var(--color-zinc-50);
+		--xy-background-pattern-dots-color-default: var(--color-zinc-300);
+		--xy-minimap-background-color-default: white;
+		--xy-controls-box-shadow-default: 0 0 2px 1px rgba(0, 0, 0, 0.06);
 	}
 	:global(.svelte-flow__node) {
 		border: none !important;
@@ -396,30 +436,38 @@
 		border: 1px solid var(--color-zinc-200);
 		overflow: hidden;
 	}
-	:global(.dark .svelte-flow__minimap) {
+	:global(.svelte-flow.dark .svelte-flow__minimap) {
 		border-color: var(--color-zinc-700);
+		background: var(--color-zinc-900);
 	}
 	:global(.svelte-flow__controls) {
 		border-radius: 8px;
 		border: 1px solid var(--color-zinc-200);
 		overflow: hidden;
 	}
-	:global(.dark .svelte-flow__controls) {
+	:global(.svelte-flow.dark .svelte-flow__controls) {
 		border-color: var(--color-zinc-700);
 		background: var(--color-zinc-900);
 	}
-	:global(.dark .svelte-flow__controls button) {
+	:global(.svelte-flow.dark .svelte-flow__controls button) {
 		background: var(--color-zinc-900);
 		color: var(--color-zinc-400);
 		border-bottom-color: var(--color-zinc-700);
 	}
-	:global(.dark .svelte-flow__controls button:hover) {
+	:global(.svelte-flow.dark .svelte-flow__controls button:hover) {
 		background: var(--color-zinc-800);
+		color: var(--color-zinc-200);
 	}
-	:global(.dark .svelte-flow__controls button svg) {
-		fill: var(--color-zinc-400);
+	:global(.svelte-flow.dark .svelte-flow__controls button svg) {
+		fill: currentColor;
 	}
 	:global(.svelte-flow__edge-path) {
 		stroke-width: 2;
+	}
+	:global(.svelte-flow__handle) {
+		transition: transform 0.15s ease;
+	}
+	:global(.svelte-flow__handle:hover) {
+		transform: scale(1.3);
 	}
 </style>
