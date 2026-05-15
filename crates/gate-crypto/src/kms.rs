@@ -137,9 +137,8 @@ impl Kms for EnvKms {
 pub fn generate_master_key_b64() -> String {
     let mut key = [0u8; DEK_LEN];
     rand::thread_rng().fill_bytes(&mut key);
-    let s = B64.encode(key);
     // 不需要手动清零 key — 栈变量出作用域即丢
-    s
+    B64.encode(key)
 }
 
 #[cfg(test)]
