@@ -132,7 +132,10 @@ cd web && npm run check && npm test && npm run build
   - master key base64 32B
   - DB migration 版本
   - Redis Lua 可执行性
-- [ ] 发布 tag 后确认 GitHub Release artifact。
+- [x] 发布 tag 后确认 GitHub Release artifact：
+  - `v0.2.0` tag 指向 `4deb836`。
+  - GitHub Release 已发布：`https://github.com/telagod/kooix-gate/releases/tag/v0.2.0`。
+  - Docker workflow `25998915274` 成功，GHCR 推送 `v0.2.0` / `latest`，manifest digest `sha256:69b9b499f2bfc74dbce77838358bfe7245aac4fa3eedcfdd64dcecedeeed7832`。
 
 **验收门禁**
 
