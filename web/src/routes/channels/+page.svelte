@@ -34,6 +34,11 @@
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 	import {
+		PLUGIN_PRESET_OPTIONS,
+		manifestPreset,
+		selectedPluginMapping
+	} from '$lib/plugin-presets';
+	import {
 		Search,
 		Plus,
 		Pencil,
@@ -135,6 +140,7 @@
 	let modelsInput = $state('');
 	let tagsInput = $state('');
 	let pluginManifestInput = $state('');
+	let pluginPreset = $state('');
 
 	let editingChannel = $state<Channel | null>(null);
 	let editForm = $state<UpdateChannelRequest>({});
@@ -143,6 +149,7 @@
 	let editModelsInput = $state('');
 	let editTagsInput = $state('');
 	let editPluginManifestInput = $state('');
+	let editPluginPreset = $state('');
 
 	let deletingId = $state<string | null>(null);
 	let deleting = $state(false);
@@ -416,6 +423,12 @@
 
 	const PLUGIN_MANIFEST_EXAMPLE = `{
   "plugin": {
+    "preset": { "provider": "openai_compatible" }
+  }
+}`;
+
+	const PRIVATE_PLUGIN_MANIFEST_EXAMPLE = `{
+  "plugin": {
     "request": {
       "chat_path": "/private/chat",
       "headers": { "X-Api-Key": "{{api_key}}" },
@@ -453,20 +466,12 @@
 		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
 	}
 
-	function parsePluginManifest(input: string): Record<string, unknown> {
-		if (!input.trim()) return {};
-		const parsed = JSON.parse(input);
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-			throw new Error('Plugin manifest 必须是 JSON object');
-		}
-		return parsed as Record<string, unknown>;
-	}
-
 	function resetCreateForm() {
 		createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
 		modelsInput = '';
 		tagsInput = '';
 		pluginManifestInput = '';
+		pluginPreset = '';
 	}
 
 	// ── Create ───────────────────────────────────────
@@ -478,7 +483,7 @@
 		try {
 			const models = modelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const model_mapping = isPluginProvider(createForm.provider_type) ? parsePluginManifest(pluginManifestInput) : createForm.model_mapping;
+			const model_mapping = isPluginProvider(createForm.provider_type) ? selectedPluginMapping(pluginPreset, pluginManifestInput) : createForm.model_mapping;
 			await createChannel({ ...createForm, supported_models: models, tags, model_mapping });
 			showCreate = false;
 			resetCreateForm();
@@ -507,6 +512,7 @@
 		};
 		editModelsInput = (ch.supported_models || []).join(', ');
 		editTagsInput = (ch.tags || []).join(', ');
+		editPluginPreset = isPluginProvider(ch.provider_type) ? manifestPreset(ch.model_mapping) : '';
 		editPluginManifestInput = isPluginProvider(ch.provider_type) ? JSON.stringify(ch.model_mapping ?? {}, null, 2) : '';
 		editError = '';
 	}
@@ -519,7 +525,7 @@
 		try {
 			const models = editModelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = editTagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const model_mapping = isPluginProvider(editingChannel.provider_type) ? parsePluginManifest(editPluginManifestInput) : editForm.model_mapping;
+			const model_mapping = isPluginProvider(editingChannel.provider_type) ? selectedPluginMapping(editPluginPreset, editPluginManifestInput) : editForm.model_mapping;
 			const updated = await updateChannel(editingChannel.id, { ...editForm, supported_models: models, tags, model_mapping });
 			channels = channels.map(c => c.id === updated.id ? updated : c);
 			editingChannel = null;
@@ -723,9 +729,15 @@
 							</div>
 							{#if isPluginProvider(createForm.provider_type)}
 								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+									<label for="ch-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
+									<select id="ch-plugin-preset" bind:value={pluginPreset} disabled={creating} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
+										{#each PLUGIN_PRESET_OPTIONS as opt}
+											<option value={opt.value}>{opt.label}</option>
+										{/each}
+									</select>
 									<label for="ch-plugin" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
-									<textarea id="ch-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating}></textarea>
-									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">留空则按 OpenAI-compatible；填写 JSON 可映射私有 body、headers、非标准响应和 SSE token 帧。</p>
+									<textarea id="ch-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={pluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating || !!pluginPreset}></textarea>
+									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">选预设会自动生成 manifest；自定义可映射私有 body、headers、非标准响应和 SSE token 帧。</p>
 								</div>
 							{/if}
 						</div>
@@ -804,8 +816,14 @@
 							</div>
 							{#if isPluginProvider(editingChannel.provider_type)}
 								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+									<label for="ed-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
+									<select id="ed-plugin-preset" bind:value={editPluginPreset} disabled={editing} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
+										{#each PLUGIN_PRESET_OPTIONS as opt}
+											<option value={opt.value}>{opt.label}</option>
+										{/each}
+									</select>
 									<label for="ed-plugin" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
-									<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing}></textarea>
+									<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={editPluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing || !!editPluginPreset}></textarea>
 								</div>
 							{/if}
 							<div class="flex items-center gap-2">

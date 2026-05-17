@@ -508,6 +508,36 @@ async fn admin_channels_requires_platform() {
 }
 
 #[tokio::test]
+async fn admin_can_create_plugin_channel_with_provider_preset_manifest() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+    let body = serde_json::json!({
+        "code": "plugin-openai-preset",
+        "provider_type": "plugin",
+        "base_url": "https://api.openai.com/v1",
+        "supported_models": ["gpt-4o-mini"],
+        "model_mapping": {
+            "plugin": { "preset": { "provider": "openai_compatible" } }
+        }
+    });
+
+    let (status, body) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/channels",
+        Some(&tok),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["provider_type"], "plugin");
+    assert_eq!(
+        body["model_mapping"]["plugin"]["preset"]["provider"],
+        "openai_compatible"
+    );
+}
+
+#[tokio::test]
 async fn admin_rejects_api_key_subject() {
     let f = fixture();
     let (status, body) = call(

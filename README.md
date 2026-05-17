@@ -17,6 +17,7 @@
 - ✅ 多 Org × Project × ApiKey 三层租户 + RBAC + RLS 兜底
 - ✅ 9 Provider 适配（OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock）
 - ✅ HTTP Plugin 渠道：用 JSON manifest 接入私有协议、奇葩 body/response、非标准 SSE token 帧
+- ✅ Provider 插件预设：OpenAI-compatible / Anthropic / Azure / Gemini / DeepSeek / Mistral / Cohere / Ollama / Bedrock 等主流渠道可统一按 plugin manifest 接入
 - ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
 - ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价）
@@ -27,7 +28,7 @@
 
 ### v0.1.5 新增亮点
 
-- 🔌 9 Provider 插件架构 + HTTP Plugin 私有协议接入 + tool calling + embeddings
+- 🔌 9 Provider 插件架构 + HTTP Plugin 私有协议接入 + 主流 Provider 插件预设 + tool calling + embeddings
 - 🎯 5 种路由策略 + model filter + channel RPM/TPM 限速 + 自动禁用
 - 💰 多维度计费引擎 + LiteLLM 自动同步定价
 - 🎨 节点式可视化编排 Playground
@@ -152,6 +153,7 @@ curl http://localhost:8080/v1/chat/completions \
 - **Outbox pattern**：业务事务和计费写入解耦，幂等 `ON CONFLICT DO NOTHING`
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
 - **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`
+- **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面
 - **强类型 ID**：编译期阻止 `OrgId` 当 `UserId` 传
 - **AuthContext 单一权限门面**：禁止外部读 raw 角色映射，全走 `can()` / `require!`
 - **多维度计费**：按 dimension × conditions 精准匹配，支持缓存折扣、批量折扣、分层定价

@@ -20,6 +20,7 @@ pub mod gemini;
 pub mod mistral;
 pub mod ollama;
 pub mod openai;
+pub(crate) mod plugin_preset;
 pub mod retry;
 pub mod router;
 pub mod sse;

@@ -7,6 +7,9 @@
 use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::openai::check_status;
+use crate::plugin_preset::{
+    PresetManifest, ProviderPresetSpec, ResponseManifest, StreamManifest, adapt_chat_request,
+};
 use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
 use async_trait::async_trait;
@@ -33,7 +36,8 @@ impl CustomHttpProvider {
         manifest: Value,
         opts: crate::ProviderOpts,
     ) -> ProviderResult<Self> {
-        let manifest = PluginManifest::from_value(manifest)?;
+        let base_url = base_url.into().trim_end_matches('/').to_string();
+        let manifest = PluginManifest::from_value(manifest, &base_url)?;
         let client = reqwest::Client::builder()
             .connect_timeout(opts.connect_timeout())
             .timeout(opts.timeout_duration())
@@ -41,38 +45,57 @@ impl CustomHttpProvider {
             .map_err(|e| ProviderError::Config(e.to_string()))?;
         Ok(Self {
             client,
-            base_url: base_url.into().trim_end_matches('/').to_string(),
+            base_url,
             api_key: api_key.into(),
             manifest: Arc::new(manifest),
         })
     }
 
-    fn endpoint_url(&self) -> String {
+    fn endpoint_url_for(&self, req: &ChatRequest) -> ProviderResult<String> {
+        let effective_req = adapt_chat_request(req, self.manifest.preset.adapter)?;
+        let ctx = request_context(&effective_req, &self.plugin_context());
+        Ok(self.endpoint_url_with_context(&ctx))
+    }
+
+    fn endpoint_url_with_context(&self, ctx: &Value) -> String {
         let path = self
             .manifest
             .request
             .chat_path
             .as_deref()
             .unwrap_or(DEFAULT_CHAT_PATH);
-        if path.starts_with("http://") || path.starts_with("https://") {
-            return path.to_string();
+        let rendered = render_template_str(path, ctx);
+        if rendered.starts_with("http://") || rendered.starts_with("https://") {
+            return rendered;
         }
-        format!("{}{}", self.base_url, slash_path(path))
+        format!("{}{}", self.base_url, slash_path(&rendered))
     }
 
     fn request_headers(&self) -> ProviderResult<HeaderMap> {
         let mut headers = HeaderMap::new();
         for (k, v) in &self.manifest.request.headers {
+            if v.is_null() {
+                continue;
+            }
             let name = HeaderName::from_bytes(k.as_bytes())
                 .map_err(|e| ProviderError::Config(format!("invalid plugin header {k:?}: {e}")))?;
-            let rendered = render_template(v, &json!({ "api_key": self.api_key }));
+            let rendered = render_template(v, &self.plugin_context());
             let value = HeaderValue::from_str(&rendered).map_err(|e| {
                 ProviderError::Config(format!("invalid plugin header value for {k}: {e}"))
             })?;
             headers.insert(name, value);
         }
 
-        if !self.api_key.is_empty() && !headers.contains_key(reqwest::header::AUTHORIZATION) {
+        let suppress_authorization = self
+            .manifest
+            .request
+            .headers
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("authorization") && v.is_null());
+        if !self.api_key.is_empty()
+            && !suppress_authorization
+            && !headers.contains_key(reqwest::header::AUTHORIZATION)
+        {
             headers.insert(
                 reqwest::header::AUTHORIZATION,
                 HeaderValue::from_str(&format!("Bearer {}", self.api_key))
@@ -82,20 +105,32 @@ impl CustomHttpProvider {
         Ok(headers)
     }
 
+    fn plugin_context(&self) -> Value {
+        json!({
+            "api_key": self.api_key,
+            "aws_secret_key": std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
+        })
+    }
+
     #[cfg(test)]
     fn build_body(&self, req: &ChatRequest) -> ProviderResult<Value> {
         self.build_body_with_extra(req, &json!({}))
     }
 
     fn build_body_with_extra(&self, req: &ChatRequest, extra: &Value) -> ProviderResult<Value> {
-        let ctx = request_context(req, extra);
+        let effective_req = adapt_chat_request(req, self.manifest.preset.adapter)?;
+        let ctx = request_context(&effective_req, extra);
         let mut body = match &self.manifest.request.body {
             Some(template) => render_value(template, &ctx),
-            None => serde_json::to_value(req)?,
+            None => serde_json::to_value(&effective_req)?,
         };
 
         if self.manifest.request.force_stream_field {
-            set_path(&mut body, "stream", Value::Bool(req.stream));
+            set_path(
+                &mut body,
+                &self.manifest.request.stream_path,
+                Value::Bool(effective_req.stream),
+            );
         }
         Ok(body)
     }
@@ -105,7 +140,7 @@ impl CustomHttpProvider {
         value: Value,
         requested_model: &str,
     ) -> ProviderResult<ChatResponse> {
-        if self.manifest.response.openai_compatible {
+        if self.manifest.response.is_openai_compatible() {
             return Ok(serde_json::from_value(value)?);
         }
 
@@ -164,10 +199,10 @@ impl Provider for CustomHttpProvider {
 
     async fn chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
         req.stream = false;
-        let body = self.build_body_with_extra(&req, &json!({ "api_key": self.api_key }))?;
+        let body = self.build_body_with_extra(&req, &self.plugin_context())?;
         let resp = self
             .client
-            .post(self.endpoint_url())
+            .post(self.endpoint_url_for(&req)?)
             .headers(self.request_headers()?)
             .json(&body)
             .send()
@@ -183,10 +218,10 @@ impl Provider for CustomHttpProvider {
         mut req: ChatRequest,
     ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
         req.stream = true;
-        let body = self.build_body_with_extra(&req, &json!({ "api_key": self.api_key }))?;
+        let body = self.build_body_with_extra(&req, &self.plugin_context())?;
         let resp = self
             .client
-            .post(self.endpoint_url())
+            .post(self.endpoint_url_for(&req)?)
             .headers(self.request_headers()?)
             .json(&body)
             .send()
@@ -205,13 +240,14 @@ impl Provider for CustomHttpProvider {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 struct PluginManifest {
+    preset: PresetManifest,
     request: RequestManifest,
     response: ResponseManifest,
     stream: StreamManifest,
 }
 
 impl PluginManifest {
-    fn from_value(value: Value) -> ProviderResult<Self> {
+    fn from_value(value: Value, base_url: &str) -> ProviderResult<Self> {
         let manifest_value = value
             .get("plugin")
             .or_else(|| value.get("adapter"))
@@ -219,11 +255,38 @@ impl PluginManifest {
             .cloned()
             .unwrap_or(value);
 
-        if manifest_value.is_null() || manifest_value == json!({}) {
-            return Ok(Self::default());
+        let mut manifest = if manifest_value.is_null() || manifest_value == json!({}) {
+            Self::default()
+        } else {
+            serde_json::from_value(manifest_value)
+                .map_err(|e| ProviderError::Config(format!("invalid plugin manifest: {e}")))?
+        };
+        manifest.apply_preset(base_url)?;
+        Ok(manifest)
+    }
+
+    fn apply_preset(&mut self, base_url: &str) -> ProviderResult<()> {
+        let Some(kind) = self.preset.kind else {
+            return Ok(());
+        };
+        let spec =
+            ProviderPresetSpec::for_kind(kind, base_url, self.preset.api_version.as_deref())?;
+        self.preset.adapter = spec.adapter;
+        if self.request.chat_path.is_none() {
+            self.request.chat_path = Some(spec.chat_path);
         }
-        serde_json::from_value(manifest_value)
-            .map_err(|e| ProviderError::Config(format!("invalid plugin manifest: {e}")))
+        if self.request.body.is_none() {
+            self.request.body = spec.body;
+        }
+        for (k, v) in spec.headers {
+            self.request.headers.entry(k).or_insert(v);
+        }
+        if let Some(path) = spec.stream_path {
+            self.request.stream_path = path;
+        }
+        self.response.apply_defaults(spec.response);
+        self.stream.apply_defaults(spec.stream);
+        Ok(())
     }
 }
 
@@ -234,132 +297,18 @@ struct RequestManifest {
     headers: Map<String, Value>,
     body: Option<Value>,
     force_stream_field: bool,
+    stream_path: String,
 }
 
 impl Default for RequestManifest {
     fn default() -> Self {
         Self {
-            chat_path: Some(DEFAULT_CHAT_PATH.to_string()),
+            chat_path: None,
             headers: Map::new(),
             body: None,
             force_stream_field: true,
+            stream_path: "stream".to_string(),
         }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct ResponseManifest {
-    openai_compatible: bool,
-    id_path: Option<String>,
-    model_path: Option<String>,
-    content_path: Option<String>,
-    finish_reason_path: Option<String>,
-    usage: UsageManifest,
-}
-
-impl Default for ResponseManifest {
-    fn default() -> Self {
-        Self {
-            openai_compatible: true,
-            id_path: None,
-            model_path: None,
-            content_path: None,
-            finish_reason_path: None,
-            usage: UsageManifest::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct StreamManifest {
-    openai_compatible: bool,
-    event_path: Option<String>,
-    done: Vec<String>,
-    id_path: Option<String>,
-    model_path: Option<String>,
-    role_path: Option<String>,
-    content_path: Option<String>,
-    finish_reason_path: Option<String>,
-    usage: UsageManifest,
-}
-
-impl Default for StreamManifest {
-    fn default() -> Self {
-        Self {
-            openai_compatible: true,
-            event_path: None,
-            done: Vec::new(),
-            id_path: None,
-            model_path: None,
-            role_path: None,
-            content_path: None,
-            finish_reason_path: None,
-            usage: UsageManifest::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct UsageManifest {
-    prompt_tokens_path: Option<String>,
-    completion_tokens_path: Option<String>,
-    total_tokens_path: Option<String>,
-    cached_tokens_path: Option<String>,
-}
-
-impl Default for UsageManifest {
-    fn default() -> Self {
-        Self {
-            prompt_tokens_path: Some("usage.prompt_tokens".to_string()),
-            completion_tokens_path: Some("usage.completion_tokens".to_string()),
-            total_tokens_path: Some("usage.total_tokens".to_string()),
-            cached_tokens_path: Some("usage.cached_tokens".to_string()),
-        }
-    }
-}
-
-impl UsageManifest {
-    fn extract(&self, value: &Value) -> Usage {
-        let prompt = self
-            .prompt_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32)
-            .unwrap_or_default();
-        let completion = self
-            .completion_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32)
-            .unwrap_or_default();
-        let total = self
-            .total_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32)
-            .unwrap_or_else(|| prompt + completion);
-        let cached = self
-            .cached_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32)
-            .unwrap_or_default();
-
-        Usage {
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            total_tokens: total,
-            cached_tokens: cached,
-        }
-    }
-
-    fn extract_optional(&self, value: &Value) -> Option<Usage> {
-        let usage = self.extract(value);
-        (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0)
-            .then_some(usage)
     }
 }
 
@@ -381,6 +330,9 @@ where
     let state = Arc::new(parking_lot::Mutex::new(StreamState {
         id: mapper.fallback_id.clone(),
         model: mapper.fallback_model.clone(),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cached_tokens: 0,
     }));
 
     byte_stream.flat_map(move |item| {
@@ -402,6 +354,9 @@ where
 struct StreamState {
     id: String,
     model: String,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    cached_tokens: u32,
 }
 
 fn map_plugin_event(
@@ -422,7 +377,7 @@ fn map_plugin_event(
         return None;
     }
 
-    if mapper.stream.openai_compatible {
+    if mapper.stream.is_openai_compatible() {
         let value: Value = match serde_json::from_str(raw) {
             Ok(v) => v,
             Err(e) => return Some(Err(ProviderError::Decode(format!("sse data {raw:?}: {e}")))),
@@ -481,7 +436,15 @@ fn map_plugin_event(
         .and_then(|p| get_path(event_value, p))
         .and_then(value_to_string)
         .and_then(|s| map_finish_reason(&s));
-    let usage = mapper.stream.usage.extract_optional(event_value);
+    let usage = mapper
+        .stream
+        .usage
+        .extract_optional(event_value)
+        .and_then(|usage| {
+            let emit = usage.completion_present || usage.total_present || finish_reason.is_some();
+            let merged = merge_usage_state(usage.usage, &mut st);
+            emit.then_some(merged)
+        });
 
     if role.is_none() && content.is_none() && finish_reason.is_none() && usage.is_none() {
         return None;
@@ -501,6 +464,43 @@ fn map_plugin_event(
         }],
         usage,
     }))
+}
+
+fn merge_usage_state(usage: Usage, state: &mut StreamState) -> Usage {
+    if usage.prompt_tokens > 0 {
+        state.prompt_tokens = usage.prompt_tokens;
+    }
+    if usage.completion_tokens > 0 {
+        state.completion_tokens = usage.completion_tokens;
+    }
+    if usage.cached_tokens > 0 {
+        state.cached_tokens = usage.cached_tokens;
+    }
+
+    let prompt_tokens = if usage.prompt_tokens > 0 {
+        usage.prompt_tokens
+    } else {
+        state.prompt_tokens
+    };
+    let completion_tokens = if usage.completion_tokens > 0 {
+        usage.completion_tokens
+    } else {
+        state.completion_tokens
+    };
+    let cached_tokens = if usage.cached_tokens > 0 {
+        usage.cached_tokens
+    } else {
+        state.cached_tokens
+    };
+    let inferred_total = prompt_tokens + completion_tokens;
+    let total_tokens = usage.total_tokens.max(inferred_total);
+
+    Usage {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        cached_tokens,
+    }
 }
 
 fn request_context(req: &ChatRequest, extra: &Value) -> Value {
@@ -653,12 +653,6 @@ fn value_to_string(v: &Value) -> Option<String> {
     }
 }
 
-fn value_to_u32(v: &Value) -> Option<u32> {
-    v.as_u64()
-        .and_then(|n| u32::try_from(n).ok())
-        .or_else(|| v.as_str().and_then(|s| s.parse::<u32>().ok()))
-}
-
 fn map_role(s: &str) -> Option<Role> {
     match s {
         "system" => Some(Role::System),
@@ -671,7 +665,7 @@ fn map_role(s: &str) -> Option<Role> {
 
 fn map_finish_reason(s: &str) -> Option<FinishReason> {
     match s {
-        "stop" | "stopped" | "end_turn" | "done" => Some(FinishReason::Stop),
+        "stop" | "stopped" | "stop_sequence" | "end_turn" | "done" => Some(FinishReason::Stop),
         "length" | "max_tokens" => Some(FinishReason::Length),
         "tool_calls" | "tool_use" => Some(FinishReason::ToolCalls),
         "content_filter" | "safety" => Some(FinishReason::ContentFilter),
@@ -721,24 +715,145 @@ mod tests {
         assert_eq!(body["limit"], 16);
     }
 
+    #[test]
+    fn openai_compatible_preset_expands_defaults_and_usage_stream_options() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.deepseek.com/v1",
+            "sk-test",
+            json!({ "plugin": { "preset": { "provider": "deepseek" } } }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            provider.endpoint_url_for(&make_req(true)).unwrap(),
+            "https://api.deepseek.com/v1/chat/completions"
+        );
+        let body = provider.build_body(&make_req(true)).unwrap();
+        assert_eq!(body["model"], "odd-model");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["stream_options"]["include_usage"], true);
+        assert!(provider.manifest.response.is_openai_compatible());
+        assert!(provider.manifest.stream.is_openai_compatible());
+    }
+
+    #[test]
+    fn azure_preset_templates_deployment_path_and_api_key_header() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://example.openai.azure.com",
+            "azure-key",
+            json!({
+                "plugin": {
+                    "preset": { "provider": "azure_openai", "api_version": "2024-02-15-preview" }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let req = make_req(false);
+        let body = provider.build_body(&req).unwrap();
+        assert_eq!(body["model"], "odd-model");
+        assert_eq!(
+            provider.endpoint_url_for(&req).unwrap(),
+            "https://example.openai.azure.com/openai/deployments/odd-model/chat/completions?api-version=2024-02-15-preview"
+        );
+        let headers = provider.request_headers().unwrap();
+        assert_eq!(headers.get("api-key").unwrap(), "azure-key");
+        assert!(headers.get("authorization").is_none());
+    }
+
+    #[test]
+    fn anthropic_preset_adapts_openai_request_to_messages_api() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.anthropic.com",
+            "anthropic-key",
+            json!({ "plugin": { "preset": { "provider": "anthropic_messages" } } }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let req = ChatRequest {
+            model: "claude-sonnet".into(),
+            messages: vec![
+                ChatMessage::text(Role::System, "You are terse"),
+                ChatMessage::text(Role::User, "Hi"),
+            ],
+            max_tokens: Some(32),
+            stream: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            provider.endpoint_url_for(&req).unwrap(),
+            "https://api.anthropic.com/v1/messages"
+        );
+        let headers = provider.request_headers().unwrap();
+        assert_eq!(headers.get("x-api-key").unwrap(), "anthropic-key");
+        assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
+        assert!(headers.get("authorization").is_none());
+        let body = provider.build_body(&req).unwrap();
+        assert_eq!(body["model"], "claude-sonnet");
+        assert_eq!(body["max_tokens"], 32);
+        assert_eq!(body["system"], "You are terse");
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "Hi");
+        assert_eq!(body["stream"], true);
+    }
+
+    #[test]
+    fn preset_allows_request_overrides_without_losing_response_defaults() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://proxy.internal",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "preset": { "provider": "openai_compatible" },
+                    "request": {
+                        "chat_path": "/custom/chat",
+                        "headers": { "X-Proxy-Key": "{{api_key}}" }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            provider.endpoint_url_for(&make_req(false)).unwrap(),
+            "https://proxy.internal/custom/chat"
+        );
+        assert!(provider.manifest.response.is_openai_compatible());
+        assert_eq!(
+            provider
+                .request_headers()
+                .unwrap()
+                .get("x-proxy-key")
+                .unwrap(),
+            "sk-test"
+        );
+    }
+
     #[tokio::test]
     async fn maps_weird_sse_frames_to_openai_chunks() {
-        let manifest = PluginManifest::from_value(json!({
-            "stream": {
-                "openai_compatible": false,
-                "event_path": "payload",
-                "id_path": "rid",
-                "model_path": "model_name",
-                "role_path": "speaker",
-                "content_path": "token",
-                "finish_reason_path": "reason",
-                "done": ["EOF"],
-                "usage": {
-                    "prompt_tokens_path": "usage.in",
-                    "completion_tokens_path": "usage.out"
+        let manifest = PluginManifest::from_value(
+            json!({
+                "stream": {
+                    "openai_compatible": false,
+                    "event_path": "payload",
+                    "id_path": "rid",
+                    "model_path": "model_name",
+                    "role_path": "speaker",
+                    "content_path": "token",
+                    "finish_reason_path": "reason",
+                    "done": ["EOF"],
+                    "usage": {
+                        "prompt_tokens_path": "usage.in",
+                        "completion_tokens_path": "usage.out"
+                    }
                 }
-            }
-        }))
+            }),
+            "http://x",
+        )
         .unwrap();
         let mapper = StreamMapper {
             stream: manifest.stream,
