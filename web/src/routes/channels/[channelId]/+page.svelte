@@ -16,9 +16,15 @@
 		listAuditLogs
 	} from '$lib/api.js';
 	import type { ChannelKeySummary, ChannelStats, TestResponse, ProbeResponse, AuditLog } from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import { Alert, Badge, Button, Card, Field, Input, Textarea } from '$lib/components/ui';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
+	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import SectionCard from '$lib/components/templates/SectionCard.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import { cn, dataTemplate } from '$lib/design';
+	import { Cable, ListChecks, Plus, RotateCw, Server, XCircle, Zap } from 'lucide-svelte';
 
 	let channelId = $derived($page.params.channelId ?? '');
 
@@ -242,7 +248,7 @@
 
 <!-- Revoke confirm -->
 {#if revokingId}
-	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) revokingId = null; }}>
+	<ModalFrame close={() => { revokingId = null; }} class="z-40">
 		<Card class="p-6 max-w-sm w-full mx-4">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认撤销</h3>
 			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">撤销后此 Key 将立即失效。</p>
@@ -253,28 +259,24 @@
 				</Button>
 			</div>
 		</Card>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Create Key modal -->
 {#if showCreateKey}
-	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) showCreateKey = false; }}>
+	<ModalFrame close={() => { showCreateKey = false; }} class="z-40">
 		<Card class="p-6 max-w-lg w-full mx-4">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">添加 Key</h3>
 			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
 				<p class="text-xs text-amber-800 dark:text-amber-300">Secret 为上游 API Key 明文，加密存储后不可查看。</p>
 			</div>
 			<form onsubmit={handleCreateKey} class="space-y-3">
-				<div>
-					<label for="ck-secret" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Secret <span class="text-red-500">*</span></label>
-					<textarea id="ck-secret" bind:value={createSecret} disabled={creatingKey} rows="3" placeholder="sk-..."
-						class="flex w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:opacity-50 resize-none"
-					></textarea>
-				</div>
-				<div>
-					<label for="ck-alias" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">别名</label>
+				<Field label="Secret" for="ck-secret" required>
+					<Textarea id="ck-secret" bind:value={createSecret} disabled={creatingKey} rows={3} placeholder="sk-..." class="font-mono resize-none" />
+				</Field>
+				<Field label="别名" for="ck-alias">
 					<Input id="ck-alias" bind:value={createAlias} disabled={creatingKey} placeholder="prod-key-1" />
-				</div>
+				</Field>
 				{#if createKeyError}
 					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{createKeyError}</p>
 				{/if}
@@ -286,28 +288,24 @@
 				</div>
 			</form>
 		</Card>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Rotate modal -->
 {#if showRotate}
-	<div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) showRotate = false; }}>
+	<ModalFrame close={() => { showRotate = false; }} class="z-40">
 		<Card class="p-6 max-w-lg w-full mx-4">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">轮转 Key</h3>
 			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
 				<p class="text-xs text-amber-800 dark:text-amber-300">将创建新 Key 并自动撤销所有旧 Key。</p>
 			</div>
 			<form onsubmit={handleRotate} class="space-y-3">
-				<div>
-					<label for="rk-secret" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">新 Secret <span class="text-red-500">*</span></label>
-					<textarea id="rk-secret" bind:value={rotateSecret} disabled={rotating} rows="3" placeholder="sk-..."
-						class="flex w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:opacity-50 resize-none"
-					></textarea>
-				</div>
-				<div>
-					<label for="rk-alias" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">别名</label>
+				<Field label="新 Secret" for="rk-secret" required>
+					<Textarea id="rk-secret" bind:value={rotateSecret} disabled={rotating} rows={3} placeholder="sk-..." class="font-mono resize-none" />
+				</Field>
+				<Field label="别名" for="rk-alias">
 					<Input id="rk-alias" bind:value={rotateAlias} disabled={rotating} placeholder="prod-key-2" />
-				</div>
+				</Field>
 				{#if rotateError}
 					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{rotateError}</p>
 				{/if}
@@ -319,231 +317,219 @@
 				</div>
 			</form>
 		</Card>
-	</div>
+	</ModalFrame>
 {/if}
 
-<div class="px-6 py-6">
-	<!-- Breadcrumb -->
-	<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
-		<a href="/channels" class="hover:underline">渠道</a> / {shortId(channelId)}...
-	</p>
+<PageShell
+	title={channelStats ? (channelStats.channel.name || channelStats.channel.code) : 'Channel 详情'}
+	description={channelStats ? `${channelStats.channel.code} · ${channelStats.channel.provider_type}` : shortId(channelId)}
+	eyebrow={`渠道 / ${shortId(channelId)}...`}
+	icon={Cable}
+	max="full"
+>
+	{#snippet actions()}
+		{#if channelStats && isPlatformAdmin}
+			<Button variant="outline" size="sm" onclick={handleTest} disabled={testing}>
+				<Zap size={14} />
+				{testing ? '测试中...' : '测试连通'}
+			</Button>
+		{/if}
+	{/snippet}
 
 	{#if loading}
 		<div class="flex items-center justify-center py-16">
-			<svg class="animate-spin h-6 w-6 text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-			</svg>
+			<div class="h-6 w-6 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100"></div>
 		</div>
 	{:else if error}
-		<Card class="p-6"><p class="text-red-600 dark:text-red-400 text-sm">{error}</p></Card>
+		<StatePanel title="加载失败" description={error} variant="danger" icon={XCircle} />
 	{:else if channelStats}
-		<!-- Header -->
-		<div class="flex items-center justify-between mb-6">
-			<div>
-				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{channelStats.channel.name || channelStats.channel.code}</h1>
-				<p class="text-sm text-zinc-600 dark:text-zinc-300 font-mono mt-0.5">{channelStats.channel.code} · {channelStats.channel.provider_type}</p>
-			</div>
-			{#if isPlatformAdmin}
-				<div class="flex gap-2">
-					<Button variant="outline" size="sm" onclick={handleTest} disabled={testing}>
-						{testing ? '测试中...' : '测试连通'}
-					</Button>
-				</div>
-			{/if}
-		</div>
-
-		<!-- Test result banner -->
 		{#if testResult}
-			<div class="mb-4 px-4 py-2 rounded-lg text-sm {testResult.success ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'}">
+			<Alert variant={testResult.success ? 'success' : 'danger'} class="mb-4">
 				{#if testResult.success}
-					✓ 连通正常 — {testResult.response_time_ms}ms (model: {testResult.model})
+					连通正常 — {testResult.response_time_ms}ms (model: {testResult.model})
 				{:else}
-					✗ {testResult.error ?? '连接失败'}
+					{testResult.error ?? '连接失败'}
 				{/if}
-			</div>
+			</Alert>
 		{/if}
 
-		<!-- Stats cards -->
-		<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+		<div class="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
 			<Card class="p-4">
 				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Keys</p>
-				<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{channelStats.keys_count}</p>
+				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">{channelStats.keys_count}</p>
 				<p class="text-xs text-zinc-500 dark:text-zinc-400">{channelStats.keys_healthy} healthy</p>
 			</Card>
 			<Card class="p-4">
 				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">总请求</p>
-				<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtNum(channelStats.total_requests)}</p>
+				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">{fmtNum(channelStats.total_requests)}</p>
 			</Card>
 			<Card class="p-4">
 				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">总错误</p>
-				<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtNum(channelStats.total_errors)}</p>
+				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">{fmtNum(channelStats.total_errors)}</p>
 			</Card>
 			<Card class="p-4">
 				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">余额</p>
-				<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
+				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
 					{channelStats.channel.balance != null ? `$${channelStats.channel.balance.toFixed(2)}` : '—'}
 				</p>
 			</Card>
 		</div>
 
-		<!-- Tabs -->
-		<div class="border-b border-zinc-200 dark:border-zinc-700 mb-6">
-			<nav class="flex gap-6">
+		<DataToolbar class="mb-6 border-b border-zinc-200 pb-0 dark:border-zinc-700" rowClass="gap-6">
+			{#snippet controls()}
 				{#each [['overview', 'Overview'], ['keys', 'Keys'], ['models', '模型'], ['logs', '日志']] as [tab, label]}
 					<button
+						type="button"
 						onclick={() => switchTab(tab as typeof activeTab)}
-						class="pb-3 text-sm font-medium transition-colors border-b-2 {activeTab === tab
-							? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100'
-							: 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'}"
+						class="border-b-2 pb-3 text-sm font-medium transition-colors {activeTab === tab
+							? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+							: 'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300'}"
 					>{label}</button>
 				{/each}
-			</nav>
-		</div>
+			{/snippet}
+		</DataToolbar>
 
-		<!-- Tab content -->
 		{#if activeTab === 'overview'}
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-				<Card class="p-5">
-					<h3 class="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-3">基础信息</h3>
+			<div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+				<SectionCard title="基础信息" icon={Server}>
 					<dl class="space-y-2 text-sm">
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">状态</dt><dd class="text-zinc-900 dark:text-zinc-100">{channelStats.channel.status}</dd></div>
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">健康度</dt><dd class="text-zinc-900 dark:text-zinc-100">{channelStats.channel.health}</dd></div>
-						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">Base URL</dt><dd class="text-zinc-900 dark:text-zinc-100 font-mono text-xs truncate max-w-[200px]">{channelStats.channel.base_url}</dd></div>
+						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">Base URL</dt><dd class="max-w-[200px] truncate font-mono text-xs text-zinc-900 dark:text-zinc-100">{channelStats.channel.base_url}</dd></div>
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">超时</dt><dd class="text-zinc-900 dark:text-zinc-100">{channelStats.channel.timeout_ms}ms</dd></div>
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">重试</dt><dd class="text-zinc-900 dark:text-zinc-100">{channelStats.channel.max_retries} 次</dd></div>
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">RPM 限制</dt><dd class="text-zinc-900 dark:text-zinc-100">{channelStats.channel.rpm_limit ?? '∞'}</dd></div>
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">TPM 限制</dt><dd class="text-zinc-900 dark:text-zinc-100">{channelStats.channel.tpm_limit ?? '∞'}</dd></div>
 					</dl>
-				</Card>
-				<Card class="p-5">
-					<h3 class="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-3">最近状态</h3>
+				</SectionCard>
+				<SectionCard title="最近状态" icon={ListChecks}>
 					<dl class="space-y-2 text-sm">
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">更新时间</dt><dd class="text-zinc-900 dark:text-zinc-100">{fmtDate(channelStats.channel.updated_at)}</dd></div>
 						<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">创建时间</dt><dd class="text-zinc-900 dark:text-zinc-100">{fmtDate(channelStats.channel.created_at)}</dd></div>
 						{#if channelStats.channel.last_error}
-							<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">最后错误</dt><dd class="text-red-600 dark:text-red-400 text-xs truncate max-w-[200px]">{channelStats.channel.last_error}</dd></div>
+							<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">最后错误</dt><dd class="max-w-[200px] truncate text-xs text-red-600 dark:text-red-400">{channelStats.channel.last_error}</dd></div>
 							<div class="flex justify-between"><dt class="text-zinc-500 dark:text-zinc-400">错误时间</dt><dd class="text-zinc-900 dark:text-zinc-100">{fmtDate(channelStats.channel.last_error_at)}</dd></div>
 						{/if}
 						{#if channelStats.channel.tags && channelStats.channel.tags.length > 0}
-							<div class="flex justify-between items-start"><dt class="text-zinc-500 dark:text-zinc-400">标签</dt>
-								<dd class="flex flex-wrap gap-1 justify-end">
+							<div class="flex items-start justify-between"><dt class="text-zinc-500 dark:text-zinc-400">标签</dt>
+								<dd class="flex flex-wrap justify-end gap-1">
 									{#each channelStats.channel.tags as tag}
-										<span class="px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 rounded text-[10px]">{tag}</span>
+										<Badge class="text-[10px]">{tag}</Badge>
 									{/each}
 								</dd>
 							</div>
 						{/if}
 					</dl>
-				</Card>
+				</SectionCard>
 			</div>
 
 		{:else if activeTab === 'keys'}
-			<div class="flex items-center justify-between mb-4">
-				<p class="text-sm text-zinc-600 dark:text-zinc-300">{keys.length} 个 Key</p>
-				{#if isPlatformAdmin}
-					<div class="flex gap-2">
-						<Button variant="outline" size="sm" onclick={() => (showRotate = true)}>轮转</Button>
-						<Button size="sm" onclick={() => (showCreateKey = true)}>+ 添加</Button>
-					</div>
-				{/if}
-			</div>
+			<DataToolbar class="mb-4" badgesVisible={false}>
+				{#snippet controls()}
+					<p class="text-sm text-zinc-600 dark:text-zinc-300">{keys.length} 个 Key</p>
+				{/snippet}
+				{#snippet actions()}
+					{#if isPlatformAdmin}
+						<Button variant="outline" size="sm" onclick={() => (showRotate = true)}>
+							<RotateCw size={14} /> 轮转
+						</Button>
+						<Button size="sm" onclick={() => (showCreateKey = true)}>
+							<Plus size={14} /> 添加
+						</Button>
+					{/if}
+				{/snippet}
+			</DataToolbar>
 
 			{#if keysLoading}
-				<p class="text-zinc-500 dark:text-zinc-400 text-sm">加载中...</p>
-			{:else if keys.length === 0}
-				<Card class="p-6 text-center">
-					<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无 Key。</p>
-				</Card>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400">加载中...</p>
 			{:else}
-				<div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-					<table class="w-full text-sm">
-						<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
-							<tr>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Label</th>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Fingerprint</th>
-								<th class="px-3 py-3 text-center font-medium text-zinc-600 dark:text-zinc-400">Health</th>
-								<th class="px-3 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">Requests</th>
-								<th class="px-3 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">Errors</th>
-								<th class="px-3 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">Cooldown</th>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">创建时间</th>
-								{#if isPlatformAdmin}
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">操作</th>
-								{/if}
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-							{#each keys as key}
-								<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-									<td class="px-4 py-3 text-zinc-900 dark:text-zinc-100">{key.label ?? '—'}</td>
-									<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{key.fingerprint}</td>
-									<td class="px-3 py-3 text-center">
-										<div class="flex items-center justify-center gap-1.5">
-											<span class="w-2 h-2 rounded-full {healthDot(key.health)}"></span>
-											<span class="text-xs text-zinc-600 dark:text-zinc-400">{key.health}</span>
-										</div>
-									</td>
-									<td class="px-3 py-3 text-right text-zinc-700 dark:text-zinc-300 font-mono text-xs tabular-nums">{fmtNum(key.total_requests)}</td>
-									<td class="px-3 py-3 text-right font-mono text-xs tabular-nums {key.total_errors > 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'}">{fmtNum(key.total_errors)}</td>
-									<td class="px-3 py-3 text-right text-xs text-zinc-500 dark:text-zinc-400">{key.cooldown_until ? fmtDate(key.cooldown_until) : '—'}</td>
-									<td class="px-4 py-3 text-zinc-500 dark:text-zinc-400 text-xs">{fmtDate(key.created_at)}</td>
-									{#if isPlatformAdmin}
-										<td class="px-4 py-3 text-right">
-											<Button variant="ghost" size="sm" onclick={() => (revokingId = key.id)}>
-												<span class="text-red-600 dark:text-red-400">撤销</span>
-											</Button>
-										</td>
-									{/if}
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<DataTable isEmpty={keys.length === 0} emptyColspan={isPlatformAdmin ? 8 : 7}>
+					{#snippet head()}
+						<tr>
+							<th class={dataTemplate.th}>Label</th>
+							<th class={dataTemplate.th}>Fingerprint</th>
+							<th class={cn(dataTemplate.th, 'text-center')}>Health</th>
+							<th class={cn(dataTemplate.th, 'text-right')}>Requests</th>
+							<th class={cn(dataTemplate.th, 'text-right')}>Errors</th>
+							<th class={cn(dataTemplate.th, 'text-right')}>Cooldown</th>
+							<th class={dataTemplate.th}>创建时间</th>
+							{#if isPlatformAdmin}
+								<th class={cn(dataTemplate.th, 'text-right')}>操作</th>
+							{/if}
+						</tr>
+					{/snippet}
+					{#snippet empty()}
+						暂无 Key。
+					{/snippet}
+					{#each keys as key}
+						<tr class={dataTemplate.row}>
+							<td class={dataTemplate.tdStrong}>{key.label ?? '—'}</td>
+							<td class={dataTemplate.tdMono}>{key.fingerprint}</td>
+							<td class={cn(dataTemplate.td, 'text-center')}>
+								<div class="flex items-center justify-center gap-1.5">
+									<span class="h-2 w-2 rounded-full {healthDot(key.health)}"></span>
+									<span>{key.health}</span>
+								</div>
+							</td>
+							<td class={cn(dataTemplate.tdMonoStrong, 'text-right tabular-nums')}>{fmtNum(key.total_requests)}</td>
+							<td class="px-4 py-3 text-right font-mono text-xs tabular-nums {key.total_errors > 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'}">{fmtNum(key.total_errors)}</td>
+							<td class={cn(dataTemplate.td, 'text-right')}>{key.cooldown_until ? fmtDate(key.cooldown_until) : '—'}</td>
+							<td class={dataTemplate.td}>{fmtDate(key.created_at)}</td>
+							{#if isPlatformAdmin}
+								<td class={cn(dataTemplate.td, 'text-right')}>
+									<Button variant="ghost" size="sm" onclick={() => (revokingId = key.id)}>
+										<span class="text-red-600 dark:text-red-400">撤销</span>
+									</Button>
+								</td>
+							{/if}
+						</tr>
+					{/each}
+				</DataTable>
 			{/if}
 
 		{:else if activeTab === 'models'}
 			<div class="space-y-4">
-				<div class="flex items-center justify-between">
-					<p class="text-sm text-zinc-600 dark:text-zinc-300">
-						{channelStats.channel.supported_models?.length ?? 0} 个已配置模型
-					</p>
-					{#if isPlatformAdmin}
-						<Button variant="outline" size="sm" onclick={handleProbe} disabled={probing}>
-							{probing ? 'Probing...' : 'Probe 上游模型'}
-						</Button>
-					{/if}
-				</div>
+				<DataToolbar badgesVisible={false}>
+					{#snippet controls()}
+						<p class="text-sm text-zinc-600 dark:text-zinc-300">
+							{channelStats?.channel.supported_models?.length ?? 0} 个已配置模型
+						</p>
+					{/snippet}
+					{#snippet actions()}
+						{#if isPlatformAdmin}
+							<Button variant="outline" size="sm" onclick={handleProbe} disabled={probing}>
+								{probing ? 'Probing...' : 'Probe 上游模型'}
+							</Button>
+						{/if}
+					{/snippet}
+				</DataToolbar>
 
 				{#if channelStats.channel.supported_models && channelStats.channel.supported_models.length > 0}
-					<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+					<div class="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-4">
 						{#each channelStats.channel.supported_models as m}
-							<div class="px-3 py-2 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs font-mono text-zinc-700 dark:text-zinc-300 truncate" title={m}>{m}</div>
+							<div class="truncate rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" title={m}>{m}</div>
 						{/each}
 					</div>
 				{:else}
-					<Card class="p-6 text-center">
-						<p class="text-zinc-500 dark:text-zinc-400 text-sm">未配置模型列表（通配所有模型）。</p>
-					</Card>
+					<StatePanel title="未配置模型列表" description="通配所有模型。" />
 				{/if}
 
 				{#if probeResult}
-					<Card class="p-5">
-						<h3 class="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-3">Probe 发现 {probeResult.models.length} 个模型</h3>
-						<div class="max-h-48 overflow-y-auto grid grid-cols-2 md:grid-cols-3 gap-1">
+					<SectionCard title={`Probe 发现 ${probeResult.models.length} 个模型`}>
+						<div class="grid max-h-48 grid-cols-2 gap-1 overflow-y-auto md:grid-cols-3">
 							{#each probeResult.models as m}
-								<div class="text-xs font-mono text-zinc-600 dark:text-zinc-400 px-2 py-1">{m}</div>
+								<div class="px-2 py-1 font-mono text-xs text-zinc-600 dark:text-zinc-400">{m}</div>
 							{/each}
 						</div>
-						<div class="flex gap-2 justify-end mt-4">
+						<div class="mt-4 flex justify-end gap-2">
 							<Button variant="outline" size="sm" onclick={() => (probeResult = null)}>关闭</Button>
 							<Button size="sm" onclick={handleSyncModels}>同步到 Channel</Button>
 						</div>
-					</Card>
+					</SectionCard>
 				{/if}
 
 				{#if channelStats.channel.model_mapping && Object.keys(channelStats.channel.model_mapping).length > 0}
-					<Card class="p-5">
-						<h3 class="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-3">模型映射</h3>
+					<SectionCard title="模型映射">
 						<div class="space-y-1">
 							{#each Object.entries(channelStats.channel.model_mapping) as [alias, target]}
 								<div class="flex items-center gap-2 text-xs">
@@ -553,43 +539,38 @@
 								</div>
 							{/each}
 						</div>
-					</Card>
+					</SectionCard>
 				{/if}
 			</div>
 
 		{:else if activeTab === 'logs'}
 			{#if logsLoading}
-				<p class="text-zinc-500 dark:text-zinc-400 text-sm">加载中...</p>
-			{:else if logs.length === 0}
-				<Card class="p-6 text-center">
-					<p class="text-zinc-500 dark:text-zinc-400 text-sm">暂无相关日志。</p>
-				</Card>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400">加载中...</p>
 			{:else}
-				<div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-					<table class="w-full text-sm">
-						<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
-							<tr>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">时间</th>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">动作</th>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">操作者</th>
-								<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">结果</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-							{#each logs as log}
-								<tr>
-									<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">{fmtDate(log.ts)}</td>
-									<td class="px-4 py-3 text-zinc-900 dark:text-zinc-100 font-mono text-xs">{log.action}</td>
-									<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{log.actor_kind}:{shortId(log.actor_id?) ?? '—'}</td>
-									<td class="px-4 py-3">
-										<span class="px-2 py-0.5 rounded text-xs {log.outcome === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'}">{log.outcome}</span>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<DataTable isEmpty={logs.length === 0} emptyColspan={4}>
+					{#snippet head()}
+						<tr>
+							<th class={dataTemplate.th}>时间</th>
+							<th class={dataTemplate.th}>动作</th>
+							<th class={dataTemplate.th}>操作者</th>
+							<th class={dataTemplate.th}>结果</th>
+						</tr>
+					{/snippet}
+					{#snippet empty()}
+						暂无相关日志。
+					{/snippet}
+					{#each logs as log}
+						<tr class={dataTemplate.row}>
+							<td class={dataTemplate.td}>{fmtDate(log.ts)}</td>
+							<td class={dataTemplate.tdMonoStrong}>{log.action}</td>
+							<td class={dataTemplate.td}>{log.actor_kind}:{log.actor_id ? shortId(log.actor_id) : '—'}</td>
+							<td class={dataTemplate.td}>
+								<Badge variant={log.outcome === 'success' ? 'success' : 'danger'}>{log.outcome}</Badge>
+							</td>
+						</tr>
+					{/each}
+				</DataTable>
 			{/if}
 		{/if}
 	{/if}
-</div>
+</PageShell>

@@ -4,9 +4,9 @@
 	import { goto } from '$app/navigation';
 	import { getMe, listAllOrgs, createOrg, updateOrg } from '$lib/api.js';
 	import type { MeResult, OrgDetail } from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
+	import { Button, Card, Field, Input, Skeleton } from '$lib/components/ui';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { Building2, Plus, Settings, X } from 'lucide-svelte';
 
 	let me = $state<MeResult | null>(null);
@@ -80,14 +80,12 @@
 	}
 </script>
 
-<div class="px-6 py-6">
-	<div class="flex items-center justify-between mb-6">
-		<div>
-			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">组织</h1>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">
-				当前激活：<span class="font-mono font-medium text-zinc-700 dark:text-zinc-300">{activeOrg?.slice(0, 12) ?? '—'}...</span>
-			</p>
-		</div>
+<PageShell
+	title="组织"
+	description={`当前激活：${activeOrg?.slice(0, 12) ?? '—'}...`}
+	icon={Building2}
+>
+	{#snippet actions()}
 		{#if me?.is_platform_admin}
 			<Button size="sm" onclick={() => (showCreate = !showCreate)}>
 				{#if showCreate}
@@ -97,14 +95,18 @@
 				{/if}
 			</Button>
 		{/if}
-	</div>
+	{/snippet}
 
 	{#if showCreate}
-		<Card class="p-4 mb-6">
+		<Card padding="sm" class="mb-6">
 			<h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">创建组织</h3>
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-				<Input bind:value={newName} placeholder="组织名称" />
-				<Input bind:value={newSlug} placeholder="标识 (slug)" />
+				<Field label="组织名称" for="new-org-name">
+					<Input id="new-org-name" bind:value={newName} placeholder="组织名称" />
+				</Field>
+				<Field label="标识 (slug)" for="new-org-slug">
+					<Input id="new-org-slug" bind:value={newSlug} placeholder="kooix" />
+				</Field>
 			</div>
 			{#if createError}
 				<p class="text-xs text-red-600 dark:text-red-400 mt-2">{createError}</p>
@@ -116,19 +118,16 @@
 	{#if loading}
 		<div class="space-y-3">
 			{#each Array(3) as _}
-				<div class="h-20 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse"></div>
+				<Skeleton class="h-20" />
 			{/each}
 		</div>
 	{:else if error}
-		<Card class="p-6">
-			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-		</Card>
+		<StatePanel variant="danger" description={error} />
 	{:else if orgs.length === 0 && !me?.is_platform_admin}
-		<!-- Non-admin: simple org list from me.orgs -->
 		{#if me && me.orgs.length > 0}
 			<div class="space-y-3">
 				{#each me.orgs as orgId}
-					<Card class="p-4 flex items-center justify-between">
+					<Card padding="sm" class="flex items-center justify-between">
 						<div class="flex items-center gap-3">
 							<Building2 size={18} class="text-zinc-400" />
 							<p class="font-mono text-sm text-zinc-700 dark:text-zinc-300">{orgId}</p>
@@ -141,27 +140,21 @@
 				{/each}
 			</div>
 		{:else}
-			<Card class="p-12 text-center">
-				<Building2 size={40} class="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
-				<p class="text-sm text-zinc-600 dark:text-zinc-300">暂无组织，请联系管理员</p>
-			</Card>
+			<StatePanel title="暂无组织" description="请联系管理员" icon={Building2} />
 		{/if}
 	{:else}
-		<!-- Admin: detailed org list -->
 		<div class="space-y-3">
 			{#each orgs as org}
-				<Card class="p-4">
+				<Card padding="sm">
 					{#if editingOrg === org.id}
 						<div class="space-y-3">
 							<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-								<div>
-									<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">名称</label>
-									<Input bind:value={editName} />
-								</div>
-								<div>
-									<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">账单邮箱</label>
-									<Input bind:value={editBilling} placeholder="billing@example.com" />
-								</div>
+								<Field label="名称" for={`org-name-${org.id}`}>
+									<Input id={`org-name-${org.id}`} bind:value={editName} />
+								</Field>
+								<Field label="账单邮箱" for={`org-billing-${org.id}`}>
+									<Input id={`org-billing-${org.id}`} bind:value={editBilling} placeholder="billing@example.com" />
+								</Field>
 							</div>
 							{#if editError}
 								<p class="text-xs text-red-600 dark:text-red-400">{editError}</p>
@@ -198,4 +191,4 @@
 			{/each}
 		</div>
 	{/if}
-</div>
+</PageShell>

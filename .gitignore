@@ -30,3 +30,4 @@ logs/
 # OS
 Thumbs.db
 .claude/
+.ace-tool/

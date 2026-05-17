@@ -4,13 +4,11 @@
 	import { page } from '$app/stores';
 	import { getMe, getProject, updateProject, listKeys, createKey, revokeKey, listModelAliases, upsertModelAlias, deleteModelAlias } from '$lib/api.js';
 	import type { Project, ApiKey, CreateKeyResponse, ModelAlias } from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
+	import { Button, Card, Field, Input, Select } from '$lib/components/ui';
 	import { Settings, Key, Plus, Trash2, Copy, Check, ArrowRight } from 'lucide-svelte';
 
-	let orgId = $derived($page.params.orgId);
-	let projectId = $derived($page.params.projectId);
+	let orgId = $derived($page.params.orgId ?? '');
+	let projectId = $derived($page.params.projectId ?? '');
 
 	let project = $state<Project | null>(null);
 	let keys = $state<ApiKey[]>([]);
@@ -29,6 +27,11 @@
 	let aliases = $state<ModelAlias[]>([]);
 	let newAlias = $state('');
 	let newTarget = $state('');
+
+	const statusOptions = [
+		{ value: 'active', label: 'Active' },
+		{ value: 'archived', label: 'Archived' }
+	];
 
 	onMount(async () => {
 		try {
@@ -135,17 +138,12 @@
 				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">项目设置</h2>
 			</div>
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-				<div>
-					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">名称</label>
-					<Input bind:value={editName} placeholder="项目名称" />
-				</div>
-				<div>
-					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">状态</label>
-					<select bind:value={editStatus} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100">
-						<option value="active">Active</option>
-						<option value="archived">Archived</option>
-					</select>
-				</div>
+				<Field label="名称" for="project-name">
+					<Input id="project-name" bind:value={editName} placeholder="项目名称" />
+				</Field>
+				<Field label="状态" for="project-status">
+					<Select id="project-status" bind:value={editStatus} options={statusOptions} />
+				</Field>
 			</div>
 			<div class="flex items-center gap-3 mt-4">
 				<Button size="sm" onclick={saveProject} disabled={saving}>

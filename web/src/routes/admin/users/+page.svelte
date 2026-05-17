@@ -2,8 +2,9 @@
 	import { onMount } from 'svelte';
 	import { getMe, listUsers, updateUserStatus } from '$lib/api.js';
 	import type { UserDetail } from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import { Button, Card, Skeleton } from '$lib/components/ui';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { Users, ShieldCheck, ShieldOff } from 'lucide-svelte';
 
 	let users = $state<UserDetail[]>([]);
@@ -40,14 +41,9 @@
 	}
 </script>
 
-<div class="px-6 py-6">
-	<div class="flex items-center justify-between mb-6">
-		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">用户管理</h1>
-		<span class="text-sm text-zinc-600 dark:text-zinc-300">{users.length} 用户</span>
-	</div>
-
+<PageShell title="用户管理" description={`${users.length} 用户`} icon={Users}>
 	{#if actionError}
-		<Card class="p-3 mb-4 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
+		<Card padding="sm" variant="danger" class="mb-4">
 			<p class="text-xs text-red-600 dark:text-red-400">{actionError}</p>
 		</Card>
 	{/if}
@@ -55,38 +51,33 @@
 	{#if loading}
 		<div class="space-y-2">
 			{#each Array(5) as _}
-				<div class="h-12 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse"></div>
+				<Skeleton class="h-12" />
 			{/each}
 		</div>
 	{:else if error}
-		<Card class="p-8 text-center">
-			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-		</Card>
+		<StatePanel variant="danger" description={error} />
 	{:else if users.length === 0}
-		<Card class="p-12 text-center">
-			<Users size={40} class="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
-			<p class="text-sm text-zinc-600 dark:text-zinc-300">暂无用户</p>
-		</Card>
+		<StatePanel title="暂无用户" icon={Users} />
 	{:else}
-		<div class="overflow-x-auto">
+		<Card class="overflow-x-auto" padding="none">
 			<table class="w-full text-sm">
 				<thead>
 					<tr class="border-b border-zinc-200 dark:border-zinc-700 text-left">
-						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">邮箱</th>
-						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">昵称</th>
-						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">状态</th>
-						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">MFA</th>
-						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">最后登录</th>
-						<th class="pb-2 font-medium text-zinc-600 dark:text-zinc-300">注册时间</th>
-						<th class="pb-2"></th>
+						<th class="px-4 py-3 font-medium text-zinc-600 dark:text-zinc-300">邮箱</th>
+						<th class="px-4 py-3 font-medium text-zinc-600 dark:text-zinc-300">昵称</th>
+						<th class="px-4 py-3 font-medium text-zinc-600 dark:text-zinc-300">状态</th>
+						<th class="px-4 py-3 font-medium text-zinc-600 dark:text-zinc-300">MFA</th>
+						<th class="px-4 py-3 font-medium text-zinc-600 dark:text-zinc-300">最后登录</th>
+						<th class="px-4 py-3 font-medium text-zinc-600 dark:text-zinc-300">注册时间</th>
+						<th class="px-4 py-3"></th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each users as user}
 						<tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-							<td class="py-3 font-mono text-zinc-900 dark:text-zinc-100">{user.email}</td>
-							<td class="py-3 text-zinc-600 dark:text-zinc-400">{user.display_name ?? '—'}</td>
-							<td class="py-3">
+							<td class="px-4 py-3 font-mono text-zinc-900 dark:text-zinc-100">{user.email}</td>
+							<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">{user.display_name ?? '—'}</td>
+							<td class="px-4 py-3">
 								<span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full {
 									user.status === 'active'
 										? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
@@ -95,10 +86,10 @@
 									{user.status}
 								</span>
 							</td>
-							<td class="py-3 text-zinc-600 dark:text-zinc-300">{user.mfa_enabled ? '是' : '否'}</td>
-							<td class="py-3 text-xs text-zinc-600 dark:text-zinc-300">{fmtDate(user.last_login_at)}</td>
-							<td class="py-3 text-xs text-zinc-600 dark:text-zinc-300">{fmtDate(user.created_at)}</td>
-							<td class="py-3 text-right">
+							<td class="px-4 py-3 text-zinc-600 dark:text-zinc-300">{user.mfa_enabled ? '是' : '否'}</td>
+							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">{fmtDate(user.last_login_at)}</td>
+							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">{fmtDate(user.created_at)}</td>
+							<td class="px-4 py-3 text-right">
 								<Button
 									variant={user.status === 'active' ? 'outline' : 'default'}
 									size="sm"
@@ -115,6 +106,6 @@
 					{/each}
 				</tbody>
 			</table>
-		</div>
+		</Card>
 	{/if}
-</div>
+</PageShell>

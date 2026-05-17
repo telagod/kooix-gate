@@ -11,7 +11,7 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import { FolderOpen, Plus, X } from 'lucide-svelte';
 
-	let orgId = $derived($page.params.orgId);
+	let orgId = $derived($page.params.orgId ?? '');
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
 	let error = $state('');

@@ -2,10 +2,10 @@
 	import { onMount } from 'svelte';
 	import { getMe, changePassword } from '$lib/api.js';
 	import type { MeResult } from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import { User, Lock, Shield } from 'lucide-svelte';
+	import { Button, Field, Input, Skeleton } from '$lib/components/ui';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import SectionCard from '$lib/components/templates/SectionCard.svelte';
+	import { User, Lock, Shield, Settings } from 'lucide-svelte';
 
 	let me = $state<MeResult | null>(null);
 	let loading = $state(true);
@@ -42,22 +42,15 @@
 	}
 </script>
 
-<div class="max-w-3xl mx-auto p-6">
-	<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-6">个人设置</h1>
-
+<PageShell title="个人设置" description="账号信息、密码和当前组织上下文。" max="narrow" icon={Settings}>
 	{#if loading}
 		<div class="space-y-4">
 			{#each Array(2) as _}
-				<div class="h-32 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse"></div>
+				<Skeleton class="h-32" />
 			{/each}
 		</div>
 	{:else}
-		<!-- Profile info -->
-		<Card class="p-5 mb-6">
-			<div class="flex items-center gap-2 mb-4">
-				<User size={16} class="text-zinc-400" />
-				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">账号信息</h2>
-			</div>
+		<SectionCard title="账号信息" icon={User} class="mb-6">
 			{#if me}
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
 					<div>
@@ -86,27 +79,19 @@
 					</div>
 				</div>
 			{/if}
-		</Card>
+		</SectionCard>
 
-		<!-- Change password -->
-		<Card class="p-5">
-			<div class="flex items-center gap-2 mb-4">
-				<Lock size={16} class="text-zinc-400" />
-				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">修改密码</h2>
-			</div>
+		<SectionCard title="修改密码" icon={Lock}>
 			<div class="space-y-3 max-w-sm">
-				<div>
-					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">当前密码</label>
-					<input type="password" bind:value={currentPw} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
-				</div>
-				<div>
-					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">新密码</label>
-					<input type="password" bind:value={newPw} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
-				</div>
-				<div>
-					<label class="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">确认新密码</label>
-					<input type="password" bind:value={confirmPw} class="w-full h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-900 dark:text-zinc-100" />
-				</div>
+				<Field label="当前密码" for="current-password">
+					<Input id="current-password" type="password" autocomplete="current-password" bind:value={currentPw} />
+				</Field>
+				<Field label="新密码" for="new-password">
+					<Input id="new-password" type="password" autocomplete="new-password" bind:value={newPw} />
+				</Field>
+				<Field label="确认新密码" for="confirm-password">
+					<Input id="confirm-password" type="password" autocomplete="new-password" bind:value={confirmPw} />
+				</Field>
 				{#if pwError}
 					<p class="text-xs text-red-600 dark:text-red-400">{pwError}</p>
 				{/if}
@@ -117,6 +102,6 @@
 					{pwSaving ? '保存中...' : '修改密码'}
 				</Button>
 			</div>
-		</Card>
+		</SectionCard>
 	{/if}
-</div>
+</PageShell>

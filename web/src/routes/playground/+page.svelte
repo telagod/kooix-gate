@@ -320,22 +320,23 @@
 				<div>
 					<p class="px-2 mb-1.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{cat.label}</p>
 					<div class="space-y-0.5">
-						{#each cat.kinds as kind}
-							{@const meta = NODE_CATALOG[kind]}
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								draggable="true"
-								ondragstart={(e) => onDragStart(e, kind)}
-								onclick={() => addNode(kind)}
-								class="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-grab active:cursor-grabbing text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors select-none"
-							>
-								<div class="w-5 h-5 rounded flex items-center justify-center shrink-0" style:background-color="{meta.color}15">
-									<svelte:component this={nodeIcons[kind]} size={12} style="color: {meta.color}" />
-								</div>
-								<span class="truncate">{meta.label}</span>
-							</div>
-						{/each}
-					</div>
+							{#each cat.kinds as kind}
+								{@const meta = NODE_CATALOG[kind]}
+								{@const Icon = nodeIcons[kind]}
+								<button
+									type="button"
+									draggable="true"
+									ondragstart={(e) => onDragStart(e, kind)}
+									onclick={() => addNode(kind)}
+									class="flex w-full items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs cursor-grab active:cursor-grabbing text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors select-none"
+								>
+									<div class="w-5 h-5 rounded flex items-center justify-center shrink-0" style:background-color="{meta.color}15">
+										<Icon size={12} style="color: {meta.color}" />
+									</div>
+									<span class="truncate">{meta.label}</span>
+								</button>
+							{/each}
+						</div>
 				</div>
 			{/each}
 		</div>
@@ -366,8 +367,7 @@
 						<ChevronDown size={12} class="text-zinc-400" />
 					</button>
 					{#if showWorkflowPicker}
-						<div class="absolute top-full left-0 mt-1 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden z-50"
-							onclick={(e) => e.stopPropagation()}>
+						<div class="absolute top-full left-0 mt-1 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden z-50">
 							<div class="p-2 border-b border-zinc-100 dark:border-zinc-800">
 								<button onclick={newWorkflow}
 									class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
@@ -467,9 +467,10 @@
 			</SvelteFlow>
 
 			<!-- Right-click context menu -->
-			{#if showNodeMenu}
-				<div
-					class="fixed z-50 w-48 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden"
+				{#if showNodeMenu}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<div
+						class="fixed z-50 w-48 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden"
 					style="left: {nodeMenuPos.x}px; top: {nodeMenuPos.y}px;"
 					onclick={(e) => e.stopPropagation()}
 					role="menu" tabindex="-1"
@@ -478,14 +479,15 @@
 						<div class="px-3 py-1 text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider bg-zinc-50 dark:bg-zinc-800/50">
 							{cat.label}
 						</div>
-						{#each cat.kinds as kind}
-							{@const meta = NODE_CATALOG[kind]}
-							<button onclick={() => addNode(kind, nodeMenuPos.x - 110, nodeMenuPos.y - 30)}
-								class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-								role="menuitem">
-								<div class="w-4 h-4 rounded flex items-center justify-center" style:background-color="{meta.color}15">
-									<svelte:component this={nodeIcons[kind]} size={10} style="color: {meta.color}" />
-								</div>
+							{#each cat.kinds as kind}
+								{@const meta = NODE_CATALOG[kind]}
+								{@const Icon = nodeIcons[kind]}
+								<button onclick={() => addNode(kind, nodeMenuPos.x - 110, nodeMenuPos.y - 30)}
+									class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+									role="menuitem">
+									<div class="w-4 h-4 rounded flex items-center justify-center" style:background-color="{meta.color}15">
+										<Icon size={10} style="color: {meta.color}" />
+									</div>
 								{meta.label}
 							</button>
 						{/each}

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { clsx } from 'clsx';
 	import { MoreHorizontal } from 'lucide-svelte';
+	import { buttonClass, cn, surface } from '$lib/design';
 
 	export interface MenuItem {
 		label: string;
@@ -42,35 +42,36 @@
 	}
 </script>
 
-<div class="relative {className}">
+<div class={cn('relative', className)}>
 	<button
 		bind:this={btnEl}
 		type="button"
 		onclick={toggle}
-		class="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+		class={buttonClass({ variant: 'ghost', size: 'icon', class: 'h-8 w-8 text-zinc-400 dark:text-zinc-500' })}
 	>
 		<MoreHorizontal size={16} />
 	</button>
 
 	{#if open}
-		<div class="fixed inset-0 z-40" onclick={() => (open = false)}></div>
-		<div class="z-50 min-w-[160px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl py-1 animate-fade-in"
+		<button type="button" aria-label="关闭菜单" class="fixed inset-0 z-40 cursor-default appearance-none border-0 bg-transparent p-0" onclick={() => (open = false)}></button>
+		<div class="z-50 min-w-[160px] rounded-lg border {surface.border} {surface.base} py-1 shadow-xl animate-fade-in"
 			style={menuStyle}>
 			{#each items as item}
 				<button
 					type="button"
 					disabled={item.disabled}
 					onclick={() => handleClick(item)}
-					class={clsx(
-						'flex w-full items-center gap-2 px-3 py-2 text-[13px] text-left transition-colors',
-						item.disabled && 'opacity-40 cursor-not-allowed',
+					class={cn(
+						'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors',
+						item.disabled && 'cursor-not-allowed opacity-40',
 						item.danger
-							? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30'
-							: 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+							? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30'
+							: 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800'
 					)}
 				>
 					{#if item.icon}
-						<svelte:component this={item.icon} size={14} />
+						{@const Icon = item.icon}
+						<Icon size={14} />
 					{/if}
 					{item.label}
 				</button>

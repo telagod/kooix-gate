@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { clsx } from 'clsx';
+	import { Check, ChevronDown } from 'lucide-svelte';
+	import { cn, controlClass, surface, text } from '$lib/design';
 
 	export interface ProviderOption {
 		value: string;
@@ -76,93 +77,81 @@
 </script>
 
 {#if mode === 'grid'}
-	<div class="grid grid-cols-3 gap-2 {className}">
+	<div class={cn('grid grid-cols-3 gap-2', className)}>
 		{#each options as opt}
 			<button
 				type="button"
 				{disabled}
 				onclick={() => (value = opt.value)}
-				class={clsx(
-					'flex flex-col items-center gap-1.5 px-3 py-3 rounded-lg border text-center transition-all',
+				class={cn(
+					'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-center transition-all',
 					value === opt.value
-						? 'border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-800 ring-1 ring-zinc-900 dark:ring-zinc-100'
-						: 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 bg-white dark:bg-zinc-900',
-					disabled && 'opacity-50 pointer-events-none'
+						? 'border-zinc-900 bg-zinc-50 ring-1 ring-zinc-900 dark:border-zinc-100 dark:bg-zinc-800 dark:ring-zinc-100'
+						: 'border-zinc-200 bg-white hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-500',
+					disabled && 'pointer-events-none opacity-50'
 				)}
 			>
-				{#if opt.value}<img src={logoSrc(opt.value)} alt={opt.label} class="w-5 h-5" />{/if}
-				<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100">{opt.label}</span>
+				{#if opt.value}<img src={logoSrc(opt.value)} alt={opt.label} class="h-5 w-5" />{/if}
+				<span class="text-xs font-medium {text.primary}">{opt.label}</span>
 				{#if opt.description}
-					<span class="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-1">{opt.description}</span>
+					<span class="line-clamp-1 text-[10px] {text.muted}">{opt.description}</span>
 				{/if}
 			</button>
 		{/each}
 	</div>
 {:else}
-	<div class="relative {className}">
+	<div class={cn('relative', className)}>
 		<button
 			type="button"
 			{disabled}
 			onclick={toggle}
-			class={clsx(
-				'flex h-10 w-full items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors',
-				'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800',
-				'text-zinc-900 dark:text-zinc-100',
-				'focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300',
-				disabled && 'opacity-50 cursor-not-allowed'
-			)}
+			class={cn(controlClass(), 'items-center justify-between', disabled && 'cursor-not-allowed opacity-50')}
 		>
 			<span class="flex items-center gap-2 truncate">
 				{#if selected}
-					{#if selected.value}<img src={logoSrc(selected.value)} alt={selected.label} class="w-4 h-4" />{/if}
+					{#if selected.value}<img src={logoSrc(selected.value)} alt={selected.label} class="h-4 w-4" />{/if}
 					<span>{selected.label}</span>
 				{:else}
-					<span class="text-zinc-500 dark:text-zinc-400">{placeholder}</span>
+					<span class={text.muted}>{placeholder}</span>
 				{/if}
 			</span>
-			<svg class="w-4 h-4 text-zinc-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-				<path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-			</svg>
+			<ChevronDown size={16} class="shrink-0 text-zinc-400" />
 		</button>
 
 		{#if open}
-			<div class="absolute z-50 mt-1 w-full min-w-[200px] max-h-64 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg">
-				<div class="p-2 border-b border-zinc-100 dark:border-zinc-800">
+			<div class="absolute z-50 mt-1 max-h-64 w-full min-w-[200px] overflow-hidden rounded-lg border {surface.border} {surface.base} shadow-lg">
+				<div class="border-b p-2 {surface.borderSubtle}">
 					<input
 						bind:this={inputEl}
 						bind:value={search}
 						onkeydown={onKeydown}
 						placeholder="搜索..."
-						class="w-full px-2 py-1.5 text-sm rounded-md bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 border-none outline-none"
+						class={controlClass({ size: 'sm', class: 'border-none bg-zinc-50 dark:bg-zinc-800 focus:ring-0' })}
 					/>
 				</div>
-				<div class="overflow-y-auto max-h-48 py-1">
+				<div class="max-h-48 overflow-y-auto py-1">
 					{#if filtered.length === 0}
-						<p class="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">无匹配结果</p>
+						<p class="px-3 py-2 text-xs {text.muted}">无匹配结果</p>
 					{:else}
 						{#each filtered as opt, i}
 							<button
 								type="button"
 								onclick={() => pick(opt)}
-								class={clsx(
-									'flex w-full items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
-									i === highlightIdx
-										? 'bg-zinc-100 dark:bg-zinc-800'
-										: 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+								class={cn(
+									'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors',
+									i === highlightIdx ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
 									value === opt.value && 'font-medium'
 								)}
 							>
-								{#if opt.value}<img src={logoSrc(opt.value)} alt={opt.label} class="w-4 h-4 shrink-0" />{/if}
-								<div class="flex-1 min-w-0">
-									<p class="text-zinc-900 dark:text-zinc-100 truncate">{opt.label}</p>
+								{#if opt.value}<img src={logoSrc(opt.value)} alt={opt.label} class="h-4 w-4 shrink-0" />{/if}
+								<div class="min-w-0 flex-1">
+									<p class="truncate {text.primary}">{opt.label}</p>
 									{#if opt.description}
-										<p class="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{opt.description}</p>
+										<p class="truncate text-[10px] {text.muted}">{opt.description}</p>
 									{/if}
 								</div>
 								{#if value === opt.value}
-									<svg class="w-4 h-4 text-zinc-900 dark:text-zinc-100 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-									</svg>
+									<Check size={16} class="shrink-0 {text.primary}" />
 								{/if}
 							</button>
 						{/each}
@@ -174,5 +163,5 @@
 {/if}
 
 {#if open}
-	<div class="fixed inset-0 z-40" onclick={() => (open = false)}></div>
+	<button type="button" aria-label="关闭 Provider 选择" class="fixed inset-0 z-40 cursor-default appearance-none border-0 bg-transparent p-0" onclick={() => (open = false)}></button>
 {/if}

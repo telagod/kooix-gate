@@ -8,7 +8,8 @@
 	} from '$lib/api.js';
 	import type { ChannelGroup, GroupBinding, GroupDetail, Channel } from '$lib/api.js';
 	import { addToast } from '$lib/stores/toast.js';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import { Button, Field, Input, Select, Skeleton, Textarea } from '$lib/components/ui';
+	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
 	import {
 		Layers, Plus, Trash2, Pencil, X, ChevronRight, Search,
 		ToggleLeft, ToggleRight, ArrowRight, AlertTriangle, Check, RefreshCw
@@ -106,6 +107,19 @@
 	});
 
 	let providerTypes = $derived([...new Set(allChannels.map(c => c.provider_type))].sort());
+	let strategyOptions = $derived(Object.entries(STRATEGIES).map(([value, strategy]) => ({ value, label: strategy.label })));
+	let editFallbackOptions = $derived([
+		{ value: null, label: '无' },
+		...groups.filter((group) => group.id !== selectedId).map((group) => ({ value: group.id, label: group.name }))
+	]);
+	let createFallbackOptions = $derived([
+		{ value: null, label: '无' },
+		...groups.map((group) => ({ value: group.id, label: group.name }))
+	]);
+	let providerFilterOptions = $derived([
+		{ value: '', label: '全部类型' },
+		...providerTypes.map((provider) => ({ value: provider, label: provider }))
+	]);
 
 	// ── Data loading ──
 	async function loadGroups() {
@@ -113,7 +127,7 @@
 		try {
 			const [g, ch] = await Promise.all([listGroups(), listAdminChannels()]);
 			groups = g;
-			allChannels = ch;
+			allChannels = ch.data ?? [];
 		} catch (e: any) {
 			error = e.message || '加载失败';
 		} finally {
@@ -411,14 +425,12 @@
 				{:else}
 					<!-- Edit form -->
 					<div class="space-y-4">
-						<div>
-							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-							<input bind:value={editForm.name} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300" />
-						</div>
-						<div>
-							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">策略</label>
-							<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-								{#each Object.entries(STRATEGIES) as [key, s]}
+							<Field label="名称" for="group-edit-name">
+								<Input id="group-edit-name" bind:value={editForm.name} />
+							</Field>
+							<Field label="策略" for="group-edit-strategy">
+								<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+									{#each Object.entries(STRATEGIES) as [key, s]}
 									<button
 										onclick={() => { editForm.strategy = key; }}
 										class="text-left p-3 rounded-lg border-2 transition-colors
@@ -426,37 +438,30 @@
 									>
 										<span class="text-sm font-medium {editForm.strategy === key ? 'text-zinc-900 dark:text-zinc-100 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}">{s.label}</span>
 										<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">{s.desc}</p>
-									</button>
-								{/each}
-							</div>
-						</div>
-						<div>
-							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">回退分组</label>
-							<select bind:value={editForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
-								<option value={null}>无</option>
-								{#each groups.filter(gr => gr.id !== selectedId) as gr}
-									<option value={gr.id}>{gr.name}</option>
-								{/each}
-							</select>
-						</div>
-						<div>
-							<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">描述</label>
-							<textarea bind:value={editForm.description} rows="2" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"></textarea>
-						</div>
-						<div class="flex items-center gap-2">
-							<label class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
-							<button onclick={() => { editForm.enabled = !editForm.enabled; }}
-								class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors
-									{editForm.enabled ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-600'}">
+										</button>
+									{/each}
+								</div>
+							</Field>
+							<Field label="回退分组" for="group-edit-fallback">
+								<Select id="group-edit-fallback" bind:value={editForm.fallback_group_id} options={editFallbackOptions} />
+							</Field>
+							<Field label="描述" for="group-edit-description">
+								<Textarea id="group-edit-description" bind:value={editForm.description} rows={2} />
+							</Field>
+							<div class="flex items-center gap-2">
+								<label for="group-edit-enabled" class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
+								<button id="group-edit-enabled" aria-pressed={editForm.enabled} aria-label="切换分组启用状态" onclick={() => { editForm.enabled = !editForm.enabled; }}
+									class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors
+										{editForm.enabled ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-600'}">
 								<span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform mt-0.5
 									{editForm.enabled ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}"></span>
 							</button>
 						</div>
 						<div class="flex gap-2">
-							<button onclick={handleUpdate} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200">保存</button>
-							<button onclick={() => { editing = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
+								<Button onclick={handleUpdate}>保存</Button>
+								<Button variant="outline" onclick={() => { editing = false; }}>取消</Button>
+							</div>
 						</div>
-					</div>
 				{/if}
 			</div>
 
@@ -587,19 +592,17 @@
 
 <!-- ═══ Create Group Modal ═══ -->
 {#if showCreate}
-	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) showCreate = false; }}>
+	<ModalFrame close={() => { showCreate = false; }}>
 		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
 			<div class="p-5 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
 				<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">新建分组</h2>
 				<button onclick={() => { showCreate = false; }} class="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700"><X class="w-5 h-5 text-zinc-500" /></button>
 			</div>
 			<div class="p-5 space-y-4">
-				<div>
-					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-					<input bind:value={createForm.name} placeholder="如：默认分组" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300" />
-				</div>
-				<div>
-					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">路由策略</label>
+				<Field label="名称" for="group-create-name">
+					<Input id="group-create-name" bind:value={createForm.name} placeholder="如：默认分组" />
+				</Field>
+				<Field label="路由策略" for="group-create-strategy">
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
 						{#each Object.entries(STRATEGIES) as [key, s]}
 							<button
@@ -612,32 +615,25 @@
 							</button>
 						{/each}
 					</div>
-				</div>
-				<div>
-					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">回退分组（可选）</label>
-					<select bind:value={createForm.fallback_group_id} class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
-						<option value={null}>无</option>
-						{#each groups as gr}
-							<option value={gr.id}>{gr.name}</option>
-						{/each}
-					</select>
-				</div>
-				<div>
-					<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">描述（可选）</label>
-					<textarea bind:value={createForm.description} rows="2" placeholder="分组用途说明" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"></textarea>
-				</div>
+				</Field>
+				<Field label="回退分组（可选）" for="group-create-fallback">
+					<Select id="group-create-fallback" bind:value={createForm.fallback_group_id} options={createFallbackOptions} />
+				</Field>
+				<Field label="描述（可选）" for="group-create-description">
+					<Textarea id="group-create-description" bind:value={createForm.description} rows={2} placeholder="分组用途说明" />
+				</Field>
 			</div>
 			<div class="p-5 border-t border-zinc-200 dark:border-zinc-700 flex justify-end gap-2">
-				<button onclick={() => { showCreate = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
-				<button onclick={handleCreate} disabled={!createForm.name.trim()} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50">创建</button>
+				<Button variant="outline" onclick={() => { showCreate = false; }}>取消</Button>
+				<Button onclick={handleCreate} disabled={!createForm.name.trim()}>创建</Button>
 			</div>
 		</div>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- ═══ Delete Confirm Modal ═══ -->
 {#if deleteTarget}
-	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) deleteTarget = null; }}>
+	<ModalFrame close={() => { deleteTarget = null; }}>
 		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-sm">
 			<div class="p-6 text-center">
 				<div class="mx-auto w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
@@ -652,16 +648,16 @@
 				</p>
 			</div>
 			<div class="px-6 pb-6 flex gap-2">
-				<button onclick={() => { deleteTarget = null; }} class="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
-				<button onclick={handleDelete} class="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">删除</button>
+				<Button variant="outline" class="flex-1" onclick={() => { deleteTarget = null; }}>取消</Button>
+				<Button variant="destructive" class="flex-1" onclick={handleDelete}>删除</Button>
 			</div>
 		</div>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- ═══ Add Channel Modal ═══ -->
 {#if showAddChannel}
-	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) showAddChannel = false; }}>
+	<ModalFrame close={() => { showAddChannel = false; }}>
 		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col">
 			<div class="p-5 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between flex-shrink-0">
 				<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">添加渠道</h2>
@@ -673,24 +669,17 @@
 				<div class="flex gap-2">
 					<div class="relative flex-1">
 						<Search class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
-						<input bind:value={channelSearch} placeholder="搜索渠道..." class="w-full pl-9 pr-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400" />
+						<Input bind:value={channelSearch} placeholder="搜索渠道..." class="pl-9" />
 					</div>
-					<select bind:value={channelProviderFilter} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300">
-						<option value="">全部类型</option>
-						{#each providerTypes as pt}
-							<option value={pt}>{pt}</option>
-						{/each}
-					</select>
+					<Select bind:value={channelProviderFilter} options={providerFilterOptions} class="w-36" />
 				</div>
 				<div class="flex gap-4">
-					<div class="flex items-center gap-2">
-						<label class="text-xs text-zinc-600 dark:text-zinc-300">优先级</label>
-						<input type="number" bind:value={addPriority} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
-					</div>
-					<div class="flex items-center gap-2">
-						<label class="text-xs text-zinc-600 dark:text-zinc-300">权重</label>
-						<input type="number" bind:value={addWeight} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
-					</div>
+					<Field label="优先级" for="group-add-priority" class="flex-row items-center gap-2 space-y-0">
+						<Input id="group-add-priority" type="number" bind:value={addPriority} size="sm" class="w-20" />
+					</Field>
+					<Field label="权重" for="group-add-weight" class="flex-row items-center gap-2 space-y-0">
+						<Input id="group-add-weight" type="number" bind:value={addWeight} size="sm" class="w-20" />
+					</Field>
 				</div>
 			</div>
 
@@ -723,12 +712,12 @@
 			<div class="p-4 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between flex-shrink-0">
 				<span class="text-sm text-zinc-500">{selectedChannels.size} 个已选</span>
 				<div class="flex gap-2">
-					<button onclick={() => { showAddChannel = false; }} class="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">取消</button>
-					<button onclick={handleAddChannels} disabled={selectedChannels.size === 0} class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50">
+					<Button variant="outline" onclick={() => { showAddChannel = false; }}>取消</Button>
+					<Button onclick={handleAddChannels} disabled={selectedChannels.size === 0}>
 						添加选中 ({selectedChannels.size})
-					</button>
+					</Button>
 				</div>
 			</div>
 		</div>
-	</div>
+	</ModalFrame>
 {/if}

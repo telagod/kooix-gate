@@ -19,33 +19,29 @@
 	} from '$lib/api.js';
 	import type {
 		Channel,
-		PaginatedChannels,
-		ChannelListParams,
 		CreateChannelRequest,
 		UpdateChannelRequest,
 		TestResponse,
 		ProbeResponse,
 		BalanceResponse
 	} from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import ProviderSelect from '$lib/components/ui/ProviderSelect.svelte';
+	import { Alert, Badge, Button, Card, Field, FilterPills, Input, ProviderSelect } from '$lib/components/ui';
 	import type { ProviderOption } from '$lib/components/ui/ProviderSelect.svelte';
-	import FilterPills from '$lib/components/ui/FilterPills.svelte';
 	import DropdownMenu from '$lib/components/ui/DropdownMenu.svelte';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
+	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import { cn, dataTemplate } from '$lib/design';
 	import {
 		Search,
 		Plus,
-		Play,
 		Pencil,
 		Trash2,
 		Key,
 		Radar,
 		X,
 		Cable,
-		ChevronDown,
-		ChevronUp,
 		CheckCircle2,
 		XCircle,
 		ArrowUpDown,
@@ -53,13 +49,7 @@
 		ArrowDown,
 		ChevronLeft,
 		ChevronRight,
-		MoreHorizontal,
-		Zap,
-		ToggleLeft,
-		ToggleRight,
-		Power,
-		PowerOff,
-		RefreshCw
+		Zap
 	} from 'lucide-svelte';
 
 	const PROVIDER_OPTIONS: ProviderOption[] = [
@@ -501,14 +491,14 @@
 
 	// ── Helpers ──────────────────────────────────────
 	function healthBadgeCls(health: string): string {
-		if (health === 'healthy') return 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-600/10 dark:ring-emerald-400/20';
+		if (health === 'healthy') return 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 ring-1 ring-green-600/10 dark:ring-green-400/20';
 		if (health === 'degraded') return 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-1 ring-amber-600/10 dark:ring-amber-400/20';
 		if (health === 'unhealthy') return 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-red-600/10 dark:ring-red-400/20';
 		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-200 dark:ring-zinc-700';
 	}
 
 	function healthDot(health: string): string {
-		if (health === 'healthy') return 'bg-emerald-500';
+		if (health === 'healthy') return 'bg-green-500';
 		if (health === 'degraded') return 'bg-amber-500';
 		if (health === 'unhealthy') return 'bg-red-500';
 		return 'bg-zinc-400';
@@ -549,6 +539,18 @@
 		pages.push(total);
 		return pages;
 	}
+
+	function sortIconClass(col: string) {
+		return sortBy === col ? 'text-zinc-700 dark:text-zinc-200' : 'text-zinc-400 opacity-40';
+	}
+
+	function selectAllChange() {
+		toggleSelectAll();
+	}
+
+	function channelSelectChange(id: string) {
+		toggleSelect(id);
+	}
 </script>
 
 <!-- Toast -->
@@ -565,7 +567,7 @@
 
 <!-- Modal: Probe result -->
 {#if probingId && probeResult}
-	<div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center animate-backdrop" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) { probeResult = null; probingId = null; } }}>
+	<ModalFrame close={() => { probeResult = null; probingId = null; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
 		<Card class="p-6 max-w-md w-full mx-4 animate-fade-in shadow-2xl">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Probe — {probeChannelName}</h3>
 			<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-3 font-mono">{probeResult.provider_type}</p>
@@ -582,7 +584,7 @@
 				</Button>
 			</div>
 		</Card>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Modal: Probing spinner -->
@@ -598,7 +600,7 @@
 
 <!-- Modal: Delete confirm -->
 {#if deletingId}
-	<div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center animate-backdrop" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) deletingId = null; }}>
+	<ModalFrame close={() => { deletingId = null; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
 		<Card class="p-6 max-w-sm w-full mx-4 animate-fade-in shadow-2xl">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认删除</h3>
 			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">此操作将禁用该 channel 并软删除，无法恢复。</p>
@@ -609,12 +611,12 @@
 				</Button>
 			</div>
 		</Card>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Modal: Batch confirm -->
 {#if batchAction}
-	<div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center animate-backdrop" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) batchAction = null; }}>
+	<ModalFrame close={() => { batchAction = null; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
 		<Card class="p-6 max-w-sm w-full mx-4 animate-fade-in shadow-2xl">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
 				批量{batchAction === 'enable' ? '启用' : batchAction === 'disable' ? '禁用' : '删除'}
@@ -627,12 +629,12 @@
 				</Button>
 			</div>
 		</Card>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Drawer: Create -->
 {#if showCreate}
-	<div class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex justify-end animate-backdrop" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) showCreate = false; }}>
+	<ModalFrame close={() => { showCreate = false; }} class="z-40 justify-end bg-black/50 backdrop-blur-sm p-0 animate-backdrop">
 		<div class="w-full max-w-lg bg-white dark:bg-zinc-900 h-full overflow-y-auto shadow-2xl animate-slide-in-right">
 			<div class="p-6">
 				<div class="flex items-center justify-between mb-6">
@@ -653,10 +655,9 @@
 								<label for="ch-name" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
 								<Input id="ch-name" placeholder="OpenAI Production" bind:value={createForm.name} disabled={creating} />
 							</div>
-							<div>
-								<label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Provider <span class="text-red-500">*</span></label>
+							<Field label="Provider" for="ch-provider" required>
 								<ProviderSelect bind:value={createForm.provider_type} options={PROVIDER_OPTIONS} mode="grid" disabled={creating} />
-							</div>
+							</Field>
 							<div>
 								<label for="ch-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL <span class="text-red-500">*</span></label>
 								<Input id="ch-url" placeholder="https://api.openai.com/v1" bind:value={createForm.base_url} disabled={creating} />
@@ -706,12 +707,12 @@
 				</form>
 			</div>
 		</div>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Drawer: Edit -->
 {#if editingChannel}
-	<div class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex justify-end animate-backdrop" onclick={(e: MouseEvent) => { if (e.target === e.currentTarget) editingChannel = null; }}>
+	<ModalFrame close={() => { editingChannel = null; }} class="z-40 justify-end bg-black/50 backdrop-blur-sm p-0 animate-backdrop">
 		<div class="w-full max-w-lg bg-white dark:bg-zinc-900 h-full overflow-y-auto shadow-2xl animate-slide-in-right">
 			<div class="p-6">
 				<div class="flex items-center justify-between mb-6">
@@ -791,79 +792,63 @@
 				</form>
 			</div>
 		</div>
-	</div>
+	</ModalFrame>
 {/if}
 
 <!-- Main content -->
-<div class="flex flex-col h-full px-6 py-6">
-	<!-- Header -->
-	<div class="flex items-start justify-between mb-5">
-		<div>
-			<div class="flex items-center gap-3 mb-1">
-				<div class="w-9 h-9 rounded-lg bg-zinc-900 dark:bg-zinc-100 flex items-center justify-center">
-					<Cable size={18} class="text-white dark:text-zinc-900" />
-				</div>
-				<h1 class="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">渠道管理</h1>
-			</div>
-			<p class="text-sm text-zinc-500 dark:text-zinc-400 mt-2 ml-12">
-				{#if isPlatformAdmin}
-					管理上游 LLM 服务商连接 · 共 <span class="font-medium text-zinc-700 dark:text-zinc-300">{total}</span> 个渠道
-				{:else}
-					只读视图 · 编辑需平台管理员权限
-				{/if}
-			</p>
-		</div>
+<PageShell
+	title="渠道管理"
+	description={isPlatformAdmin ? `管理上游 LLM 服务商连接 · 共 ${total} 个渠道` : '只读视图 · 编辑需平台管理员权限'}
+	icon={Cable}
+	max="full"
+	class="flex h-full flex-col"
+>
+	{#snippet actions()}
 		{#if isPlatformAdmin}
-			<div class="flex items-center gap-2">
-				<Button size="sm" variant="outline" onclick={handleBatchTest} disabled={batchTesting || loading}>
-					<span class="flex items-center gap-1.5">
-						<Zap size={14} />
-						{batchTesting ? batchProgress : '批量测试'}
-					</span>
-				</Button>
-				<Button size="sm" onclick={() => (showCreate = true)}>
-					<span class="flex items-center gap-1.5"><Plus size={14} /> 新建</span>
-				</Button>
-			</div>
+			<Button size="sm" variant="outline" onclick={handleBatchTest} disabled={batchTesting || loading}>
+				<Zap size={14} />
+				{batchTesting ? batchProgress : '批量测试'}
+			</Button>
+			<Button size="sm" onclick={() => (showCreate = true)}>
+				<Plus size={14} /> 新建
+			</Button>
 		{/if}
-	</div>
+	{/snippet}
 
 	<!-- Search & Filters -->
 	{#if isPlatformAdmin}
-		<div class="flex flex-col gap-3 mb-6">
-			<!-- Search bar -->
-			<div class="relative">
+		<DataToolbar class="mb-6" searchClass="max-w-none" badgesVisible={selectedIds.size > 0}>
+			{#snippet query()}
 				<Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-				<input
-					type="text"
+				<Input
+					id="channels-search"
 					placeholder="搜索 code / 名称..."
 					bind:value={search}
 					oninput={onSearchInput}
-					class="w-full h-10 pl-9 pr-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/50 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 transition-shadow"
+					class="pl-9"
 				/>
-			</div>
-			<!-- Filter pills -->
-			<div class="flex flex-wrap items-center gap-3">
+			{/snippet}
+
+			{#snippet controls()}
 				<div class="w-[180px]">
 					<ProviderSelect bind:value={filterProvider} options={FILTER_PROVIDER_OPTIONS} placeholder="全部 Provider" />
 				</div>
 				<FilterPills bind:value={filterStatus} options={STATUS_OPTIONS} />
 				<FilterPills bind:value={filterHealth} options={HEALTH_OPTIONS} />
-			</div>
-		</div>
-	{/if}
+			{/snippet}
 
-	<!-- Batch toolbar -->
-	{#if isPlatformAdmin && selectedIds.size > 0}
-		<div class="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 animate-fade-in">
-			<span class="text-sm font-medium">已选 {selectedIds.size} 项</span>
-			<div class="flex gap-2 ml-auto">
-				<button onclick={() => (batchAction = 'enable')} class="px-3 py-1 rounded-md text-xs font-medium bg-white/20 dark:bg-zinc-900/20 hover:bg-white/30 dark:hover:bg-zinc-900/30 transition-colors">启用</button>
-				<button onclick={() => (batchAction = 'disable')} class="px-3 py-1 rounded-md text-xs font-medium bg-white/20 dark:bg-zinc-900/20 hover:bg-white/30 dark:hover:bg-zinc-900/30 transition-colors">禁用</button>
-				<button onclick={() => (batchAction = 'delete')} class="px-3 py-1 rounded-md text-xs font-medium bg-red-500/80 hover:bg-red-500 transition-colors">删除</button>
-				<button onclick={() => (selectedIds = new Set())} class="px-3 py-1 rounded-md text-xs font-medium bg-white/10 dark:bg-zinc-900/10 hover:bg-white/20 dark:hover:bg-zinc-900/20 transition-colors">取消</button>
-			</div>
-		</div>
+			{#snippet badges()}
+				<Badge class="bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 dark:ring-zinc-100">
+					已选 {selectedIds.size} 项
+				</Badge>
+				<div class="flex flex-wrap items-center gap-2">
+					<Button size="sm" variant="outline" onclick={() => (batchAction = 'enable')}>启用</Button>
+					<Button size="sm" variant="outline" onclick={() => (batchAction = 'disable')}>禁用</Button>
+					<Button size="sm" variant="destructive" onclick={() => (batchAction = 'delete')}>删除</Button>
+					<Button size="sm" variant="ghost" onclick={() => (selectedIds = new Set())}>取消</Button>
+				</div>
+			{/snippet}
+		</DataToolbar>
 	{/if}
 
 	<!-- Loading -->
@@ -872,10 +857,10 @@
 			<div class="w-8 h-8 rounded-full border-2 border-zinc-200 dark:border-zinc-700 border-t-zinc-900 dark:border-t-zinc-100 animate-spin"></div>
 		</div>
 	{:else if error}
-		<Card class="p-8 text-center">
+		<Alert variant="danger" class="p-8 text-center">
 			<XCircle size={32} class="text-red-400 mx-auto mb-3" />
-			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-		</Card>
+			<p>{error}</p>
+		</Alert>
 	{:else if channels.length === 0}
 		<!-- Empty state -->
 		<div class="flex flex-col items-center justify-center py-20 text-center">
@@ -888,7 +873,7 @@
 			</p>
 			{#if isPlatformAdmin}
 				<Button onclick={() => (showCreate = true)}>
-					<span class="flex items-center gap-1.5"><Plus size={14} /> 创建第一个 Channel</span>
+					<Plus size={14} /> 创建第一个 Channel
 				</Button>
 			{/if}
 			<p class="text-xs text-zinc-400 dark:text-zinc-500 mt-8">
@@ -897,235 +882,256 @@
 		</div>
 	{:else}
 		<!-- Table -->
-		<div class="flex-1 min-h-0 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm overflow-hidden flex flex-col">
-			<div class="flex-1 overflow-y-auto">
-			<table class="w-full text-sm">
-				<thead>
-					<tr class="border-b border-zinc-100 dark:border-zinc-800">
+		<div class="flex min-h-0 flex-1 flex-col">
+			<DataTable class="min-h-0 flex-1" bodyClass="divide-y-0">
+				{#snippet head()}
+					<tr>
 						{#if isPlatformAdmin}
 							<th class="px-4 py-3.5 w-10">
-								<input type="checkbox" checked={selectAll} onchange={toggleSelectAll}
-									class="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600" />
+								<input
+									type="checkbox"
+									checked={selectAll}
+									onchange={selectAllChange}
+									class="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600"
+								/>
 							</th>
 						{/if}
-						<th class="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer select-none" onclick={() => onSort('code')}>
+						<th class={cn(dataTemplate.th, 'py-3.5 cursor-pointer select-none')} onclick={() => onSort('code')}>
 							<span class="inline-flex items-center gap-1">
 								Channel
 								{#if sortBy === 'code'}
-									{#if sortDir === 'asc'}<ArrowUp size={12} />{:else}<ArrowDown size={12} />{/if}
+									{#if sortDir === 'asc'}
+										<ArrowUp size={12} class={sortIconClass('code')} />
+									{:else}
+										<ArrowDown size={12} class={sortIconClass('code')} />
+									{/if}
 								{:else}
-									<ArrowUpDown size={12} class="opacity-30" />
+									<ArrowUpDown size={12} class={sortIconClass('code')} />
 								{/if}
 							</span>
 						</th>
-						<th class="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer select-none" onclick={() => onSort('provider_type')}>
+						<th class={cn(dataTemplate.th, 'py-3.5 cursor-pointer select-none')} onclick={() => onSort('provider_type')}>
 							<span class="inline-flex items-center gap-1">
 								Provider
 								{#if sortBy === 'provider_type'}
-									{#if sortDir === 'asc'}<ArrowUp size={12} />{:else}<ArrowDown size={12} />{/if}
+									{#if sortDir === 'asc'}
+										<ArrowUp size={12} class={sortIconClass('provider_type')} />
+									{:else}
+										<ArrowDown size={12} class={sortIconClass('provider_type')} />
+									{/if}
 								{:else}
-									<ArrowUpDown size={12} class="opacity-30" />
+									<ArrowUpDown size={12} class={sortIconClass('provider_type')} />
 								{/if}
 							</span>
 						</th>
-						<th class="px-4 py-3.5 text-center text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">状态</th>
-						<th class="px-4 py-3.5 text-center text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">健康</th>
-						<th class="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">模型</th>
-						<th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">响应</th>
+						<th class={cn(dataTemplate.th, 'py-3.5 text-center')}>状态</th>
+						<th class={cn(dataTemplate.th, 'py-3.5 text-center')}>健康</th>
+						<th class={cn(dataTemplate.th, 'py-3.5')}>模型</th>
+						<th class={cn(dataTemplate.th, 'py-3.5 text-right')}>响应</th>
 						{#if isPlatformAdmin}
 							<th class="px-4 py-3.5 w-12"></th>
 						{/if}
 					</tr>
-				</thead>
-				<tbody>
-					{#each channels as ch, idx}
-						{@const testRes = testResults[ch.id]}
-						{@const isTesting = testingIds.has(ch.id)}
-						{@const isExpanded = expandedId === ch.id}
-						{@const isFocused = focusedIdx === idx}
-						<!-- Main row -->
-						<tr
-							class="border-b border-zinc-50 dark:border-zinc-800/50 transition-colors cursor-pointer {isFocused ? 'bg-zinc-50 dark:bg-zinc-800/70' : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30'}"
-							onclick={() => (expandedId = isExpanded ? null : ch.id)}
-						>
+				{/snippet}
+
+				{#each channels as ch, idx}
+					{@const testRes = testResults[ch.id]}
+					{@const isTesting = testingIds.has(ch.id)}
+					{@const isExpanded = expandedId === ch.id}
+					{@const isFocused = focusedIdx === idx}
+					<!-- Main row -->
+					<tr
+						class={cn(
+							'border-b border-zinc-50 dark:border-zinc-800/50',
+							dataTemplate.rowInteractive,
+							isFocused && 'bg-zinc-50 dark:bg-zinc-800/70'
+						)}
+						onclick={() => (expandedId = isExpanded ? null : ch.id)}
+					>
+						{#if isPlatformAdmin}
+							<td class="px-4 py-4" onclick={(e: MouseEvent) => e.stopPropagation()}>
+								<input
+									type="checkbox"
+									checked={selectedIds.has(ch.id)}
+									onchange={() => channelSelectChange(ch.id)}
+									class="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600"
+								/>
+							</td>
+						{/if}
+						<!-- Channel -->
+						<td class="px-4 py-4">
+							<div class="flex items-center gap-3">
+								<div class="w-8 h-8 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 flex items-center justify-center shrink-0">
+									<img src="/providers/{ch.provider_type}.svg" alt="" class="w-5 h-5" />
+								</div>
+								<div class="min-w-0">
+									<p class="font-medium text-zinc-900 dark:text-zinc-100 truncate">{ch.code}</p>
+									{#if ch.name && ch.name !== ch.code}
+										<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">{ch.name}</p>
+									{/if}
+								</div>
+							</div>
+						</td>
+						<!-- Provider -->
+						<td class="px-4 py-4">
+							<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-50 dark:bg-zinc-800 text-xs font-mono text-zinc-600 dark:text-zinc-400">
+								{ch.provider_type}
+							</span>
+						</td>
+						<!-- Status -->
+						<td class="px-4 py-4 text-center" onclick={(e: MouseEvent) => e.stopPropagation()}>
 							{#if isPlatformAdmin}
-								<td class="px-4 py-4" onclick={(e: MouseEvent) => e.stopPropagation()}>
-									<input type="checkbox" checked={selectedIds.has(ch.id)} onchange={() => toggleSelect(ch.id)}
-										class="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600" />
-								</td>
+								<button
+									type="button"
+									onclick={() => handleToggleEnabled(ch)}
+									class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {ch.status === 'active' ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}"
+									title={ch.status === 'active' ? '点击禁用' : '点击启用'}
+								>
+									<span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform {ch.status === 'active' ? 'translate-x-4.5' : 'translate-x-0.5'}"></span>
+								</button>
+							{:else}
+								<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium {ch.status === 'active' ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}">{ch.status}</span>
 							{/if}
-							<!-- Channel -->
-							<td class="px-4 py-4">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 flex items-center justify-center shrink-0">
-										<img src="/providers/{ch.provider_type}.svg" alt="" class="w-5 h-5" />
+						</td>
+						<!-- Health -->
+						<td class="px-4 py-4 text-center">
+							<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium {healthBadgeCls(ch.health)}">
+								<span class="w-1.5 h-1.5 rounded-full {healthDot(ch.health)}"></span>
+								{ch.health}
+							</span>
+						</td>
+						<!-- Models -->
+						<td class="px-4 py-4 max-w-[200px]">
+							{#if ch.supported_models && ch.supported_models.length > 0}
+								<div class="flex flex-wrap gap-1">
+									{#each ch.supported_models.slice(0, 2) as m}
+										<span class="inline-block px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-md text-xs font-mono truncate max-w-[100px]" title={m}>{m}</span>
+									{/each}
+									{#if ch.supported_models.length > 2}
+										<span class="inline-block px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-md text-xs">+{ch.supported_models.length - 2}</span>
+									{/if}
+								</div>
+							{:else}
+								<span class="text-xs text-zinc-400">—</span>
+							{/if}
+						</td>
+						<!-- Response -->
+						<td class="px-4 py-4 text-right">
+							{#if isTesting}
+								<div class="w-4 h-4 rounded-full border-2 border-zinc-200 dark:border-zinc-600 border-t-zinc-900 dark:border-t-zinc-100 animate-spin ml-auto"></div>
+							{:else if testRes}
+								{#if testRes.success}
+									<span class="text-xs font-mono font-medium text-green-600 dark:text-green-400">{testRes.response_time_ms}ms</span>
+								{:else}
+									<span class="text-xs text-red-500 dark:text-red-400" title={testRes.error ?? undefined}>fail</span>
+								{/if}
+							{:else if ch.balance != null}
+								<span class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">${ch.balance.toFixed(2)}</span>
+							{:else}
+								<span class="text-xs text-zinc-300 dark:text-zinc-600">—</span>
+							{/if}
+						</td>
+						<!-- Actions -->
+						{#if isPlatformAdmin}
+							<td class="px-4 py-4" onclick={(e: MouseEvent) => e.stopPropagation()}>
+								<DropdownMenu items={getMenuItems(ch)} />
+							</td>
+						{/if}
+					</tr>
+					<!-- Expanded detail row -->
+					{#if isExpanded}
+						<tr class="bg-zinc-50/50 dark:bg-zinc-800/20">
+							<td colspan="100" class="px-6 py-5 animate-expand">
+								<div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+									<div>
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">Base URL</p>
+										<p class="text-xs font-mono text-zinc-700 dark:text-zinc-300 break-all">{ch.base_url}</p>
 									</div>
-									<div class="min-w-0">
-										<p class="font-medium text-zinc-900 dark:text-zinc-100 truncate">{ch.code}</p>
-										{#if ch.name && ch.name !== ch.code}
-											<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">{ch.name}</p>
-										{/if}
+									<div>
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">RPM / TPM</p>
+										<p class="text-xs font-mono text-zinc-700 dark:text-zinc-300">{fmtLimit(ch.rpm_limit)} / {fmtLimit(ch.tpm_limit)}</p>
+									</div>
+									<div>
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">超时 / 重试</p>
+										<p class="text-xs font-mono text-zinc-700 dark:text-zinc-300">{ch.timeout_ms ?? 60000}ms / {ch.max_retries ?? 2}x</p>
+									</div>
+									<div>
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">创建时间</p>
+										<p class="text-xs text-zinc-700 dark:text-zinc-300">{fmtDate(ch.created_at)}</p>
 									</div>
 								</div>
-							</td>
-							<!-- Provider -->
-							<td class="px-4 py-4">
-								<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-50 dark:bg-zinc-800 text-xs font-mono text-zinc-600 dark:text-zinc-400">
-									{ch.provider_type}
-								</span>
-							</td>
-							<!-- Status -->
-							<td class="px-4 py-4 text-center" onclick={(e: MouseEvent) => e.stopPropagation()}>
-								{#if isPlatformAdmin}
-									<button
-										onclick={() => handleToggleEnabled(ch)}
-										class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {ch.status === 'active' ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}"
-										title={ch.status === 'active' ? '点击禁用' : '点击启用'}
-									>
-										<span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform {ch.status === 'active' ? 'translate-x-4.5' : 'translate-x-0.5'}"></span>
-									</button>
-								{:else}
-									<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium {ch.status === 'active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}">{ch.status}</span>
-								{/if}
-							</td>
-							<!-- Health -->
-							<td class="px-4 py-4 text-center">
-								<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium {healthBadgeCls(ch.health)}">
-									<span class="w-1.5 h-1.5 rounded-full {healthDot(ch.health)}"></span>
-									{ch.health}
-								</span>
-							</td>
-							<!-- Models -->
-							<td class="px-4 py-4 max-w-[200px]">
-								{#if ch.supported_models && ch.supported_models.length > 0}
-									<div class="flex flex-wrap gap-1">
-										{#each ch.supported_models.slice(0, 2) as m}
-											<span class="inline-block px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-md text-xs font-mono truncate max-w-[100px]" title={m}>{m}</span>
-										{/each}
-										{#if ch.supported_models.length > 2}
-											<span class="inline-block px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-md text-xs">+{ch.supported_models.length - 2}</span>
-										{/if}
+								{#if ch.tags && ch.tags.length > 0}
+									<div class="mt-4">
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">标签</p>
+										<div class="flex flex-wrap gap-1.5">
+											{#each ch.tags as tag}
+												<span class="px-2 py-0.5 bg-zinc-200/60 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-md text-xs">{tag}</span>
+											{/each}
+										</div>
 									</div>
-								{:else}
-									<span class="text-xs text-zinc-400">—</span>
+								{/if}
+								{#if ch.supported_models && ch.supported_models.length > 2}
+									<div class="mt-4">
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">全部模型 ({ch.supported_models.length})</p>
+										<div class="flex flex-wrap gap-1.5">
+											{#each ch.supported_models as m}
+												<span class="px-2 py-0.5 bg-zinc-200/60 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-md text-xs font-mono">{m}</span>
+											{/each}
+										</div>
+									</div>
+								{/if}
+								{#if ch.last_error}
+									<div class="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30">
+										<p class="text-[10px] font-semibold uppercase tracking-widest text-red-500 dark:text-red-400 mb-1">最近错误</p>
+										<p class="text-xs text-red-700 dark:text-red-400 font-mono">{ch.last_error}</p>
+										<p class="text-[10px] text-red-400 dark:text-red-500 mt-1">{fmtDate(ch.last_error_at)}</p>
+									</div>
 								{/if}
 							</td>
-							<!-- Response -->
-							<td class="px-4 py-4 text-right">
-								{#if isTesting}
-									<div class="w-4 h-4 rounded-full border-2 border-zinc-200 dark:border-zinc-600 border-t-zinc-900 dark:border-t-zinc-100 animate-spin ml-auto"></div>
-								{:else if testRes}
-									{#if testRes.success}
-										<span class="text-xs font-mono font-medium text-emerald-600 dark:text-emerald-400">{testRes.response_time_ms}ms</span>
-									{:else}
-										<span class="text-xs text-red-500 dark:text-red-400" title={testRes.error ?? undefined}>fail</span>
-									{/if}
-								{:else if ch.balance != null}
-									<span class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">${ch.balance.toFixed(2)}</span>
-								{:else}
-									<span class="text-xs text-zinc-300 dark:text-zinc-600">—</span>
-								{/if}
-							</td>
-							<!-- Actions -->
-							{#if isPlatformAdmin}
-								<td class="px-4 py-4" onclick={(e: MouseEvent) => e.stopPropagation()}>
-									<DropdownMenu items={getMenuItems(ch)} />
-								</td>
-							{/if}
 						</tr>
-						<!-- Expanded detail row -->
-						{#if isExpanded}
-							<tr class="bg-zinc-50/50 dark:bg-zinc-800/20">
-								<td colspan="100" class="px-6 py-5 animate-expand">
-									<div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-										<div>
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">Base URL</p>
-											<p class="text-xs font-mono text-zinc-700 dark:text-zinc-300 break-all">{ch.base_url}</p>
-										</div>
-										<div>
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">RPM / TPM</p>
-											<p class="text-xs font-mono text-zinc-700 dark:text-zinc-300">{fmtLimit(ch.rpm_limit)} / {fmtLimit(ch.tpm_limit)}</p>
-										</div>
-										<div>
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">超时 / 重试</p>
-											<p class="text-xs font-mono text-zinc-700 dark:text-zinc-300">{ch.timeout_ms ?? 60000}ms / {ch.max_retries ?? 2}x</p>
-										</div>
-										<div>
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1">创建时间</p>
-											<p class="text-xs text-zinc-700 dark:text-zinc-300">{fmtDate(ch.created_at)}</p>
-										</div>
-									</div>
-									{#if ch.tags && ch.tags.length > 0}
-										<div class="mt-4">
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">标签</p>
-											<div class="flex flex-wrap gap-1.5">
-												{#each ch.tags as tag}
-													<span class="px-2 py-0.5 bg-zinc-200/60 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-md text-xs">{tag}</span>
-												{/each}
-											</div>
-										</div>
-									{/if}
-									{#if ch.supported_models && ch.supported_models.length > 2}
-										<div class="mt-4">
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">全部模型 ({ch.supported_models.length})</p>
-											<div class="flex flex-wrap gap-1.5">
-												{#each ch.supported_models as m}
-													<span class="px-2 py-0.5 bg-zinc-200/60 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-md text-xs font-mono">{m}</span>
-												{/each}
-											</div>
-										</div>
-									{/if}
-									{#if ch.last_error}
-										<div class="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30">
-											<p class="text-[10px] font-semibold uppercase tracking-widest text-red-500 dark:text-red-400 mb-1">最近错误</p>
-											<p class="text-xs text-red-700 dark:text-red-400 font-mono">{ch.last_error}</p>
-											<p class="text-[10px] text-red-400 dark:text-red-500 mt-1">{fmtDate(ch.last_error_at)}</p>
-										</div>
-									{/if}
-								</td>
-							</tr>
-						{/if}
-					{/each}
-				</tbody>
-			</table>
-			</div>
+					{/if}
+				{/each}
+			</DataTable>
 
-			<!-- Pagination (inside card as footer) -->
+			<!-- Pagination -->
 			{#if totalPages > 1}
-				<div class="flex items-center justify-between px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
+				<div class={dataTemplate.pagination}>
 					<p class="text-xs text-zinc-500 dark:text-zinc-400">
 						{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} / {total}
 					</p>
-				<div class="flex items-center gap-1">
-					<button
-						disabled={page <= 1}
-						onclick={() => goPage(page - 1)}
-						class="p-2 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-					>
-						<ChevronLeft size={16} />
-					</button>
-					{#each pageNumbers(page, totalPages) as p}
-						{#if p === '...'}
-							<span class="w-8 h-8 flex items-center justify-center text-xs text-zinc-400">...</span>
-						{:else}
-							<button
-								onclick={() => goPage(p as number)}
-								class="w-8 h-8 rounded-md text-xs font-medium transition-colors {p === page
-									? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
-									: 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}"
-							>{p}</button>
-						{/if}
-					{/each}
-					<button
-						disabled={page >= totalPages}
-						onclick={() => goPage(page + 1)}
-						class="p-2 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-					>
-						<ChevronRight size={16} />
-					</button>
+					<div class="flex items-center gap-1">
+						<button
+							type="button"
+							disabled={page <= 1}
+							onclick={() => goPage(page - 1)}
+							class="p-2 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+						>
+							<ChevronLeft size={16} />
+						</button>
+						{#each pageNumbers(page, totalPages) as p}
+							{#if p === '...'}
+								<span class="w-8 h-8 flex items-center justify-center text-xs text-zinc-400">...</span>
+							{:else}
+								<button
+									type="button"
+									onclick={() => goPage(p as number)}
+									class="w-8 h-8 rounded-md text-xs font-medium transition-colors {p === page
+										? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
+										: 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}"
+								>{p}</button>
+							{/if}
+						{/each}
+						<button
+							type="button"
+							disabled={page >= totalPages}
+							onclick={() => goPage(page + 1)}
+							class="p-2 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+						>
+							<ChevronRight size={16} />
+						</button>
+					</div>
 				</div>
-			</div>
-		{/if}
+			{/if}
 		</div>
 		<!-- Keyboard hint -->
 		<p class="text-[10px] text-zinc-400 dark:text-zinc-600 mt-2 text-center shrink-0">
@@ -1136,4 +1142,4 @@
 			<kbd class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-mono ml-2">Esc</kbd> 关闭
 		</p>
 	{/if}
-</div>
+</PageShell>

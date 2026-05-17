@@ -3,10 +3,7 @@
 	import { onMount } from 'svelte';
 	import { getMe, listOrgRequests, getOrgFilterOptions } from '$lib/api.js';
 	import type { RequestRecord, RequestPage, OrgRequestListParams, MeResult, FilterOptions } from '$lib/api.js';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import FilterPills from '$lib/components/ui/FilterPills.svelte';
-	import ModalityBadge from '$lib/components/ui/ModalityBadge.svelte';
+	import { Badge, Button, Card, Field, FilterPills, Input, ModalityBadge, Select } from '$lib/components/ui';
 	import {
 		ScrollText,
 		Search,
@@ -19,7 +16,11 @@
 		RotateCcw,
 		SlidersHorizontal
 	} from 'lucide-svelte';
-	import { clsx } from 'clsx';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
+	import FilterPanel from '$lib/components/templates/FilterPanel.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import { cn, dataTemplate } from '$lib/design';
 
 	let me = $state<MeResult | null>(null);
 	let currentOrg = $state<string | null>(null);
@@ -227,7 +228,7 @@
 	);
 
 	function statusBadgeCls(status: number): string {
-		if (status >= 200 && status < 300) return 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800';
+		if (status >= 200 && status < 300) return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 ring-1 ring-green-200 dark:ring-green-800';
 		if (status >= 400 && status < 500) return 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 ring-1 ring-amber-200 dark:ring-amber-800';
 		if (status >= 500) return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800';
 		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300';
@@ -259,177 +260,151 @@
 		return String(n);
 	}
 
+
+	let modelOptions = $derived([
+		{ value: '', label: '全部' },
+		...(filterOpts?.models ?? []).map((value) => ({ value, label: value }))
+	]);
+
+	let projectOptions = $derived([
+		{ value: '', label: '全部' },
+		...(filterOpts?.projects ?? []).map((project) => ({ value: project.id, label: project.label ?? shortId(project.id) }))
+	]);
+
+	let errorCodeOptions = $derived([
+		{ value: '', label: '全部' },
+		...(filterOpts?.error_codes ?? []).map((value) => ({ value, label: value }))
+	]);
+
+	const retriesOptions = [
+		{ value: '', label: '全部' },
+		{ value: 'true', label: '有重试' },
+		{ value: 'false', label: '无重试' }
+	];
+
 	let pageNum = $derived(cursorStack.length + 1);
 </script>
 
-<div class="px-6 py-6">
-	<!-- Header -->
-	<div class="flex items-center justify-between mb-6">
-		<div class="flex items-center gap-3">
-			<div class="flex items-center justify-center w-9 h-9 rounded-lg bg-zinc-900 dark:bg-zinc-100">
-				<ScrollText size={18} class="text-white dark:text-zinc-900" />
-			</div>
-			<div>
-				<h1 class="text-xl font-bold text-zinc-900 dark:text-zinc-100">请求记录</h1>
-				<p class="text-xs text-zinc-500 dark:text-zinc-400">
-					当前组织的 API 请求历史
-					{#if currentOrg}
-						· <span class="font-mono">{shortId(currentOrg)}...</span>
-					{/if}
-				</p>
-			</div>
-		</div>
+<PageShell
+	title="请求记录"
+	description={currentOrg ? `当前组织的 API 请求历史 · ${shortId(currentOrg)}...` : '当前组织的 API 请求历史'}
+	icon={ScrollText}
+	max="full"
+>
+	{#snippet actions()}
 		<Button variant="outline" size="sm" onclick={resetFilters}>
 			<RotateCcw size={14} />
 			<span class="ml-1">重置</span>
 		</Button>
-	</div>
+	{/snippet}
 
 	<!-- L0: Quick Filters -->
-	<div class="flex flex-wrap items-center gap-3 mb-3">
-		<div class="relative flex-1 min-w-[200px] max-w-sm">
+	<DataToolbar badgesVisible={activeAdvanced.length > 0}>
+		{#snippet query()}
 			<Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-			<input
-				type="text"
+			<Input
+				id="usage-request-search"
+				size="sm"
 				bind:value={search}
 				onkeydown={handleSearchKeydown}
 				placeholder="搜索 model / error / request_id..."
-				class="w-full h-9 pl-9 pr-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300"
+				class="pl-9"
 			/>
-		</div>
+		{/snippet}
 
-		<FilterPills bind:value={filterRange} options={rangeOptions} />
-		<FilterPills bind:value={filterStatusCat} options={statusCatOptions} />
-		<FilterPills bind:value={filterStream} options={streamOptions} />
+		{#snippet controls()}
+			<FilterPills bind:value={filterRange} options={rangeOptions} />
+			<FilterPills bind:value={filterStatusCat} options={statusCatOptions} />
+			<FilterPills bind:value={filterStream} options={streamOptions} />
+		{/snippet}
 
-		<button
-			onclick={() => showAdvanced = !showAdvanced}
-			class={clsx(
-				'inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-sm transition-colors',
-				showAdvanced
-					? 'border-zinc-900 dark:border-zinc-100 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
-					: 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
-			)}
-		>
-			<SlidersHorizontal size={14} />
-			高级筛选
-			{#if activeAdvanced.length > 0}
-				<span class="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-zinc-700 dark:bg-zinc-300 text-[10px] font-bold text-white dark:text-zinc-900">{activeAdvanced.length}</span>
-			{/if}
-		</button>
+		{#snippet actions()}
+			<Button variant={showAdvanced ? 'default' : 'outline'} size="sm" onclick={() => showAdvanced = !showAdvanced}>
+				<SlidersHorizontal size={14} />
+				高级筛选
+				{#if activeAdvanced.length > 0}
+					<span class="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-700 text-[10px] font-bold text-white dark:bg-zinc-300 dark:text-zinc-900">{activeAdvanced.length}</span>
+				{/if}
+			</Button>
 
-		<Button variant="default" size="sm" onclick={applyFilters} disabled={loading}>
-			<Filter size={14} />
-			<span class="ml-1">筛选</span>
-		</Button>
-	</div>
+			<Button variant="default" size="sm" onclick={applyFilters} disabled={loading}>
+				<Filter size={14} />
+				<span class="ml-1">筛选</span>
+			</Button>
+		{/snippet}
 
-	<!-- Active filter badges -->
-	{#if activeAdvanced.length > 0}
-		<div class="flex flex-wrap gap-1.5 mb-3">
+		{#snippet badges()}
 			{#each activeAdvanced as badge}
-				<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-					{badge}
-				</span>
+				<Badge>{badge}</Badge>
 			{/each}
-		</div>
-	{/if}
+		{/snippet}
+	</DataToolbar>
 
 	<!-- Advanced Filter Panel -->
-	{#if showAdvanced}
-		<div class="mb-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/40 space-y-4">
-			<!-- Row 1: Select filters -->
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Model (actual)</label>
-					{#if filterOpts && filterOpts.models.length > 0}
-						<select bind:value={filterModel} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
-							<option value="">全部</option>
-							{#each filterOpts.models as m}
-								<option value={m}>{m}</option>
-							{/each}
-						</select>
-					{:else}
-						<input type="text" bind:value={filterModel} onkeydown={handleSearchKeydown} placeholder="model_actual" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					{/if}
-				</div>
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Model (requested)</label>
-					<input type="text" bind:value={filterModelRequested} onkeydown={handleSearchKeydown} placeholder="model_requested" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-				</div>
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Project</label>
-					{#if filterOpts && filterOpts.projects.length > 0}
-						<select bind:value={filterProject} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
-							<option value="">全部</option>
-							{#each filterOpts.projects as p}
-								<option value={p.id}>{p.label ?? shortId(p.id)}</option>
-							{/each}
-						</select>
-					{:else}
-						<input type="text" bind:value={filterProject} onkeydown={handleSearchKeydown} placeholder="project_id" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					{/if}
-				</div>
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Error Code</label>
-					{#if filterOpts && filterOpts.error_codes.length > 0}
-						<select bind:value={filterErrorCode} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
-							<option value="">全部</option>
-							{#each filterOpts.error_codes as ec}
-								<option value={ec}>{ec}</option>
-							{/each}
-						</select>
-					{:else}
-						<input type="text" bind:value={filterErrorCode} onkeydown={handleSearchKeydown} placeholder="error_code" class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					{/if}
-				</div>
-			</div>
-
-			<!-- Row 2: Retries + Range filters -->
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">重试</label>
-					<select bind:value={filterHasRetries} class="w-full h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100">
-						<option value="">全部</option>
-						<option value="true">有重试</option>
-						<option value="false">无重试</option>
-					</select>
-				</div>
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">延迟 (ms)</label>
-					<div class="flex gap-1">
-						<input type="number" bind:value={latencyMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-						<input type="number" bind:value={latencyMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					</div>
-				</div>
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">TTFB (ms)</label>
-					<div class="flex gap-1">
-						<input type="number" bind:value={ttfbMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-						<input type="number" bind:value={ttfbMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					</div>
-				</div>
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">费用 ($)</label>
-					<div class="flex gap-1">
-						<input type="number" step="0.0001" bind:value={costMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-						<input type="number" step="0.0001" bind:value={costMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					</div>
-				</div>
-			</div>
-
-			<!-- Row 3: Tokens -->
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-				<div>
-					<label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">Tokens (in+out)</label>
-					<div class="flex gap-1">
-						<input type="number" bind:value={tokensMin} placeholder="min" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-						<input type="number" bind:value={tokensMax} placeholder="max" class="w-1/2 h-9 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-					</div>
-				</div>
-			</div>
+	<FilterPanel open={showAdvanced}>
+		<!-- Row 1: Select filters -->
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+			<Field label="Model (actual)" for="usage-filter-model">
+				{#if filterOpts && filterOpts.models.length > 0}
+					<Select id="usage-filter-model" bind:value={filterModel} options={modelOptions} size="sm" />
+				{:else}
+					<Input id="usage-filter-model" size="sm" bind:value={filterModel} onkeydown={handleSearchKeydown} placeholder="model_actual" />
+				{/if}
+			</Field>
+			<Field label="Model (requested)" for="usage-filter-model-requested">
+				<Input id="usage-filter-model-requested" size="sm" bind:value={filterModelRequested} onkeydown={handleSearchKeydown} placeholder="model_requested" />
+			</Field>
+			<Field label="Project" for="usage-filter-project">
+				{#if filterOpts && filterOpts.projects.length > 0}
+					<Select id="usage-filter-project" bind:value={filterProject} options={projectOptions} size="sm" />
+				{:else}
+					<Input id="usage-filter-project" size="sm" bind:value={filterProject} onkeydown={handleSearchKeydown} placeholder="project_id" />
+				{/if}
+			</Field>
+			<Field label="Error Code" for="usage-filter-error-code">
+				{#if filterOpts && filterOpts.error_codes.length > 0}
+					<Select id="usage-filter-error-code" bind:value={filterErrorCode} options={errorCodeOptions} size="sm" />
+				{:else}
+					<Input id="usage-filter-error-code" size="sm" bind:value={filterErrorCode} onkeydown={handleSearchKeydown} placeholder="error_code" />
+				{/if}
+			</Field>
 		</div>
-	{/if}
+
+		<!-- Row 2: Retries + Range filters -->
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+			<Field label="重试" for="usage-filter-retries">
+				<Select id="usage-filter-retries" bind:value={filterHasRetries} options={retriesOptions} size="sm" />
+			</Field>
+			<Field label="延迟 (ms)" for="usage-filter-latency-min">
+				<div class="flex gap-1">
+					<Input id="usage-filter-latency-min" type="number" size="sm" bind:value={latencyMin} placeholder="min" />
+					<Input id="usage-filter-latency-max" type="number" size="sm" bind:value={latencyMax} placeholder="max" />
+				</div>
+			</Field>
+			<Field label="TTFB (ms)" for="usage-filter-ttfb-min">
+				<div class="flex gap-1">
+					<Input id="usage-filter-ttfb-min" type="number" size="sm" bind:value={ttfbMin} placeholder="min" />
+					<Input id="usage-filter-ttfb-max" type="number" size="sm" bind:value={ttfbMax} placeholder="max" />
+				</div>
+			</Field>
+			<Field label="费用 ($)" for="usage-filter-cost-min">
+				<div class="flex gap-1">
+					<Input id="usage-filter-cost-min" type="number" step="0.0001" size="sm" bind:value={costMin} placeholder="min" />
+					<Input id="usage-filter-cost-max" type="number" step="0.0001" size="sm" bind:value={costMax} placeholder="max" />
+				</div>
+			</Field>
+		</div>
+
+		<!-- Row 3: Tokens -->
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+			<Field label="Tokens (in+out)" for="usage-filter-tokens-min">
+				<div class="flex gap-1">
+					<Input id="usage-filter-tokens-min" type="number" size="sm" bind:value={tokensMin} placeholder="min" />
+					<Input id="usage-filter-tokens-max" type="number" size="sm" bind:value={tokensMax} placeholder="max" />
+				</div>
+			</Field>
+		</div>
+	</FilterPanel>
 
 	<!-- Content -->
 	{#if loading && !page}
@@ -450,111 +425,106 @@
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">调整筛选条件或时间范围试试</p>
 		</Card>
 	{:else if page}
-		<div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm mb-4">
-			<table class="w-full text-sm">
-				<thead class="bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700">
-					<tr>
-						<th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">时间</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">模型</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">状态</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">延迟</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">Tokens</th>
-						<th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">花费</th>
-						<th class="px-4 py-3 w-8"></th>
-					</tr>
-				</thead>
-				<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-					{#each page.data as req}
-						<tr
-							class={clsx(
-								'transition-colors cursor-pointer',
-								expandedId === req.request_id
-									? 'bg-zinc-50 dark:bg-zinc-800/50'
-									: 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
-							)}
-							onclick={() => toggleExpand(req.request_id)}
-						>
-							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatDate(req.ts)}</td>
-							<td class="px-4 py-3">
-								<div class="flex flex-col">
-									<div class="flex items-center gap-1.5">
-										<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{req.model_actual}</span>
-										<ModalityBadge model={req.model_actual} metadata={req.metadata} />
-									</div>
-									{#if req.model_requested !== req.model_actual}
-										<span class="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[180px]">{req.model_requested}</span>
-									{/if}
-								</div>
-							</td>
-							<td class="px-4 py-3">
-								<span class={clsx('inline-block px-2 py-0.5 rounded-full text-xs font-medium', statusBadgeCls(req.status))}>
-									{req.status}
-								</span>
-							</td>
-							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
-								{formatLatency(req.latency_ms)}
-								{#if req.stream}
-									<span class="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500">stream</span>
-								{/if}
-							</td>
-							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
-								<span class="text-zinc-500 dark:text-zinc-400">{formatTokens(req.tokens_in)}</span>
-								<span class="text-zinc-300 dark:text-zinc-600 mx-0.5">/</span>
-								<span class="text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_out)}</span>
-							</td>
-							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono">{formatCost(req.cost_usd)}</td>
-							<td class="px-4 py-3 text-right">
-								{#if expandedId === req.request_id}
-									<ChevronUp size={14} class="text-zinc-400" />
-								{:else}
-									<ChevronDown size={14} class="text-zinc-400" />
-								{/if}
-							</td>
-						</tr>
-						{#if expandedId === req.request_id}
-							<tr class="bg-zinc-50 dark:bg-zinc-800/50">
-								<td colspan="7" class="px-4 py-4">
-									<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Request ID</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100 break-all">{req.request_id}</p>
-										</div>
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Project</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.project_id)}...</p>
-										</div>
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">TTFB</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatLatency(req.ttfb_ms)}</p>
-										</div>
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Retries</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.retries}</p>
-										</div>
-									</div>
-									<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Cached Tokens</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_cached)}</p>
-										</div>
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Stream</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.stream ? '是' : '否'}</p>
-										</div>
-									</div>
-									{#if req.error_code}
-										<div class="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-											<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Error</p>
-											<p class="text-xs font-mono text-red-600 dark:text-red-400">{req.error_code}</p>
-										</div>
-									{/if}
-								</td>
-							</tr>
+		<DataTable>
+			{#snippet head()}
+				<tr>
+					<th class={dataTemplate.th}>时间</th>
+					<th class={dataTemplate.th}>模型</th>
+					<th class={dataTemplate.th}>状态</th>
+					<th class={dataTemplate.th}>延迟</th>
+					<th class={dataTemplate.th}>Tokens</th>
+					<th class={dataTemplate.th}>花费</th>
+					<th class="px-4 py-3 w-8"></th>
+				</tr>
+			{/snippet}
+
+			{#each page.data as req}
+				<tr
+					class={cn(dataTemplate.rowInteractive, expandedId === req.request_id && dataTemplate.rowSelected)}
+					onclick={() => toggleExpand(req.request_id)}
+				>
+					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatDate(req.ts)}</td>
+					<td class="px-4 py-3">
+						<div class="flex flex-col">
+							<div class="flex items-center gap-1.5">
+								<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{req.model_actual}</span>
+								<ModalityBadge model={req.model_actual} metadata={req.metadata} />
+							</div>
+							{#if req.model_requested !== req.model_actual}
+								<span class="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[180px]">{req.model_requested}</span>
+							{/if}
+						</div>
+					</td>
+					<td class="px-4 py-3">
+						<span class={cn('inline-block px-2 py-0.5 rounded-full text-xs font-medium', statusBadgeCls(req.status))}>
+							{req.status}
+						</span>
+					</td>
+					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
+						{formatLatency(req.latency_ms)}
+						{#if req.stream}
+							<span class="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500">stream</span>
 						{/if}
-					{/each}
-				</tbody>
-			</table>
-		</div>
+					</td>
+					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
+						<span class="text-zinc-500 dark:text-zinc-400">{formatTokens(req.tokens_in)}</span>
+						<span class="text-zinc-300 dark:text-zinc-600 mx-0.5">/</span>
+						<span class="text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_out)}</span>
+					</td>
+					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono">{formatCost(req.cost_usd)}</td>
+					<td class="px-4 py-3 text-right">
+						{#if expandedId === req.request_id}
+							<ChevronUp size={14} class="text-zinc-400" />
+						{:else}
+							<ChevronDown size={14} class="text-zinc-400" />
+						{/if}
+					</td>
+				</tr>
+
+				{#if expandedId === req.request_id}
+					<tr class={dataTemplate.rowSelected}>
+						<td colspan="7" class="px-4 py-4">
+							<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Request ID</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100 break-all">{req.request_id}</p>
+								</div>
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Project</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.project_id)}...</p>
+								</div>
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">TTFB</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatLatency(req.ttfb_ms)}</p>
+								</div>
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Retries</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.retries}</p>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Cached Tokens</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_cached)}</p>
+								</div>
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Stream</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.stream ? '是' : '否'}</p>
+								</div>
+							</div>
+
+							{#if req.error_code}
+								<div class="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+									<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Error</p>
+									<p class="text-xs font-mono text-red-600 dark:text-red-400">{req.error_code}</p>
+								</div>
+							{/if}
+						</td>
+					</tr>
+				{/if}
+			{/each}
+		</DataTable>
 
 		<!-- Pagination -->
 		<div class="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
@@ -574,4 +544,4 @@
 			</div>
 		</div>
 	{/if}
-</div>
+</PageShell>

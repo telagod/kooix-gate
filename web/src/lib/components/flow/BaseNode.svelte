@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte';
+	import type { Snippet } from 'svelte';
 	import type { FlowNodeData } from '$lib/flow/types.js';
 	import { NODE_CATALOG, PORT_COLORS } from '$lib/flow/types.js';
 	import { clsx } from 'clsx';
 
-	let { data, id }: { data: FlowNodeData; id: string } = $props();
+	let { data, id, children }: { data: FlowNodeData; id: string; children?: Snippet } = $props();
 	let meta = $derived(NODE_CATALOG[data.kind]);
 
 	function handleTop(index: number, total: number): string {
@@ -41,7 +42,7 @@
 
 	<!-- Body (slot) -->
 	<div class="px-3 py-2">
-		<slot />
+		{@render children?.()}
 	</div>
 
 	<!-- Error display -->

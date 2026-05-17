@@ -1,16 +1,22 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { clsx } from 'clsx';
+	import { cardClass, type CardPadding, type CardVariant } from '$lib/design';
 
 	let {
+		variant = 'default',
+		padding = 'none',
+		interactive = false,
 		class: className = '',
 		children
 	}: {
+		variant?: CardVariant;
+		padding?: CardPadding;
+		interactive?: boolean;
 		class?: string;
 		children?: Snippet;
 	} = $props();
 </script>
 
-<div class={clsx('rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm', className)}>
+<div class={cardClass({ variant, padding, interactive, class: className })}>
 	{@render children?.()}
 </div>

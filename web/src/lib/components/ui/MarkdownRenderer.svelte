@@ -1,12 +1,66 @@
 <script lang="ts">
 	import { marked } from 'marked';
-	import hljs from 'highlight.js';
+	import hljs from 'highlight.js/lib/core';
+	import bash from 'highlight.js/lib/languages/bash';
+	import css from 'highlight.js/lib/languages/css';
+	import diff from 'highlight.js/lib/languages/diff';
+	import javascript from 'highlight.js/lib/languages/javascript';
+	import json from 'highlight.js/lib/languages/json';
+	import markdown from 'highlight.js/lib/languages/markdown';
+	import plaintext from 'highlight.js/lib/languages/plaintext';
+	import python from 'highlight.js/lib/languages/python';
+	import rust from 'highlight.js/lib/languages/rust';
+	import shell from 'highlight.js/lib/languages/shell';
+	import sql from 'highlight.js/lib/languages/sql';
+	import typescript from 'highlight.js/lib/languages/typescript';
+	import xml from 'highlight.js/lib/languages/xml';
+	import yaml from 'highlight.js/lib/languages/yaml';
 
 	let { content = '', streaming = false }: { content: string; streaming?: boolean } = $props();
 
+	const languages = {
+		bash,
+		css,
+		diff,
+		javascript,
+		json,
+		markdown,
+		plaintext,
+		python,
+		rust,
+		shell,
+		sql,
+		typescript,
+		xml,
+		yaml
+	};
+
+	for (const [name, language] of Object.entries(languages)) {
+		if (!hljs.getLanguage(name)) hljs.registerLanguage(name, language);
+	}
+
+	const languageAliases: Record<string, string> = {
+		js: 'javascript',
+		ts: 'typescript',
+		sh: 'bash',
+		console: 'shell',
+		html: 'xml',
+		svelte: 'xml',
+		md: 'markdown',
+		yml: 'yaml',
+		text: 'plaintext',
+		txt: 'plaintext'
+	};
+
+	function normalizeLanguage(lang?: string) {
+		const key = lang?.toLowerCase().trim() ?? '';
+		const mapped = languageAliases[key] ?? key;
+		return mapped && hljs.getLanguage(mapped) ? mapped : 'plaintext';
+	}
+
 	const renderer = new marked.Renderer();
 	renderer.code = ({ text, lang }: { text: string; lang?: string }) => {
-		const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+		const language = normalizeLanguage(lang);
 		const highlighted = hljs.highlight(text, { language }).value;
 		const escaped = text.replace(/"/g, '&quot;').replace(/</g, '&lt;');
 		return `<div class="code-block group/code relative my-3"><div class="code-head">${language}<button class="copy-btn" data-code="${escaped}">复制</button></div><pre class="code-pre"><code class="hljs language-${language}">${highlighted}</code></pre></div>`;

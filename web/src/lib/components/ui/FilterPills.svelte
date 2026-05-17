@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { clsx } from 'clsx';
+	import { cn } from '$lib/design';
 
 	export interface FilterOption {
 		value: string;
@@ -17,16 +17,16 @@
 	} = $props();
 </script>
 
-<div class="inline-flex items-center gap-1 {className}">
+<div class={cn('inline-flex items-center gap-1', className)}>
 	{#each options as opt}
 		<button
 			type="button"
 			onclick={() => (value = opt.value)}
-			class={clsx(
-				'px-3 py-1.5 rounded-full text-xs font-medium transition-all',
+			class={cn(
+				'rounded-full px-3 py-1.5 text-xs font-medium transition-all',
 				value === opt.value
-					? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-sm'
-					: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+					? 'bg-zinc-900 text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
+					: 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
 			)}
 		>
 			{opt.label}

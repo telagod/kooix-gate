@@ -4,9 +4,9 @@
 	import { onMount } from 'svelte';
 	import { login, ssoStart, getSystemStatus } from '$lib/api.js';
 	import { saveTokens, currentUser } from '$lib/auth.js';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import { Button, Input } from '$lib/components/ui';
+	import AuthFrame from '$lib/components/templates/AuthFrame.svelte';
+	import { authTemplate } from '$lib/design';
 	import { theme, toggleTheme } from '$lib/stores/theme';
 	import { Sun, Moon, Monitor } from 'lucide-svelte';
 
@@ -79,69 +79,64 @@
 	<p class="text-zinc-500 dark:text-zinc-400 text-sm">加载中...</p>
 </div>
 {:else}
-<div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
-	<!-- Theme toggle -->
-	<button
-		onclick={toggleTheme}
-		class="fixed top-4 right-4 p-2 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 transition-colors"
-		title={$theme === 'light' ? '浅色' : $theme === 'dark' ? '深色' : '跟随系统'}
-	>
-		{#if $theme === 'light'}<Sun size={16} />{:else if $theme === 'dark'}<Moon size={16} />{:else}<Monitor size={16} />{/if}
-	</button>
-	<Card class="w-full max-w-sm p-8">
-		<div class="mb-8 text-center">
-			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Kooix Gate</h1>
-			<p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">登录控制台</p>
-		</div>
-
-		<form onsubmit={handleSubmit} class="space-y-4">
-			<div>
-				<label for="email" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">邮箱</label>
-				<Input
-					id="email"
-					type="email"
-					placeholder="you@example.com"
-					bind:value={email}
-					disabled={loading || ssoLoading}
-					autocomplete="email"
-				/>
-			</div>
-
-			<div>
-				<label for="password" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">密码</label>
-				<Input
-					id="password"
-					type="password"
-					placeholder="••••••••"
-					bind:value={password}
-					disabled={loading || ssoLoading}
-					autocomplete="current-password"
-				/>
-			</div>
-
-			{#if error}
-				<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{error}</p>
-			{/if}
-
-			<Button type="submit" disabled={loading || ssoLoading} class="w-full">
-				{loading ? '登录中...' : '登录'}
-			</Button>
-		</form>
-
-		<div class="my-6 flex items-center gap-3">
-			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
-			<span class="text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">或</span>
-			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
-		</div>
-
-		<Button
-			variant="outline"
-			class="w-full"
-			disabled={loading || ssoLoading}
-			onclick={handleSso}
+<AuthFrame title="Kooix Gate" description="登录控制台">
+	{#snippet topRight()}
+		<button
+			onclick={toggleTheme}
+			class={authTemplate.themeToggle}
+			title={$theme === 'light' ? '浅色' : $theme === 'dark' ? '深色' : '跟随系统'}
 		>
-			{ssoLoading ? '正在跳转...' : '使用 Google SSO 登录'}
+			{#if $theme === 'light'}<Sun size={16} />{:else if $theme === 'dark'}<Moon size={16} />{:else}<Monitor size={16} />{/if}
+		</button>
+	{/snippet}
+
+	<form onsubmit={handleSubmit} class="space-y-4">
+		<div>
+			<label for="email" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">邮箱</label>
+			<Input
+				id="email"
+				type="email"
+				placeholder="you@example.com"
+				bind:value={email}
+				disabled={loading || ssoLoading}
+				autocomplete="email"
+			/>
+		</div>
+
+		<div>
+			<label for="password" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">密码</label>
+			<Input
+				id="password"
+				type="password"
+				placeholder="••••••••"
+				bind:value={password}
+				disabled={loading || ssoLoading}
+				autocomplete="current-password"
+			/>
+		</div>
+
+		{#if error}
+			<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{error}</p>
+		{/if}
+
+		<Button type="submit" disabled={loading || ssoLoading} class="w-full">
+			{loading ? '登录中...' : '登录'}
 		</Button>
-	</Card>
-</div>
+	</form>
+
+	<div class="my-6 flex items-center gap-3">
+		<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
+		<span class="text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">或</span>
+		<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
+	</div>
+
+	<Button
+		variant="outline"
+		class="w-full"
+		disabled={loading || ssoLoading}
+		onclick={handleSso}
+	>
+		{ssoLoading ? '正在跳转...' : '使用 Google SSO 登录'}
+	</Button>
+</AuthFrame>
 {/if}

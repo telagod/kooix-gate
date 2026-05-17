@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { clsx } from 'clsx';
+	import type { HTMLInputAttributes } from 'svelte/elements';
+	import { controlClass, type ControlSize } from '$lib/design';
 
 	let {
 		type = 'text',
@@ -8,15 +9,35 @@
 		id = '',
 		disabled = false,
 		class: className = '',
-		autocomplete = 'off'
+		autocomplete = 'off',
+		step = undefined,
+		min = undefined,
+		max = undefined,
+		name = undefined,
+		size = 'default',
+		invalid = false,
+		onkeydown = undefined,
+		oninput = undefined,
+		onblur = undefined,
+		onclick = undefined
 	}: {
-		type?: string;
+		type?: HTMLInputAttributes['type'];
 		placeholder?: string;
-		value?: string;
+		value?: string | number | null;
 		id?: string;
 		disabled?: boolean;
 		class?: string;
-		autocomplete?: string;
+		autocomplete?: HTMLInputAttributes['autocomplete'];
+		step?: HTMLInputAttributes['step'];
+		min?: HTMLInputAttributes['min'];
+		max?: HTMLInputAttributes['max'];
+		name?: HTMLInputAttributes['name'];
+		size?: ControlSize;
+		invalid?: boolean;
+		onkeydown?: HTMLInputAttributes['onkeydown'];
+		oninput?: HTMLInputAttributes['oninput'];
+		onblur?: HTMLInputAttributes['onblur'];
+		onclick?: HTMLInputAttributes['onclick'];
 	} = $props();
 </script>
 
@@ -24,11 +45,16 @@
 	{type}
 	{placeholder}
 	{id}
+	{name}
 	{disabled}
 	{autocomplete}
+	{step}
+	{min}
+	{max}
+	{onkeydown}
+	{oninput}
+	{onblur}
+	{onclick}
 	bind:value
-	class={clsx(
-		'flex h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-50',
-		className
-	)}
+	class={controlClass({ size, invalid, class: className })}
 />

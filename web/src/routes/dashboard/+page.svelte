@@ -23,7 +23,9 @@
 		ScrollText,
 		Gauge
 	} from 'lucide-svelte';
-	import { clsx } from 'clsx';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import { cn } from '$lib/design';
 
 	let me = $state<MeResult | null>(null);
 	let usage = $state<UsageResponse | null>(null);
@@ -100,7 +102,12 @@
 	}
 </script>
 
-<div class="px-6 py-6">
+<PageShell title="总览" description={currentOrg ? `当前组织：${shortId(currentOrg)}...` : '未加入任何组织'} icon={BarChart3}>
+	{#snippet actions()}
+		{#if me?.is_platform_admin}
+			<span class="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">Platform Admin</span>
+		{/if}
+	{/snippet}
 	{#if loading}
 		<div class="space-y-4">
 			<div class="h-8 w-48 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse"></div>
@@ -111,27 +118,8 @@
 			</div>
 		</div>
 	{:else if error}
-		<Card class="p-6">
-			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-		</Card>
+		<StatePanel variant="danger" description={error} />
 	{:else}
-		<div class="flex items-center justify-between mb-6">
-			<div>
-				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">总览</h1>
-				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-0.5">
-					{#if currentOrg}
-						当前组织：<span class="font-mono">{shortId(currentOrg)}...</span>
-					{:else}
-						未加入任何组织
-					{/if}
-				</p>
-			</div>
-			{#if me?.is_platform_admin}
-				<span class="inline-flex items-center gap-1 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-2 py-1 rounded-md font-medium">
-					Platform Admin
-				</span>
-			{/if}
-		</div>
 
 		<!-- Platform stats (Admin only) -->
 		{#if stats}
@@ -151,10 +139,10 @@
 
 				<div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 shadow-sm">
 					<div class="flex items-center gap-2 mb-2">
-						<XCircle size={14} class={clsx(stats.error_rate > 0.05 ? 'text-red-400' : 'text-zinc-400')} />
+						<XCircle size={14} class={cn(stats.error_rate > 0.05 ? 'text-red-400' : 'text-zinc-400')} />
 						<p class="text-[10px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">错误率</p>
 					</div>
-					<p class={clsx(
+					<p class={cn(
 						'text-2xl font-bold tabular-nums',
 						stats.error_rate > 0.05 ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'
 					)}>{fmtPct(stats.error_rate)}</p>
@@ -357,4 +345,4 @@
 			{/if}
 		</div>
 	{/if}
-</div>
+</PageShell>
