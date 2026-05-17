@@ -3,8 +3,8 @@
 # cargo-chef for dependency caching · debian-slim runtime
 
 # ── Stage 1: chef base ────────────────────────────────────────
-FROM rust:1.85-bookworm AS chef
-RUN cargo install cargo-chef
+FROM rust:1.88-bookworm AS chef
+RUN cargo install cargo-chef --locked
 WORKDIR /app
 
 # ── Stage 2: planner (generate recipe.json) ───────────────────
