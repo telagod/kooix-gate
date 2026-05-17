@@ -44,8 +44,43 @@ kgctl admin create --email root@example.com
 | `admin create` | 创建 platform `super_admin` 账号 | `kgctl admin create --email a@b.com` |
 | `doctor` | env 完整性 + DB `SELECT 1` + Redis `PING` 一键体检 | `kgctl doctor` |
 | `seed-pricing` | 写入 OpenAI / Anthropic 主流模型默认定价（全局 channel_id NULL） | `kgctl seed-pricing` |
+| `pricing list` | 列出 `pricing_rules`，可按 model / channel 过滤 | `kgctl pricing list --model gpt-4o-mini` |
+| `pricing set` | 新建一条 global 或 channel-specific 定价规则 | `kgctl pricing set --model gpt-4o-mini --dimension input_tokens --unit per_million --rate 0.15` |
+| `pricing delete` | 删除指定定价规则 | `kgctl pricing delete --id <uuid>` |
 
 退出码：成功 0；任何步骤失败 1，标准错误用 ANSI 红色高亮原因。
+
+## 定价规则 CLI
+
+`seed-pricing` 仍是 legacy 默认种子，写入 `model_pricing` 表；运行时多维计费以 `pricing_rules` 为主。日常调价优先使用：
+
+```bash
+# 查全局和指定模型规则
+kgctl pricing list
+kgctl pricing list --model gpt-4o-mini
+
+# 写全局规则
+kgctl pricing set \
+  --model gpt-4o-mini \
+  --dimension input_tokens \
+  --unit per_million \
+  --rate 0.15 \
+  --priority 0 \
+  --description "OpenAI global input"
+
+# 写渠道专属规则
+kgctl pricing set \
+  --model gpt-4o-mini \
+  --dimension output_tokens \
+  --unit per_million \
+  --rate 0.60 \
+  --channel-id 019e2c1b-a7d1-7162-8422-07e4b24f5f98
+
+# 删除规则
+kgctl pricing delete --id 019e2c1b-a7d1-7162-8422-07e4b24f5f98
+```
+
+控制台对应页面为 `/admin/pricing`；REST 对应 `GET/POST /v1/admin/pricing-rules` 与 `DELETE /v1/admin/pricing-rules/:id`。
 
 ## 用到的 env
 

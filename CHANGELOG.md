@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] — 2026-05-18
+
+`main` 分支在 v0.1.5 之后继续补齐发布边界：typed ID、定价规则 CRUD、crash-safe quota pre-debit、HTTP Plugin 归一化、Provider 插件预设与前端模板化。
+
+### Added — API / Admin / CLI
+
+- API response 统一返回带前缀 typed ID（如 `org_...` / `proj_...` / `usr_...`）；URL path 参数通过 `FlexUuid` 同时接受 typed ID 与裸 UUID。
+- 定价规则 CRUD 补齐到三条入口：
+  - REST：`GET/POST /v1/admin/pricing-rules`、`DELETE /v1/admin/pricing-rules/:id`
+  - CLI：`kgctl pricing list|set|delete`
+  - 控制台：`/admin/pricing`
+- 平台用户生命周期管理完成：创建用户、切换状态、重置密码；mutation 走 `Permission::PlatformAdmin` 并写入 `user.*` audit。
+
+### Added — Quota / Billing
+
+- `inflight_requests` 增加 `quota_keys` 与 `estimated_micros`，pre-debit 成功后写入飞行中请求记录。
+- 后台 sweeper 每 60s 扫描过期 inflight 记录并退还 Redis budget 预扣，覆盖进程崩溃后的 quota 回滚路径。
+
+### Added — Provider / Plugin
+
+- HTTP Plugin 新增共享 SSE normalizer，支持 CRLF/LF、注释、多行 `data:`、分片帧、`[DONE]` / `EOF` 类结束帧，并把私有 token / finish / usage path 归一成 OpenAI-compatible stream chunk。
+- Provider 插件预设落地：`model_mapping.plugin.preset.provider` 支持 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse` 等。
+- 预设会补齐默认 path / headers / request adapter / response mapper / SSE mapper；OpenAI-compatible 自动注入 `stream_options.include_usage=true`，Azure 支持 deployment path 模板，Anthropic Messages / Bedrock Converse 具备基础 request adapter。
+
+### Changed — Frontend / DX / CI
+
+- 前端抽出 `$lib/design/classes.ts` 与页面模板：`PageShell`、`AuthFrame`、`SectionCard`、`StatePanel`、`ModalFrame`、`DataToolbar`、`FilterPanel`、`DataTable`。
+- Channel UI 增加 Provider 插件预设选择，仍保留自定义 plugin manifest 输入。
+- CI 改为稳定 Rust toolchain，持续跑 `cargo fmt`、`cargo clippy --workspace -D warnings`、`cargo check --workspace`、`cargo test --workspace` 与 Web build；Actions runtime 强制 Node 24，Web job 使用 Node 22。
+
+### Tests
+
+- 当前 Rust unit/integration 测试清单增至 266 tests；`cargo test --workspace -- --list` 另列 5 条文档示例；前端 Vitest 增至 55 tests。
+- 新增覆盖：plugin preset 后端单测/集成测试、Anthropic/OpenAI-compatible preset 归一链、admin 用户 E2E、typed ID/FlexUuid、crash-safe quota pre-debit、pricing rules API 与前端 API helper。
+
+### Resolved from 0.1.5 Known Limitations
+
+- typed ID response 已落地。
+- Pricing rules API、CLI 与前端管理页已落地。
+- `inflight_requests` 已接入 quota pre-debit crash recovery。
+- WASM 插件 ABI 仍延后，HTTP Plugin manifest + Provider 预设继续作为当前扩展面。
+
 ## [0.1.5] — 2026-05-15
 
 从 v0.1.0 到 0.1.5，大量功能增强和 bug 修复。覆盖 9 provider 多模态、可视化编排、多维度计费、全面 UI 重做。
@@ -23,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 路由策略增强
 
-- 4 种路由策略：`priority` / `weighted_random` / `round_robin` / `least_conn` / `least_latency`
+- 5 种路由策略：`priority` / `weighted_random` / `round_robin` / `least_conn` / `least_latency`
 - Channel Group fallback 链（最深 5 级，防环）
 - Model filter：`supported_models` + `model_filter` 双层匹配
 - Channel RPM/TPM 限速（滑动窗口，超限自动跳下一个）
@@ -108,12 +150,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - InMemory repo 与 Pg repo 双实现契约测试
 - 前端 vitest 50 测试
 
-### Known Limitations
+### Known Limitations at 0.1.5
 
 - API response 返裸 UUID，typed ID 前缀格式待下版本迁移
 - Pricing rules API + CLI CRUD 延后到下一迭代
 - `inflight_requests` 流式预扣尚未接入 chat handler
 - WASM 插件延后
 
+[Unreleased]: https://github.com/telagod/kooix-gate/compare/v0.1.5...HEAD
 [0.1.5]: https://github.com/telagod/kooix-gate/compare/v0.1.0...v0.1.5
 [0.1.0]: https://github.com/telagod/kooix-gate/releases/tag/v0.1.0

@@ -68,6 +68,27 @@ pnpm build
 | `/login` | 邮箱密码登录，成功后跳 `/orgs` |
 | `/orgs` | 组织列表，支持切换激活 Org（X-Kooix-Org header）|
 | `/orgs/[orgId]/projects` | 列出指定 Org 下的 Project，支持创建 |
+| `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设与自定义 manifest |
+| `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
+| `/admin/pricing` | Platform admin 定价规则管理，支持 global / channel-specific rules |
+| `/admin/users` | Platform admin 用户生命周期管理：创建、停用/启用、重置密码 |
+| `/admin/requests` / `/usage/requests` | 请求日志与使用明细过滤页 |
+
+## API ID 约定
+
+后端 response 已统一返回 typed ID（如 `org_...`、`proj_...`、`ch_...`、`usr_...`）。前端规则：
+
+- 展示短 ID 用 `shortId()`。
+- 构造 URL path 或 header 前，用 `rawId()` 转回裸 UUID；后端 `FlexUuid` 也能兼容 typed ID，但前端保持裸 UUID 可减少第三方链接歧义。
+- 新增 API helper 时，不要手写 `split('_')`，统一从 `src/lib/id.ts` 引入工具。
+
+## Provider 插件预设
+
+Channel 表单在 `provider_type=plugin` 时提供预设下拉：
+
+- 预设清单在 `src/lib/plugin-presets.ts`，当前 UI 覆盖 OpenAI-compatible、Anthropic Messages、Azure OpenAI、Gemini、DeepSeek、Mistral、Cohere、Ollama、Groq、Together、OpenRouter、Moonshot、智谱、通义千问、零一万物、Bedrock Converse；后端 manifest 也接受 `openai` alias。
+- 选择预设会生成 `{ "plugin": { "preset": { "provider": "..." } } }`；自定义 manifest 仍可直接输入 JSON。
+- 测试在 `src/tests/plugin-presets.test.ts`，新增预设时同步补选项和测试。
 
 ## 技术选型
 

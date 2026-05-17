@@ -4,13 +4,15 @@
 
 竞品定位：NewAPI / OneAPI / LiteLLM 的「底盘加强版」——把它们反复踩的雷（权限粗、限流单一、租户隔离漏、流式漏扣）先治好，再谈渠道接入。
 
-[![Tests](https://img.shields.io/badge/tests-241%20passed-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-266%20Rust%20%2B%2055%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
 ## 当前版本：v0.1.5
 
 详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+> `main` 已包含 v0.1.5 之后的 Unreleased 更新：typed ID response / `FlexUuid`、pricing rules REST+CLI+UI、crash-safe quota pre-debit、HTTP Plugin SSE normalizer、Provider 插件预设与前端模板化。见 [CHANGELOG.md#unreleased--2026-05-18](./CHANGELOG.md#unreleased--2026-05-18)。
 
 ### 核心能力
 
@@ -19,6 +21,7 @@
 - ✅ HTTP Plugin 渠道：用 JSON manifest 接入私有协议、奇葩 body/response、非标准 SSE token 帧
 - ✅ Provider 插件预设：OpenAI-compatible / Anthropic / Azure / Gemini / DeepSeek / Mistral / Cohere / Ollama / Bedrock 等主流渠道可统一按 plugin manifest 接入
 - ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
+- ✅ typed ID API response（`org_...` / `proj_...` / `usr_...`），路径参数仍兼容裸 UUID
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
 - ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价）
 - ✅ Quota 拦截（rpm / tpm / budget，Redis Lua 原子）
@@ -34,6 +37,14 @@
 - 🎨 节点式可视化编排 Playground
 - 📊 请求日志 20+ 维度过滤 + Dashboard 统计面板
 - 🎭 全面 UI 重做：monochrome 设计系统 + dark mode + 品牌色 logo
+
+### main / Unreleased 新增亮点
+
+- 🧩 typed ID 输出与 `FlexUuid` 路径参数兼容，前端用 `rawId()` / `shortId()` 处理展示和跳转。
+- 💸 Pricing rules 管理闭环：`/v1/admin/pricing-rules`、`kgctl pricing list|set|delete`、`/admin/pricing` 控制台页面。
+- 🧯 Crash-safe quota pre-debit：`inflight_requests.quota_keys/estimated_micros` + 60s sweeper 自动退还过期预扣。
+- 🌊 HTTP Plugin SSE normalizer + Provider preset，覆盖私有 SSE 帧、Anthropic Messages、Azure deployment URL 与 OpenAI-compatible usage 末帧。
+- 🧱 前端模板化：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等集中到 `web/src/lib/components/templates/`。
 
 ## 技术栈
 
@@ -58,7 +69,7 @@ kooix-gate/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）
 │   ├── gate-crypto/            # Envelope encryption + KMS 抽象
 │   ├── gate-storage/           # PostgreSQL Repository (Pg + InMemory)
-│   │   └── migrations/         # 24 SQL 文件，含 RLS
+│   │   └── migrations/         # 25 SQL 文件，含 RLS / pricing_rules / inflight recovery
 │   ├── gate-auth/              # Password / JWT / API Key / OIDC / AuthContext
 │   ├── gate-cache/             # Redis Lua（rate limit + quota）
 │   ├── gate-providers/         # Provider trait + 9 adapters + ProviderRouter
@@ -153,17 +164,19 @@ curl http://localhost:8080/v1/chat/completions \
 - **Outbox pattern**：业务事务和计费写入解耦，幂等 `ON CONFLICT DO NOTHING`
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
 - **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`
-- **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面
+- **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面
 - **强类型 ID**：编译期阻止 `OrgId` 当 `UserId` 传
+- **typed ID 边界**：API response 序列化为 `{prefix}_{uuid_simple}`；route extractor 通过 `FlexUuid` 同时接收 typed ID 和裸 UUID，数据库仍存裸 UUID
 - **AuthContext 单一权限门面**：禁止外部读 raw 角色映射，全走 `can()` / `require!`
 - **多维度计费**：按 dimension × conditions 精准匹配，支持缓存折扣、批量折扣、分层定价
+- **crash-safe pre-debit**：budget quota 先 Redis 预扣，再把 `quota_keys` / `estimated_micros` 写入 `inflight_requests`；正常 settle 多退少补，异常 drop 全退，进程崩溃由 sweeper 兜底
 
 详细架构见 [DESIGN.md](./DESIGN.md)。
 
 ## 测试
 
 ```bash
-# 全量（241 tests，含 testcontainers 集成测试，需要 Docker）
+# 全量（当前 266 Rust unit/integration tests + 文档示例清单，含 testcontainers 集成测试，需要 Docker）
 cargo test --workspace
 
 # 仅快速 unit（无 Docker）
@@ -180,7 +193,7 @@ cargo fmt --all -- --check
 控制台构建：
 
 ```bash
-cd web && npm run build
+cd web && npm run check && npm test && npm run build
 ```
 
 ## License

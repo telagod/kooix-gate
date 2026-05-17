@@ -8,7 +8,7 @@
 2. **多 Org 第一公民**：`Org → Project → ApiKey` 三层，永不混淆。
 3. **强类型 ID**：编译期防止 `OrgId` 当 `ProjectId` 传。
 4. **租户隔离两道闸**：应用层 `WHERE org_id` + 数据库 RLS 兜底。
-5. **插件即 trait**：编译期 trait，运行期 WASM，对上层透明。
+5. **插件边界先稳后扩**：编译期 provider trait + 运行期 HTTP Plugin manifest 先落地，WASM ABI 延后到边界稳定后再定。
 6. **预扣 + 修正**：流式扣费三段式，避免热点 + 漏扣。
 7. **审计同步落，用量异步落**：区分关键事件与高频事件。
 
@@ -59,7 +59,7 @@
 ### 1.2 渠道与项目的解耦
 
 **Channel 是平台资源**，由 `platform_admin` 创建——运营运维各管各的。
-**ChannelGroup 是路由编排单元**，把多个 Channel 按策略组合（priority / weighted / fallback / round_robin / least_latency）。
+**ChannelGroup 是路由编排单元**，把多个 Channel 按策略组合（priority / weighted_random / round_robin / least_conn / least_latency / fallback）。
 **Project 通过 ProjectGroupBinding 选择能用哪些 Group**——可按 model_pattern 进一步细分。
 
 这层抽象的好处：
@@ -158,6 +158,13 @@ POST (流结束 / 错误):
 
 **关键：超时回滚**。`inflight_requests.expires_at` 设 `max_tokens / 10 tps` 的预估时间，cleaner 定时跑回滚。
 
+当前实现把 budget 类 quota 的预扣状态同时写入 Redis 与 `inflight_requests`：
+
+- Redis key 由 `scope_kind/scope_id/dimension/model_filter/quota_id` 组成，避免多条 quota 串桶。
+- `inflight_requests.quota_keys` / `estimated_micros` 记录本请求所有成功预扣项。
+- 正常路径由 `InflightGuard::settle(actual_micros)` 多退少补并删除 inflight 行。
+- handler panic / 取消时 `Drop` 全额退还；进程崩溃时后台 sweeper 每 60s 删除过期 inflight 行并按 `quota_keys × estimated_micros` 退还 Redis。
+
 ---
 
 ## 4. Channel & Key 池
@@ -185,15 +192,17 @@ Channel 级 `health` 由所有 key 状态聚合：
 | Strategy | 选择算法 |
 |---|---|
 | `priority` | 按 priority 升序，第一个 healthy 的 channel |
-| `weighted` | 按 weight 加权随机（健康 key 中） |
+| `weighted_random` | 按 weight 加权随机（健康 key 中） |
 | `round_robin` | 轮询（健康 key 中） |
-| `fallback` | priority 主，挂了切 fallback_group |
+| `least_conn` | 选择当前 inflight 最少的 channel，完成后释放计数 |
+| `least_latency` | 选择最近延迟最低的 channel；无指标时回退到 priority 顺序 |
+| `fallback` | 当前 group 无可用 channel 或 disabled 时切 `fallback_group_id`，最大深度 5 防环 |
 
 ### 4.3 HTTP Plugin 渠道与 SSE 整流
 
 `provider_type=plugin|custom|http|http_plugin` 走运行时 HTTP plugin adapter，不需要重新编译 provider crate。插件 manifest 存在 `channels.model_mapping.plugin`（复用已暴露 JSONB 配置面，密钥仍走 `channel_keys` / env 回退）：
 
-- `preset.provider`：主流 Provider 预设，当前覆盖 `openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse`；预设负责默认 path、headers、request adapter、response/SSE mapper。
+- `preset.provider`：主流 Provider 预设，当前覆盖 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse`；预设负责默认 path、headers、request adapter、response/SSE mapper。
 - `request.chat_path`：相对 `base_url` 或绝对 URL，支持模板变量；Azure 预设用 `{{model}}` 展开 deployment path。
 - `request.headers`：支持 `{{api_key}}` 等模板变量，未声明 Authorization 时默认 Bearer；设为 `null` 可显式禁用默认 Bearer。
 - `request.body`：JSON 模板，支持 `{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{max_tokens}}` 等变量；整段占位会保留原 JSON 类型。
@@ -202,7 +211,14 @@ Channel 级 `health` 由所有 key 状态聚合：
 
 这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；WASM ABI 仍延后，避免早期冻结插件边界。
 
-| `least_latency` | 最近 5 分钟 P50 最低 |
+### 4.4 Typed ID API 边界
+
+数据库层继续使用裸 UUID，领域类型在 API 边界负责展示与兼容：
+
+- `OrgId` / `UserId` / `ProjectId` / `ChannelId` 等 `Display` / `Serialize` 输出 `{prefix}_{uuid_simple}`，例如 `org_019e2c1ba7d17162842207e4b24f5f98`。
+- `FromStr` / `Deserialize` 同时接受 typed ID 与裸 UUID，便于灰度迁移和内部调用。
+- URL path extractor 使用 `FlexUuid`，所有 `/:id` 路由可接收 `ch_...` / `usr_...` 或 `019e...` 裸 UUID。
+- 前端通过 `web/src/lib/id.ts` 的 `rawId()` 把 typed ID 转回路径用 UUID，`shortId()` 用于表格短显。
 
 ---
 
@@ -229,6 +245,16 @@ SET LOCAL app.is_platform_admin = 'false';
 
 `gate-core::id` 用宏生成 `OrgId/UserId/ProjectId/...`，编译期防止串台。`Display` 给前缀（`org_xxx`, `proj_xxx`），日志友好。
 
+### 5.4 Pricing rules 管理面
+
+`pricing_rules` 是当前定价主表，支持 global 与 channel-specific 两级规则：
+
+- `dimension × unit × conditions JSON` 描述多模态计费维度，`priority` 控制同维度匹配顺序。
+- `channel_id = NULL` 表示全局规则；非空时覆盖特定 channel。
+- REST 管理面：`GET/POST /v1/admin/pricing-rules`、`DELETE /v1/admin/pricing-rules/:id`，全部要求 `Permission::PlatformAdmin`。
+- CLI 管理面：`kgctl pricing list|set|delete`，用于无控制台或运维脚本场景。
+- 控制台页面：`/admin/pricing` 复用 DataToolbar / DataTable 模板，支持按模型和渠道过滤。
+
 ---
 
 ## 6. 关键决策记录（ADR-style）
@@ -243,6 +269,8 @@ SET LOCAL app.is_platform_admin = 'false';
 | 6 | TimescaleDB | 5w rpm × 30 天 = 21 亿行，普通表会卡 |
 | 7 | WASM 插件延后，先落 HTTP Plugin manifest + Provider 预设 | trait 抽象先稳定，主流 Provider 与私有协议主要差异可先用 preset、request/response/SSE path 映射吸收，ABI 一旦发出去难改 |
 | 8 | 自建 RBAC | 角色组合有限，Casbin 引入心智税不值 |
+| 9 | API 对外 typed ID，DB 继续裸 UUID | 外部可读性和防串台更强，存储/索引/外键不迁移，`FlexUuid` 保持向后兼容 |
+| 10 | Pricing rules 暴露 REST + CLI + UI 三入口 | 运营日常用 UI，部署/批量改价用 CLI，自动化接 REST；三者复用同一 `pricing_rules` 主表 |
 
 ---
 
@@ -321,9 +349,11 @@ KOOIX_PUBLIC_URL    # https://gate.example.com — OIDC redirect_uri 基底
 - [x] gate-auth: password / JWT / API key / OIDC / AuthContext / require!
 - [x] kgctl: 部署密钥生成 + env 清单
 - [x] SSO schema (identity_providers + user_identities + oidc_login_states)
-- [ ] gate-storage Repo 实现（users / orgs / projects / memberships / api_keys）
-- [ ] gate-cache: Redis 滑动窗口 Lua + 配额扣减 Lua
-- [ ] gate-server: Axum AppState + Auth 抽取器 + 控制台路由
-- [ ] gate-providers: OpenAI 透传（验证 trait）
-- [ ] gate-billing: usage outbox 消费者
-- [ ] web: SvelteKit 控制台
+- [x] gate-storage Repo 实现（users / orgs / projects / memberships / api_keys / channels / quotas / inflight）
+- [x] gate-cache: Redis 滑动窗口 Lua + 配额扣减 Lua
+- [x] gate-server: Axum AppState + Auth 抽取器 + 控制台/API 路由
+- [x] gate-providers: 9 个编译期 Provider + HTTP Plugin adapter + Provider preset
+- [x] gate-billing: usage outbox 消费者 + pricing rules + LiteLLM sync
+- [x] web: SvelteKit 控制台
+- [ ] WASM 插件 ABI 与 sandbox runtime
+- [ ] master key 轮换工具 / `JwtRing` 双密钥轮换窗口
