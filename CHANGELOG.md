@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] — 2026-05-18
+## [Unreleased]
 
-`main` 分支在 v0.1.5 之后继续补齐发布边界：typed ID、定价规则 CRUD、crash-safe quota pre-debit、HTTP Plugin 归一化、Provider 插件预设与前端模板化。
+暂无。
+
+## [0.2.0] — 2026-05-18
+
+第一个正式发布版本。相比 v0.1.5，本版把 typed ID、定价规则 CRUD、crash-safe quota pre-debit、HTTP Plugin 归一化、Provider 插件预设、前端模板化与发布边界一起收口。
 
 ### Added — API / Admin / CLI
 
@@ -30,17 +34,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP Plugin 新增共享 SSE normalizer，支持 CRLF/LF、注释、多行 `data:`、分片帧、`[DONE]` / `EOF` 类结束帧，并把私有 token / finish / usage path 归一成 OpenAI-compatible stream chunk。
 - Provider 插件预设落地：`model_mapping.plugin.preset.provider` 支持 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse` 等。
 - 预设会补齐默认 path / headers / request adapter / response mapper / SSE mapper；OpenAI-compatible 自动注入 `stream_options.include_usage=true`，Azure 支持 deployment path 模板，Anthropic Messages / Bedrock Converse 具备基础 request adapter。
+- HTTP Plugin manifest 按不可信配置硬化：header/path/body 模板分域白名单、绝对 `chat_path` 默认禁用、内网/metadata host 拒绝、request/response/SSE event size limit。
 
 ### Changed — Frontend / DX / CI
 
 - 前端抽出 `$lib/design/classes.ts` 与页面模板：`PageShell`、`AuthFrame`、`SectionCard`、`StatePanel`、`ModalFrame`、`DataToolbar`、`FilterPanel`、`DataTable`。
 - Channel UI 增加 Provider 插件预设选择，仍保留自定义 plugin manifest 输入。
-- CI 改为稳定 Rust toolchain，持续跑 `cargo fmt`、`cargo clippy --workspace -D warnings`、`cargo check --workspace`、`cargo test --workspace` 与 Web build；Actions runtime 强制 Node 24，Web job 使用 Node 22。
+- CI 改为稳定 Rust toolchain，持续跑 `git diff --check`、`cargo fmt`、`cargo clippy --workspace --all-targets -D warnings`、`cargo check --workspace`、`cargo test --workspace`、`npm run check`、`npm test` 与 Web build；Actions runtime 强制 Node 24，Web job 使用 Node 22。
 
 ### Tests
 
-- 当前 Rust unit/integration 测试清单增至 266 tests；`cargo test --workspace -- --list` 另列 5 条文档示例；前端 Vitest 增至 55 tests。
-- 新增覆盖：plugin preset 后端单测/集成测试、Anthropic/OpenAI-compatible preset 归一链、admin 用户 E2E、typed ID/FlexUuid、crash-safe quota pre-debit、pricing rules API 与前端 API helper。
+- 当前 Rust 测试清单增至 277 entries（272 unit/integration + 5 doctest）；前端 Vitest 增至 55 tests。
+- 新增覆盖：plugin preset 后端单测/集成测试、Anthropic/OpenAI-compatible preset 归一链、plugin manifest 安全护栏、admin 用户 E2E、typed ID/FlexUuid、crash-safe quota pre-debit、pricing rules API 与前端 API helper。
+
+### Added — Release / Docs
+
+- 新增 `ROADMAP.md`，明确“先收口、再补全能力、最后打磨”，并把渠道插件化列为核心竞争力。
+- 新增 `docs/plugin-manifest.md`，冻结 HTTP Plugin manifest v0 边界，覆盖 OpenAI-compatible、Anthropic Messages、Azure OpenAI 与私有 SSE token frame 示例。
+- 新增 `RELEASE.md` 与 `docs/security-runbook.md`，固化发布、回滚、密钥轮换、Redis quota 异常与 HTTP Plugin 风险处置流程。
+- `kgctl doctor` 增强为发布前体检：校验 `KOOIX_PUBLIC_URL`、数据库 migration 最新版本，以及 Redis rate-limit/quota Lua 脚本可执行。
 
 ### Resolved from 0.1.5 Known Limitations
 
@@ -157,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `inflight_requests` 流式预扣尚未接入 chat handler
 - WASM 插件延后
 
-[Unreleased]: https://github.com/telagod/kooix-gate/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/telagod/kooix-gate/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/telagod/kooix-gate/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/telagod/kooix-gate/compare/v0.1.0...v0.1.5
 [0.1.0]: https://github.com/telagod/kooix-gate/releases/tag/v0.1.0

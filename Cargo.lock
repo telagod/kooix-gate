@@ -1653,7 +1653,7 @@ dependencies = [
 
 [[package]]
 name = "gate-auth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1681,7 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "gate-billing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "gate-cache"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fred",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "gate-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "gate-crypto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "gate-providers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1777,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "gate-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1829,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "gate-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2549,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "kgctl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2569,6 +2569,7 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
+ "url",
  "uuid",
 ]
 

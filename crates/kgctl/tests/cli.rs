@@ -6,7 +6,7 @@
 //! - migrate            （空库 → 跑完，输出最新版本号）
 //! - migrate --dry-run  （已迁移库上 → "no pending"）
 //! - admin create       （新建用户能查到；同 email 二次报错）
-//! - doctor             （全 env 正确 → exit 0；缺 DB → exit 1）
+//! - doctor             （全 env + migration + Redis Lua 正确 → exit 0；缺 DB → exit 1）
 //! - seed-pricing       （首次插入 + 二次幂等不报错）
 
 use assert_cmd::Command;
@@ -213,14 +213,29 @@ async fn doctor_passes_when_all_env_correct() {
     let (_pg, db_url) = start_pg().await;
     let (_redis, redis_url) = start_redis().await;
 
+    {
+        let db_url = db_url.clone();
+        tokio::task::spawn_blocking(move || {
+            kg().arg("migrate")
+                .env("KOOIX_DATABASE_URL", &db_url)
+                .assert()
+                .success();
+        })
+        .await
+        .unwrap();
+    }
+
     tokio::task::spawn_blocking(move || {
         kg().arg("doctor")
             .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
             .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
             .env("KOOIX_DATABASE_URL", &db_url)
             .env("KOOIX_REDIS_URL", &redis_url)
             .assert()
             .success()
+            .stdout(predicate::str::contains("migration"))
+            .stdout(predicate::str::contains("Lua OK"))
             .stdout(predicate::str::contains("所有检查通过"));
     })
     .await
@@ -234,6 +249,7 @@ async fn doctor_fails_without_database_url() {
         kg().arg("doctor")
             .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
             .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
             .env_remove("KOOIX_DATABASE_URL")
             .env_remove("KOOIX_REDIS_URL")
             .assert()
@@ -242,6 +258,39 @@ async fn doctor_fails_without_database_url() {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn doctor_fails_when_migrations_are_pending() {
+    let (_pg, db_url) = start_pg().await;
+    let (_redis, redis_url) = start_redis().await;
+
+    tokio::task::spawn_blocking(move || {
+        kg().arg("doctor")
+            .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
+            .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
+            .env("KOOIX_DATABASE_URL", &db_url)
+            .env("KOOIX_REDIS_URL", &redis_url)
+            .assert()
+            .failure()
+            .stdout(predicate::str::contains("migration 未到最新"));
+    })
+    .await
+    .unwrap();
+}
+
+#[test]
+fn doctor_fails_without_public_url() {
+    kg().arg("doctor")
+        .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
+        .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+        .env_remove("KOOIX_PUBLIC_URL")
+        .env_remove("KOOIX_DATABASE_URL")
+        .env_remove("KOOIX_REDIS_URL")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("KOOIX_PUBLIC_URL"));
 }
 
 // ────────────────────────────────────────────────────────────────────────────

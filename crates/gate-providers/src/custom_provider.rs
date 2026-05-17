@@ -14,12 +14,19 @@ use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
 use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+use std::net::IpAddr;
 use std::sync::Arc;
 
 const DEFAULT_CHAT_PATH: &str = "/chat/completions";
+const DEFAULT_MAX_REQUEST_BYTES: usize = 1024 * 1024;
+const DEFAULT_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_MAX_SSE_EVENT_BYTES: usize = 1024 * 1024;
+const HARD_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
+const HARD_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+const HARD_MAX_SSE_EVENT_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct CustomHttpProvider {
@@ -52,12 +59,11 @@ impl CustomHttpProvider {
     }
 
     fn endpoint_url_for(&self, req: &ChatRequest) -> ProviderResult<String> {
-        let effective_req = adapt_chat_request(req, self.manifest.preset.adapter)?;
-        let ctx = request_context(&effective_req, &self.plugin_context());
-        Ok(self.endpoint_url_with_context(&ctx))
+        let ctx = self.request_context_for(req)?;
+        self.endpoint_url_with_context(&ctx)
     }
 
-    fn endpoint_url_with_context(&self, ctx: &Value) -> String {
+    fn endpoint_url_with_context(&self, ctx: &Value) -> ProviderResult<String> {
         let path = self
             .manifest
             .request
@@ -66,12 +72,26 @@ impl CustomHttpProvider {
             .unwrap_or(DEFAULT_CHAT_PATH);
         let rendered = render_template_str(path, ctx);
         if rendered.starts_with("http://") || rendered.starts_with("https://") {
-            return rendered;
+            if !self.manifest.security.allow_absolute_chat_path {
+                return Err(ProviderError::Config(
+                    "plugin request.chat_path must be relative; absolute URLs are disabled by default"
+                        .into(),
+                ));
+            }
+            validate_http_endpoint(&rendered, true)?;
+            return Ok(rendered);
         }
-        format!("{}{}", self.base_url, slash_path(&rendered))
+        let endpoint = format!("{}{}", self.base_url, slash_path(&rendered));
+        validate_http_endpoint(&endpoint, false)?;
+        Ok(endpoint)
     }
 
-    fn request_headers(&self) -> ProviderResult<HeaderMap> {
+    fn request_headers_for(&self, req: &ChatRequest) -> ProviderResult<HeaderMap> {
+        let ctx = self.request_context_for(req)?;
+        self.request_headers_with_context(&ctx)
+    }
+
+    fn request_headers_with_context(&self, ctx: &Value) -> ProviderResult<HeaderMap> {
         let mut headers = HeaderMap::new();
         for (k, v) in &self.manifest.request.headers {
             if v.is_null() {
@@ -79,7 +99,7 @@ impl CustomHttpProvider {
             }
             let name = HeaderName::from_bytes(k.as_bytes())
                 .map_err(|e| ProviderError::Config(format!("invalid plugin header {k:?}: {e}")))?;
-            let rendered = render_template(v, &self.plugin_context());
+            let rendered = render_template(v, ctx);
             let value = HeaderValue::from_str(&rendered).map_err(|e| {
                 ProviderError::Config(format!("invalid plugin header value for {k}: {e}"))
             })?;
@@ -112,6 +132,11 @@ impl CustomHttpProvider {
         })
     }
 
+    fn request_context_for(&self, req: &ChatRequest) -> ProviderResult<Value> {
+        let effective_req = adapt_chat_request(req, self.manifest.preset.adapter)?;
+        Ok(request_context(&effective_req, &self.plugin_context()))
+    }
+
     #[cfg(test)]
     fn build_body(&self, req: &ChatRequest) -> ProviderResult<Value> {
         self.build_body_with_extra(req, &json!({}))
@@ -133,6 +158,33 @@ impl CustomHttpProvider {
             );
         }
         Ok(body)
+    }
+
+    fn request_json_body(&self, req: &ChatRequest) -> ProviderResult<Vec<u8>> {
+        let body = self.build_body_with_extra(req, &self.plugin_context())?;
+        let bytes = serde_json::to_vec(&body)?;
+        enforce_size(
+            "plugin request body",
+            bytes.len(),
+            self.manifest.security.max_request_bytes(),
+        )?;
+        Ok(bytes)
+    }
+
+    async fn limited_json_response(&self, resp: reqwest::Response) -> ProviderResult<Value> {
+        let limit = self.manifest.security.max_response_bytes();
+        let mut body = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if body.len().saturating_add(chunk.len()) > limit {
+                return Err(ProviderError::Decode(format!(
+                    "plugin response body too large: more than {limit} bytes"
+                )));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(serde_json::from_slice(&body)?)
     }
 
     fn parse_chat_response(
@@ -199,17 +251,22 @@ impl Provider for CustomHttpProvider {
 
     async fn chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
         req.stream = false;
-        let body = self.build_body_with_extra(&req, &self.plugin_context())?;
+        let body = self.request_json_body(&req)?;
+        let mut headers = self.request_headers_for(&req)?;
+        headers
+            .entry(reqwest::header::CONTENT_TYPE)
+            .or_insert(HeaderValue::from_static("application/json"));
         let resp = self
             .client
             .post(self.endpoint_url_for(&req)?)
-            .headers(self.request_headers()?)
-            .json(&body)
+            .headers(headers)
+            .body(body)
             .send()
             .await?;
         check_status(&resp)?;
+        enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
-        let body: Value = resp.json().await?;
+        let body = self.limited_json_response(resp).await?;
         self.parse_chat_response(body, &req.model)
     }
 
@@ -218,20 +275,27 @@ impl Provider for CustomHttpProvider {
         mut req: ChatRequest,
     ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
         req.stream = true;
-        let body = self.build_body_with_extra(&req, &self.plugin_context())?;
+        let body = self.request_json_body(&req)?;
+        let mut headers = self.request_headers_for(&req)?;
+        headers
+            .entry(reqwest::header::CONTENT_TYPE)
+            .or_insert(HeaderValue::from_static("application/json"));
         let resp = self
             .client
             .post(self.endpoint_url_for(&req)?)
-            .headers(self.request_headers()?)
-            .json(&body)
+            .headers(headers)
+            .body(body)
             .send()
             .await?;
         check_status(&resp)?;
+        enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
 
         let mapper = StreamMapper {
             stream: self.manifest.stream.clone(),
             fallback_id: format!("chatcmpl-{}", uuid::Uuid::now_v7()),
             fallback_model: req.model.clone(),
+            max_response_bytes: self.manifest.security.max_response_bytes(),
+            max_sse_event_bytes: self.manifest.security.max_sse_event_bytes(),
         };
         Ok(normalize_plugin_sse(resp.bytes_stream(), mapper).boxed())
     }
@@ -244,6 +308,7 @@ struct PluginManifest {
     request: RequestManifest,
     response: ResponseManifest,
     stream: StreamManifest,
+    security: SecurityManifest,
 }
 
 impl PluginManifest {
@@ -262,6 +327,7 @@ impl PluginManifest {
                 .map_err(|e| ProviderError::Config(format!("invalid plugin manifest: {e}")))?
         };
         manifest.apply_preset(base_url)?;
+        manifest.validate()?;
         Ok(manifest)
     }
 
@@ -288,6 +354,23 @@ impl PluginManifest {
         self.stream.apply_defaults(spec.stream);
         Ok(())
     }
+
+    fn validate(&self) -> ProviderResult<()> {
+        if let Some(path) = &self.request.chat_path {
+            validate_template_str(path, TemplateScope::Path, "plugin.request.chat_path")?;
+        }
+        for (name, value) in &self.request.headers {
+            validate_template_value(
+                value,
+                TemplateScope::Header,
+                &format!("plugin.request.headers.{name}"),
+            )?;
+        }
+        if let Some(body) = &self.request.body {
+            validate_template_value(body, TemplateScope::Body, "plugin.request.body")?;
+        }
+        self.security.validate()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -298,6 +381,49 @@ struct RequestManifest {
     body: Option<Value>,
     force_stream_field: bool,
     stream_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+struct SecurityManifest {
+    max_request_bytes: Option<usize>,
+    max_response_bytes: Option<usize>,
+    max_sse_event_bytes: Option<usize>,
+    allow_absolute_chat_path: bool,
+}
+
+impl SecurityManifest {
+    fn max_request_bytes(&self) -> usize {
+        self.max_request_bytes.unwrap_or(DEFAULT_MAX_REQUEST_BYTES)
+    }
+
+    fn max_response_bytes(&self) -> usize {
+        self.max_response_bytes
+            .unwrap_or(DEFAULT_MAX_RESPONSE_BYTES)
+    }
+
+    fn max_sse_event_bytes(&self) -> usize {
+        self.max_sse_event_bytes
+            .unwrap_or(DEFAULT_MAX_SSE_EVENT_BYTES)
+    }
+
+    fn validate(&self) -> ProviderResult<()> {
+        validate_limit(
+            "plugin.security.max_request_bytes",
+            self.max_request_bytes(),
+            HARD_MAX_REQUEST_BYTES,
+        )?;
+        validate_limit(
+            "plugin.security.max_response_bytes",
+            self.max_response_bytes(),
+            HARD_MAX_RESPONSE_BYTES,
+        )?;
+        validate_limit(
+            "plugin.security.max_sse_event_bytes",
+            self.max_sse_event_bytes(),
+            HARD_MAX_SSE_EVENT_BYTES,
+        )
+    }
 }
 
 impl Default for RequestManifest {
@@ -317,6 +443,8 @@ struct StreamMapper {
     stream: StreamManifest,
     fallback_id: String,
     fallback_model: String,
+    max_response_bytes: usize,
+    max_sse_event_bytes: usize,
 }
 
 fn normalize_plugin_sse<S>(
@@ -330,6 +458,7 @@ where
     let state = Arc::new(parking_lot::Mutex::new(StreamState {
         id: mapper.fallback_id.clone(),
         model: mapper.fallback_model.clone(),
+        response_bytes: 0,
         prompt_tokens: 0,
         completion_tokens: 0,
         cached_tokens: 0,
@@ -338,6 +467,22 @@ where
     byte_stream.flat_map(move |item| {
         let state = state.clone();
         let mapper = mapper.clone();
+        let item = match item {
+            Ok(bytes) => {
+                {
+                    let mut st = state.lock();
+                    st.response_bytes = st.response_bytes.saturating_add(bytes.len());
+                    if st.response_bytes > mapper.max_response_bytes {
+                        return futures::stream::iter(vec![Err(ProviderError::Decode(format!(
+                            "plugin response body too large: more than {} bytes",
+                            mapper.max_response_bytes
+                        )))]);
+                    }
+                }
+                Ok(bytes)
+            }
+            Err(e) => Err(e),
+        };
         let events = match decoder.push(item) {
             Ok(events) => events,
             Err(e) => return futures::stream::iter(vec![Err(e)]),
@@ -354,6 +499,7 @@ where
 struct StreamState {
     id: String,
     model: String,
+    response_bytes: usize,
     prompt_tokens: u32,
     completion_tokens: u32,
     cached_tokens: u32,
@@ -367,6 +513,9 @@ fn map_plugin_event(
     let raw = event.data.trim();
     if raw.is_empty() || raw == ":" {
         return None;
+    }
+    if let Err(e) = enforce_size("plugin SSE event", raw.len(), mapper.max_sse_event_bytes) {
+        return Some(Err(e));
     }
     let done_tokens = if mapper.stream.done.is_empty() {
         vec!["[DONE]".to_string()]
@@ -578,6 +727,188 @@ fn render_template_str(template: &str, ctx: &Value) -> String {
     out
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TemplateScope {
+    Path,
+    Header,
+    Body,
+}
+
+fn validate_template_value(
+    value: &Value,
+    scope: TemplateScope,
+    location: &str,
+) -> ProviderResult<()> {
+    match value {
+        Value::String(s) => validate_template_str(s, scope, location),
+        Value::Array(arr) => {
+            for (idx, item) in arr.iter().enumerate() {
+                validate_template_value(item, scope, &format!("{location}[{idx}]"))?;
+            }
+            Ok(())
+        }
+        Value::Object(obj) => {
+            for (key, item) in obj {
+                validate_template_value(item, scope, &format!("{location}.{key}"))?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_template_str(
+    template: &str,
+    scope: TemplateScope,
+    location: &str,
+) -> ProviderResult<()> {
+    for path in template_paths(template) {
+        if !placeholder_allowed(scope, &path) {
+            return Err(ProviderError::Config(format!(
+                "{location} uses unsupported template variable {{{{{path}}}}}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn template_paths(template: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("}}") else {
+            break;
+        };
+        paths.push(after_start[..end].trim().to_string());
+        rest = &after_start[end + 2..];
+    }
+    paths
+}
+
+fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
+    let path = path.trim().trim_start_matches("$.").trim_start_matches('$');
+    if path.is_empty() {
+        return false;
+    }
+    match scope {
+        TemplateScope::Header => matches!(
+            path,
+            "api_key"
+                | "aws_secret_key"
+                | "model"
+                | "stream"
+                | "temperature"
+                | "top_p"
+                | "max_tokens"
+        ),
+        TemplateScope::Path => {
+            matches!(
+                path,
+                "model" | "stream" | "temperature" | "top_p" | "max_tokens" | "last_user_message"
+            ) || path.starts_with("request.")
+        }
+        TemplateScope::Body => {
+            matches!(
+                path,
+                "api_key"
+                    | "aws_secret_key"
+                    | "model"
+                    | "messages"
+                    | "stream"
+                    | "temperature"
+                    | "top_p"
+                    | "max_tokens"
+                    | "last_user_message"
+            ) || path.starts_with("request.")
+                || path.starts_with("messages.")
+        }
+    }
+}
+
+fn validate_limit(name: &str, value: usize, hard_max: usize) -> ProviderResult<()> {
+    if value == 0 {
+        return Err(ProviderError::Config(format!(
+            "{name} must be greater than 0"
+        )));
+    }
+    if value > hard_max {
+        return Err(ProviderError::Config(format!(
+            "{name} must be <= {hard_max} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn enforce_size(name: &str, actual: usize, limit: usize) -> ProviderResult<()> {
+    if actual > limit {
+        return Err(ProviderError::Decode(format!(
+            "{name} too large: {actual} bytes > {limit} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn enforce_response_length_hint(resp: &reqwest::Response, limit: usize) -> ProviderResult<()> {
+    let Some(value) = resp.headers().get(CONTENT_LENGTH) else {
+        return Ok(());
+    };
+    let Some(len) = value.to_str().ok().and_then(|s| s.parse::<usize>().ok()) else {
+        return Ok(());
+    };
+    enforce_size("plugin response body", len, limit)
+}
+
+fn validate_http_endpoint(endpoint: &str, deny_internal_host: bool) -> ProviderResult<()> {
+    let parsed = reqwest::Url::parse(endpoint)
+        .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(ProviderError::Config(format!(
+                "plugin endpoint scheme must be http/https, got {other}"
+            )));
+        }
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ProviderError::Config("plugin endpoint URL missing host".into()))?;
+    if deny_internal_host && is_internal_or_metadata_host(host) {
+        return Err(ProviderError::Config(format!(
+            "plugin absolute chat_path targets forbidden host {host}"
+        )));
+    }
+    Ok(())
+}
+
+fn is_internal_or_metadata_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if matches!(
+        host.as_str(),
+        "localhost" | "metadata" | "metadata.google.internal"
+    ) {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(ip) => {
+                ip.is_private()
+                    || ip.is_loopback()
+                    || ip.is_link_local()
+                    || ip.is_unspecified()
+                    || ip.is_broadcast()
+            }
+            IpAddr::V6(ip) => {
+                ip.is_loopback()
+                    || ip.is_unspecified()
+                    || ip.is_unique_local()
+                    || ip.is_unicast_link_local()
+            }
+        };
+    }
+    false
+}
+
 fn whole_placeholder(s: &str) -> Option<&str> {
     let trimmed = s.trim();
     if trimmed.starts_with("{{") && trimmed.ends_with("}}") && trimmed.matches("{{").count() == 1 {
@@ -758,7 +1089,7 @@ mod tests {
             provider.endpoint_url_for(&req).unwrap(),
             "https://example.openai.azure.com/openai/deployments/odd-model/chat/completions?api-version=2024-02-15-preview"
         );
-        let headers = provider.request_headers().unwrap();
+        let headers = provider.request_headers_for(&req).unwrap();
         assert_eq!(headers.get("api-key").unwrap(), "azure-key");
         assert!(headers.get("authorization").is_none());
     }
@@ -787,7 +1118,7 @@ mod tests {
             provider.endpoint_url_for(&req).unwrap(),
             "https://api.anthropic.com/v1/messages"
         );
-        let headers = provider.request_headers().unwrap();
+        let headers = provider.request_headers_for(&req).unwrap();
         assert_eq!(headers.get("x-api-key").unwrap(), "anthropic-key");
         assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
         assert!(headers.get("authorization").is_none());
@@ -825,11 +1156,110 @@ mod tests {
         assert!(provider.manifest.response.is_openai_compatible());
         assert_eq!(
             provider
-                .request_headers()
+                .request_headers_for(&make_req(false))
                 .unwrap()
                 .get("x-proxy-key")
                 .unwrap(),
             "sk-test"
+        );
+    }
+
+    #[test]
+    fn plugin_manifest_blocks_absolute_chat_path_by_default() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "request": {
+                        "chat_path": "http://169.254.169.254/latest/meta-data"
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let err = provider.endpoint_url_for(&make_req(false)).unwrap_err();
+        assert!(
+            err.to_string().contains("absolute URLs are disabled"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn plugin_manifest_rejects_internal_absolute_url_even_when_enabled() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "request": {
+                        "chat_path": "http://localhost/admin"
+                    },
+                    "security": {
+                        "allow_absolute_chat_path": true
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let err = provider.endpoint_url_for(&make_req(false)).unwrap_err();
+        assert!(
+            err.to_string().contains("forbidden host localhost"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn plugin_manifest_rejects_unknown_header_template_variable() {
+        let err = match CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "request": {
+                        "headers": { "X-Leak": "{{request.messages}}" }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        ) {
+            Ok(_) => panic!("manifest should reject unsupported header template variable"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("unsupported template variable"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn plugin_request_body_size_limit_is_enforced() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "request": {
+                        "body": { "payload": "{{last_user_message}}" }
+                    },
+                    "security": {
+                        "max_request_bytes": 32
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let err = provider.request_json_body(&make_req(false)).unwrap_err();
+        assert!(
+            err.to_string().contains("plugin request body too large"),
+            "err={err}"
         );
     }
 
@@ -859,6 +1289,8 @@ mod tests {
             stream: manifest.stream,
             fallback_id: "fallback".into(),
             fallback_model: "odd-model".into(),
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            max_sse_event_bytes: DEFAULT_MAX_SSE_EVENT_BYTES,
         };
         let sse = concat!(
             "event: token\n",

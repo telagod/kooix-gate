@@ -203,13 +203,14 @@ Channel 级 `health` 由所有 key 状态聚合：
 `provider_type=plugin|custom|http|http_plugin` 走运行时 HTTP plugin adapter，不需要重新编译 provider crate。插件 manifest 存在 `channels.model_mapping.plugin`（复用已暴露 JSONB 配置面，密钥仍走 `channel_keys` / env 回退）：
 
 - `preset.provider`：主流 Provider 预设，当前覆盖 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse`；预设负责默认 path、headers、request adapter、response/SSE mapper。
-- `request.chat_path`：相对 `base_url` 或绝对 URL，支持模板变量；Azure 预设用 `{{model}}` 展开 deployment path。
+- `request.chat_path`：默认必须是相对 `base_url` 的 path，支持模板变量；Azure 预设用 `{{model}}` 展开 deployment path。绝对 URL 需要显式 `security.allow_absolute_chat_path=true`，且仍会拒绝 localhost、link-local、private IP 与 metadata host。
 - `request.headers`：支持 `{{api_key}}` 等模板变量，未声明 Authorization 时默认 Bearer；设为 `null` 可显式禁用默认 Bearer。
 - `request.body`：JSON 模板，支持 `{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{max_tokens}}` 等变量；整段占位会保留原 JSON 类型。
+- `security.*`：限制 request body、response body、SSE event 大小；header/path/body 模板分域白名单校验，manifest 作为不可信配置处理。
 - `response.*_path`：把私有非流式响应抽成 `ChatResponse`。
 - `stream.*_path`：共享 SSE decoder 先处理 CRLF/LF、注释、多行 data、分片，再按 path 抽 token / finish_reason / usage，归一成 `ChatStreamChunk`；OpenAI-compatible 预设自动注入 `stream_options.include_usage=true`。
 
-这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；WASM ABI 仍延后，避免早期冻结插件边界。
+这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；manifest v0 边界与示例见 `docs/plugin-manifest.md`。WASM ABI 仍延后，避免早期冻结插件边界。
 
 ### 4.4 Typed ID API 边界
 
@@ -228,7 +229,8 @@ Channel 级 `health` 由所有 key 状态聚合：
 
 - 3000 用户、5w rpm 的写入主要在 `usage_records`（21 亿行/月）
 - **配置类表**（users / projects / channels …）QPS 很低，单实例几十年都跑得动
-- **usage_records 必须 TimescaleDB hypertable**，按天分块 + 7 天压缩 + 90 天保留
+- v0.2.0 migration 默认在普通 PostgreSQL 15+ 上运行；TimescaleDB 不作为启动硬依赖。
+- 生产高吞吐（5w rpm 级别）建议把 `usage_records` 升级为 TimescaleDB hypertable，按天分块 + 7 天压缩 + 90 天保留；无 TimescaleDB 时降级为普通表，依靠既有索引与归档策略控制体量。
 
 ### 5.2 Row-Level Security 兜底
 
@@ -266,7 +268,7 @@ SET LOCAL app.is_platform_admin = 'false';
 | 3 | RLS 兜底 | 应用层 bug 不可避免，DB 多一道隔离 |
 | 4 | Channel 平台级 | 运营与租户解耦，符合 SaaS 心智 |
 | 5 | 流式三段式扣费 | 实时扣 → 热点；事后扣 → 漏扣；预扣 + 修正是唯一解 |
-| 6 | TimescaleDB | 5w rpm × 30 天 = 21 亿行，普通表会卡 |
+| 6 | TimescaleDB 作为高吞吐可选增强 | v0.2.0 默认普通 PostgreSQL 可跑；5w rpm × 30 天 = 21 亿行时建议 hypertable |
 | 7 | WASM 插件延后，先落 HTTP Plugin manifest + Provider 预设 | trait 抽象先稳定，主流 Provider 与私有协议主要差异可先用 preset、request/response/SSE path 映射吸收，ABI 一旦发出去难改 |
 | 8 | 自建 RBAC | 角色组合有限，Casbin 引入心智税不值 |
 | 9 | API 对外 typed ID，DB 继续裸 UUID | 外部可读性和防串台更强，存储/索引/外键不迁移，`FlexUuid` 保持向后兼容 |
@@ -355,5 +357,6 @@ KOOIX_PUBLIC_URL    # https://gate.example.com — OIDC redirect_uri 基底
 - [x] gate-providers: 9 个编译期 Provider + HTTP Plugin adapter + Provider preset
 - [x] gate-billing: usage outbox 消费者 + pricing rules + LiteLLM sync
 - [x] web: SvelteKit 控制台
+- [ ] HTTP Plugin manifest v1 schema / builder / replay debugger
 - [ ] WASM 插件 ABI 与 sandbox runtime
 - [ ] master key 轮换工具 / `JwtRing` 双密钥轮换窗口

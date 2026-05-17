@@ -24,8 +24,9 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - run: git diff --check
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace -- -D warnings
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo check --workspace
 
   test:
@@ -55,4 +56,6 @@ jobs:
           cache: "npm"
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - run: npm run check
+      - run: npm test
       - run: npm run build

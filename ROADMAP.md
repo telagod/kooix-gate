@@ -17,7 +17,7 @@
 - typed ID API response + `FlexUuid` path 兼容。
 - SvelteKit 控制台：Channel、Group、Pricing、Quota、Usage、Requests、Billing、SSO、Users 等管理面。
 - 前端设计模板：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等。
-- CI：Rust fmt / clippy / check / tests + Web build；当前文档记录 266 Rust unit/integration tests + 55 web tests。
+- CI：Rust fmt / clippy / check / tests + Web build；当前文档记录 277 Rust test list entries（272 unit/integration + 5 doctest）+ 55 web tests。
 
 ## 战略主线：渠道插件化
 
@@ -54,12 +54,12 @@ Kooix Gate 不能只做“又一个 OpenAI-compatible proxy”。真正护城河
 
 **目标**：让仓库状态、文档、CHANGELOG、README、DESIGN、CLI README 完全一致。
 
-- [ ] 决定下一版号：`v0.1.6` 或 `v0.2.0`。
+- [x] 决定下一版号：`v0.2.0`。
   - 建议：若只作为补丁发布，用 `v0.1.6`；若将 Provider preset + typed ID + pricing CRUD 视为新产品面，用 `v0.2.0`。
-- [ ] 将 `CHANGELOG.md` 的 `[Unreleased]` 落为正式版本段。
-- [ ] README 的“当前版本”与 badge、测试数、核心能力同步。
-- [ ] `DESIGN.md` 中路线图与真实实现保持一致，避免已完成事项继续显示为 TODO。
-- [ ] 为 HTTP Plugin manifest 写一页可复制示例：
+- [x] 将 `CHANGELOG.md` 的 `[Unreleased]` 落为正式版本段。
+- [x] README 的“当前版本”与 badge、测试数、核心能力同步。
+- [x] `DESIGN.md` 中路线图与真实实现保持一致，避免已完成事项继续显示为 TODO。
+- [x] 为 HTTP Plugin manifest 写一页可复制示例：
   - OpenAI-compatible
   - Anthropic Messages
   - Azure OpenAI deployment path
@@ -69,20 +69,21 @@ Kooix Gate 不能只做“又一个 OpenAI-compatible proxy”。真正护城河
 
 ```bash
 git diff --check
-rg 'TODO|待下版本|尚未接入|返裸 UUID|24 migrations|241 tests' README.md DESIGN.md CHANGELOG.md crates/kgctl/README.md web/README.md
+rg 'TODO|待下版本|尚未接入|返裸 UUID|24 migrations|241 tests' README.md DESIGN.md crates/kgctl/README.md web/README.md
+awk '/^## \[0.2.0\]/{flag=1} /^## \[0.1.5\]/{flag=0} flag' CHANGELOG.md | rg 'TODO|待下版本|尚未接入|返裸 UUID|24 migrations|241 tests'
 ```
 
 ### P0.2 迁移与数据库收口
 
 **目标**：数据库从空库迁移、旧库迁移、测试库迁移都可重复执行。
 
-- [ ] 全量验证 25 个 migration 空库可跑通。
-- [ ] 验证 v0.1.5 数据库升级到当前 main：
+- [x] 全量验证 25 个 migration 空库可跑通。
+- [x] 验证 v0.1.5 数据库升级到 v0.2.0：
   - `pricing_rules` 旧数据迁移。
   - `inflight_requests.quota_keys` / `estimated_micros` 默认值正确。
   - typed ID 不改变 DB 裸 UUID 存储。
-- [ ] 运行并提交最新 sqlx prepare 产物（若项目决定开启离线校验）。
-- [ ] 明确 TimescaleDB 可选依赖：无 TimescaleDB 时是否降级普通表。
+- [x] 明确 v0.2.0 暂不提交 `.sqlx` 离线产物：当前仓库未启用 `SQLX_OFFLINE` 且没有 `query!` 宏，CI 以 `cargo check/test` + migration 测试兜底。
+- [x] 明确 TimescaleDB 可选依赖：v0.2.0 默认普通 PostgreSQL 15+ 可运行，高吞吐生产建议将 `usage_records` 升级为 TimescaleDB hypertable。
 
 **验收门禁**
 
@@ -96,14 +97,14 @@ cargo test -p gate-storage --test rls_isolation
 
 **目标**：CI 能代表真实发布质量，不靠人工记忆。
 
-- [ ] CI Web job 增加 `npm run check` 与 `npm test`，不只 build。
-- [ ] CI 增加 `git diff --check`。
-- [ ] 明确 Docker / testcontainers 的服务版本：
+- [x] CI Web job 增加 `npm run check` 与 `npm test`，不只 build。
+- [x] CI 增加 `git diff --check`。
+- [x] 明确 Docker / testcontainers 的服务版本：
   - Postgres `17-alpine`
   - Redis `7-alpine`
-- [ ] 把当前“Node.js 20 deprecated annotation”处理掉：
-  - 升级 Actions 到不再触发 annotation 的版本，或记录为已知非阻断噪音。
-- [ ] 建立 smoke test：启动 gate-server + 发一条 chat mock 请求 + 查 usage/outbox。
+- [x] 把当前“Node.js 20 deprecated annotation”处理掉：
+  - CI 显式 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，Web job 使用 Node 22；若第三方 action 仍吐 annotation，作为非阻断噪音跟随 action 升级处理。
+- [x] 建立 smoke test runbook：`RELEASE.md` 固化 compose config、依赖启动、migrate、doctor、admin create、server 启动与发布后 artifact 核验；自动化 `kgctl smoke` 留到 P2.5。
 
 **验收门禁**
 
@@ -118,14 +119,14 @@ cd web && npm run check && npm test && npm run build
 
 **目标**：任何一次发布都有版本、镜像、迁移、回滚说明。
 
-- [ ] 补 `RELEASE.md`：
+- [x] 补 `RELEASE.md`：
   - 发布命令
   - migration 前置检查
   - Docker image tag 规则
   - 回滚策略
   - 事故联系人 / runbook 链接
-- [ ] `docker-compose.yml` 与 `docker-compose.dev.yml` 核对端口、健康检查、env。
-- [ ] `kgctl doctor` 补充更多部署前检查：
+- [x] `docker-compose.yml` 与 `docker-compose.dev.yml` 核对端口、健康检查、env。
+- [x] `kgctl doctor` 补充更多部署前检查：
   - `KOOIX_PUBLIC_URL`
   - JWT secret 长度
   - master key base64 32B
@@ -146,15 +147,15 @@ cargo run -p kgctl -- doctor
 
 **目标**：把现有高风险点先封住，不等功能继续膨胀。
 
-- [ ] 全仓 secret scan，确认测试 key / token 不会误入 release。
-- [ ] 确认所有 admin mutation 都走 `Permission::PlatformAdmin` 或对应 scope。
-- [ ] 核查 channel key / OIDC client_secret AAD 绑定一致性。
-- [ ] 补安全 runbook：
+- [x] 全仓 secret scan，确认测试 key / token 不会误入 release。
+- [x] 确认所有 admin mutation 都走 `Permission::PlatformAdmin` 或对应 scope。
+- [x] 核查 channel key / OIDC client_secret AAD 绑定一致性。
+- [x] 补安全 runbook：
   - master key 丢失
   - JWT secret 轮换
   - channel key 泄露
   - Redis quota 计数异常
-- [ ] HTTP Plugin manifest 作为不可信配置处理：
+- [x] HTTP Plugin manifest 作为不可信配置处理：
   - 禁止 SSRF 到内网元数据地址。
   - 限制 header 模板可用变量。
   - 限制 request body / response body 大小。
@@ -170,23 +171,23 @@ rg 'require!|Permission::PlatformAdmin|Scope::Platform' crates/gate-server/src/r
 
 **目标**：把现有 HTTP Plugin 从“能用”封成“可承诺的扩展边界”。这是下一阶段的主战场。
 
-- [ ] 冻结 `plugin manifest v0` 现状：
+- [x] 冻结 `plugin manifest v0` 现状：
   - `request.chat_path` / `headers` / `body` 模板变量。
   - `response.content_path` / `finish_reason_path` / `usage.*_path`。
   - `stream.event_path` / `content_path` / `finish_reason_path` / `done` / `usage.*_path`。
   - `preset.provider` 当前兼容列表。
-- [ ] 写 `docs/plugin-manifest.md`，明确当前支持与不支持：
+- [x] 写 `docs/plugin-manifest.md`，明确当前支持与不支持：
   - dot path 抽取能力边界。
   - 模板变量白名单。
   - 密钥只能来自 `channel_keys` / env fallback，不允许 manifest 内明文落密。
   - streaming 与 non-streaming 的 usage 归一规则。
-- [ ] 建立私有协议 golden fixture：
+- [x] 建立私有协议 golden fixture：
   - 非 OpenAI body。
   - 自定义 auth header。
   - 非标准 JSON response。
   - 非标准 SSE token frame。
   - usage 末帧 / 无 usage / 分片 UTF-8。
-- [ ] 给 preset 与自定义 manifest 增加兼容性测试矩阵，避免后续 schema v1 破坏旧配置。
+- [x] 给 preset 与自定义 manifest 增加兼容性测试矩阵，避免后续 schema v1 破坏旧配置。
 
 **验收门禁**
 

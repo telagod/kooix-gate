@@ -14,12 +14,12 @@ kgctl init >> .env.production
 # 2. 看完整 env 清单，按提示补完 DB / Redis / OIDC / TTL 等
 kgctl env
 
-# 3. 准备好环境后体检
+# 3. 跑 schema 迁移
 export $(grep -v '^#' .env.production | xargs)
-kgctl doctor
-
-# 4. 跑 schema 迁移
 kgctl migrate
+
+# 4. 准备好环境后体检（会校验 env / migration / Redis Lua）
+kgctl doctor
 
 # 5. 写入默认模型定价（幂等）
 kgctl seed-pricing
@@ -42,7 +42,7 @@ kgctl admin create --email root@example.com
 | `migrate` | 连 `KOOIX_DATABASE_URL` 跑全部 sqlx 迁移 | `kgctl migrate` |
 | `migrate --dry-run` | 只列出待执行 migration，不写库 | `kgctl migrate --dry-run` |
 | `admin create` | 创建 platform `super_admin` 账号 | `kgctl admin create --email a@b.com` |
-| `doctor` | env 完整性 + DB `SELECT 1` + Redis `PING` 一键体检 | `kgctl doctor` |
+| `doctor` | env 完整性 + DB `SELECT 1` + migration 最新 + Redis `PING` / Lua 一键体检 | `kgctl doctor` |
 | `seed-pricing` | 写入 OpenAI / Anthropic 主流模型默认定价（全局 channel_id NULL） | `kgctl seed-pricing` |
 | `pricing list` | 列出 `pricing_rules`，可按 model / channel 过滤 | `kgctl pricing list --model gpt-4o-mini` |
 | `pricing set` | 新建一条 global 或 channel-specific 定价规则 | `kgctl pricing set --model gpt-4o-mini --dimension input_tokens --unit per_million --rate 0.15` |
@@ -86,6 +86,7 @@ kgctl pricing delete --id 019e2c1b-a7d1-7162-8422-07e4b24f5f98
 
 - `KOOIX_DATABASE_URL` — `migrate` / `admin create` / `seed-pricing` / `doctor` 必填
 - `KOOIX_REDIS_URL` — `doctor` 必填
+- `KOOIX_PUBLIC_URL` — `doctor` 必填，必须是 http/https 根 URL
 - `KOOIX_MASTER_KEY` / `KOOIX_JWT_SECRET` — `doctor` 必填
 
 完整清单及说明：`kgctl env`。
@@ -110,6 +111,6 @@ KOOIX_TEST_PG_TAG=17.4-alpine KOOIX_TEST_REDIS_TAG=7.4 cargo test -p kgctl
 测试覆盖：
 - migrate 空库 / dry-run 已迁移库
 - admin create 写入 + 同 email 二次报错 + 自动生成密码
-- doctor 全 env / 缺 DB
+- doctor 全 env + migration 最新 + Redis Lua / 缺 DB / 缺 public URL / migration pending
 - seed-pricing 首次插入 5 条 + 二次幂等 0 插入 5 跳过
 - `env` 输出包含 `KOOIX_OIDC_DEFAULT_REDIRECT`（SSO 配置回归）
