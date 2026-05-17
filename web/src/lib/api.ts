@@ -689,10 +689,31 @@ export async function listUsers(limit = 50, offset = 0): Promise<UserDetail[]> {
 	return apiFetch<UserDetail[]>(`/v1/admin/users?${params}`);
 }
 
+export interface CreateUserInput {
+	email: string;
+	display_name?: string | null;
+	password: string;
+	status?: string;
+}
+
+export async function createUser(data: CreateUserInput): Promise<UserDetail> {
+	return apiFetch<UserDetail>('/v1/admin/users', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
 export async function updateUserStatus(id: string, status: string): Promise<UserDetail> {
-	return apiFetch<UserDetail>(`/v1/admin/users/${id}/status`, {
+	return apiFetch<UserDetail>(`/v1/admin/users/${rawId(id)}/status`, {
 		method: 'PUT',
 		body: JSON.stringify({ status })
+	});
+}
+
+export async function resetUserPassword(id: string, password: string): Promise<UserDetail> {
+	return apiFetch<UserDetail>(`/v1/admin/users/${rawId(id)}/password`, {
+		method: 'PUT',
+		body: JSON.stringify({ password })
 	});
 }
 

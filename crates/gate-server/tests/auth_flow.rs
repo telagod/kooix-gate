@@ -195,6 +195,7 @@ fn build_repos(
 ) -> Repos {
     let now = Utc::now();
     let users = Arc::new(InMemoryUserRepo::new());
+    seed_active_user(&users, user_dev);
     let orgs = Arc::new(InMemoryOrgRepo::new());
     let projects = Arc::new(InMemoryProjectRepo::new());
     let memberships = Arc::new(InMemoryMembershipRepo::new());
@@ -282,6 +283,24 @@ fn build_repos(
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         pg_pool: None,
     }
+}
+
+fn seed_active_user(users: &InMemoryUserRepo, user_id: UserId) {
+    let now = Utc::now();
+    users.seed(
+        gate_core::identity::User {
+            id: user_id,
+            email: format!("{}@example.com", user_id.as_uuid()),
+            display_name: None,
+            status: gate_core::identity::UserStatus::Active,
+            mfa_enabled: false,
+            email_verified_at: None,
+            last_login_at: None,
+            created_at: now,
+            updated_at: now,
+        },
+        None,
+    );
 }
 
 fn jwt_for(jwt: &JwtIssuer, user: UserId, org: Option<OrgId>, is_super: bool) -> String {

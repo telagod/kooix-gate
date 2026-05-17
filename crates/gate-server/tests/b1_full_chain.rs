@@ -44,9 +44,12 @@ async fn fixture() -> Fixture {
     let orgs = PgOrgRepo::new(pool.clone());
     let memberships = PgMembershipRepo::new(pool.clone());
 
-    let owner = users.create("owner@x.com", None, None).await.unwrap();
-    let dev = users.create("dev@x.com", None, None).await.unwrap();
-    let viewer = users.create("viewer@x.com", None, None).await.unwrap();
+    let owner = users.create("owner@x.com", None, None, None).await.unwrap();
+    let dev = users.create("dev@x.com", None, None, None).await.unwrap();
+    let viewer = users
+        .create("viewer@x.com", None, None, None)
+        .await
+        .unwrap();
     let org = orgs.create("Acme", "acme", owner.id).await.unwrap();
     memberships
         .add_org_member(org.id, owner.id, OrgRole::Owner)

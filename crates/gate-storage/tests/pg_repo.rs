@@ -45,7 +45,7 @@ async fn user_crud_roundtrip() {
     let repo = PgUserRepo::new(pool);
 
     let u = repo
-        .create("alice@example.com", Some("hash$abc"), Some("Alice"))
+        .create("alice@example.com", Some("hash$abc"), Some("Alice"), None)
         .await
         .unwrap();
     assert_eq!(u.email, "alice@example.com");
@@ -75,7 +75,7 @@ async fn org_and_project_isolation() {
     let orgs = PgOrgRepo::new(pool.clone());
     let projects = PgProjectRepo::new(pool);
 
-    let owner = users.create("owner@x.com", None, None).await.unwrap();
+    let owner = users.create("owner@x.com", None, None, None).await.unwrap();
     let org_a = orgs.create("Acme", "acme", owner.id).await.unwrap();
     let org_b = orgs.create("Beta", "beta", owner.id).await.unwrap();
 
@@ -101,8 +101,8 @@ async fn membership_roundtrip_includes_cross_org_key() {
     let projects = PgProjectRepo::new(pool.clone());
     let memberships = PgMembershipRepo::new(pool);
 
-    let dev = users.create("dev@x.com", None, None).await.unwrap();
-    let other = users.create("other@x.com", None, None).await.unwrap();
+    let dev = users.create("dev@x.com", None, None, None).await.unwrap();
+    let other = users.create("other@x.com", None, None, None).await.unwrap();
 
     let org_a = orgs.create("A", "a", other.id).await.unwrap();
     let org_b = orgs.create("B", "b", other.id).await.unwrap();
@@ -138,7 +138,7 @@ async fn api_key_revoke_and_lookup() {
     let projects = PgProjectRepo::new(pool.clone());
     let keys = PgApiKeyRepo::new(pool);
 
-    let owner = users.create("admin@x.com", None, None).await.unwrap();
+    let owner = users.create("admin@x.com", None, None, None).await.unwrap();
     let org = orgs.create("A", "a", owner.id).await.unwrap();
     let proj = projects.create(org.id, "p", "p").await.unwrap();
 
@@ -174,7 +174,7 @@ async fn api_key_touch_used_updates_counter() {
     let projects = PgProjectRepo::new(pool.clone());
     let keys = PgApiKeyRepo::new(pool);
 
-    let owner = users.create("u@x.com", None, None).await.unwrap();
+    let owner = users.create("u@x.com", None, None, None).await.unwrap();
     let org = orgs.create("A", "a", owner.id).await.unwrap();
     let proj = projects.create(org.id, "p", "p").await.unwrap();
 

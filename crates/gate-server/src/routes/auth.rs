@@ -85,12 +85,17 @@ async fn login(
                 other => AppError::Db(other),
             })?;
 
-    // 2. SSO 用户没有密码 → invalid_credentials
+    // 2. 非 active 用户不可登录；返回统一 suspended 错误，不签发任何 token。
+    if !matches!(user.status, gate_core::identity::UserStatus::Active) {
+        return Err(AppError::Auth(AuthError::AccountSuspended));
+    }
+
+    // 3. SSO 用户没有密码 → invalid_credentials
     let Some(hash) = pw_hash else {
         return Err(AppError::Auth(AuthError::InvalidCredentials));
     };
 
-    // 3. 校验密码
+    // 4. 校验密码
     if gate_auth::password::verify(&req.password, &hash).is_err() {
         // 登录失败 +1，超过 5 次给 too_many_failures
         let count = app
@@ -105,7 +110,7 @@ async fn login(
         return Err(AppError::Auth(AuthError::InvalidCredentials));
     }
 
-    // 4. 登录成功 — 重置失败计数 + mark_last_login
+    // 5. 登录成功 — 重置失败计数 + mark_last_login
     app.repos.users.reset_failed_login(user.id).await.ok();
     app.repos
         .users
@@ -113,7 +118,7 @@ async fn login(
         .await
         .ok();
 
-    // 5. 签发 token 对
+    // 6. 签发 token 对
     let session_id = Uuid::now_v7();
     let jti = Uuid::now_v7();
 
@@ -168,6 +173,19 @@ async fn refresh(
             }
             other => AppError::Auth(other),
         })?;
+
+    let user = app
+        .repos
+        .users
+        .find_by_id(gate_core::id::UserId::from(claims.sub))
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound => AppError::Auth(AuthError::InvalidCredentials),
+            other => AppError::Db(other),
+        })?;
+    if !matches!(user.status, gate_core::identity::UserStatus::Active) {
+        return Err(AppError::Auth(AuthError::AccountSuspended));
+    }
 
     // 签发新 access token，session_id 继承
     let (access_token, expires_at) = app.jwt.issue_access(claims.sub, claims.sid, None, false)?;

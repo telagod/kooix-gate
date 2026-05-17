@@ -26,6 +26,7 @@ pub trait UserRepo: Send + Sync + 'static {
         email: &str,
         password_hash: Option<&str>,
         display_name: Option<&str>,
+        status: Option<&str>,
     ) -> DbResult<User>;
 
     async fn mark_last_login(
@@ -47,6 +48,9 @@ pub trait UserRepo: Send + Sync + 'static {
 
     /// 管理员：修改用户状态（suspend/activate）。
     async fn update_status(&self, id: UserId, status: &str) -> DbResult<User>;
+
+    /// 管理员：重置用户密码。
+    async fn reset_password(&self, id: UserId, password_hash: &str) -> DbResult<User>;
 
     /// 用户自身：修改密码。
     async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()>;
@@ -134,15 +138,17 @@ impl UserRepo for PgUserRepo {
         email: &str,
         password_hash: Option<&str>,
         display_name: Option<&str>,
+        status: Option<&str>,
     ) -> DbResult<User> {
         let row = sqlx::query(&format!(
-            "INSERT INTO users (email, password_hash, display_name) \
-             VALUES ($1, $2, $3) \
+            "INSERT INTO users (email, password_hash, display_name, status) \
+             VALUES ($1, $2, $3, COALESCE($4, 'active')) \
              RETURNING {USER_COLUMNS}"
         ))
         .bind(email)
         .bind(password_hash)
         .bind(display_name)
+        .bind(status)
         .fetch_one(&self.pool)
         .await?;
         row_to_user(&row)
@@ -214,6 +220,19 @@ impl UserRepo for PgUserRepo {
         ))
         .bind(id.as_uuid())
         .bind(status)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        row_to_user(&row)
+    }
+
+    async fn reset_password(&self, id: UserId, password_hash: &str) -> DbResult<User> {
+        let row = sqlx::query(&format!(
+            "UPDATE users SET password_hash = $2, failed_logins = 0, locked_until = NULL, \
+             updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING {USER_COLUMNS}"
+        ))
+        .bind(id.as_uuid())
+        .bind(password_hash)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(DbError::NotFound)?;

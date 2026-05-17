@@ -22,7 +22,7 @@ use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
-use gate_core::id::{ChannelId, ChannelKeyId};
+use gate_core::id::{ChannelId, ChannelKeyId, UserId};
 use gate_core::rbac::{Permission, Scope};
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
 use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
@@ -192,8 +192,12 @@ pub fn router() -> Router<AppState> {
         .route("/audit-logs", get(list_audit_logs))
         .route("/orgs", get(list_all_orgs).post(create_org))
         .route("/orgs/:org_id", axum::routing::put(update_org))
-        .route("/users", get(list_users))
+        .route("/users", get(list_users).post(create_user))
         .route("/users/:id/status", axum::routing::put(update_user_status))
+        .route(
+            "/users/:id/password",
+            axum::routing::put(reset_user_password),
+        )
         .route("/groups", get(list_groups).post(create_group))
         .route(
             "/groups/:id",
@@ -930,8 +934,52 @@ pub struct UsersQuery {
 }
 
 #[derive(Deserialize)]
+pub struct CreateUserRequest {
+    pub email: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    pub password: String,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct UpdateStatusRequest {
     pub status: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetUserPasswordRequest {
+    pub password: String,
+}
+
+fn normalize_user_email(email: &str) -> AppResult<String> {
+    let email = email.trim().to_lowercase();
+    if email.is_empty() || email.len() > 320 || !email.contains('@') {
+        return Err(AppError::BadRequest("valid email is required".into()));
+    }
+    Ok(email)
+}
+
+fn normalize_display_name(display_name: Option<String>) -> Option<String> {
+    display_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn validate_admin_user_status(status: &str) -> AppResult<()> {
+    let valid = ["active", "suspended", "pending_verification"];
+    if !valid.contains(&status) {
+        return Err(AppError::BadRequest(format!(
+            "status must be one of: {valid:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn current_user_id(ctx: &gate_auth::AuthContext) -> AppResult<UserId> {
+    ctx.user_id()
+        .ok_or_else(|| AppError::Forbidden("user subject required".into()))
 }
 
 async fn list_users(
@@ -948,6 +996,42 @@ async fn list_users(
     Ok(Json(users.into_iter().map(user_to_view).collect()))
 }
 
+async fn create_user(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Json(req): Json<CreateUserRequest>,
+) -> AppResult<Json<UserView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let email = normalize_user_email(&req.email)?;
+    let display_name = normalize_display_name(req.display_name);
+    let status = req.status.unwrap_or_else(|| "active".into());
+    validate_admin_user_status(&status)?;
+
+    let password_hash = gate_auth::password::hash(&req.password)?;
+    let user = app
+        .repos
+        .users
+        .create(
+            &email,
+            Some(&password_hash),
+            display_name.as_deref(),
+            Some(&status),
+        )
+        .await?;
+
+    app.audit.emit(
+        &ctx,
+        "user.create",
+        "user",
+        Some(*user.id.as_uuid()),
+        Some(serde_json::json!({"email": &user.email, "status": status})),
+    );
+
+    Ok(Json(user_to_view(user)))
+}
+
 async fn update_user_status(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
@@ -957,14 +1041,15 @@ async fn update_user_status(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let valid = ["active", "suspended"];
-    if !valid.contains(&req.status.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "status must be one of: {valid:?}"
-        )));
+    validate_admin_user_status(&req.status)?;
+
+    let user_id = UserId::from(id.0);
+    if user_id == current_user_id(&ctx)? && req.status != "active" {
+        return Err(AppError::BadRequest(
+            "cannot suspend or deactivate the current admin user".into(),
+        ));
     }
 
-    let user_id = gate_core::id::UserId::from(id.0);
     let user = app.repos.users.update_status(user_id, &req.status).await?;
 
     app.audit.emit(
@@ -973,6 +1058,34 @@ async fn update_user_status(
         "user",
         Some(*id),
         Some(serde_json::json!({"status": &req.status})),
+    );
+
+    Ok(Json(user_to_view(user)))
+}
+
+async fn reset_user_password(
+    State(app): State<AppState>,
+    Path(id): Path<FlexUuid>,
+    Authed(ctx): Authed,
+    Json(req): Json<ResetUserPasswordRequest>,
+) -> AppResult<Json<UserView>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let password_hash = gate_auth::password::hash(&req.password)?;
+    let user_id = UserId::from(id.0);
+    let user = app
+        .repos
+        .users
+        .reset_password(user_id, &password_hash)
+        .await?;
+
+    app.audit.emit(
+        &ctx,
+        "user.reset_password",
+        "user",
+        Some(*id),
+        Some(serde_json::json!({"email": &user.email})),
     );
 
     Ok(Json(user_to_view(user)))

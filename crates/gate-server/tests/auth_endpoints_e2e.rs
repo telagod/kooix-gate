@@ -50,7 +50,17 @@ async fn fixture() -> Fixture {
     let users = PgUserRepo::new(pool.clone());
     let pw_hash = gate_auth::password::hash("correct-password-123").unwrap();
     users
-        .create("alice@example.com", Some(&pw_hash), Some("Alice"))
+        .create("alice@example.com", Some(&pw_hash), Some("Alice"), None)
+        .await
+        .unwrap();
+    let suspended_hash = gate_auth::password::hash("suspended-password-123").unwrap();
+    users
+        .create(
+            "suspended@example.com",
+            Some(&suspended_hash),
+            Some("Suspended"),
+            Some("suspended"),
+        )
         .await
         .unwrap();
 
@@ -156,6 +166,20 @@ async fn login_wrong_password_returns_401() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "body={body}");
     assert_eq!(body["error"]["code"], "invalid_credentials");
+}
+
+#[tokio::test]
+async fn login_suspended_user_returns_403() {
+    let f = fixture().await;
+
+    let (status, body) = post_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "suspended@example.com", "password": "suspended-password-123"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "body={body}");
+    assert_eq!(body["error"]["code"], "account_suspended");
 }
 
 #[tokio::test]

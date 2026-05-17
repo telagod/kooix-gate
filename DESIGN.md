@@ -95,6 +95,16 @@
 
 完整映射在 `crates/gate-core/src/rbac.rs`。
 
+
+### 2.4 用户生命周期管理
+
+平台用户是全局账户，组织与项目成员关系只引用 `users.id`。发布边界要求：
+
+- 创建用户只接受邮箱、展示名、初始密码和状态；密码只在服务端 Argon2id hash，API 与 audit 均不回显明文。
+- 平台管理员可停用、启用和重置密码；停用当前登录管理员被拒绝，避免自锁。
+- `active` 是唯一可登录/refresh 的状态；`suspended`、`pending_verification`、`deleted` 都不可签发新 token。
+- 用户管理 mutation 统一走 `Permission::PlatformAdmin` + `Scope::Platform`，并写入 `user.create` / `user.update_status` / `user.reset_password` 审计事件。
+
 ### 2.3 权限检查门面
 
 所有路由强制走：

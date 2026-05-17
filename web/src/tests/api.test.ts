@@ -174,4 +174,45 @@ describe('api module', () => {
 		const result = await exportBillingCsv('org-1', '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z');
 		expect(result).toBe(blob);
 	});
+
+	it('admin user APIs create, update status, and reset password', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		mockFetch
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ id: 'usr_019e2c1ba7d17162842207e4b24f5f98', email: 'new@example.com', display_name: null, status: 'active', mfa_enabled: false, last_login_at: null, created_at: '2026-01-01T00:00:00Z' })
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ id: 'usr_019e2c1ba7d17162842207e4b24f5f98', email: 'new@example.com', display_name: null, status: 'suspended', mfa_enabled: false, last_login_at: null, created_at: '2026-01-01T00:00:00Z' })
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ id: 'usr_019e2c1ba7d17162842207e4b24f5f98', email: 'new@example.com', display_name: null, status: 'suspended', mfa_enabled: false, last_login_at: null, created_at: '2026-01-01T00:00:00Z' })
+			});
+
+		const { createUser, updateUserStatus, resetUserPassword } = await loadApi();
+		await createUser({ email: 'new@example.com', password: 'strong-password-123', status: 'active' });
+		await updateUserStatus('usr_019e2c1ba7d17162842207e4b24f5f98', 'suspended');
+		await resetUserPassword('usr_019e2c1ba7d17162842207e4b24f5f98', 'new-password-456');
+
+		expect(mockFetch).toHaveBeenCalledTimes(3);
+		let [url, opts] = mockFetch.mock.calls[0];
+		expect(url).toContain('/v1/admin/users');
+		expect(opts.method).toBe('POST');
+		expect(JSON.parse(opts.body)).toEqual({ email: 'new@example.com', password: 'strong-password-123', status: 'active' });
+
+		[url, opts] = mockFetch.mock.calls[1];
+		expect(url).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/status');
+		expect(opts.method).toBe('PUT');
+		expect(JSON.parse(opts.body)).toEqual({ status: 'suspended' });
+
+		[url, opts] = mockFetch.mock.calls[2];
+		expect(url).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/password');
+		expect(opts.method).toBe('PUT');
+		expect(JSON.parse(opts.body)).toEqual({ password: 'new-password-456' });
+	});
 });

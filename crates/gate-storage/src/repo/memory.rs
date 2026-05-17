@@ -84,6 +84,7 @@ impl UserRepo for InMemoryUserRepo {
         email: &str,
         password_hash: Option<&str>,
         display_name: Option<&str>,
+        status: Option<&str>,
     ) -> DbResult<User> {
         let mut g = self.inner.write();
         if g.by_email.contains_key(&email.to_lowercase()) {
@@ -95,7 +96,12 @@ impl UserRepo for InMemoryUserRepo {
             id,
             email: email.to_string(),
             display_name: display_name.map(String::from),
-            status: UserStatus::Active,
+            status: match status.unwrap_or("active") {
+                "active" => UserStatus::Active,
+                "suspended" => UserStatus::Suspended,
+                "pending_verification" => UserStatus::PendingVerification,
+                other => return Err(DbError::Constraint(format!("unknown status: {other}"))),
+            },
             mfa_enabled: false,
             email_verified_at: None,
             last_login_at: None,
@@ -163,10 +169,23 @@ impl UserRepo for InMemoryUserRepo {
         Ok(user.clone())
     }
 
+    async fn reset_password(&self, id: UserId, password_hash: &str) -> DbResult<User> {
+        let mut g = self.inner.write();
+        let user = {
+            let (user, ph) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
+            *ph = Some(password_hash.to_string());
+            user.updated_at = Utc::now();
+            user.clone()
+        };
+        g.failed.insert(id, 0);
+        Ok(user)
+    }
+
     async fn update_password(&self, id: UserId, password_hash: &str) -> DbResult<()> {
         let mut g = self.inner.write();
-        let (_, ph) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
+        let (user, ph) = g.users.get_mut(&id).ok_or(DbError::NotFound)?;
         *ph = Some(password_hash.to_string());
+        user.updated_at = Utc::now();
         Ok(())
     }
 }

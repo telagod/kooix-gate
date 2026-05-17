@@ -61,8 +61,11 @@ async fn fixture() -> Fixture {
     let memberships = PgMembershipRepo::new(pool.clone());
     let api_keys = PgApiKeyRepo::new(pool.clone());
 
-    let user = users.create("dev@x.com", None, Some("Dev")).await.unwrap();
-    let owner = users.create("owner@x.com", None, None).await.unwrap();
+    let user = users
+        .create("dev@x.com", None, Some("Dev"), None)
+        .await
+        .unwrap();
+    let owner = users.create("owner@x.com", None, None, None).await.unwrap();
     let org = orgs.create("Acme", "acme", owner.id).await.unwrap();
     let other_org = orgs.create("Beta", "beta", owner.id).await.unwrap();
     let proj = projects.create(org.id, "main", "main").await.unwrap();

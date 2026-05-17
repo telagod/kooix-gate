@@ -91,7 +91,10 @@ async fn find_default_for_project() {
     let orgs = PgOrgRepo::new(pool.clone());
     let projects = PgProjectRepo::new(pool.clone());
 
-    let owner = users.create("owner@grp.com", None, None).await.unwrap();
+    let owner = users
+        .create("owner@grp.com", None, None, None)
+        .await
+        .unwrap();
     let org = orgs.create("GrpOrg", "grporg", owner.id).await.unwrap();
     let proj = projects.create(org.id, "GrpProj", "grpproj").await.unwrap();
 

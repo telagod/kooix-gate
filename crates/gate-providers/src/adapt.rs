@@ -118,8 +118,10 @@ mod tests {
 
     #[test]
     fn anthropic_preserves_explicit_max_tokens() {
-        let mut req = ChatRequest::default();
-        req.max_tokens = Some(1024);
+        let mut req = ChatRequest {
+            max_tokens: Some(1024),
+            ..Default::default()
+        };
         adapt_for_provider(&mut req, "anthropic");
         assert_eq!(req.max_tokens, Some(1024));
     }

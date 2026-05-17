@@ -131,6 +131,17 @@ curl http://localhost:8080/v1/chat/completions \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'
 ```
 
+### 用户管理发布边界
+
+平台管理员控制台提供 `/admin/users` 用户生命周期管理：
+
+- `GET /v1/admin/users?limit=&offset=`：分页列出平台用户，返回 typed `usr_...` ID，不包含 `password_hash`。
+- `POST /v1/admin/users`：创建密码用户，字段为 `email`、`display_name?`、`password`、`status?`。密码由后端使用 Argon2id hash 后存储，明文不回显、不写 audit。
+- `PUT /v1/admin/users/:id/status`：平台管理员切换 `active` / `suspended` / `pending_verification`，拒绝停用当前登录管理员，避免自锁。
+- `PUT /v1/admin/users/:id/password`：平台管理员重置用户密码并清零失败登录计数。
+
+安全边界：所有 `/v1/admin/users*` mutation 必须通过 `Permission::PlatformAdmin`；`login` 与 `refresh` 都会检查用户当前状态，非 `active` 用户无法获得新 token。关键 mutation 写入 audit action：`user.create`、`user.update_status`、`user.reset_password`。
+
 ## 设计要点速览
 
 - **多 Org 三层租户**：Org → Project → ApiKey，永不耦合

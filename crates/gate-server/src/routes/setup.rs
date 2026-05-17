@@ -74,7 +74,7 @@ async fn setup(
     let user = app
         .repos
         .users
-        .create(req.email.trim(), Some(&phash), None)
+        .create(req.email.trim(), Some(&phash), None, None)
         .await?;
 
     let pool = app

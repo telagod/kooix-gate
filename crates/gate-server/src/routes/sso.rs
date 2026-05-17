@@ -326,8 +326,12 @@ async fn callback(
         }
     }
 
-    // JIT 解析 user
+    // JIT 解析 user；非 active 用户在写 identity/membership 之前拒绝，避免 suspended 账号产生新绑定副作用。
     let user_id = resolve_user(&app, &idp, &identity).await?;
+    let user = app.repos.users.find_by_id(user_id).await?;
+    if !matches!(user.status, gate_core::identity::UserStatus::Active) {
+        return Err(AppError::Auth(AuthError::AccountSuspended));
+    }
 
     // 写/更新身份绑定
     app.repos
@@ -370,8 +374,6 @@ async fn callback(
         .mark_last_login(user_id, Utc::now(), None)
         .await
         .ok();
-
-    let user = app.repos.users.find_by_id(user_id).await?;
 
     // 审计：SSO 登录成功
     let audit_ctx = gate_auth::AuthContext::user(
@@ -498,7 +500,7 @@ async fn resolve_user(
     })?;
 
     let display = identity.name.as_deref();
-    let user = app.repos.users.create(email, None, display).await?;
+    let user = app.repos.users.create(email, None, display, None).await?;
     Ok(user.id)
 }
 

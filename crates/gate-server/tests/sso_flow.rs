@@ -379,7 +379,12 @@ async fn callback_links_existing_user_by_email() {
     // 先用 password repo 创建 alice
     let alice = f
         .users
-        .create("alice@example.com", Some("argon2-fake"), Some("Alice"))
+        .create(
+            "alice@example.com",
+            Some("argon2-fake"),
+            Some("Alice"),
+            None,
+        )
         .await
         .unwrap();
 
@@ -399,6 +404,39 @@ async fn callback_links_existing_user_by_email() {
         .unwrap()
         .unwrap();
     assert_eq!(bound.user_id, alice.id);
+}
+
+#[tokio::test]
+async fn callback_rejects_suspended_existing_user() {
+    let idp = sample_idp(None);
+    let (f, _) = build_fixture(sample_identity("blocked@example.com", "sub-blocked"), idp).await;
+
+    f.users
+        .create(
+            "blocked@example.com",
+            Some("argon2-fake"),
+            Some("Blocked"),
+            Some("suspended"),
+        )
+        .await
+        .unwrap();
+
+    let (_, body, _) = get(&f.router, "/v1/auth/sso/stub/start").await;
+    let state = body["state"].as_str().unwrap();
+
+    let url = format!("/v1/auth/sso/callback?code=c&state={state}");
+    let (status, body, _) = get(&f.router, &url).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "body={body}");
+    assert_eq!(body["error"]["code"], "account_suspended");
+    let bound = f
+        .user_identities
+        .find_by_provider_subject(f.idp_id, "sub-blocked")
+        .await
+        .unwrap();
+    assert!(
+        bound.is_none(),
+        "suspended SSO must not create identity binding"
+    );
 }
 
 #[tokio::test]
@@ -459,7 +497,7 @@ async fn org_level_idp_membership_is_added_via_repo() {
     // 准备 user
     let alice = f
         .users
-        .create("emp@corp.com", None, Some("Emp"))
+        .create("emp@corp.com", None, Some("Emp"), None)
         .await
         .unwrap();
     // 直接绑定 identity，避免走 JIT 创建分支
