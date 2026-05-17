@@ -50,6 +50,19 @@ fn make_channel(id: ChannelId, code: &str, base_url: &str) -> ChannelRecord {
     }
 }
 
+/// 构造测试用 Plugin ChannelRecord。
+fn make_plugin_channel(
+    id: ChannelId,
+    code: &str,
+    base_url: &str,
+    manifest: serde_json::Value,
+) -> ChannelRecord {
+    let mut ch = make_channel(id, code, base_url);
+    ch.provider_type = "plugin".to_string();
+    ch.model_mapping = manifest;
+    ch
+}
+
 /// ProviderRouter 按 priority 选中优先级最高（数字最小）的 channel。
 #[tokio::test]
 async fn provider_router_selects_highest_priority() {
@@ -237,4 +250,149 @@ async fn full_chain_api_key_to_upstream() {
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["choices"][0]["message"]["content"], "routed!");
+}
+
+/// 完整链路：plugin channel 私有 SSE → /v1/chat/completions 归一化 SSE。
+#[tokio::test]
+async fn full_chain_plugin_channel_normalizes_private_sse() {
+    unsafe {
+        std::env::set_var("KOOIX_API_KEY", "test-key");
+    }
+    let upstream = MockServer::start().await;
+    let sse = concat!(
+        "data: {\"payload\":{\"rid\":\"plug-1\",\"model_name\":\"native\",\"speaker\":\"assistant\"}}\n\n",
+        "data: {\"payload\":{\"token\":\"邪\"}}\n\n",
+        "data: {\"payload\":{\"token\":\"修\"}}\n\n",
+        "data: {\"payload\":{\"finish\":\"done\",\"usage\":{\"input\":3,\"output\":2}}}\n\n",
+        "data: EOF\n\n"
+    );
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&upstream)
+        .await;
+
+    let org_id = OrgId::new();
+    let project_id = ProjectId::new();
+    let api_key_id = ApiKeyId::new();
+    let group_id = ChannelGroupId::new();
+    let ch_id = ChannelId::new();
+
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    ch_repo.seed_channel(make_plugin_channel(
+        ch_id,
+        "plugin-wm",
+        &upstream.uri(),
+        json!({
+            "plugin": {
+                "request": { "chat_path": "/private/chat" },
+                "stream": {
+                    "openai_compatible": false,
+                    "event_path": "payload",
+                    "id_path": "rid",
+                    "model_path": "model_name",
+                    "role_path": "speaker",
+                    "content_path": "token",
+                    "finish_reason_path": "finish",
+                    "done": ["EOF"],
+                    "usage": {
+                        "prompt_tokens_path": "usage.input",
+                        "completion_tokens_path": "usage.output"
+                    }
+                }
+            }
+        }),
+    ));
+    ch_repo.seed_binding(group_id, ch_id, 10, 1);
+
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "plugin-group".to_string(),
+        description: String::new(),
+        strategy: "priority".to_string(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let provider_router = ProviderRouter::new(ch_repo.clone(), grp_repo.clone());
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let plaintext = "sk-kg-test-plugin-routing-key-000000";
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        plaintext,
+        gate_server::loader::ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let repos = Repos {
+        users: Arc::new(gate_storage::InMemoryUserRepo::new()),
+        orgs: Arc::new(gate_storage::InMemoryOrgRepo::new()),
+        projects: Arc::new(gate_storage::InMemoryProjectRepo::new()),
+        memberships: Arc::new(gate_storage::InMemoryMembershipRepo::new()),
+        api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
+        channels: ch_repo,
+        channel_groups: grp_repo,
+        channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
+        identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
+        user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
+        oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),
+        usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
+        model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
+        inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        pg_pool: None,
+    };
+
+    let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
+    let router = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {plaintext}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "odd-model",
+                "stream": true,
+                "messages": [{"role": "user", "content": "route plugin!"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains("data: {"), "body={body}");
+    assert!(body.contains("邪"), "body={body}");
+    assert!(body.contains("修"), "body={body}");
+    assert!(body.contains("\"total_tokens\":5"), "body={body}");
 }

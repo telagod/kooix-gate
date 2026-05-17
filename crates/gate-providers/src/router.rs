@@ -20,6 +20,7 @@ use crate::anthropic::AnthropicProvider;
 use crate::azure::AzureProvider;
 use crate::bedrock::BedrockProvider;
 use crate::cohere::CohereProvider;
+use crate::custom_provider::CustomHttpProvider;
 use crate::deepseek::DeepSeekProvider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::gemini::GeminiProvider;
@@ -533,6 +534,16 @@ fn build_provider(
         "cohere" => {
             let p = CohereProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
                 .map_err(|e| ProviderError::Config(format!("build CohereProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn Provider>)
+        }
+        "plugin" | "custom" | "http" | "http_plugin" => {
+            let p = CustomHttpProvider::new_with_opts(
+                channel.base_url.clone(),
+                api_key,
+                channel.model_mapping.clone(),
+                opts,
+            )
+            .map_err(|e| ProviderError::Config(format!("build CustomHttpProvider: {e}")))?;
             Ok(Arc::new(p) as Arc<dyn Provider>)
         }
         _ => {

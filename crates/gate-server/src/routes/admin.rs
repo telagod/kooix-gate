@@ -327,6 +327,10 @@ async fn create_channel(
         "zhipu",
         "qwen",
         "yi",
+        "plugin",
+        "custom",
+        "http",
+        "http_plugin",
     ];
     if !valid_types.contains(&req.provider_type.as_str()) {
         return Err(AppError::BadRequest(format!(
@@ -1790,6 +1794,15 @@ async fn test_channel(
         "azure" => Arc::new(
             gate_providers::azure::AzureProvider::new_with_opts(&ch.base_url, &api_key, None, opts)
                 .map_err(|e| AppError::Internal(e.to_string()))?,
+        ),
+        "plugin" | "custom" | "http" | "http_plugin" => Arc::new(
+            gate_providers::CustomHttpProvider::new_with_opts(
+                &ch.base_url,
+                &api_key,
+                ch.model_mapping.clone(),
+                opts,
+            )
+            .map_err(|e| AppError::Internal(e.to_string()))?,
         ),
         _ => Arc::new(
             gate_providers::openai::OpenAiProvider::new_with_opts(&ch.base_url, &api_key, opts)

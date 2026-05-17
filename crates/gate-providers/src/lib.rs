@@ -13,6 +13,7 @@ pub mod anthropic;
 pub mod azure;
 pub mod bedrock;
 pub mod cohere;
+pub mod custom_provider;
 pub mod deepseek;
 pub mod error;
 pub mod gemini;
@@ -21,8 +22,10 @@ pub mod ollama;
 pub mod openai;
 pub mod retry;
 pub mod router;
+pub mod sse;
 pub mod types;
 
+pub use custom_provider::CustomHttpProvider;
 pub use error::{ProviderError, ProviderResult};
 pub use router::{
     ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,

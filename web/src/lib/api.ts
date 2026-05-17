@@ -260,7 +260,7 @@ export interface Channel {
 	timeout_ms: number;
 	max_retries: number;
 	tags: string[];
-	model_mapping: Record<string, string>;
+	model_mapping: Record<string, unknown>;
 	balance: number | null;
 	balance_updated_at: string | null;
 	last_error: string | null;
@@ -300,7 +300,7 @@ export interface CreateChannelRequest {
 	timeout_ms?: number;
 	max_retries?: number;
 	tags?: string[];
-	model_mapping?: Record<string, string>;
+	model_mapping?: Record<string, unknown>;
 }
 
 export interface UpdateChannelRequest {
@@ -313,7 +313,7 @@ export interface UpdateChannelRequest {
 	timeout_ms?: number;
 	max_retries?: number;
 	tags?: string[];
-	model_mapping?: Record<string, string>;
+	model_mapping?: Record<string, unknown>;
 }
 
 export async function listAdminChannels(params: ChannelListParams = {}): Promise<PaginatedChannels> {

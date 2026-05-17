@@ -1,6 +1,6 @@
 # Kooix Gate
 
-> Rust + Svelte 打造的 LLM 网关。多 Org 三层租户、9 Provider 多模态、流式正确计费、可视化编排、配额拦截、SSO/OIDC。
+> Rust + Svelte 打造的 LLM 网关。多 Org 三层租户、9 Provider 多模态、HTTP Plugin 私有协议接入、流式正确计费、可视化编排、配额拦截、SSO/OIDC。
 
 竞品定位：NewAPI / OneAPI / LiteLLM 的「底盘加强版」——把它们反复踩的雷（权限粗、限流单一、租户隔离漏、流式漏扣）先治好，再谈渠道接入。
 
@@ -16,6 +16,7 @@
 
 - ✅ 多 Org × Project × ApiKey 三层租户 + RBAC + RLS 兜底
 - ✅ 9 Provider 适配（OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock）
+- ✅ HTTP Plugin 渠道：用 JSON manifest 接入私有协议、奇葩 body/response、非标准 SSE token 帧
 - ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
 - ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价）
@@ -26,7 +27,7 @@
 
 ### v0.1.5 新增亮点
 
-- 🔌 9 Provider 插件架构 + tool calling + embeddings
+- 🔌 9 Provider 插件架构 + HTTP Plugin 私有协议接入 + tool calling + embeddings
 - 🎯 5 种路由策略 + model filter + channel RPM/TPM 限速 + 自动禁用
 - 💰 多维度计费引擎 + LiteLLM 自动同步定价
 - 🎨 节点式可视化编排 Playground
@@ -150,6 +151,7 @@ curl http://localhost:8080/v1/chat/completions \
 - **流式计费正确性**：`stream_options.include_usage` 强制注入，末帧捕获 usage 后 spawn 推 outbox
 - **Outbox pattern**：业务事务和计费写入解耦，幂等 `ON CONFLICT DO NOTHING`
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
+- **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`
 - **强类型 ID**：编译期阻止 `OrgId` 当 `UserId` 传
 - **AuthContext 单一权限门面**：禁止外部读 raw 角色映射，全走 `can()` / `require!`
 - **多维度计费**：按 dimension × conditions 精准匹配，支持缓存折扣、批量折扣、分层定价

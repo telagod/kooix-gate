@@ -1,6 +1,7 @@
 //! OpenAI 兼容 provider —— 直接透传 + embedding。
 
 use crate::error::{ProviderError, ProviderResult};
+use crate::sse;
 use crate::types::{
     AudioSpeechRequest, AudioTranscriptionResponse, ChatRequest, ChatResponse, ChatStreamChunk,
     EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, ImageGenerationResponse,
@@ -246,44 +247,11 @@ pub(crate) fn sse_to_chunks<S>(
 where
     S: futures::Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
-    let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<u8>::new()));
+    use futures::StreamExt;
 
-    byte_stream.flat_map(move |item| {
-        let buf = buf.clone();
-        let chunks = match item {
-            Ok(bytes) => {
-                let mut g = buf.lock();
-                g.extend_from_slice(&bytes);
-                drain_events(&mut g)
-            }
-            Err(e) => vec![Err(ProviderError::Network(e.to_string()))],
-        };
-        futures::stream::iter(chunks)
+    sse::sse_to_json_values(byte_stream).map(|item| {
+        item.and_then(|value| {
+            serde_json::from_value::<ChatStreamChunk>(value).map_err(ProviderError::from)
+        })
     })
-}
-
-fn drain_events(buf: &mut Vec<u8>) -> Vec<ProviderResult<ChatStreamChunk>> {
-    let mut out = Vec::new();
-    while let Some(idx) = find_double_newline(buf) {
-        let event_bytes: Vec<u8> = buf.drain(..idx + 2).collect();
-        let s = String::from_utf8_lossy(&event_bytes);
-        for line in s.lines() {
-            let Some(data) = line.strip_prefix("data:") else {
-                continue;
-            };
-            let data = data.trim();
-            if data == "[DONE]" {
-                return out;
-            }
-            match serde_json::from_str::<ChatStreamChunk>(data) {
-                Ok(chunk) => out.push(Ok(chunk)),
-                Err(e) => out.push(Err(ProviderError::Decode(format!("line {data:?}: {e}")))),
-            }
-        }
-    }
-    out
-}
-
-fn find_double_newline(buf: &[u8]) -> Option<usize> {
-    buf.windows(2).position(|w| w == b"\n\n")
 }

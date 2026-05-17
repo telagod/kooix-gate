@@ -139,6 +139,18 @@ impl HealthChecker {
         consecutive_failures: &mut HashMap<ChannelId, u32>,
         is_cooldown: bool,
     ) {
+        if matches!(
+            ch.provider_type.as_str(),
+            "plugin" | "custom" | "http" | "http_plugin"
+        ) {
+            tracing::debug!(
+                channel = %ch.code,
+                provider_type = %ch.provider_type,
+                "health_check: skipping plugin channel probe without explicit probe manifest"
+            );
+            return;
+        }
+
         let bearer_token = self.get_bearer_token(ch.channel_id).await;
 
         let base = ch.base_url.trim_end_matches('/');

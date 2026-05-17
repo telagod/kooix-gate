@@ -69,6 +69,7 @@
 		{ value: 'zhipu', label: '智谱 GLM', description: 'GLM-4 / CodeGeex' },
 		{ value: 'qwen', label: '通义千问', description: 'Qwen-Max / Qwen-VL' },
 		{ value: 'yi', label: '零一万物', description: 'Yi-Large / Yi-Lightning' },
+		{ value: 'plugin', label: 'HTTP Plugin', description: '自定义私有协议 / SSE 整流' },
 	];
 
 	const FILTER_PROVIDER_OPTIONS: ProviderOption[] = [
@@ -133,6 +134,7 @@
 	let createError = $state('');
 	let modelsInput = $state('');
 	let tagsInput = $state('');
+	let pluginManifestInput = $state('');
 
 	let editingChannel = $state<Channel | null>(null);
 	let editForm = $state<UpdateChannelRequest>({});
@@ -140,6 +142,7 @@
 	let editError = $state('');
 	let editModelsInput = $state('');
 	let editTagsInput = $state('');
+	let editPluginManifestInput = $state('');
 
 	let deletingId = $state<string | null>(null);
 	let deleting = $state(false);
@@ -411,6 +414,61 @@
 		}
 	}
 
+	const PLUGIN_MANIFEST_EXAMPLE = `{
+  "plugin": {
+    "request": {
+      "chat_path": "/private/chat",
+      "headers": { "X-Api-Key": "{{api_key}}" },
+      "body": {
+        "modelName": "{{model}}",
+        "prompt": "{{last_user_message}}",
+        "stream": "{{stream}}",
+        "limit": "{{max_tokens}}"
+      }
+    },
+    "response": {
+      "openai_compatible": false,
+      "content_path": "result.text",
+      "finish_reason_path": "result.finish",
+      "usage": {
+        "prompt_tokens_path": "usage.input",
+        "completion_tokens_path": "usage.output"
+      }
+    },
+    "stream": {
+      "openai_compatible": false,
+      "event_path": "payload",
+      "content_path": "token",
+      "finish_reason_path": "finish",
+      "done": ["[DONE]", "EOF"],
+      "usage": {
+        "prompt_tokens_path": "usage.input",
+        "completion_tokens_path": "usage.output"
+      }
+    }
+  }
+}`;
+
+	function isPluginProvider(providerType: string | undefined): boolean {
+		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
+	}
+
+	function parsePluginManifest(input: string): Record<string, unknown> {
+		if (!input.trim()) return {};
+		const parsed = JSON.parse(input);
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			throw new Error('Plugin manifest 必须是 JSON object');
+		}
+		return parsed as Record<string, unknown>;
+	}
+
+	function resetCreateForm() {
+		createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
+		modelsInput = '';
+		tagsInput = '';
+		pluginManifestInput = '';
+	}
+
 	// ── Create ───────────────────────────────────────
 	async function handleCreate(e: SubmitEvent) {
 		e.preventDefault();
@@ -420,11 +478,10 @@
 		try {
 			const models = modelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			await createChannel({ ...createForm, supported_models: models, tags });
+			const model_mapping = isPluginProvider(createForm.provider_type) ? parsePluginManifest(pluginManifestInput) : createForm.model_mapping;
+			await createChannel({ ...createForm, supported_models: models, tags, model_mapping });
 			showCreate = false;
-			createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
-			modelsInput = '';
-			tagsInput = '';
+			resetCreateForm();
 			showToast('Channel 创建成功');
 			await loadChannels();
 		} catch (err: any) {
@@ -450,6 +507,7 @@
 		};
 		editModelsInput = (ch.supported_models || []).join(', ');
 		editTagsInput = (ch.tags || []).join(', ');
+		editPluginManifestInput = isPluginProvider(ch.provider_type) ? JSON.stringify(ch.model_mapping ?? {}, null, 2) : '';
 		editError = '';
 	}
 
@@ -461,7 +519,8 @@
 		try {
 			const models = editModelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = editTagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const updated = await updateChannel(editingChannel.id, { ...editForm, supported_models: models, tags });
+			const model_mapping = isPluginProvider(editingChannel.provider_type) ? parsePluginManifest(editPluginManifestInput) : editForm.model_mapping;
+			const updated = await updateChannel(editingChannel.id, { ...editForm, supported_models: models, tags, model_mapping });
 			channels = channels.map(c => c.id === updated.id ? updated : c);
 			editingChannel = null;
 			showToast('Channel 更新成功');
@@ -662,6 +721,13 @@
 								<label for="ch-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL <span class="text-red-500">*</span></label>
 								<Input id="ch-url" placeholder="https://api.openai.com/v1" bind:value={createForm.base_url} disabled={creating} />
 							</div>
+							{#if isPluginProvider(createForm.provider_type)}
+								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+									<label for="ch-plugin" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
+									<textarea id="ch-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating}></textarea>
+									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">留空则按 OpenAI-compatible；填写 JSON 可映射私有 body、headers、非标准响应和 SSE token 帧。</p>
+								</div>
+							{/if}
 						</div>
 					</div>
 
@@ -736,6 +802,12 @@
 								<label for="ed-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL</label>
 								<Input id="ed-url" bind:value={editForm.base_url} disabled={editing} />
 							</div>
+							{#if isPluginProvider(editingChannel.provider_type)}
+								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+									<label for="ed-plugin" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
+									<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing}></textarea>
+								</div>
+							{/if}
 							<div class="flex items-center gap-2">
 								<input type="checkbox" id="ed-enabled" bind:checked={editForm.enabled} disabled={editing} class="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600" />
 								<label for="ed-enabled" class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
