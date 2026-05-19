@@ -62,7 +62,7 @@ fn actual_cost_from_usage(usage: &Usage) -> i64 {
     total * DEFAULT_RATE_PER_TOKEN_MICROS
 }
 
-fn estimated_usage_from_request(req: &ChatRequest) -> Usage {
+pub(crate) fn estimated_usage_from_request(req: &ChatRequest) -> Usage {
     let prompt_tokens: u32 = req
         .messages
         .iter()
@@ -84,7 +84,7 @@ fn estimated_usage_from_request(req: &ChatRequest) -> Usage {
 }
 
 /// 结算所有 inflight guards。
-async fn settle_guards(guards: &InflightGuards, usage: &Usage) {
+pub(crate) async fn settle_guards(guards: &InflightGuards, usage: &Usage) {
     let actual = actual_cost_from_usage(usage);
     let mut taken = guards.take();
     for g in &mut taken {
@@ -373,7 +373,7 @@ async fn chat_completions(
     }
 }
 
-fn metered_tokens(usage: &Usage) -> u32 {
+pub(crate) fn metered_tokens(usage: &Usage) -> u32 {
     usage
         .total_tokens
         .max(usage.prompt_tokens.saturating_add(usage.completion_tokens))
@@ -385,7 +385,7 @@ fn metered_tokens(usage: &Usage) -> u32 {
 /// 1. ProviderRouter 选到 → 返回 `(Provider, Some(channel_id))`
 /// 2. ProviderRouter 找不到（返回 None） → fallback 到 AppState.provider，channel_id=None
 /// 3. 均无 → 400
-async fn resolve_provider(
+pub(crate) async fn resolve_provider(
     app: &AppState,
     ctx: &gate_auth::AuthContext,
     headers: &HeaderMap,
@@ -469,7 +469,7 @@ async fn resolve_provider(
     ))
 }
 
-async fn report_channel_success(app: &AppState, key_id: Option<ChannelKeyId>) {
+pub(crate) async fn report_channel_success(app: &AppState, key_id: Option<ChannelKeyId>) {
     let Some(key_id) = key_id else {
         return;
     };
@@ -478,7 +478,7 @@ async fn report_channel_success(app: &AppState, key_id: Option<ChannelKeyId>) {
     }
 }
 
-async fn report_channel_failure(
+pub(crate) async fn report_channel_failure(
     app: &AppState,
     channel_id: Option<uuid::Uuid>,
     key_id: Option<ChannelKeyId>,
@@ -660,7 +660,7 @@ async fn extract_project_id(
 
 /// Merge model alias params_override into ChatRequest.
 /// Known fields: temperature, max_tokens, top_p. Others go into `extra` (flatmap).
-fn apply_params_override(req: &mut ChatRequest, overrides: &serde_json::Value) {
+pub(crate) fn apply_params_override(req: &mut ChatRequest, overrides: &serde_json::Value) {
     let obj = match overrides.as_object() {
         Some(o) if !o.is_empty() => o,
         _ => return,

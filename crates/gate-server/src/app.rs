@@ -40,6 +40,7 @@ pub fn build_gateway_router(state: AppState) -> Router {
     let v1 = Router::new()
         .merge(routes::models::router())
         .merge(routes::chat::router())
+        .merge(routes::responses::router())
         .merge(routes::embeddings::router())
         .merge(routes::images::router())
         .merge(routes::audio::router())

@@ -58,6 +58,10 @@ async fn controlplane_mode_mounts_admin_not_chat() {
         status(RuntimeMode::ControlPlane, "/v1/chat/completions").await,
         StatusCode::NOT_FOUND
     );
+    assert_eq!(
+        status(RuntimeMode::ControlPlane, "/v1/responses").await,
+        StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]
@@ -82,6 +86,13 @@ async fn route_manifest_export_is_public_in_gateway_mode() {
             .unwrap()
             .iter()
             .any(|route| route["path"] == "/v1/chat/completions")
+    );
+    assert!(
+        body["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|route| route["path"] == "/v1/responses")
     );
 }
 

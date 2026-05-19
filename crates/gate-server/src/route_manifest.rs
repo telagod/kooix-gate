@@ -48,6 +48,7 @@ pub const ROUTES: &[RouteMeta] = &[
     route!("GET", "/health/status", Public, CONTROL_PLANE),
     route!("GET", "/v1/models", UserOrApiKey, DATA_PLANE),
     route!("POST", "/v1/chat/completions", UserOrApiKey, DATA_PLANE),
+    route!("POST", "/v1/responses", UserOrApiKey, DATA_PLANE),
     route!("POST", "/v1/embeddings", UserOrApiKey, DATA_PLANE),
     route!("POST", "/v1/images/generations", UserOrApiKey, DATA_PLANE),
     route!("POST", "/v1/audio/speech", UserOrApiKey, DATA_PLANE),

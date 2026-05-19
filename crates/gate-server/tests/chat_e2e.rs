@@ -185,6 +185,112 @@ async fn chat_completions_stream_passthrough() {
 }
 
 #[tokio::test]
+async fn responses_non_stream_thin_adapter_to_chat() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp-chat-xyz",
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "world" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let (router, tok) = setup(&upstream).await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/responses")
+        .header("authorization", format!("Bearer {tok}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "gpt-4o-mini",
+                "instructions": "Be terse",
+                "input": "Hi",
+                "max_output_tokens": 32
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["id"], "resp-chat-xyz");
+    assert_eq!(body["object"], "response");
+    assert_eq!(body["status"], "completed");
+    assert_eq!(body["output_text"], "world");
+    assert_eq!(body["output"][0]["type"], "message");
+    assert_eq!(body["output"][0]["content"][0]["type"], "output_text");
+    assert_eq!(body["usage"]["total_tokens"], 4);
+}
+
+#[tokio::test]
+async fn responses_stream_thin_adapter_to_chat_sse() {
+    let upstream = MockServer::start().await;
+    let sse = concat!(
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"he\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"llo\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n",
+        "data: [DONE]\n\n",
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&upstream)
+        .await;
+
+    let (router, tok) = setup(&upstream).await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/responses")
+        .header("authorization", format!("Bearer {tok}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "gpt-4o-mini",
+                "input": "Hi",
+                "stream": true
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(ct.starts_with("text/event-stream"), "ct={ct}");
+
+    let text = String::from_utf8(
+        resp.into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(text.contains("\"type\":\"response.output_text.delta\""));
+    assert!(text.contains("\"delta\":\"he\""));
+    assert!(text.contains("\"delta\":\"llo\""));
+    assert!(text.contains("\"type\":\"response.completed\""));
+}
+
+#[tokio::test]
 async fn chat_completions_upstream_auth_failure_maps_to_502() {
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))

@@ -25,6 +25,27 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.3 `/v1/responses` thin adapter
+
+本轮按 ROADMAP 的“先做 thin adapter 到 chat，不复刻完整 tool/state machine”收口 `/v1/responses`：
+
+- 新增 `routes::responses`，在全量 router、gateway-only router 与 route manifest 中注册 `POST /v1/responses`。
+- `ResponsesRequest` 支持常用迁移面：`model`、string / item-array `input`、`instructions`、`stream`、`temperature`、`top_p`、`max_output_tokens`、`tools`、`tool_choice` 与 flattened extra。
+- adapter 把 Responses input 转为 `ChatRequest.messages`：`instructions` → system message，string input → user message，`input_text` / `input_image` parts → chat text / image parts。
+- 非流式 Responses 复用 chat provider route / adapt / retry / billing / quota settle / TPM record / channel success/failure 链路，返回 `object="response"`、`status="completed"`、`output[]` 与 `output_text`。
+- 流式 Responses 复用 chat stream，上游 chat chunk 映射为 `response.output_text.delta` SSE，并在尾帧输出 `response.completed`；usage 末帧继续用于 billing / quota settle。
+- 不实现 Responses 完整 state machine、stored response、conversation item lifecycle、parallel tool orchestration；这些仍按 vNext 评估。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo test -p gate-server --test chat_e2e responses -- --nocapture
+cargo test -p gate-server --test runtime_modes
+cargo test -p gate-server --test billing_e2e
+cargo clippy --all-targets -- -D warnings
+```
+
 ## P1.3 `/v1/audio/speech` / `/v1/audio/transcriptions` billing/quota loop
 
 本轮把 P1.3 audio endpoints 从单一 fallback provider 代理推进为可对账的 data-plane 闭环：

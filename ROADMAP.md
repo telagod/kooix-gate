@@ -400,9 +400,10 @@ cd web && npm test -- plugin-presets
   - quota pre-debit / settle
   - request log / usage record
   - provider error shape
-- [ ] 评估 `/v1/responses`：
-  - 若跟 OpenAI 新 API 对齐，先做 thin adapter 到 chat。
-  - 不急于完全复刻 tool/state machine。
+- [x] 评估 `/v1/responses`：
+  - [x] 已按 OpenAI 新 API 做 thin adapter 到 chat。
+  - [x] 保持轻量：支持 string / item-array input、instructions、stream、tools、tool_choice、max_output_tokens。
+  - [x] 不复刻完整 tool/state machine。
 - [ ] 统一 error shape：
   - upstream auth
   - rate limit

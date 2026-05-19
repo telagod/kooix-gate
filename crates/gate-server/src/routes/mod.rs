@@ -21,6 +21,7 @@ pub mod models;
 pub mod projects;
 pub mod quotas;
 pub mod request_logs;
+pub mod responses;
 pub mod settings;
 pub mod setup;
 pub mod sso;
@@ -46,6 +47,7 @@ pub fn v1_router() -> Router<AppState> {
         .merge(projects::router())
         .merge(api_keys::router())
         .merge(chat::router())
+        .merge(responses::router())
         .merge(images::router())
         .merge(audio::router())
         .merge(auth::router())
