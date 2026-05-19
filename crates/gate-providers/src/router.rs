@@ -9,9 +9,10 @@
 //!    - round_robin：循环轮转
 //!    - least_conn：选 inflight 最少的 channel
 //! 4. 用 channel.provider_type 构造对应的 Provider（openai / anthropic / gemini）
-//! 5. API key 来源策略（G1）：
-//!    a. 优先从 channel_keys 表取 active key → 用 EnvelopeKms 解密
-//!    b. 若 DB 无 key 或 repo 未配置 → 回退 env var
+//! 5. Secret 来源策略（G1/P1）：
+//!    a. plugin manifest 可用 `secret_slot` 引用 channel_keys.label
+//!    b. 优先从 channel_keys 表取 active key(s) → 用 EnvelopeKms 解密
+//!    c. 若 DB 无 key 或 repo 未配置 → 回退 env var
 //! 6. 找不到 channel_group 或 channel → 返回 None，调用方 fallback 到 AppState.provider
 
 use crate::EmbeddingProvider;
@@ -635,6 +636,20 @@ fn build_provider(
     api_key: String,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn Provider>> {
+    build_provider_with_secrets(
+        channel,
+        HashMap::from([("primary".to_string(), api_key)]),
+        opts,
+    )
+}
+
+/// 按 provider_type 构造 Provider 实例，并把 manifest secret slots 传入 runtime plugin。
+fn build_provider_with_secrets(
+    channel: &gate_storage::ChannelRecord,
+    secrets: HashMap<String, String>,
+    opts: crate::ProviderOpts,
+) -> ProviderResult<Arc<dyn Provider>> {
+    let api_key = secrets.get("primary").cloned().unwrap_or_default();
     match channel.provider_type.as_str() {
         "anthropic" => {
             let p = AnthropicProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
@@ -692,9 +707,9 @@ fn build_provider(
             Ok(Arc::new(p) as Arc<dyn Provider>)
         }
         "plugin" | "custom" | "http" | "http_plugin" => {
-            let p = CustomHttpProvider::new_with_opts(
+            let p = CustomHttpProvider::new_with_secret_slots(
                 channel.base_url.clone(),
-                api_key,
+                secrets,
                 channel.model_mapping.clone(),
                 opts,
             )
@@ -1368,13 +1383,18 @@ impl ProviderRouter {
             );
 
             // Step 4: 根据 provider_type 构造对应 Provider
-            let (api_key, key_id) = self
-                .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
+            let (api_key, key_id, secrets) = self
+                .resolve_secrets_for_channel(candidate.channel.channel_id, &candidate.channel.code)
                 .await?;
             let opts = crate::ProviderOpts {
                 timeout_ms: candidate.channel.timeout_ms as u64,
             };
-            let provider: Arc<dyn Provider> = build_provider(&candidate.channel, api_key, opts)?;
+            let provider: Arc<dyn Provider> =
+                if is_plugin_provider(&candidate.channel.provider_type) {
+                    build_provider_with_secrets(&candidate.channel, secrets, opts)?
+                } else {
+                    build_provider(&candidate.channel, api_key, opts)?
+                };
 
             let retry_config = crate::retry::RetryConfig {
                 max_retries: candidate.channel.max_retries.max(0) as u32,
@@ -1408,65 +1428,155 @@ impl ProviderRouter {
         Ok(None)
     }
 
-    /// G1: 从 DB 取 channel key → 解密；无则 fallback env var。
+    /// G1: 从 DB 取 primary channel key → 解密；无则 fallback env var。
     /// 返回 (plaintext_key, Option<key_id>)——key_id 仅在从 DB 取到时有值。
     async fn resolve_key_for_channel(
         &self,
         channel_id: ChannelId,
         channel_code: &str,
     ) -> ProviderResult<(String, Option<ChannelKeyId>)> {
+        let (primary, key_id, _) = self
+            .resolve_secrets_for_channel(channel_id, channel_code)
+            .await?;
+        Ok((primary, key_id))
+    }
+
+    /// P1: plugin secret slots 从 channel_keys.label 解密；primary 仍保持旧行为。
+    async fn resolve_secrets_for_channel(
+        &self,
+        channel_id: ChannelId,
+        channel_code: &str,
+    ) -> ProviderResult<(String, Option<ChannelKeyId>, HashMap<String, String>)> {
         // 如果 repo 未配置，直接走 env
         let Some(repo) = &self.channel_key_repo else {
-            return Ok((resolve_api_key_for_channel(channel_code)?, None));
+            let primary = resolve_api_key_for_channel(channel_code)?;
+            return Ok((primary.clone(), None, primary_secret_map(primary)));
         };
 
-        // 尝试从 DB 取 active key
-        match repo.find_active_for_channel(channel_id).await {
-            Ok(record) => {
-                // 有 key 记录，需要 crypto 来解密
-                let Some(crypto) = &self.crypto else {
-                    tracing::warn!(
-                        channel_id = %channel_id,
-                        "channel key found in DB but crypto not configured, falling back to env"
-                    );
-                    return Ok((resolve_api_key_for_channel(channel_code)?, None));
-                };
-                // AAD = channel_key(channel_id) — 与 admin handler 加密时一致
-                let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
-                let key_id = record.id;
-                let plaintext = crypto.open(&record.key_enc, &aad).await.map_err(|e| {
-                    ProviderError::Config(format!("decrypt channel key {}: {e}", record.id))
-                })?;
-                let key_str = String::from_utf8(plaintext.to_vec()).map_err(|e| {
-                    ProviderError::Config(format!("channel key is not valid UTF-8: {e}"))
-                })?;
-                Ok((key_str, Some(key_id)))
-            }
-            Err(gate_storage::DbError::NotFound) => {
-                // DB 里没有 key，走 env
-                tracing::debug!(
+        let Some(crypto) = &self.crypto else {
+            match repo.find_active_for_channel(channel_id).await {
+                Ok(_) => tracing::warn!(
                     channel_id = %channel_id,
-                    channel_code = channel_code,
-                    "no channel key in DB, falling back to env"
-                );
-                Ok((resolve_api_key_for_channel(channel_code)?, None))
+                    "channel key found in DB but crypto not configured, falling back to env"
+                ),
+                Err(e) if !matches!(e, gate_storage::DbError::NotFound) => tracing::warn!(
+                    channel_id = %channel_id,
+                    error = %e,
+                    "channel key lookup failed and crypto not configured, falling back to env"
+                ),
+                Err(_) => {}
             }
+            let primary = resolve_api_key_for_channel(channel_code)?;
+            return Ok((primary.clone(), None, primary_secret_map(primary)));
+        };
+
+        let records = match repo.list_by_channel(channel_id).await {
+            Ok(records) => records,
+            Err(gate_storage::DbError::NotFound) => Vec::new(),
             Err(e) => {
-                // DB 查询出错，warn + fallback env
                 tracing::warn!(
                     channel_id = %channel_id,
                     error = %e,
                     "channel key lookup failed, falling back to env"
                 );
-                Ok((resolve_api_key_for_channel(channel_code)?, None))
+                let primary = resolve_api_key_for_channel(channel_code)?;
+                return Ok((primary.clone(), None, primary_secret_map(primary)));
+            }
+        };
+
+        let mut active: Vec<_> = records
+            .into_iter()
+            .filter(|record| record.health == "healthy")
+            .filter(|record| {
+                record
+                    .cooldown_until
+                    .is_none_or(|until| until < chrono::Utc::now())
+            })
+            .collect();
+        active.sort_by_key(|record| (-record.weight, record.created_at));
+
+        if active.is_empty() {
+            tracing::debug!(
+                channel_id = %channel_id,
+                channel_code = channel_code,
+                "no active channel key in DB, falling back to env"
+            );
+            let primary = resolve_api_key_for_channel(channel_code)?;
+            return Ok((primary.clone(), None, primary_secret_map(primary)));
+        }
+
+        let mut selected: Option<(i32, chrono::DateTime<chrono::Utc>, ChannelKeyId, String)> = None;
+        let mut best_active: Option<(ChannelKeyId, String)> = None;
+        let mut secrets = HashMap::new();
+        for record in active {
+            let secret = decrypt_channel_key(crypto, channel_id, &record).await?;
+            let slot = record
+                .label
+                .as_deref()
+                .map(normalize_secret_slot)
+                .unwrap_or_else(|| "primary".to_string());
+            best_active.get_or_insert_with(|| (record.id, secret.clone()));
+            secrets.entry(slot.clone()).or_insert(secret.clone());
+            if slot == "primary" {
+                match selected {
+                    Some((weight, created_at, _, _))
+                        if (record.weight, std::cmp::Reverse(record.created_at))
+                            <= (weight, std::cmp::Reverse(created_at)) => {}
+                    _ => selected = Some((record.weight, record.created_at, record.id, secret)),
+                }
             }
         }
+
+        let (primary, key_id) = if let Some((_, _, key_id, primary)) = selected {
+            (primary, Some(key_id))
+        } else if let Some((key_id, primary)) = best_active {
+            (primary, Some(key_id))
+        } else {
+            let primary = resolve_api_key_for_channel(channel_code)?;
+            (primary, None)
+        };
+        secrets
+            .entry("primary".to_string())
+            .or_insert_with(|| primary.clone());
+        Ok((primary, key_id, secrets))
     }
+}
+
+fn is_plugin_provider(provider_type: &str) -> bool {
+    matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
+}
+
+fn primary_secret_map(primary: String) -> HashMap<String, String> {
+    HashMap::from([("primary".to_string(), primary)])
+}
+
+fn normalize_secret_slot(slot: &str) -> String {
+    let trimmed = slot.trim();
+    if trimmed.is_empty() || trimmed == "api_key" {
+        "primary".to_string()
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
+async fn decrypt_channel_key(
+    crypto: &EnvelopeKms,
+    channel_id: ChannelId,
+    record: &gate_storage::ChannelKeyRecord,
+) -> ProviderResult<String> {
+    let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+    let plaintext = crypto
+        .open(&record.key_enc, &aad)
+        .await
+        .map_err(|e| ProviderError::Config(format!("decrypt channel key {}: {e}", record.id)))?;
+    String::from_utf8(plaintext.to_vec())
+        .map_err(|e| ProviderError::Config(format!("channel key is not valid UTF-8: {e}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{ChatMessage, ChatRequest, Role};
     use chrono::Utc;
     use gate_core::id::{ChannelGroupId, ChannelId, ProjectId};
     use gate_storage::{
@@ -1911,6 +2021,177 @@ mod tests {
         assert!(
             key_id.is_some(),
             "key_id should be Some when resolved from DB"
+        );
+    }
+
+    #[tokio::test]
+    async fn router_secret_slots_use_channel_key_labels() {
+        use gate_crypto::kms::{EnvKms, generate_master_key_b64};
+
+        let ch_id = ChannelId::from(Uuid::now_v7());
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let now = Utc::now();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let (request_tx, request_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let n = socket.read(&mut buf).await.unwrap();
+            let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+            let _ = request_tx.send(raw);
+            let body = serde_json::json!({
+                "id": "chatcmpl-slot",
+                "model": "odd-model",
+                "choices": [{
+                    "index": 0,
+                    "message": { "role": "assistant", "content": "ok" },
+                    "finish_reason": "stop"
+                }],
+                "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ChannelRecord {
+            channel_id: ch_id,
+            code: "slot-plugin".to_string(),
+            name: "slot-plugin".to_string(),
+            provider_type: "plugin".to_string(),
+            base_url,
+            supported_models: vec!["odd-model".to_string()],
+            status: "active".to_string(),
+            health: "healthy".to_string(),
+            timeout_ms: 60000,
+            max_retries: 0,
+            rpm_limit: None,
+            tpm_limit: None,
+            tags: vec![],
+            model_mapping: serde_json::json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "api_key_header",
+                        "header_name": "X-Alt-Key",
+                        "secret_slot": "alt-key"
+                    }
+                }
+            }),
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
+            updated_at: now,
+        });
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let kms = EnvKms::from_b64(&generate_master_key_b64(), "test").unwrap();
+        let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+        let aad = gate_crypto::aad::channel_key(*ch_id.as_uuid());
+        let primary_enc = sealer.seal(b"sk-primary-slot", &aad).await.unwrap();
+        let alt_enc = sealer.seal(b"sk-alt-slot", &aad).await.unwrap();
+
+        let ck_repo = Arc::new(InMemoryChannelKeyRepo::new());
+        ck_repo.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("primary".to_string()),
+            key_enc: primary_enc,
+            key_fingerprint: "fp-primary-slot".to_string(),
+            weight: 10,
+            health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
+            created_at: now,
+            updated_at: now,
+        });
+        ck_repo.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("alt-key".to_string()),
+            key_enc: alt_enc,
+            key_fingerprint: "fp-alt-slot".to_string(),
+            weight: 1,
+            health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
+            created_at: now,
+            updated_at: now,
+        });
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(ck_repo)
+            .with_crypto(sealer);
+        let (_, key_id, secrets) = router
+            .resolve_secrets_for_channel(ch_id, "slot-plugin")
+            .await
+            .unwrap();
+        assert!(key_id.is_some());
+        assert_eq!(
+            secrets.get("primary").map(String::as_str),
+            Some("sk-primary-slot")
+        );
+        assert_eq!(
+            secrets.get("alt-key").map(String::as_str),
+            Some("sk-alt-slot")
+        );
+
+        let routed = router
+            .route(project_id, "odd-model")
+            .await
+            .unwrap()
+            .unwrap();
+        let response = routed
+            .provider
+            .chat(ChatRequest {
+                model: "odd-model".to_string(),
+                messages: vec![ChatMessage::text(Role::User, "slot check")],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(response.choices[0].message.content_text(), "ok");
+
+        let raw_request = request_rx.await.unwrap();
+        assert!(
+            raw_request.contains("x-alt-key: sk-alt-slot"),
+            "plugin auth must use the manifest secret_slot, request={raw_request}"
+        );
+        assert!(
+            !raw_request.contains("sk-primary-slot"),
+            "primary secret must not be injected for alt-key auth, request={raw_request}"
         );
     }
 

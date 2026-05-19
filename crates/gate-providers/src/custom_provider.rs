@@ -17,6 +17,7 @@ use futures::stream::{BoxStream, StreamExt};
 use reqwest::Url;
 use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -24,7 +25,7 @@ use std::sync::Arc;
 pub struct CustomHttpProvider {
     client: reqwest::Client,
     base_url: String,
-    api_key: String,
+    secrets: Arc<HashMap<String, String>>,
     manifest: Arc<PluginManifest>,
 }
 
@@ -32,6 +33,20 @@ impl CustomHttpProvider {
     pub fn new_with_opts(
         base_url: impl Into<String>,
         api_key: impl Into<String>,
+        manifest: Value,
+        opts: crate::ProviderOpts,
+    ) -> ProviderResult<Self> {
+        Self::new_with_secret_slots(
+            base_url,
+            HashMap::from([("primary".to_string(), api_key.into())]),
+            manifest,
+            opts,
+        )
+    }
+
+    pub fn new_with_secret_slots(
+        base_url: impl Into<String>,
+        secrets: HashMap<String, String>,
         manifest: Value,
         opts: crate::ProviderOpts,
     ) -> ProviderResult<Self> {
@@ -45,7 +60,7 @@ impl CustomHttpProvider {
         Ok(Self {
             client,
             base_url,
-            api_key: api_key.into(),
+            secrets: Arc::new(normalize_secret_slots(secrets)),
             manifest: Arc::new(manifest),
         })
     }
@@ -126,23 +141,27 @@ impl CustomHttpProvider {
     }
 
     fn plugin_context(&self) -> Value {
+        let primary = self.secret_for_slot("primary");
+        let mut secrets = serde_json::Map::new();
+        for (slot, value) in self.secrets.iter() {
+            secrets.insert(slot.clone(), Value::String(value.clone()));
+        }
         json!({
-            "api_key": self.api_key,
-            "aws_secret_key": std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
+            "api_key": primary,
+            "secrets": secrets,
+            "aws_secret_key": self.secret_for_slot("aws_secret_key"),
         })
     }
 
     fn apply_auth_headers(&self, headers: &mut HeaderMap, ctx: &Value) -> ProviderResult<()> {
         match self.manifest.auth.strategy {
             AuthStrategy::Bearer => {
-                if !self.api_key.is_empty() {
+                let secret = self.secret_for_slot(self.manifest.auth.secret_slot());
+                if !secret.is_empty() {
                     insert_header(
                         headers,
                         reqwest::header::AUTHORIZATION,
-                        format!(
-                            "Bearer {}",
-                            self.secret_for_slot(self.manifest.auth.secret_slot())
-                        ),
+                        format!("Bearer {secret}"),
                     )?;
                 }
             }
@@ -190,26 +209,15 @@ impl CustomHttpProvider {
     }
 
     fn secret_for_slot(&self, slot: &str) -> String {
-        match slot {
-            "primary" | "api_key" | "" => self.api_key.clone(),
-            "aws_secret_key" => std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
-            other => {
-                let env_key = format!(
-                    "KOOIX_PLUGIN_SECRET_{}",
-                    other
-                        .chars()
-                        .map(|c| {
-                            if c.is_ascii_alphanumeric() {
-                                c.to_ascii_uppercase()
-                            } else {
-                                '_'
-                            }
-                        })
-                        .collect::<String>()
-                );
-                std::env::var(env_key).unwrap_or_default()
-            }
+        let normalized = normalize_secret_slot(slot);
+        if normalized == "api_key" {
+            return self.secret_for_slot("primary");
         }
+        self.secrets
+            .get(&normalized)
+            .cloned()
+            .or_else(|| std::env::var(env_key_for_secret_slot(&normalized)).ok())
+            .unwrap_or_default()
     }
 
     fn request_context_for(&self, req: &ChatRequest) -> ProviderResult<Value> {
@@ -702,6 +710,49 @@ fn insert_header(headers: &mut HeaderMap, name: HeaderName, value: String) -> Pr
     Ok(())
 }
 
+fn normalize_secret_slots(secrets: HashMap<String, String>) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = secrets
+        .into_iter()
+        .map(|(slot, value)| (normalize_secret_slot(&slot), value))
+        .collect();
+    if !out.contains_key("primary")
+        && let Some(value) = out.get("api_key").cloned()
+    {
+        out.insert("primary".to_string(), value);
+    }
+    out
+}
+
+fn normalize_secret_slot(slot: &str) -> String {
+    let trimmed = slot.trim();
+    if trimmed.is_empty() || trimmed == "api_key" {
+        "primary".to_string()
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
+fn env_key_for_secret_slot(slot: &str) -> String {
+    let normalized = normalize_secret_slot(slot);
+    match normalized.as_str() {
+        "primary" => "KOOIX_PLUGIN_SECRET_PRIMARY".to_string(),
+        "aws_secret_key" => "AWS_SECRET_ACCESS_KEY".to_string(),
+        other => format!(
+            "KOOIX_PLUGIN_SECRET_{}",
+            other
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() {
+                        c.to_ascii_uppercase()
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>()
+        ),
+    }
+}
+
 fn validate_http_endpoint(endpoint: &str, deny_internal_host: bool) -> ProviderResult<()> {
     let parsed = reqwest::Url::parse(endpoint)
         .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
@@ -1054,6 +1105,37 @@ mod tests {
         assert_eq!(headers.get("x-api-key").unwrap(), "primary-key");
         assert_eq!(headers.get("x-model").unwrap(), "odd-model");
         assert!(headers.get("authorization").is_none());
+    }
+
+    #[test]
+    fn plugin_auth_uses_explicit_secret_slot_map() {
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            "https://api.example.com",
+            HashMap::from([
+                ("primary".to_string(), "primary-key".to_string()),
+                ("Alt-Key".to_string(), "alt-key".to_string()),
+            ]),
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "api_key_header",
+                        "header_name": "X-Alt-Key",
+                        "secret_slot": "alt-key"
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let headers = provider.request_headers_for(&make_req(false)).unwrap();
+        assert_eq!(headers.get("x-alt-key").unwrap(), "alt-key");
+        assert!(
+            headers
+                .get("x-alt-key")
+                .is_some_and(|value| value != "primary-key")
+        );
     }
 
     #[test]

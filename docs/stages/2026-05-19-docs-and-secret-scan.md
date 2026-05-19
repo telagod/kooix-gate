@@ -1,0 +1,46 @@
+# 文档分层与 Secret Scan 收口
+
+Status: applied
+Scope: 文档入口清理、阶段性文档归档、gitleaks 本地安装复验、HTTP Plugin secret slots 收口。
+Last verified: 2026-05-19
+
+## 关键文档 vs 阶段性文档
+
+- 关键入口保留在根目录与 `docs/README.md` 索引：`README.md`、`DESIGN.md`、`ROADMAP.md`、`CHANGELOG.md`、`RELEASE.md`、`AGENTS.md`、`CLAUDE.md`、`docs/plugin-manifest.md`、`docs/security-runbook.md`、`docs/observability-runbook.md`。
+- 模块文档保留在对应模块：`web/README.md`、`web/src/lib/design/README.md`、`crates/kgctl/README.md`、`bench/README.md`、`examples/README.md`。
+- 已完成的一次性审计、迁移、收口和验证快照统一放入 `docs/stages/`，不再散落根目录。
+- active waiver 仍放在 `docs/waivers/`，因为脚本 / CI 可能引用，暂不归档到 stages。
+
+## gitleaks
+
+- 本机安装位置：`/home/telagod/.local/bin/gitleaks`
+- 版本：`8.30.1`
+- CI：`.github/workflows/ci.yml` 的 `Security Smoke` job 已使用 `gitleaks/gitleaks-action@v2`。
+
+本地验收命令：
+
+```bash
+gitleaks version
+gitleaks detect --source . --redact --verbose
+tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
+```
+
+说明：`--no-git --source .` 会扫描 `.env` 与 `target/` 等 gitignored 本地文件；用于泄露排障时有价值，但不代表仓库可提交内容。本轮仓库口径采用 git history + tracked/unignored working tree 两条扫描。
+
+## Plugin secret slots
+
+本轮把 P1.1.2 的 “Secret 来源统一” 从 TODO 收口为代码路径：
+
+- `CustomHttpProvider::new_with_secret_slots` 接收 slot map，`new_with_opts` 继续兼容旧 primary API key。
+- `ProviderRouter::resolve_secrets_for_channel` 读取同一 channel 的 active `channel_keys`，按 `label` 归一为 secret slot 并用 `EnvelopeKms` 解密。
+- `primary` / `api_key` / 空 label 保持旧主密钥语义；非 plugin provider 仍只使用 primary。
+- repo/crypto 缺失或 DB 无 active key 时回退 env：`KOOIX_CH_<CODE>_KEY`、`KOOIX_API_KEY`、`KOOIX_PLUGIN_SECRET_<SLOT>`、`AWS_SECRET_ACCESS_KEY`。
+
+验证命令：
+
+```bash
+cargo test -p gate-providers router_db_key_decrypt_roundtrip -- --nocapture
+cargo test -p gate-providers router_secret_slots_use_channel_key_labels -- --nocapture
+cargo test -p gate-providers plugin_auth_uses_explicit_secret_slot_map -- --nocapture
+cargo test -p gate-providers plugin -- --nocapture
+```

@@ -233,11 +233,14 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - `api_key_query`：query 参数签发，默认高风险提示。
   - `basic`：username/password 来自 encrypted channel key material。
   - `custom_headers`：仅允许白名单变量。
+- [x] Secret 来源统一：`channel_keys` envelope encryption / env fallback；manifest 只引用 secret slot，不存明文。
+  - `channel_keys.label` 归一为 secret slot，`primary` / `api_key` 兼容旧主密钥。
+  - Plugin runtime 会把同一 channel 的 active key 解密成 slot map；非 plugin provider 仍只取 primary。
+  - DB 无 key、repo/crypto 未配置或本地开发时回退 `KOOIX_CH_<CODE>_KEY` / `KOOIX_API_KEY` / `KOOIX_PLUGIN_SECRET_<SLOT>`。
 - [ ] 内置高级认证策略：
   - `hmac`：method/path/body/timestamp nonce 签名。
   - `oauth_client_credentials`：token cache + expiry refresh。
   - `aws_sigv4`：为 Bedrock Converse 收口正式鉴权。
-- [ ] Secret 来源统一：`channel_keys` envelope encryption / env fallback；manifest 只引用 secret slot，不存明文。
 - [ ] 前端创建 channel 时按 auth strategy 展示最小字段，保存前做本地 lint。
 
 #### P1.1.3 Request 映射 DSL

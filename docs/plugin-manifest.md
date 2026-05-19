@@ -8,7 +8,7 @@ Kooix Gate 的核心竞争力不是内置多少 Provider，而是让私有协议
 
 - Channel 的 `provider_type` 设为 `plugin` / `custom` / `http` / `http_plugin`。
 - Manifest 放在 `channels.model_mapping.plugin`。
-- 密钥仍走 `channel_keys` envelope encryption；本地开发可由 env fallback 注入。
+- 密钥走 `channel_keys` envelope encryption；`channel_keys.label` 就是 manifest 里的 secret slot，空 label / `primary` / `api_key` 都归一为主密钥。本地开发可由 env fallback 注入。
 - Manifest 是不可信配置：不得写入明文密钥；已启用 path/query/header/body 模板白名单、绝对 URL 默认禁用、内网/metadata host 拒绝与 body/response/SSE 大小限制。
 - v0 旧形态仍自动升级：`{ "plugin": { "preset": { "provider": "openai_compatible" } } }` 会在运行时升级为 `plugin.version = 1` 内部结构。
 - JSON Schema 入口：
@@ -79,6 +79,32 @@ v1 固定以下分区：
 - `none`：不自动注入认证头。
 
 `secret_slot` / `username_slot` / `password_slot` 是加密材料引用，不是明文 secret。
+
+### Secret slots
+
+运行时按以下顺序取密钥：
+
+1. 若 channel key repo + crypto 已配置，读取该 channel 全部 active `channel_keys`，按 `label` 归一为 slot 后解密注入 plugin runtime。
+2. `primary` slot 保持旧行为：优先使用 label 为空、`primary` 或 `api_key` 的 active key；若不存在 primary，则使用当前权重最高的 active key 兼容旧数据。
+3. DB 无 active key、repo/crypto 未配置或本地开发时，回退 env：
+   - 主密钥：`KOOIX_CH_<CHANNEL_CODE>_KEY`，再退到 `KOOIX_API_KEY`。
+   - 非主 slot：`KOOIX_PLUGIN_SECRET_<SLOT>`，slot 会转成大写并把非字母数字替换为 `_`。
+   - Bedrock 兼容 slot：`aws_secret_key` 回退 `AWS_SECRET_ACCESS_KEY`。
+
+示例：同一 channel 录入两条 key，`label=primary` 保存默认 Bearer key，`label=basic_user` 保存 Basic username；manifest 可写：
+
+```json
+{
+  "plugin": {
+    "version": 1,
+    "auth": {
+      "strategy": "basic",
+      "username_slot": "basic_user",
+      "password_slot": "primary"
+    }
+  }
+}
+```
 
 ## Provider preset
 
