@@ -1,0 +1,20 @@
+title = "Kooix Gate gitleaks config"
+
+[extend]
+useDefault = true
+
+# Local-only compose fixtures intentionally use non-secret placeholders.
+# Keep the waiver narrow: generic-api-key only + exact compose files + exact placeholder lines.
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Kooix local compose placeholder secrets"
+condition = "AND"
+paths = [
+  '''(^|/)docker-compose\.yml$''',
+  '''(^|/)bench/docker-compose\.bench\.yml$''',
+]
+regexTarget = "line"
+regexes = [
+  '''KOOIX_JWT_SECRET:\s+(?:ZGV2LWp3dC1zZWNyZXQtY2hhbmdlLWluLXByb2QhISE=|bench-jwt-secret-at-least-32-chars-long)''',
+  '''KOOIX_MASTER_KEY:\s+ZGV2LW1hc3Rlci1rZXktMzItYnl0ZXMtcGFkZGluZyE=''',
+]
