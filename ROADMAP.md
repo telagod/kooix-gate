@@ -423,10 +423,10 @@ cargo test -p gate-providers --all-targets
 
 **目标**：路由从“策略可用”升级到“生产可控”。
 
-- [ ] Health probe 标准化：
-  - 每 provider 默认 probe model。
-  - probe 成本上限。
-  - 成功率 / 延迟 / 错误码分桶。
+- [x] Health probe 标准化：
+  - [x] 每 provider 默认 probe model。
+  - [x] probe 成本上限。
+  - [x] 成功率 / 延迟 / 错误码分桶。
 - [ ] least_latency 从内存指标升级为持久化滑窗或 Prometheus query。
 - [ ] fallback 策略可视化：
   - group chain 图

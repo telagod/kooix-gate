@@ -1096,6 +1096,54 @@ async fn health_checker_manifest_probe_failure_auto_disables_channel() {
 }
 
 #[tokio::test]
+async fn health_checker_standard_probe_records_latency_for_least_latency() {
+    let (_pg, pool) = start_pg().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{ "id": "gpt-4o-mini" }]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let channel_id = ChannelId::new();
+    sqlx::query(
+        "INSERT INTO channels \
+         (id, code, name, provider_type, base_url, config_enc, supported_models, status, health, model_mapping) \
+         VALUES ($1, 'probe-openai', 'probe-openai', 'openai', $2, '\\x'::bytea, '{}'::text[], 'active', 'healthy', '{}'::jsonb)",
+    )
+    .bind(channel_id.as_uuid())
+    .bind(upstream.uri())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let router = Arc::new(ProviderRouter::new(
+        Arc::new(gate_storage::PgChannelRepo::new(pool.clone())),
+        Arc::new(gate_storage::PgChannelGroupRepo::new(pool.clone())),
+    ));
+    let state = AppState::new(
+        test_jwt(),
+        Arc::new(InMemoryLoader::new()),
+        Repos::from_pg(pool.clone()),
+    )
+    .with_provider_router_arc(router.clone());
+
+    let checker = HealthChecker::new(&state, std::time::Duration::from_millis(10)).unwrap();
+    let shutdown = CancellationToken::new();
+    let handle = checker.spawn_with_shutdown(shutdown.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    shutdown.cancel();
+    handle.await.unwrap();
+
+    let ch = state.repos.channels.find_by_id(channel_id).await.unwrap();
+    assert_eq!(ch.supported_models, vec!["gpt-4o-mini".to_string()]);
+    let metrics = router.channel_metrics().unwrap();
+    assert_ne!(metrics.avg_latency(channel_id), u64::MAX);
+}
+
+#[tokio::test]
 async fn route_chat_skips_channel_missing_requested_capability() {
     unsafe {
         std::env::set_var("KOOIX_API_KEY", "test-key");

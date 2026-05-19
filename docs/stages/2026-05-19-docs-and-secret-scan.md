@@ -25,6 +25,29 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.4 health probe standardization
+
+本轮收口 P1.4 首项 Health probe 标准化：
+
+- Compile-time provider 不再只有固定 `/v1/models` 探测；按 provider 类型生成标准 probe：
+  - OpenAI-compatible / DeepSeek / Mistral / Ollama 等默认 `GET /models`。
+  - Anthropic 默认 `GET /v1/models`，带 `anthropic-version` 与 `x-api-key`。
+  - Gemini 自动补 `/v1beta/openai` OpenAI-compatible base。
+  - Azure / Bedrock 走最小 chat-style `POST` probe，`max_tokens/maxTokens=1`、`temperature=0`。
+- 每个 provider 有默认低成本 probe model；channel `supported_models[0]` 优先覆盖默认模型，避免探测不存在的 deployment。
+- Compile-time 标准 probe 统一声明 `max_cost_micros=25`；Plugin probe 继续使用 manifest `probe.max_cost_micros`。
+- 新增 `provider_health_probe_total` 与 `provider_health_probe_duration_seconds`，标签固定为 `provider_type` / `outcome` / `status_bucket`，覆盖成功率、延迟与错误码分桶。
+- Health checker 会把 probe 成功/失败与延迟写回 `ProviderRouter` 的 `ChannelMetrics`，`least_latency` 可利用巡检样本，而不只依赖真实请求热度。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo test -p gate-server health_check::tests -- --nocapture
+cargo test -p gate-server --test c1_routing health_checker -- --nocapture
+cargo clippy --all-targets -- -D warnings
+```
+
 ## P1.3 data-plane error shape unification
 
 本轮把 P1.3 最后一项 error shape 收口为同一响应骨架：

@@ -15,6 +15,8 @@
 //! | `gate_active_requests`           | Gauge     | (none)                             |
 //! | `gateway_stage_duration_seconds` | Histogram | stage, outcome                     |
 //! | `provider_route_decisions_total` | Counter   | provider_type, outcome             |
+//! | `provider_health_probe_total`   | Counter   | provider_type, outcome, status_bucket |
+//! | `provider_health_probe_duration_seconds` | Histogram | provider_type, outcome, status_bucket |
 //! | `upstream_errors_total`          | Counter   | kind                               |
 //! | `provider_runtime_snapshot_version` | Gauge  | (none)                             |
 //! | `billing_outbox_lag_seconds`     | Gauge     | (none)                             |
@@ -156,6 +158,29 @@ pub fn record_billing_settle_failure(reason: &'static str) {
 /// Record normalized upstream/provider errors with bounded labels.
 pub fn record_upstream_error(kind: &'static str) {
     metrics::counter!("upstream_errors_total", "kind" => kind).increment(1);
+}
+
+/// Record one background health probe with bounded-cardinality labels.
+pub fn record_health_probe(
+    provider_type: &str,
+    outcome: &'static str,
+    status_bucket: &'static str,
+    duration_secs: f64,
+) {
+    metrics::counter!(
+        "provider_health_probe_total",
+        "provider_type" => provider_type.to_string(),
+        "outcome" => outcome,
+        "status_bucket" => status_bucket,
+    )
+    .increment(1);
+    metrics::histogram!(
+        "provider_health_probe_duration_seconds",
+        "provider_type" => provider_type.to_string(),
+        "outcome" => outcome,
+        "status_bucket" => status_bucket,
+    )
+    .record(duration_secs);
 }
 
 /// Normalize URL paths to avoid label cardinality explosion.

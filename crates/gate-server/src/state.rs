@@ -229,6 +229,12 @@ impl AppState {
         self
     }
 
+    /// 挂载已共享的 ProviderRouter（测试 / runtime 组件需要观察同一 metrics 窗口时使用）。
+    pub fn with_provider_router_arc(mut self, router: Arc<ProviderRouter>) -> Self {
+        self.provider_router = Some(router);
+        self
+    }
+
     /// 挂载 Envelope KMS（SSO 回调解密 client_secret）。
     pub fn with_crypto(mut self, kms: EnvelopeKms) -> Self {
         self.crypto = Some(Arc::new(kms));

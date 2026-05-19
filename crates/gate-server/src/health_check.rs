@@ -11,10 +11,11 @@ use crate::state::{AppState, Repos};
 use gate_core::id::ChannelId;
 use gate_crypto::EnvelopeKms;
 use gate_providers::CustomHttpProvider;
+use reqwest::header::HeaderMap;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 
@@ -25,6 +26,33 @@ pub struct HealthChecker {
     pool: PgPool,
     crypto: Option<Arc<EnvelopeKms>>,
     provider_router: Option<Arc<gate_providers::ProviderRouter>>,
+}
+
+const DEFAULT_PROBE_MAX_COST_MICROS: i64 = 25;
+
+#[derive(Debug, Clone)]
+struct StandardProbe {
+    url: String,
+    method: reqwest::Method,
+    headers: HeaderMap,
+    body: Option<Vec<u8>>,
+    model: String,
+    success_status: Vec<u16>,
+    max_cost_micros: Option<i64>,
+}
+
+impl StandardProbe {
+    fn cost_label(&self) -> i64 {
+        self.max_cost_micros
+            .unwrap_or(DEFAULT_PROBE_MAX_COST_MICROS)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeObservation {
+    outcome: &'static str,
+    status_bucket: &'static str,
+    latency_ms: u64,
 }
 
 impl HealthChecker {
@@ -165,75 +193,97 @@ impl HealthChecker {
             return;
         }
 
-        let bearer_token = self.get_bearer_token(ch.channel_id).await;
-
-        let base = ch.base_url.trim_end_matches('/');
-        let (url, req_headers) = match ch.provider_type.as_str() {
-            "anthropic" => {
-                let url = format!("{base}/v1/models");
-                let mut h = reqwest::header::HeaderMap::new();
-                if let Some(ref token) = bearer_token
-                    && let Ok(v) = token.parse()
-                {
-                    h.insert("x-api-key", v);
-                }
-                if let Ok(v) = "2023-06-01".parse() {
-                    h.insert("anthropic-version", v);
-                }
-                (url, h)
-            }
-            _ => {
-                let url = format!("{base}/v1/models");
-                let mut h = reqwest::header::HeaderMap::new();
-                if let Some(ref token) = bearer_token
-                    && let Ok(v) = format!("Bearer {token}").parse()
-                {
-                    h.insert("authorization", v);
-                }
-                (url, h)
-            }
-        };
-
+        let probe = self.standard_probe(ch).await;
+        self.log_probe_plan(ch, &probe);
+        let started = Instant::now();
         let resp = client
-            .get(&url)
-            .headers(req_headers)
-            .timeout(Duration::from_secs(10))
+            .request(probe.method.clone(), &probe.url)
+            .headers(probe.headers.clone())
+            .body(probe.body.clone().unwrap_or_default())
+            .timeout(Duration::from_millis((ch.timeout_ms as u64).max(5_000)))
             .send()
             .await;
+        let latency_ms = started.elapsed().as_millis() as u64;
 
         match resp {
             Ok(r) => {
-                let status = r.status();
-                match status.as_u16() {
-                    200 => {
-                        // Auto-discover models from response
-                        if let Ok(body) = r.json::<serde_json::Value>().await {
-                            let models = extract_model_ids(&body);
-                            if !models.is_empty() {
-                                self.sync_models(ch, &models).await;
-                            }
+                let status = r.status().as_u16();
+                let status_bucket = status_bucket(status);
+                if probe.success_status.contains(&status) {
+                    // Auto-discover models from response when the probe returns JSON.
+                    if status != 204
+                        && let Ok(body) = r.json::<serde_json::Value>().await
+                    {
+                        let models = extract_model_ids(&body);
+                        if !models.is_empty() {
+                            self.sync_models(ch, &models).await;
                         }
-
-                        self.handle_success(ch, consecutive_failures, is_cooldown)
-                            .await;
                     }
-                    401 => {
-                        self.handle_auth_failure(ch, consecutive_failures, 401)
+
+                    self.record_probe_observation(
+                        ch,
+                        ProbeObservation {
+                            outcome: "success",
+                            status_bucket,
+                            latency_ms,
+                        },
+                    );
+                    self.handle_success(ch, consecutive_failures, is_cooldown)
+                        .await;
+                    return;
+                }
+
+                match status {
+                    401 | 403 => {
+                        self.record_probe_observation(
+                            ch,
+                            ProbeObservation {
+                                outcome: "auth_error",
+                                status_bucket,
+                                latency_ms,
+                            },
+                        );
+                        self.handle_auth_failure(ch, consecutive_failures, status)
                             .await;
                     }
                     429 => {
+                        self.record_probe_observation(
+                            ch,
+                            ProbeObservation {
+                                outcome: "rate_limited",
+                                status_bucket,
+                                latency_ms,
+                            },
+                        );
                         // 限流：瞬态错误，只记日志不改状态
                         tracing::warn!(
                             channel = %ch.code,
-                            "health_check: rate limited (429), skipping status change"
+                            status,
+                            "health_check: probe rate limited, skipping status change"
                         );
                     }
                     408 => {
+                        self.record_probe_observation(
+                            ch,
+                            ProbeObservation {
+                                outcome: "timeout",
+                                status_bucket,
+                                latency_ms,
+                            },
+                        );
                         // 超时：累计失败，≥3 次 auto_disable
                         self.handle_transient_failure(ch, consecutive_failures, "timeout: 408")
                             .await;
                     }
                     other => {
+                        self.record_probe_observation(
+                            ch,
+                            ProbeObservation {
+                                outcome: "http_error",
+                                status_bucket,
+                                latency_ms,
+                            },
+                        );
                         // 其他错误码：累计
                         self.handle_transient_failure(
                             ch,
@@ -246,15 +296,28 @@ impl HealthChecker {
             }
             Err(e) => {
                 // 网络层错误（connect timeout / DNS 等）
-                let reason = if e.is_timeout() {
-                    "connect_timeout".to_string()
+                let (outcome, reason) = if e.is_timeout() {
+                    ("timeout", "connect_timeout".to_string())
                 } else {
-                    format!("network_error: {e}")
+                    ("network_error", format!("network_error: {e}"))
                 };
+                self.record_probe_observation(
+                    ch,
+                    ProbeObservation {
+                        outcome,
+                        status_bucket: "network",
+                        latency_ms,
+                    },
+                );
                 self.handle_transient_failure(ch, consecutive_failures, &reason)
                     .await;
             }
         }
+    }
+
+    async fn standard_probe(&self, ch: &gate_storage::ChannelRecord) -> StandardProbe {
+        let token = self.get_bearer_token(ch.channel_id).await;
+        build_standard_probe(ch, token.as_deref())
     }
 
     async fn handle_success(
@@ -368,15 +431,20 @@ impl HealthChecker {
             }
         };
 
-        if let Some(max_cost_micros) = probe.max_cost_micros {
-            tracing::debug!(
-                channel = %ch.code,
-                model = %probe.model,
-                max_cost_micros,
-                "health_check: plugin probe declared max cost"
-            );
-        }
+        self.log_probe_plan(
+            ch,
+            &StandardProbe {
+                url: probe.url.clone(),
+                method: probe.method.clone(),
+                headers: HeaderMap::new(),
+                body: probe.body.clone(),
+                model: probe.model.clone(),
+                success_status: probe.success_status.clone(),
+                max_cost_micros: probe.max_cost_micros,
+            },
+        );
 
+        let started = Instant::now();
         let resp = client
             .request(probe.method, &probe.url)
             .headers(probe.headers)
@@ -384,10 +452,12 @@ impl HealthChecker {
             .timeout(Duration::from_millis((ch.timeout_ms as u64).max(5_000)))
             .send()
             .await;
+        let latency_ms = started.elapsed().as_millis() as u64;
 
         match resp {
             Ok(r) => {
                 let status = r.status().as_u16();
+                let status_bucket = status_bucket(status);
                 if probe.success_status.contains(&status) {
                     if status == 200
                         && let Ok(body) = r.json::<serde_json::Value>().await
@@ -397,18 +467,50 @@ impl HealthChecker {
                             self.sync_models(ch, &models).await;
                         }
                     }
+                    self.record_probe_observation(
+                        ch,
+                        ProbeObservation {
+                            outcome: "success",
+                            status_bucket,
+                            latency_ms,
+                        },
+                    );
                     self.handle_success(ch, consecutive_failures, is_cooldown)
                         .await;
                 } else if status == 401 || status == 403 {
+                    self.record_probe_observation(
+                        ch,
+                        ProbeObservation {
+                            outcome: "auth_error",
+                            status_bucket,
+                            latency_ms,
+                        },
+                    );
                     self.handle_auth_failure(ch, consecutive_failures, status)
                         .await;
                 } else if status == 429 {
+                    self.record_probe_observation(
+                        ch,
+                        ProbeObservation {
+                            outcome: "rate_limited",
+                            status_bucket,
+                            latency_ms,
+                        },
+                    );
                     tracing::warn!(
                         channel = %ch.code,
                         status,
                         "health_check: plugin probe rate limited, skipping status change"
                     );
                 } else {
+                    self.record_probe_observation(
+                        ch,
+                        ProbeObservation {
+                            outcome: "http_error",
+                            status_bucket,
+                            latency_ms,
+                        },
+                    );
                     self.handle_transient_failure(
                         ch,
                         consecutive_failures,
@@ -418,15 +520,62 @@ impl HealthChecker {
                 }
             }
             Err(e) => {
-                let reason = if e.is_timeout() {
-                    "plugin_probe_timeout".to_string()
+                let (outcome, reason) = if e.is_timeout() {
+                    ("timeout", "plugin_probe_timeout".to_string())
                 } else {
-                    format!("plugin_probe_network: {e}")
+                    ("network_error", format!("plugin_probe_network: {e}"))
                 };
+                self.record_probe_observation(
+                    ch,
+                    ProbeObservation {
+                        outcome,
+                        status_bucket: "network",
+                        latency_ms,
+                    },
+                );
                 self.handle_transient_failure(ch, consecutive_failures, &reason)
                     .await;
             }
         }
+    }
+
+    fn log_probe_plan(&self, ch: &gate_storage::ChannelRecord, probe: &StandardProbe) {
+        tracing::debug!(
+            channel = %ch.code,
+            provider_type = %ch.provider_type,
+            model = %probe.model,
+            method = %probe.method,
+            success_status = ?probe.success_status,
+            max_cost_micros = probe.cost_label(),
+            "health_check: probe plan"
+        );
+    }
+
+    fn record_probe_observation(
+        &self,
+        ch: &gate_storage::ChannelRecord,
+        observation: ProbeObservation,
+    ) {
+        crate::metrics::record_health_probe(
+            &ch.provider_type,
+            observation.outcome,
+            observation.status_bucket,
+            observation.latency_ms as f64 / 1000.0,
+        );
+        if let Some(router) = &self.provider_router
+            && let Some(metrics) = router.channel_metrics()
+        {
+            metrics.record(ch.channel_id, observation.outcome == "success");
+            metrics.record_latency(ch.channel_id, observation.latency_ms);
+        }
+        tracing::debug!(
+            channel = %ch.code,
+            provider_type = %ch.provider_type,
+            outcome = observation.outcome,
+            status_bucket = observation.status_bucket,
+            latency_ms = observation.latency_ms,
+            "health_check: probe observation"
+        );
     }
 
     /// 累计瞬态失败，连续 ≥3 次则 auto_disable。
@@ -552,6 +701,152 @@ fn normalize_secret_slot(slot: &str) -> String {
     }
 }
 
+fn build_standard_probe(ch: &gate_storage::ChannelRecord, token: Option<&str>) -> StandardProbe {
+    let base = normalized_probe_base_url(ch);
+    let model = default_probe_model(ch);
+    let mut headers = HeaderMap::new();
+    let mut method = reqwest::Method::GET;
+    let mut body = None;
+    let url = match ch.provider_type.as_str() {
+        "anthropic" => {
+            if let Some(token) = token
+                && let Ok(v) = token.parse()
+            {
+                headers.insert("x-api-key", v);
+            }
+            headers.insert(
+                "anthropic-version",
+                reqwest::header::HeaderValue::from_static("2023-06-01"),
+            );
+            format!("{base}/v1/models")
+        }
+        "cohere" => {
+            if let Some(token) = token
+                && let Ok(v) = format!("Bearer {token}").parse()
+            {
+                headers.insert("authorization", v);
+            }
+            format!("{base}/models")
+        }
+        "azure" => {
+            method = reqwest::Method::POST;
+            if let Some(token) = token
+                && let Ok(v) = token.parse()
+            {
+                headers.insert("api-key", v);
+            }
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            body = Some(minimal_chat_probe_body(&model));
+            format!(
+                "{base}/openai/deployments/{model}/chat/completions?api-version=2024-08-01-preview"
+            )
+        }
+        "bedrock" => {
+            method = reqwest::Method::POST;
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            body = Some(bedrock_probe_body());
+            format!("{base}/model/{model}/converse")
+        }
+        _ => {
+            if let Some(token) = token
+                && let Ok(v) = format!("Bearer {token}").parse()
+            {
+                headers.insert("authorization", v);
+            }
+            format!("{base}/models")
+        }
+    };
+
+    StandardProbe {
+        url,
+        method,
+        headers,
+        body,
+        model,
+        success_status: vec![200],
+        max_cost_micros: Some(DEFAULT_PROBE_MAX_COST_MICROS),
+    }
+}
+
+fn normalized_probe_base_url(ch: &gate_storage::ChannelRecord) -> String {
+    let base = ch.base_url.trim_end_matches('/');
+    match ch.provider_type.as_str() {
+        "gemini" => format!("{base}/v1beta/openai"),
+        _ => base.to_string(),
+    }
+}
+
+fn default_probe_model(ch: &gate_storage::ChannelRecord) -> String {
+    ch.supported_models
+        .first()
+        .cloned()
+        .unwrap_or_else(|| default_probe_model_for_provider(&ch.provider_type).to_string())
+}
+
+fn default_probe_model_for_provider(provider_type: &str) -> &'static str {
+    match provider_type {
+        "anthropic" => "claude-3-haiku-20240307",
+        "gemini" => "gemini-1.5-flash",
+        "cohere" => "command-r",
+        "mistral" => "mistral-small-latest",
+        "deepseek" => "deepseek-chat",
+        "ollama" => "llama3.1",
+        "bedrock" => "anthropic.claude-3-haiku-20240307-v1:0",
+        "azure" | "openai" | "groq" | "together" | "openrouter" | "moonshot" | "zhipu" | "qwen"
+        | "yi" => "gpt-4o-mini",
+        _ => "gpt-4o-mini",
+    }
+}
+
+fn minimal_chat_probe_body(model: &str) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": "Hi" }],
+        "max_tokens": 1,
+        "temperature": 0.0,
+        "stream": false
+    }))
+    .expect("static health probe body is serializable")
+}
+
+fn bedrock_probe_body() -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "messages": [{
+            "role": "user",
+            "content": [{ "text": "Hi" }]
+        }],
+        "inferenceConfig": {
+            "maxTokens": 1,
+            "temperature": 0.0
+        }
+    }))
+    .expect("static bedrock probe body is serializable")
+}
+
+fn status_bucket(status: u16) -> &'static str {
+    match status {
+        200..=299 => "2xx",
+        300..=399 => "3xx",
+        400 | 404 | 408 | 429 => match status {
+            400 => "400",
+            404 => "404",
+            408 => "408",
+            429 => "429",
+            _ => unreachable!(),
+        },
+        401 | 403 => "auth",
+        400..=499 => "4xx",
+        500..=599 => "5xx",
+        _ => "other",
+    }
+}
+
 fn extract_model_ids(body: &serde_json::Value) -> Vec<String> {
     let mut models: Vec<String> = body
         .get("data")
@@ -617,5 +912,87 @@ pub fn spawn_with_shutdown(
             tracing::warn!("health_check: no PgPool available (in-memory mode?), not spawning");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use gate_core::id::ChannelId;
+
+    fn test_channel(
+        provider_type: &str,
+        base_url: &str,
+        supported_models: Vec<String>,
+    ) -> gate_storage::ChannelRecord {
+        gate_storage::ChannelRecord {
+            channel_id: ChannelId::new(),
+            code: format!("test-{provider_type}"),
+            name: format!("test-{provider_type}"),
+            provider_type: provider_type.to_string(),
+            base_url: base_url.to_string(),
+            supported_models,
+            status: "active".to_string(),
+            health: "healthy".to_string(),
+            timeout_ms: 5000,
+            max_retries: 0,
+            rpm_limit: None,
+            tpm_limit: None,
+            tags: vec![],
+            model_mapping: serde_json::json!({}),
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn standard_probe_uses_provider_default_model_and_cost_cap() {
+        let ch = test_channel("azure", "https://example.openai.azure.com", vec![]);
+        let probe = build_standard_probe(&ch, Some("probe-key"));
+        assert_eq!(probe.method, reqwest::Method::POST);
+        assert_eq!(probe.model, "gpt-4o-mini");
+        assert_eq!(probe.max_cost_micros, Some(DEFAULT_PROBE_MAX_COST_MICROS));
+        assert_eq!(
+            probe.url,
+            "https://example.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-08-01-preview"
+        );
+        let body: serde_json::Value = serde_json::from_slice(&probe.body.unwrap()).unwrap();
+        assert_eq!(body["model"], "gpt-4o-mini");
+        assert_eq!(body["max_tokens"], 1);
+        assert_eq!(body["temperature"], 0.0);
+        assert_eq!(probe.headers.get("api-key").unwrap(), "probe-key");
+    }
+
+    #[test]
+    fn standard_probe_prefers_channel_supported_model() {
+        let ch = test_channel(
+            "bedrock",
+            "https://bedrock-runtime.us-west-2.amazonaws.com",
+            vec!["vendor.custom-model".to_string()],
+        );
+        let probe = build_standard_probe(&ch, None);
+        assert_eq!(probe.method, reqwest::Method::POST);
+        assert_eq!(probe.model, "vendor.custom-model");
+        assert_eq!(
+            probe.url,
+            "https://bedrock-runtime.us-west-2.amazonaws.com/model/vendor.custom-model/converse"
+        );
+        let body: serde_json::Value = serde_json::from_slice(&probe.body.unwrap()).unwrap();
+        assert_eq!(body["inferenceConfig"]["maxTokens"], 1);
+    }
+
+    #[test]
+    fn health_probe_status_buckets_are_bounded() {
+        assert_eq!(status_bucket(200), "2xx");
+        assert_eq!(status_bucket(401), "auth");
+        assert_eq!(status_bucket(404), "404");
+        assert_eq!(status_bucket(429), "429");
+        assert_eq!(status_bucket(418), "4xx");
+        assert_eq!(status_bucket(503), "5xx");
     }
 }

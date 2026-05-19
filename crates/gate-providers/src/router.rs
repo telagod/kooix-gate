@@ -1055,6 +1055,11 @@ impl ProviderRouter {
         }
     }
 
+    /// 暴露只读 metrics 句柄给 health checker，用于把 probe 成功率/延迟喂给 least_latency。
+    pub fn channel_metrics(&self) -> Option<Arc<ChannelMetrics>> {
+        self.metrics.clone()
+    }
+
     /// 获取 rate_limiter 的引用（供调用方上报 token 消耗）。
     pub fn rate_limiter(&self) -> Arc<dyn ChannelRateCheck> {
         self.rate_limiter.clone()

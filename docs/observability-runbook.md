@@ -13,6 +13,18 @@ provider_runtime_snapshot_version
 - `stage=route|adapt|execute|...`：定位热路径慢在哪一段。
 - `provider_route_decisions_total{outcome="none|error"}` 突增：优先查 channel health / group binding / model alias。
 
+## Provider health probes
+
+```promql
+sum(rate(provider_health_probe_total[5m])) by (provider_type, outcome, status_bucket)
+histogram_quantile(0.95, sum(rate(provider_health_probe_duration_seconds_bucket[5m])) by (le, provider_type, outcome))
+```
+
+- `outcome=auth_error`：channel key / upstream 认证失效，health checker 会自动 disable active channel。
+- `outcome=rate_limited`：探活被 429，默认只记录指标和日志，不改变 channel 状态。
+- `status_bucket=5xx|network` 持续升高：上游不可用或网络异常，连续失败达到阈值会进入 auto-disable。
+- compile-time provider 使用默认低成本 probe model；channel `supported_models[0]` 会覆盖默认模型，plugin channel 使用 manifest `probe.model` / `max_cost_micros`。
+
 ## Billing / usage settlement
 
 ```promql
