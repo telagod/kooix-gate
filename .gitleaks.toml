@@ -5,8 +5,10 @@ useDefault = true
 
 # Local-only compose fixtures intentionally use non-secret placeholders.
 # Keep the waiver narrow: generic-api-key only + exact compose files + exact placeholder lines.
-[[allowlists]]
-targetRules = ["generic-api-key"]
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
 description = "Kooix local compose placeholder secrets"
 condition = "AND"
 paths = [
