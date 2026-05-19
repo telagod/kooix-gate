@@ -26,7 +26,7 @@ async function tryRefresh(): Promise<string | null> {
 		});
 		if (!resp.ok) return null;
 		const data = await resp.json();
-		saveTokens(data.access_token, rt);
+		saveTokens(data.access_token, data.refresh_token ?? rt);
 		return data.access_token;
 	} catch {
 		return null;
@@ -147,7 +147,7 @@ export async function login(email: string, password: string): Promise<LoginResul
 	});
 }
 
-export async function refreshTokenApi(refreshTk: string): Promise<{ access_token: string; expires_at: string }> {
+export async function refreshTokenApi(refreshTk: string): Promise<{ access_token: string; refresh_token: string; expires_at: string }> {
 	return apiFetch('/v1/auth/refresh', {
 		method: 'POST',
 		body: JSON.stringify({ refresh_token: refreshTk }),
@@ -873,6 +873,17 @@ export interface UserDetail {
 	created_at: string;
 }
 
+export interface UserSession {
+	id: string;
+	user_id: string;
+	user_agent: string | null;
+	ip: string | null;
+	created_at: string;
+	last_used_at: string;
+	expires_at: string;
+	current: boolean;
+}
+
 export async function listUsers(limit = 50, offset = 0): Promise<UserDetail[]> {
 	const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
 	return apiFetch<UserDetail[]>(`/v1/admin/users?${params}`);
@@ -903,6 +914,22 @@ export async function resetUserPassword(id: string, password: string): Promise<U
 	return apiFetch<UserDetail>(`/v1/admin/users/${rawId(id)}/password`, {
 		method: 'PUT',
 		body: JSON.stringify({ password })
+	});
+}
+
+export async function listUserSessions(id: string): Promise<UserSession[]> {
+	return apiFetch<UserSession[]>(`/v1/admin/users/${rawId(id)}/sessions`);
+}
+
+export async function revokeUserSession(id: string, sessionId: string): Promise<{ revoked: number }> {
+	return apiFetch<{ revoked: number }>(`/v1/admin/users/${rawId(id)}/sessions/${rawId(sessionId)}`, {
+		method: 'DELETE'
+	});
+}
+
+export async function revokeUserSessions(id: string): Promise<{ revoked: number }> {
+	return apiFetch<{ revoked: number }>(`/v1/admin/users/${rawId(id)}/sessions`, {
+		method: 'DELETE'
 	});
 }
 

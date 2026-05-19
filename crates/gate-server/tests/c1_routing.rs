@@ -104,6 +104,7 @@ fn repos_with_channels(
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
     }
 }
@@ -321,6 +322,7 @@ async fn full_chain_api_key_to_upstream() {
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
     };
 
@@ -465,6 +467,7 @@ async fn full_chain_rewrites_model_from_alias_and_channel_mapping() {
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
     };
 
@@ -627,6 +630,7 @@ async fn plugin_manifest_channel_model_mapping_rewrites_deployment_path() {
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
     };
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
@@ -769,6 +773,7 @@ async fn full_chain_plugin_channel_normalizes_private_sse() {
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
     };
 

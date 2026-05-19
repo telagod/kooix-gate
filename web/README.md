@@ -73,7 +73,7 @@ pnpm build
 | `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设与自定义 manifest |
 | `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
 | `/admin/pricing` | Platform admin 定价规则管理，支持 global / channel-specific rules |
-| `/admin/users` | Platform admin 用户生命周期管理：创建、停用/启用、重置密码 |
+| `/admin/users` | Platform admin 用户生命周期管理：创建、停用/启用、重置密码、查看 / 撤销 refresh sessions |
 | `/admin/requests` / `/usage/requests` | 请求日志与使用明细过滤页 |
 
 ## API ID 约定

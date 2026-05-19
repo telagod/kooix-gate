@@ -245,6 +245,14 @@ pub fn router() -> Router<AppState> {
             "/users/:id/password",
             axum::routing::put(reset_user_password),
         )
+        .route(
+            "/users/:id/sessions",
+            get(list_user_sessions).delete(revoke_user_sessions),
+        )
+        .route(
+            "/users/:id/sessions/:session_id",
+            axum::routing::delete(revoke_user_session),
+        )
         .route("/groups", get(list_groups).post(create_group))
         .route(
             "/groups/:id",
@@ -1157,6 +1165,23 @@ pub struct UsersQuery {
     pub offset: i64,
 }
 
+#[derive(Serialize)]
+pub struct UserSessionView {
+    pub id: String,
+    pub user_id: String,
+    pub user_agent: Option<String>,
+    pub ip: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub current: bool,
+}
+
+#[derive(Serialize)]
+pub struct RevokeSessionsResponse {
+    pub revoked: u64,
+}
+
 #[derive(Deserialize)]
 pub struct CreateUserRequest {
     pub email: String,
@@ -1313,6 +1338,82 @@ async fn reset_user_password(
     );
 
     Ok(Json(user_to_view(user)))
+}
+
+async fn list_user_sessions(
+    State(app): State<AppState>,
+    Path(id): Path<FlexUuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<Vec<UserSessionView>>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let user_id = UserId::from(id.0);
+    app.repos.users.find_by_id(user_id).await?;
+    let current_session = ctx.session_id();
+    let sessions = app.repos.sessions.list_active_for_user(user_id).await?;
+    Ok(Json(
+        sessions
+            .into_iter()
+            .map(|session| UserSessionView {
+                id: session.id.to_string(),
+                user_id: session.user_id.to_string(),
+                user_agent: session.user_agent,
+                ip: session.ip.map(|ip| ip.to_string()),
+                created_at: session.created_at,
+                last_used_at: session.last_used_at,
+                expires_at: session.expires_at,
+                current: current_session == Some(session.id),
+            })
+            .collect(),
+    ))
+}
+
+async fn revoke_user_session(
+    State(app): State<AppState>,
+    Path((id, session_id)): Path<(FlexUuid, FlexUuid)>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<RevokeSessionsResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let user_id = UserId::from(id.0);
+    app.repos
+        .sessions
+        .revoke_for_user(user_id, session_id.0)
+        .await?;
+
+    app.audit.emit(
+        &ctx,
+        "user_session.revoke",
+        "user_session",
+        Some(session_id.0),
+        Some(serde_json::json!({"user_id": user_id.to_string()})),
+    );
+
+    Ok(Json(RevokeSessionsResponse { revoked: 1 }))
+}
+
+async fn revoke_user_sessions(
+    State(app): State<AppState>,
+    Path(id): Path<FlexUuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<RevokeSessionsResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::PlatformAdmin, Scope::Platform);
+
+    let user_id = UserId::from(id.0);
+    let revoked = app.repos.sessions.revoke_user_sessions(user_id).await?;
+
+    app.audit.emit(
+        &ctx,
+        "user_session.revoke_all",
+        "user",
+        Some(*user_id.as_uuid()),
+        Some(serde_json::json!({"revoked": revoked})),
+    );
+
+    Ok(Json(RevokeSessionsResponse { revoked }))
 }
 
 fn user_to_view(u: gate_core::identity::User) -> UserView {

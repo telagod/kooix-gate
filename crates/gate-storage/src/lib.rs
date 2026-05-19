@@ -50,6 +50,10 @@ pub use repo::request_log::{
     DashboardStats, FilterOptionItem, FilterOptions, HourlyBucket, InMemoryRequestLogRepo,
     ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
 };
+pub use repo::session::{
+    InMemoryUserSessionRepo, PgUserSessionRepo, UserSessionCreate, UserSessionRecord,
+    UserSessionRepo,
+};
 pub use repo::usage::{
     GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, ScopeUsageFilter, UsageBucket,
     UsageRepo, UsageSeed, UsageTotals,

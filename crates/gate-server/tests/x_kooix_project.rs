@@ -208,6 +208,7 @@ async fn fixture() -> Fixture {
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
     };
 

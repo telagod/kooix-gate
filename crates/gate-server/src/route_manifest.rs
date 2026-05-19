@@ -286,6 +286,24 @@ pub const ROUTES: &[RouteMeta] = &[
         PlatformAdmin,
         CONTROL_PLANE
     ),
+    route!(
+        "GET",
+        "/v1/admin/users/:id/sessions",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "DELETE",
+        "/v1/admin/users/:id/sessions",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "DELETE",
+        "/v1/admin/users/:id/sessions/:session_id",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
     route!("GET", "/v1/admin/groups", PlatformAdmin, CONTROL_PLANE),
     route!("POST", "/v1/admin/groups", PlatformAdmin, CONTROL_PLANE),
     route!("PUT", "/v1/admin/groups/:id", PlatformAdmin, CONTROL_PLANE),

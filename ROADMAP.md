@@ -498,8 +498,8 @@ cargo test -p gate-providers --all-targets
   - 用户同步
   - group → role mapping
 - [ ] Session 管理：
-  - 查看活跃 refresh token
-  - 单用户踢下线
+  - [x] 查看活跃 refresh token
+  - [x] 单用户踢下线
   - 全局 JWT rotation。
 - [ ] `JwtRing`：支持新旧两把 JWT secret 窗口期验证。
 

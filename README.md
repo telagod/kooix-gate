@@ -32,6 +32,7 @@
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
 - ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价，ledger 对账 + invoice 状态机）
 - ✅ Quota policy engine（rpm / tpm / concurrent / daily / monthly / lifetime，Redis Lua 原子，dry-run / explain / reconcile）
+- ✅ Refresh session 管理：refresh token hash 持久化、轮转、防重放、logout 撤销、平台管理员踢下线
 - ✅ 可视化编排 Playground（@xyflow/svelte 节点式流程编辑器）
 - ✅ SvelteKit 控制台（channel 管理 / 请求日志 / usage 仪表盘 / 月度账单 / SSO）
 - ✅ `kgctl` 部署 CLI + Docker Compose 一键部署 + GitHub Actions CI
@@ -155,8 +156,10 @@ curl http://localhost:8080/v1/chat/completions \
 - `POST /v1/admin/users`：创建密码用户，字段为 `email`、`display_name?`、`password`、`status?`。密码由后端使用 Argon2id hash 后存储，明文不回显、不写 audit。
 - `PUT /v1/admin/users/:id/status`：平台管理员切换 `active` / `suspended` / `pending_verification`，拒绝停用当前登录管理员，避免自锁。
 - `PUT /v1/admin/users/:id/password`：平台管理员重置用户密码并清零失败登录计数。
+- `GET /v1/admin/users/:id/sessions`：查看该用户仍可 refresh 的活跃 session，不返回 refresh token hash。
+- `DELETE /v1/admin/users/:id/sessions/:session_id`：撤销单个 session；`DELETE /v1/admin/users/:id/sessions` 批量撤销，阻断后续 refresh。
 
-安全边界：所有 `/v1/admin/users*` mutation 必须通过 `Permission::PlatformAdmin`；`login` 与 `refresh` 都会检查用户当前状态，非 `active` 用户无法获得新 token。关键 mutation 写入 audit action：`user.create`、`user.update_status`、`user.reset_password`。
+安全边界：所有 `/v1/admin/users*` mutation 必须通过 `Permission::PlatformAdmin`；`login` 与 `refresh` 都会检查用户当前状态，非 `active` 用户无法获得新 token。refresh token 只以 SHA-256 hash 落 `user_sessions`，每次 refresh 成功都会轮转并拒绝旧 token 重放。关键 mutation 写入 audit action：`user.create`、`user.update_status`、`user.reset_password`、`user_session.revoke`、`user_session.revoke_all`。
 
 ## 设计要点速览
 

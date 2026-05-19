@@ -1,13 +1,34 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createUser, getMe, listUsers, resetUserPassword, updateUserStatus } from '$lib/api.js';
-	import type { UserDetail } from '$lib/api.js';
+	import {
+		createUser,
+		getMe,
+		listUserSessions,
+		listUsers,
+		resetUserPassword,
+		revokeUserSession,
+		revokeUserSessions,
+		updateUserStatus
+	} from '$lib/api.js';
+	import type { UserDetail, UserSession } from '$lib/api.js';
 	import { Alert, Badge, Button, Card, Field, Input, Select, Skeleton } from '$lib/components/ui';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
-	import { Check, KeyRound, Plus, RefreshCcw, Search, ShieldCheck, ShieldOff, UserPlus, Users } from 'lucide-svelte';
+	import {
+		Check,
+		KeyRound,
+		LogOut,
+		MonitorSmartphone,
+		Plus,
+		RefreshCcw,
+		Search,
+		ShieldCheck,
+		ShieldOff,
+		UserPlus,
+		Users
+	} from 'lucide-svelte';
 
 	let users = $state<UserDetail[]>([]);
 	let loading = $state(true);
@@ -24,6 +45,12 @@
 	let resetTarget = $state<UserDetail | null>(null);
 	let resetPasswordValue = $state('');
 	let resetPasswordError = $state('');
+	let sessionTarget = $state<UserDetail | null>(null);
+	let sessions = $state<UserSession[]>([]);
+	let sessionsLoading = $state(false);
+	let sessionBusy = $state<Record<string, boolean>>({});
+	let revokeAllBusy = $state(false);
+	let sessionError = $state('');
 	let search = $state('');
 	let statusFilter = $state('all');
 	let limit = $state('50');
@@ -151,6 +178,59 @@
 		actionSuccess = '';
 	}
 
+	async function openSessions(user: UserDetail) {
+		sessionTarget = user;
+		sessionError = '';
+		actionError = '';
+		actionSuccess = '';
+		await refreshSessions();
+	}
+
+	async function refreshSessions() {
+		if (!sessionTarget) return;
+		sessionsLoading = true;
+		sessionError = '';
+		try {
+			sessions = await listUserSessions(sessionTarget.id);
+		} catch (err: any) {
+			sessionError = err?.message ?? '会话加载失败';
+		} finally {
+			sessionsLoading = false;
+		}
+	}
+
+	async function revokeSession(session: UserSession) {
+		if (!sessionTarget) return;
+		sessionBusy = { ...sessionBusy, [session.id]: true };
+		sessionError = '';
+		actionSuccess = '';
+		try {
+			await revokeUserSession(sessionTarget.id, session.id);
+			sessions = sessions.filter((s) => s.id !== session.id);
+			actionSuccess = `${sessionTarget.email} 的 refresh session 已撤销`;
+		} catch (err: any) {
+			sessionError = err?.message ?? '撤销失败';
+		} finally {
+			sessionBusy = { ...sessionBusy, [session.id]: false };
+		}
+	}
+
+	async function revokeAllSessions() {
+		if (!sessionTarget) return;
+		revokeAllBusy = true;
+		sessionError = '';
+		actionSuccess = '';
+		try {
+			const result = await revokeUserSessions(sessionTarget.id);
+			sessions = [];
+			actionSuccess = `${sessionTarget.email} 已踢下线 ${result.revoked} 个 session`;
+		} catch (err: any) {
+			sessionError = err?.message ?? '批量撤销失败';
+		} finally {
+			revokeAllBusy = false;
+		}
+	}
+
 	async function submitResetPassword() {
 		if (!resetTarget) return;
 		resetPasswordError = '';
@@ -177,6 +257,16 @@
 	function fmtDate(d: string | null): string {
 		if (!d) return '—';
 		return new Date(d).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+	}
+
+	function fmtDateTime(d: string | null): string {
+		if (!d) return '—';
+		return new Date(d).toLocaleString('zh-CN', {
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
 	}
 
 	function statusVariant(status: string): BadgeVariant {
@@ -318,6 +408,9 @@
 										<Button variant="outline" size="sm" disabled={passwordBusy[user.id]} onclick={() => openReset(user)}>
 											<KeyRound size={12} />重置密码
 										</Button>
+										<Button variant="outline" size="sm" onclick={() => openSessions(user)}>
+											<MonitorSmartphone size={12} />Sessions
+										</Button>
 									</div>
 								</td>
 							</tr>
@@ -345,6 +438,85 @@
 						<Button onclick={submitResetPassword} disabled={passwordBusy[resetTarget.id]}>
 							<Check size={14} />确认重置
 						</Button>
+					</div>
+				</Card>
+			</div>
+		{/if}
+
+		{#if sessionTarget}
+			<div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-4" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) sessionTarget = null; }}>
+				<Card padding="lg" class="max-h-[85vh] w-full max-w-4xl overflow-y-auto">
+					<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+						<div class="flex items-center gap-2">
+							<MonitorSmartphone size={18} class={text.secondary} />
+							<div>
+								<p class="font-semibold {text.primary}">活跃 refresh sessions</p>
+								<p class="text-xs {text.muted}">{sessionTarget.email} · 撤销后仅阻断后续 refresh，已签发 access token 会自然过期。</p>
+							</div>
+						</div>
+						<div class="flex gap-2">
+							<Button variant="outline" size="sm" onclick={refreshSessions} disabled={sessionsLoading}>
+								<RefreshCcw size={12} class={sessionsLoading ? 'animate-spin' : ''} />刷新
+							</Button>
+							<Button variant="destructive" size="sm" onclick={revokeAllSessions} disabled={revokeAllBusy || sessions.length === 0}>
+								<LogOut size={12} />全部踢下线
+							</Button>
+						</div>
+					</div>
+
+					{#if sessionError}
+						<Alert variant="danger" class="mb-3">{sessionError}</Alert>
+					{/if}
+
+					{#if sessionsLoading}
+						<div class="space-y-2">
+							{#each Array(3) as _}
+								<Skeleton class="h-14" />
+							{/each}
+						</div>
+					{:else if sessions.length === 0}
+						<StatePanel title="暂无活跃 session" description="该用户没有可继续 refresh 的登录态。" icon={MonitorSmartphone} />
+					{:else}
+						<div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+							<table class={dataTemplate.table}>
+								<thead class={dataTemplate.head}>
+									<tr>
+										<th class={dataTemplate.th}>Session</th>
+										<th class={dataTemplate.th}>IP / UA</th>
+										<th class={dataTemplate.th}>最后使用</th>
+										<th class={dataTemplate.th}>过期</th>
+										<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
+									</tr>
+								</thead>
+								<tbody class={dataTemplate.body}>
+									{#each sessions as session}
+										<tr class={dataTemplate.row}>
+											<td class="px-4 py-3">
+												<div class="font-mono text-xs {text.primary}">{session.id}</div>
+												{#if session.current}
+													<Badge variant="admin">Current</Badge>
+												{/if}
+											</td>
+											<td class="px-4 py-3">
+												<div class="font-mono text-xs {text.primary}">{session.ip ?? '—'}</div>
+												<div class="mt-1 max-w-md truncate text-xs {text.muted}">{session.user_agent ?? 'unknown user agent'}</div>
+											</td>
+											<td class={dataTemplate.td}>{fmtDateTime(session.last_used_at)}</td>
+											<td class={dataTemplate.td}>{fmtDateTime(session.expires_at)}</td>
+											<td class="px-4 py-3 text-right">
+												<Button variant="destructive" size="sm" onclick={() => revokeSession(session)} disabled={sessionBusy[session.id]}>
+													<LogOut size={12} />撤销
+												</Button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+
+					<div class="mt-5 flex justify-end">
+						<Button variant="ghost" onclick={() => (sessionTarget = null)}>关闭</Button>
 					</div>
 				</Card>
 			</div>

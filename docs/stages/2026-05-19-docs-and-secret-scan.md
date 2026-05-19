@@ -517,3 +517,26 @@ npm --prefix web run check
 ```
 
 剩余全量门禁继续在本阶段末尾统一跑：`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`npm --prefix web test`、`npm --prefix web run build`、`gitleaks` 双扫描。
+
+## P1.7 Identity / Session 管理
+
+本轮把 P1.7 中的 Session 管理从无状态 TODO 落成可运维闭环：
+
+- `gate-storage` 新增 `UserSessionRepo`，PG / InMemory 双实现对齐 `user_sessions` 表；refresh token 只以 SHA-256 hash 存储。
+- `/v1/auth/login` 与 SSO callback 会创建 session；`/v1/auth/refresh` 校验 session 未撤销/未过期并原子轮转 refresh hash，旧 refresh token 重放返回 `token_invalid`。
+- `/v1/auth/logout` 撤销当前 session，平台管理员可通过 `/v1/admin/users/:id/sessions` 查看活跃 session，并撤销单个或全部 session。
+- 前端 `/admin/users` 增加 Session 面板；`apiFetch` refresh 流程保存服务端返回的新 refresh token，避免 token rotation 后继续使用旧 token。
+- 文档同步 `README.md`、`DESIGN.md`、`CHANGELOG.md`、`ROADMAP.md`、`web/README.md`；未完成的全局 JWT rotation / `JwtRing` 保持在 P1.7 待办。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo check -p gate-storage -p gate-server
+cargo test -p gate-storage session
+cargo test -p gate-server --test auth_endpoints_e2e
+cargo test -p gate-server --test admin_users_e2e
+cargo test -p gate-server --test sso_flow
+npm --prefix web run check
+npm --prefix web test -- api
+```

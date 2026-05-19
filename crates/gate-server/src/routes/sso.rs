@@ -22,7 +22,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use async_trait::async_trait;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderValue;
+use axum::http::{HeaderMap, HeaderValue};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Json, Router, routing::get};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
@@ -32,7 +32,7 @@ use gate_auth::AuthError;
 use gate_auth::oidc::{OidcIdentity, OidcProvider};
 use gate_core::id::UserId;
 use gate_core::identity::OrgRole;
-use gate_storage::{DbError, IdentityProviderRecord};
+use gate_storage::{DbError, IdentityProviderRecord, UserSessionCreate};
 use openidconnect::{Nonce, PkceCodeVerifier};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -253,6 +253,7 @@ async fn start(
 /// - 成功：JSON 返回 token；若有 redirect_to，302 带 fragment
 async fn callback(
     State(app): State<AppState>,
+    headers: HeaderMap,
     Query(q): Query<CallbackQuery>,
 ) -> AppResult<Response> {
     if q.state.len() < 16 {
@@ -366,7 +367,19 @@ async fn callback(
         current_org.map(|o| *o.as_uuid()),
         false,
     )?;
-    let (refresh_token, _) = app.jwt.issue_refresh(*user_id.as_uuid(), session_id, jti)?;
+    let (refresh_token, refresh_expires_at) =
+        app.jwt.issue_refresh(*user_id.as_uuid(), session_id, jti)?;
+    app.repos
+        .sessions
+        .create(UserSessionCreate {
+            id: session_id,
+            user_id,
+            refresh_token_hash: crate::routes::auth::token_hash(&refresh_token),
+            user_agent: crate::routes::auth::session_user_agent(&headers),
+            ip: crate::routes::auth::session_ip_from_headers(&headers),
+            expires_at: refresh_expires_at,
+        })
+        .await?;
 
     // 顺手 mark_last_login（容错，不阻塞登录）
     app.repos

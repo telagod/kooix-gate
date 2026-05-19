@@ -111,6 +111,29 @@ async fn json_req(
     (status, body)
 }
 
+async fn empty_req(
+    router: &axum::Router,
+    method: &str,
+    uri: &str,
+    token: &str,
+) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = router.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+    };
+    (status, body)
+}
+
 async fn public_json(router: &axum::Router, uri: &str, body: Value) -> (StatusCode, Value) {
     let req = Request::builder()
         .method("POST")
@@ -207,16 +230,16 @@ async fn platform_admin_can_create_list_suspend_and_reset_password() {
     assert_eq!(status, StatusCode::OK, "body={reset}");
     assert_eq!(reset["id"], created["id"]);
 
-    let audit_actions = wait_audit_actions(&f.audit).await;
+    let audit_actions = wait_audit_actions(&f.audit, 3).await;
     assert!(audit_actions.contains(&"user.create".to_string()));
     assert!(audit_actions.contains(&"user.update_status".to_string()));
     assert!(audit_actions.contains(&"user.reset_password".to_string()));
 }
 
-async fn wait_audit_actions(audit: &InMemoryAuditRepo) -> Vec<String> {
+async fn wait_audit_actions(audit: &InMemoryAuditRepo, min_actions: usize) -> Vec<String> {
     for _ in 0..20 {
         let actions: Vec<_> = audit.all().into_iter().map(|r| r.action).collect();
-        if actions.len() >= 3 {
+        if actions.len() >= min_actions {
             return actions;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -322,4 +345,109 @@ async fn refresh_rejects_user_after_status_changes_to_suspended() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "body={body}");
     assert_eq!(body["error"]["code"], "account_suspended");
+}
+
+#[tokio::test]
+async fn admin_can_list_revoke_one_and_revoke_all_sessions() {
+    let f = fixture().await;
+
+    let pw_hash = gate_auth::password::hash("session-password-123").unwrap();
+    let user = f
+        .users
+        .create("session@example.com", Some(&pw_hash), None, None)
+        .await
+        .unwrap();
+    f.loader.add_user(
+        user.id,
+        UserRecord {
+            orgs: Default::default(),
+            projects: Default::default(),
+            platform: None,
+        },
+    );
+
+    let (_, login_a) = public_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "session@example.com", "password": "session-password-123"}),
+    )
+    .await;
+    let refresh_a = login_a["refresh_token"].as_str().unwrap().to_string();
+
+    let (_, login_b) = public_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "session@example.com", "password": "session-password-123"}),
+    )
+    .await;
+    let refresh_b = login_b["refresh_token"].as_str().unwrap().to_string();
+
+    let admin = access_token(&f, f.admin_id, true);
+    let (status, sessions) = get_json(
+        &f.router,
+        &format!("/v1/admin/users/{}/sessions", user.id),
+        &admin,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={sessions}");
+    assert_eq!(sessions.as_array().unwrap().len(), 2);
+    let one_session = sessions[0]["id"].as_str().unwrap().to_string();
+
+    let (status, body) = empty_req(
+        &f.router,
+        "DELETE",
+        &format!("/v1/admin/users/{}/sessions/{one_session}", user.id),
+        &admin,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["revoked"], 1);
+
+    let (status_a, body_a) = public_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": refresh_a}),
+    )
+    .await;
+    let (status_b, body_b) = public_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": refresh_b}),
+    )
+    .await;
+    let one_failed = status_a == StatusCode::UNAUTHORIZED || status_b == StatusCode::UNAUTHORIZED;
+    let one_ok = status_a == StatusCode::OK || status_b == StatusCode::OK;
+    assert!(
+        one_failed && one_ok,
+        "expected exactly one revoked refresh; a={status_a} {body_a}, b={status_b} {body_b}"
+    );
+
+    let active_refresh = if status_a == StatusCode::OK {
+        body_a["refresh_token"].as_str().unwrap().to_string()
+    } else {
+        body_b["refresh_token"].as_str().unwrap().to_string()
+    };
+
+    let (status, body) = empty_req(
+        &f.router,
+        "DELETE",
+        &format!("/v1/admin/users/{}/sessions", user.id),
+        &admin,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["revoked"], 1);
+
+    let (status, body) = public_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": active_refresh}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "body={body}");
+    assert_eq!(body["error"]["code"], "token_invalid");
+
+    let audit_actions = wait_audit_actions(&f.audit, 2).await;
+    assert!(audit_actions.contains(&"user_session.revoke".to_string()));
+    assert!(audit_actions.contains(&"user_session.revoke_all".to_string()));
 }

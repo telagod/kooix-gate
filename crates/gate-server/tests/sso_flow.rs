@@ -26,7 +26,8 @@ use gate_storage::{
     IdentityProviderRecord, InMemoryApiKeyRepo, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
     InMemoryChannelRepo, InMemoryIdentityProviderRepo, InMemoryMembershipRepo,
     InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserIdentityRepo,
-    InMemoryUserRepo, MembershipRepo, OidcStateRepo, UserIdentityRepo, UserRepo,
+    InMemoryUserRepo, InMemoryUserSessionRepo, MembershipRepo, OidcStateRepo, UserIdentityRepo,
+    UserRepo, UserSessionRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -98,6 +99,7 @@ struct Fixture {
     users: Arc<dyn UserRepo>,
     user_identities: Arc<dyn UserIdentityRepo>,
     oidc_states: Arc<dyn OidcStateRepo>,
+    sessions: Arc<dyn UserSessionRepo>,
     memberships: Arc<dyn MembershipRepo>,
     idp_id: Uuid,
 }
@@ -119,6 +121,7 @@ async fn build_fixture(
     let memberships: Arc<dyn MembershipRepo> = Arc::new(InMemoryMembershipRepo::new());
     let user_identities: Arc<dyn UserIdentityRepo> = Arc::new(InMemoryUserIdentityRepo::new());
     let oidc_states: Arc<dyn OidcStateRepo> = Arc::new(InMemoryOidcStateRepo::new());
+    let sessions: Arc<dyn UserSessionRepo> = Arc::new(InMemoryUserSessionRepo::new());
 
     let idp_repo_concrete = Arc::new(InMemoryIdentityProviderRepo::new());
     idp_repo_concrete.seed(idp.clone());
@@ -143,6 +146,7 @@ async fn build_fixture(
         billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
         request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        sessions: sessions.clone(),
         pg_pool: None,
     };
 
@@ -172,6 +176,7 @@ async fn build_fixture(
             users,
             user_identities,
             oidc_states,
+            sessions,
             memberships,
             idp_id: idp.id,
         },
@@ -286,7 +291,8 @@ async fn callback_jit_creates_user_and_issues_token() {
 
     let access = body["access_token"].as_str().unwrap();
     assert!(!access.is_empty());
-    assert!(!body["refresh_token"].as_str().unwrap().is_empty());
+    let refresh = body["refresh_token"].as_str().unwrap();
+    assert!(!refresh.is_empty());
     assert_eq!(body["user"]["email"], "alice@example.com");
 
     // user_identities 已绑定
@@ -296,6 +302,21 @@ async fn callback_jit_creates_user_and_issues_token() {
         .await
         .unwrap();
     assert!(bound.is_some());
+
+    let claims = gate_auth::jwt::JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap()
+    .parse_refresh(refresh)
+    .unwrap();
+    let session = f.sessions.find_active(claims.sid).await.unwrap();
+    assert_eq!(session.user_id, bound.unwrap().user_id);
 }
 
 #[tokio::test]

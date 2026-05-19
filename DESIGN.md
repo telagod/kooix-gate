@@ -96,7 +96,7 @@
 完整映射在 `crates/gate-core/src/rbac.rs`。
 
 
-### 2.4 用户生命周期管理
+### 2.3 用户生命周期管理
 
 平台用户是全局账户，组织与项目成员关系只引用 `users.id`。发布边界要求：
 
@@ -105,7 +105,17 @@
 - `active` 是唯一可登录/refresh 的状态；`suspended`、`pending_verification`、`deleted` 都不可签发新 token。
 - 用户管理 mutation 统一走 `Permission::PlatformAdmin` + `Scope::Platform`，并写入 `user.create` / `user.update_status` / `user.reset_password` 审计事件。
 
-### 2.3 权限检查门面
+### 2.4 Refresh Session 管理
+
+控制台登录态由 access JWT + refresh JWT 组成，refresh JWT 额外落 `user_sessions` 表：
+
+- `user_sessions.refresh_token_hash` 只存 SHA-256 hash，永不落明文 refresh token。
+- `RefreshClaims.sid` 对应 `user_sessions.id`；`jti` 每次轮转生成新值，避免旧 refresh token 重放。
+- `/v1/auth/refresh` 必须同时满足 JWT 有效、用户仍为 `active`、session 未撤销/未过期、hash 匹配；成功后原子更新 refresh hash 与 `last_used_at`。
+- `/v1/auth/logout` 撤销当前 session，平台管理员可通过 `/v1/admin/users/:id/sessions` 查看用户活跃 session，并用 DELETE 撤销单个或全部 session。
+- 撤销 session 只阻断后续 refresh；已签发 access token 继续自然过期。需要立即作废 access token 时，应在 P1.7 的 `JwtRing` / 全局 JWT rotation 或后续 access-token denylist 中处理。
+
+### 2.5 权限检查门面
 
 所有路由强制走：
 

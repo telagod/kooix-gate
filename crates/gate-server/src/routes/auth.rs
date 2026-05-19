@@ -1,18 +1,21 @@
 //! /v1/auth — 登录 / 刷新 / 登出
 //!
 //! POST /v1/auth/login   — 邮箱密码登录，签发 access + refresh token
-//! POST /v1/auth/refresh — 用 refresh token 换新 access token
-//! POST /v1/auth/logout  — 当前 session 登出（暂返回 ok，待接 session 撤销表）
+//! POST /v1/auth/refresh — 用 refresh token 轮转并换新 token
+//! POST /v1/auth/logout  — 当前 session 登出并撤销 refresh token
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use axum::extract::State;
+use axum::http::{HeaderMap, header};
 use axum::{Json, Router, routing::post};
 use chrono::{DateTime, Utc};
 use gate_auth::AuthError;
-use gate_storage::DbError;
+use gate_storage::{DbError, UserSessionCreate};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::net::IpAddr;
 use uuid::Uuid;
 
 // ──────────────────────────────────────────────
@@ -48,6 +51,7 @@ pub struct RefreshRequest {
 #[derive(Serialize)]
 pub struct RefreshResponse {
     pub access_token: String,
+    pub refresh_token: String,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -72,6 +76,7 @@ pub fn router() -> Router<AppState> {
 /// 连续失败 >= 5 次额外返 423 `too_many_failures`。
 async fn login(
     State(app): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<LoginResponse>> {
     // 1. 查凭证 — NotFound 也映射成 invalid_credentials
@@ -126,7 +131,19 @@ async fn login(
         app.jwt
             .issue_access(*user.id.as_uuid(), session_id, None, false)?;
 
-    let (refresh_token, _) = app.jwt.issue_refresh(*user.id.as_uuid(), session_id, jti)?;
+    let (refresh_token, refresh_expires_at) =
+        app.jwt.issue_refresh(*user.id.as_uuid(), session_id, jti)?;
+    app.repos
+        .sessions
+        .create(UserSessionCreate {
+            id: session_id,
+            user_id: user.id,
+            refresh_token_hash: token_hash(&refresh_token),
+            user_agent: session_user_agent(&headers),
+            ip: session_ip_from_headers(&headers),
+            expires_at: refresh_expires_at,
+        })
+        .await?;
 
     // 审计：登录成功
     let audit_ctx = gate_auth::AuthContext::user(
@@ -187,19 +204,96 @@ async fn refresh(
         return Err(AppError::Auth(AuthError::AccountSuspended));
     }
 
+    let session = app
+        .repos
+        .sessions
+        .find_active(claims.sid)
+        .await
+        .map_err(refresh_db_error)?;
+    if session.user_id != user.id || !session.refresh_hash_matches(&token_hash(&req.refresh_token))
+    {
+        return Err(AppError::Auth(AuthError::TokenInvalid(
+            "refresh token replayed or revoked".into(),
+        )));
+    }
+
+    let next_jti = Uuid::now_v7();
+    let (refresh_token, refresh_expires_at) =
+        app.jwt
+            .issue_refresh(*user.id.as_uuid(), claims.sid, next_jti)?;
+    app.repos
+        .sessions
+        .rotate_refresh_hash(
+            claims.sid,
+            &session.refresh_token_hash,
+            &token_hash(&refresh_token),
+            refresh_expires_at,
+        )
+        .await
+        .map_err(refresh_db_error)?;
+
     // 签发新 access token，session_id 继承
     let (access_token, expires_at) = app.jwt.issue_access(claims.sub, claims.sid, None, false)?;
 
     Ok(Json(RefreshResponse {
         access_token,
+        refresh_token,
         expires_at,
     }))
 }
 
 /// POST /v1/auth/logout
 ///
-/// 当前实现：无状态，仅返回 ok。
-// TODO: 接 session 撤销表（Redis 黑名单 / user_sessions.revoked_at）
-async fn logout(_authed: Authed) -> AppResult<Json<serde_json::Value>> {
+/// 撤销当前 session 的 refresh token。已签发 access token 仍会自然过期。
+async fn logout(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<serde_json::Value>> {
+    let sid = ctx.session_id().ok_or(AuthError::MissingCredentials)?;
+    app.repos.sessions.revoke(sid).await.or_else(|e| match e {
+        DbError::NotFound => Ok(()),
+        other => Err(AppError::Db(other)),
+    })?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub(crate) fn token_hash(token: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(token.as_bytes());
+    hex::encode(h.finalize())
+}
+
+pub(crate) fn session_user_agent(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(512).collect())
+}
+
+pub(crate) fn session_ip_from_headers(headers: &HeaderMap) -> Option<IpAddr> {
+    if let Some(ip) = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .and_then(|v| v.parse::<IpAddr>().ok())
+    {
+        return Some(ip);
+    }
+    headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .and_then(|v| v.parse::<IpAddr>().ok())
+}
+
+fn refresh_db_error(e: DbError) -> AppError {
+    match e {
+        DbError::NotFound => {
+            AppError::Auth(AuthError::TokenInvalid("refresh session not active".into()))
+        }
+        other => AppError::Db(other),
+    }
 }

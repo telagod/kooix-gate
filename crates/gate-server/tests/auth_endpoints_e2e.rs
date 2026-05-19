@@ -49,10 +49,17 @@ async fn fixture() -> Fixture {
     // Seed：一个带密码的用户
     let users = PgUserRepo::new(pool.clone());
     let pw_hash = gate_auth::password::hash("correct-password-123").unwrap();
-    users
+    let alice = users
         .create("alice@example.com", Some(&pw_hash), Some("Alice"), None)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO platform_admins (user_id, role, granted_by) VALUES ($1, 'super_admin', $1)",
+    )
+    .bind(alice.id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
     let suspended_hash = gate_auth::password::hash("suspended-password-123").unwrap();
     users
         .create(
@@ -90,14 +97,28 @@ async fn fixture() -> Fixture {
 // Helpers
 // ──────────────────────────────────────────────
 
-async fn post_json(router: &axum::Router, uri: &str, body: Value) -> (StatusCode, Value) {
-    let req = Request::builder()
-        .method("POST")
-        .uri(uri)
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+async fn request_json(
+    router: &axum::Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let mut req = Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        req = req.header("authorization", format!("Bearer {token}"));
+    }
+    let body = if let Some(body) = body {
+        req = req.header("content-type", "application/json");
+        Body::from(serde_json::to_vec(&body).unwrap())
+    } else {
+        Body::empty()
+    };
+    let resp = router
+        .clone()
+        .oneshot(req.body(body).unwrap())
+        .await
         .unwrap();
-    let resp = router.clone().oneshot(req).await.unwrap();
     let status = resp.status();
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: Value = if bytes.is_empty() {
@@ -108,22 +129,20 @@ async fn post_json(router: &axum::Router, uri: &str, body: Value) -> (StatusCode
     (status, body)
 }
 
+async fn post_json(router: &axum::Router, uri: &str, body: Value) -> (StatusCode, Value) {
+    request_json(router, "POST", uri, None, Some(body)).await
+}
+
+async fn post_authed(router: &axum::Router, uri: &str, token: &str) -> (StatusCode, Value) {
+    request_json(router, "POST", uri, Some(token), None).await
+}
+
 async fn get_authed(router: &axum::Router, uri: &str, token: &str) -> (StatusCode, Value) {
-    let req = Request::builder()
-        .method("GET")
-        .uri(uri)
-        .header("authorization", format!("Bearer {token}"))
-        .body(Body::empty())
-        .unwrap();
-    let resp = router.clone().oneshot(req).await.unwrap();
-    let status = resp.status();
-    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
-    let body: Value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-    (status, body)
+    request_json(router, "GET", uri, Some(token), None).await
+}
+
+async fn delete_authed(router: &axum::Router, uri: &str, token: &str) -> (StatusCode, Value) {
+    request_json(router, "DELETE", uri, Some(token), None).await
 }
 
 // ──────────────────────────────────────────────
@@ -254,6 +273,75 @@ async fn refresh_returns_new_access_token() {
 }
 
 #[tokio::test]
+async fn refresh_rotates_token_and_rejects_replay() {
+    let f = fixture().await;
+
+    let (status, body) = post_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "alice@example.com", "password": "correct-password-123"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    let first_refresh = body["refresh_token"].as_str().unwrap().to_string();
+
+    let (status, refreshed) = post_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": first_refresh}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={refreshed}");
+    let second_refresh = refreshed["refresh_token"].as_str().unwrap().to_string();
+    assert_ne!(second_refresh, body["refresh_token"]);
+
+    let (status, replay) = post_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": body["refresh_token"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "body={replay}");
+    assert_eq!(replay["error"]["code"], "token_invalid");
+
+    let (status, third) = post_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": second_refresh}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={third}");
+    assert!(!third["access_token"].as_str().unwrap().is_empty());
+    assert!(!third["refresh_token"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn logout_revokes_refresh_session() {
+    let f = fixture().await;
+
+    let (_, body) = post_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "alice@example.com", "password": "correct-password-123"}),
+    )
+    .await;
+    let access_token = body["access_token"].as_str().unwrap().to_string();
+    let refresh_token = body["refresh_token"].as_str().unwrap().to_string();
+
+    let (status, body) = post_authed(&f.router, "/v1/auth/logout", &access_token).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+
+    let (status, body) = post_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": refresh_token}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "body={body}");
+    assert_eq!(body["error"]["code"], "token_invalid");
+}
+
+#[tokio::test]
 async fn refresh_with_invalid_token_returns_401() {
     let f = fixture().await;
 
@@ -306,4 +394,69 @@ async fn logout_with_valid_token_returns_ok() {
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let b: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(b["ok"], true);
+}
+
+#[tokio::test]
+async fn platform_admin_can_list_and_revoke_user_sessions() {
+    let f = fixture().await;
+
+    let (_, alice_login) = post_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "alice@example.com", "password": "correct-password-123"}),
+    )
+    .await;
+    let alice_user_id = alice_login["user"]["id"].as_str().unwrap().to_string();
+    let alice_refresh = alice_login["refresh_token"].as_str().unwrap().to_string();
+
+    let (_, admin_login) = post_json(
+        &f.router,
+        "/v1/auth/login",
+        json!({"email": "alice@example.com", "password": "correct-password-123"}),
+    )
+    .await;
+    let admin_access = admin_login["access_token"].as_str().unwrap().to_string();
+
+    let (status, body) = get_authed(
+        &f.router,
+        &format!("/v1/admin/users/{alice_user_id}/sessions"),
+        &admin_access,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    let sessions = body.as_array().unwrap();
+    assert!(sessions.len() >= 2, "body={body}");
+    let target_session = sessions
+        .iter()
+        .find(|s| s["current"] == false)
+        .and_then(|s| s["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let (status, body) = delete_authed(
+        &f.router,
+        &format!("/v1/admin/users/{alice_user_id}/sessions/{target_session}"),
+        &admin_access,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["revoked"], 1);
+
+    let (status, body) = post_json(
+        &f.router,
+        "/v1/auth/refresh",
+        json!({"refresh_token": alice_refresh}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "body={body}");
+    assert_eq!(body["error"]["code"], "token_invalid");
+
+    let (status, body) = delete_authed(
+        &f.router,
+        &format!("/v1/admin/users/{alice_user_id}/sessions"),
+        &admin_access,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert!(body["revoked"].as_u64().unwrap() >= 1);
 }

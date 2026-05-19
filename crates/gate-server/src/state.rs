@@ -13,6 +13,7 @@ use gate_storage::{
     ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelLatencyRepo,
     ChannelRepo, IdentityProviderRepo, InFlightRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo,
     OrgRepo, ProjectRepo, QuotaRepo, RequestLogRepo, UsageRepo, UserIdentityRepo, UserRepo,
+    UserSessionRepo,
 };
 use std::sync::Arc;
 
@@ -94,6 +95,8 @@ pub struct Repos {
     pub identity_providers: Arc<dyn IdentityProviderRepo>,
     pub user_identities: Arc<dyn UserIdentityRepo>,
     pub oidc_states: Arc<dyn OidcStateRepo>,
+    /// 控制台 refresh token 会话（P1.7）：持久化、轮转、撤销。
+    pub sessions: Arc<dyn UserSessionRepo>,
     /// 用量聚合（E2 追加）—— 控制台 /v1/usage 仪表盘读它。
     pub usage: Arc<dyn UsageRepo>,
     /// 配额定义（E3 追加）—— quota_enforce middleware 用它筛选生效 quota。
@@ -118,7 +121,7 @@ impl Repos {
             PgApiKeyRepo, PgAuditRepo, PgBillingRepo, PgChannelGroupRepo, PgChannelKeyRepo,
             PgChannelLatencyRepo, PgChannelRepo, PgIdentityProviderRepo, PgMembershipRepo,
             PgModelAliasRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo,
-            PgRequestLogRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo,
+            PgRequestLogRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo, PgUserSessionRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -133,6 +136,7 @@ impl Repos {
             identity_providers: Arc::new(PgIdentityProviderRepo::new(pool.clone())),
             user_identities: Arc::new(PgUserIdentityRepo::new(pool.clone())),
             oidc_states: Arc::new(PgOidcStateRepo::new(pool.clone())),
+            sessions: Arc::new(PgUserSessionRepo::new(pool.clone())),
             usage: Arc::new(PgUsageRepo::new(pool.clone())),
             quotas: Arc::new(PgQuotaRepo::new(pool.clone())),
             model_aliases: Arc::new(PgModelAliasRepo::new(pool.clone())),
@@ -152,6 +156,7 @@ impl Repos {
             InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryModelAliasRepo,
             InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo,
             InMemoryRequestLogRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
+            InMemoryUserSessionRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -166,6 +171,7 @@ impl Repos {
             identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
             user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
             oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
+            sessions: Arc::new(InMemoryUserSessionRepo::new()),
             usage: Arc::new(InMemoryUsageRepo::new()),
             quotas: Arc::new(InMemoryQuotaRepo::new()),
             model_aliases: Arc::new(InMemoryModelAliasRepo::new()),

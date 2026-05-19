@@ -89,7 +89,7 @@ describe('api module', () => {
 		mockFetch.mockResolvedValueOnce({
 			ok: true,
 			status: 200,
-			json: async () => ({ access_token: 'new-token', expires_at: '2026-12-01T00:00:00Z' })
+			json: async () => ({ access_token: 'new-token', refresh_token: 'rt-rotated', expires_at: '2026-12-01T00:00:00Z' })
 		});
 		// Retry call: success
 		mockFetch.mockResolvedValueOnce({
@@ -103,8 +103,9 @@ describe('api module', () => {
 
 		expect(mockFetch).toHaveBeenCalledTimes(3);
 		expect(result.current_org).toBe('org-1');
-		// Token should be updated in localStorage
+		// Tokens should be rotated in localStorage
 		expect(localStorage.getItem('kooix_access_token')).toBe('new-token');
+		expect(localStorage.getItem('kooix_refresh_token')).toBe('rt-rotated');
 	});
 
 	it('redirects to login on 401 when refresh fails', async () => {
@@ -214,6 +215,51 @@ describe('api module', () => {
 		expect(url).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/password');
 		expect(opts.method).toBe('PUT');
 		expect(JSON.parse(opts.body)).toEqual({ password: 'new-password-456' });
+	});
+
+	it('admin user session APIs use raw typed id paths', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		const userId = 'usr_019e2c1ba7d17162842207e4b24f5f98';
+		const sessionId = '019e2c1b-a7d1-7162-8422-07e4b24f5f99';
+		mockFetch
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ([
+					{
+						id: sessionId,
+						user_id: userId,
+						user_agent: 'Vitest',
+						ip: '127.0.0.1',
+						created_at: '2026-01-01T00:00:00Z',
+						last_used_at: '2026-01-01T00:00:00Z',
+						expires_at: '2026-01-02T00:00:00Z',
+						current: false
+					}
+				])
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ revoked: 1 })
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ revoked: 2 })
+			});
+
+		const { listUserSessions, revokeUserSession, revokeUserSessions } = await loadApi();
+		await listUserSessions(userId);
+		await revokeUserSession(userId, sessionId);
+		await revokeUserSessions(userId);
+
+		expect(mockFetch).toHaveBeenCalledTimes(3);
+		expect(mockFetch.mock.calls[0][0]).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/sessions');
+		expect(mockFetch.mock.calls[1][0]).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/sessions/019e2c1b-a7d1-7162-8422-07e4b24f5f99');
+		expect(mockFetch.mock.calls[1][1].method).toBe('DELETE');
+		expect(mockFetch.mock.calls[2][0]).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/sessions');
+		expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
 	});
 
 	it('admin channel drain APIs use raw typed id paths', async () => {

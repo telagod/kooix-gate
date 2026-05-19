@@ -89,6 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - budget quota pre-debit 支持解析 `AudioSpeechRequest`，按 TTS input 字符数估算预扣，并在 `/v1/audio/speech` 完成后按 `tts_characters` settle。
 - `/v1/audio/speech` 与 `/v1/audio/transcriptions` 上游失败不再包装成 internal error，统一进入 provider error shape 与 channel key failure 统计。
 
+### Added — Identity / Sessions
+
+- Refresh token 正式接入 `user_sessions`：登录 / SSO 会创建 session，只存 refresh token SHA-256 hash；refresh 时校验 session 未撤销/未过期并原子轮转 hash，旧 refresh token 重放返回 `token_invalid`。
+- `/v1/auth/logout` 改为撤销当前 session，阻断后续 refresh；已签发 access token 仍按短 TTL 自然过期。
+- 平台管理员新增用户 session 管理 API：`GET /v1/admin/users/:id/sessions`、`DELETE /v1/admin/users/:id/sessions/:session_id`、`DELETE /v1/admin/users/:id/sessions`，并写入 `user_session.revoke` / `user_session.revoke_all` audit。
+- 控制台 `/admin/users` 增加 Session 面板，可查看 IP / User-Agent / last_used / expires_at，并执行单个撤销或全部踢下线；前端 refresh 流程会保存服务端返回的新 refresh token。
+
 ### Changed — Docs
 
 - 整理文档入口：新增 `docs/README.md` 与 `docs/stages/README.md`，把已完成的重构审计记录归入 `docs/stages/`，保留 active waivers 原路径供 CI / quality gate 使用。
