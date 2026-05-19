@@ -6,15 +6,14 @@
 //! - `exchange()` 用回调 code 换取 id_token，验证 nonce，提取用户 claims
 //! - state 的持久化在 server 层（落 `oidc_login_states` 表）
 //!
-//! HTTP 层用 openidconnect 自带的 `async_http_client`——配置 issuer 必须可信，
-//! 因为该 client 默认跟随重定向。生产可换成自定义 client（禁用 redirect + 限定 host）。
+//! HTTP 层使用复用的 reqwest client，并显式禁用 redirect，避免 discovery / token exchange 被重定向放大成 SSRF 面。
 
 use crate::error::{AuthError, Result};
 use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
-use openidconnect::reqwest::async_http_client;
+use openidconnect::reqwest;
 use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointSet, IssuerUrl,
+    Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -45,7 +44,15 @@ pub struct OidcProvider {
     pub provider_id: uuid::Uuid,
     pub name: String,
     pub scopes: Vec<String>,
-    client: CoreClient,
+    client: CoreClient<
+        EndpointSet,
+        openidconnect::EndpointNotSet,
+        openidconnect::EndpointNotSet,
+        openidconnect::EndpointNotSet,
+        EndpointSet,
+        EndpointMaybeSet,
+    >,
+    http_client: reqwest::Client,
 }
 
 impl OidcProvider {
@@ -66,15 +73,22 @@ impl OidcProvider {
         let redirect_url = RedirectUrl::new(redirect_uri.to_string())
             .map_err(|e| AuthError::Oidc(format!("redirect: {e}")))?;
 
-        let metadata = CoreProviderMetadata::discover_async(issuer_url, async_http_client)
+        let http_client = oidc_http_client()?;
+
+        let metadata = CoreProviderMetadata::discover_async(issuer_url, &http_client)
             .await
             .map_err(|e| AuthError::Oidc(format!("discover: {e}")))?;
+        let token_url = metadata
+            .token_endpoint()
+            .cloned()
+            .ok_or_else(|| AuthError::Oidc("issuer metadata missing token_endpoint".into()))?;
 
         let client = CoreClient::from_provider_metadata(
             metadata,
             ClientId::new(client_id.to_string()),
             Some(ClientSecret::new(client_secret.to_string())),
         )
+        .set_token_uri(token_url)
         .set_redirect_uri(redirect_url);
 
         Ok(Self {
@@ -82,6 +96,7 @@ impl OidcProvider {
             name,
             scopes,
             client,
+            http_client,
         })
     }
 
@@ -103,7 +118,6 @@ impl OidcProvider {
         }
 
         let (url, csrf_state, nonce) = auth.url();
-
         OidcStart {
             authorize_url: url,
             pkce_verifier,
@@ -123,7 +137,7 @@ impl OidcProvider {
             .client
             .exchange_code(AuthorizationCode::new(code.to_string()))
             .set_pkce_verifier(pkce_verifier)
-            .request_async(async_http_client)
+            .request_async(&self.http_client)
             .await
             .map_err(|e| AuthError::Oidc(format!("token exchange: {e}")))?;
 
@@ -160,4 +174,11 @@ impl OidcProvider {
     pub fn csrf_secret(state: &CsrfToken) -> &str {
         state.secret()
     }
+}
+
+fn oidc_http_client() -> Result<reqwest::Client> {
+    reqwest::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| AuthError::Oidc(format!("http client: {e}")))
 }

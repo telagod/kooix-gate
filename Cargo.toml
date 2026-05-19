@@ -84,11 +84,11 @@ zeroize = { version = "1", features = ["derive"] }
 figment = { version = "0.10", features = ["toml", "env"] }
 
 # Validation
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 
 # OIDC / OAuth
-openidconnect = { version = "3", default-features = false, features = ["reqwest", "rustls-tls"] }
-oauth2 = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+oauth2 = { version = "5", default-features = false, features = ["reqwest", "rustls-tls"] }
 url = { version = "2", features = ["serde"] }
 base64 = "0.22"
 subtle = "2"
