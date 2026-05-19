@@ -41,8 +41,8 @@ pub use plugin_manifest::{
 pub use router::{
     ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,
     InflightTracker, ProviderRouter, ProviderRuntimeChannelSnapshot, ProviderRuntimeSnapshot,
-    RouteCandidateTrace, RouteDecisionTrace, RouteSkipTrace, RoutedEmbeddingProvider,
-    RoutedImageProvider, RoutedProvider,
+    RouteCandidateTrace, RouteDecisionTrace, RouteSkipTrace, RoutedAudioProvider,
+    RoutedEmbeddingProvider, RoutedImageProvider, RoutedProvider,
 };
 pub use types::{
     AudioSpeechRequest, AudioTranscriptionResponse, ChatChoice, ChatDelta, ChatMessage,

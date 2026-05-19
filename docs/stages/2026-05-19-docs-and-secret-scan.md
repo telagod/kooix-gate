@@ -25,6 +25,35 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.3 `/v1/audio/speech` / `/v1/audio/transcriptions` billing/quota loop
+
+本轮把 P1.3 audio endpoints 从单一 fallback provider 代理推进为可对账的 data-plane 闭环：
+
+- ProviderRouter 新增 `route_audio`，按 project default group / fallback group / channel strategy 选择 audio-capable channel。
+- 当前 audio runtime 仅支持 compile-time OpenAI-compatible `AudioProvider`，因此会过滤 plugin channel（即使 manifest 声明 `audio=true`），避免路由到尚未实现的 runtime adapter。
+- 路由结果贯通 `resolved_model` 与 `channel_id`：model alias / channel `model_mapping` 会写回 upstream request，billing event 与 request log 使用实际模型和命中 channel。
+- `least_conn` acquire 仍在 provider/key 构造成功之后执行；audio 成功 / provider error 路径都会 release。
+- `/v1/audio/speech` 成功响应生成 `Usage`：token 维度为 0，`raw_usage.endpoint="audio.speech"`，并记录 `tts_characters`、`response_bytes`、`voice`、`response_format`、`speed`。
+- `billing_emit` 会把 raw `tts_characters` 写入 `CostContext.tts_characters`，因此 `per_character_tts` pricing rule 可直接计费。
+- `/v1/audio/transcriptions` 初版按 `per_request` 计费；由于 OpenAI-compatible multipart 响应不带真实 duration，raw usage 先保留 `audio_bytes`、`filename`、`language` 与 `metering="per_request"`，后续若上游返回 duration 再升级为 `per_minute_audio`。
+- Billing outbox → `commit_usage` 后能落 `usage_records`、`request_events` 与 request log read model；audio 请求在 read model 中 token 为 0，但成本和 channel 归属可对账。
+- quota middleware 支持解析 JSON `AudioSpeechRequest`，按 input 字符数估算 budget pre-debit；handler 完成后按 `tts_characters` settle。multipart transcription 暂用默认保守预估，handler 成功后按 STT per-request 初版口径 settle。
+- provider error 不再包装为 `internal`，统一走 `AppError::Provider`，并同步 channel key failure cooldown / circuit breaker 统计与 upstream error metrics。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo test -p gate-server middleware::quota::tests -- --nocapture
+cargo test -p gate-server --test billing_e2e audio_speech_apikey_emits_usage_event -- --nocapture
+cargo test -p gate-server --test billing_e2e audio_transcription_apikey_emits_usage_event -- --nocapture
+cargo test -p gate-server --test quota_predebit audio_speech_predebit_settles_and_blocks_when_budget_exceeded -- --nocapture
+cargo test -p gate-server --test billing_e2e
+cargo test -p gate-server --test quota_predebit -- --nocapture
+cargo test -p gate-providers --all-targets
+cargo clippy --all-targets -- -D warnings
+```
+
 ## P1.3 `/v1/images/generations` adapter/billing loop
 
 本轮把 P1.3 `/v1/images/generations` 从单一 fallback provider 代理推进为可对账 data-plane 闭环：

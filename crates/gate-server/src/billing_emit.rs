@@ -147,6 +147,11 @@ fn cost_context_from_usage(usage: &Usage) -> CostContext {
             .get("size")
             .and_then(|v| v.as_str())
             .map(ToOwned::to_owned);
+        ctx.tts_characters = raw
+            .get("tts_characters")
+            .and_then(|v| v.as_u64())
+            .map(|n| n.min(u32::MAX as u64) as u32)
+            .unwrap_or_default();
     }
     ctx
 }

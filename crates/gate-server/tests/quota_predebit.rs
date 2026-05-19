@@ -75,6 +75,12 @@ struct ImageHarness {
     quota_counter: Arc<QuotaCounter>,
 }
 
+struct AudioHarness {
+    router: axum::Router,
+    #[allow(dead_code)]
+    quota_counter: Arc<QuotaCounter>,
+}
+
 async fn setup(upstream: &MockServer, pool: fred::clients::RedisPool, limit_usd: &str) -> Harness {
     let jwt = JwtIssuer::new(
         b"test-secret-32-bytes-minimum-ok!",
@@ -357,6 +363,116 @@ async fn setup_images(
     }
 }
 
+async fn setup_audio_speech(
+    upstream: &MockServer,
+    pool: fred::clients::RedisPool,
+    limit_usd: &str,
+) -> AudioHarness {
+    use gate_providers::ProviderRouter;
+    use gate_storage::{
+        ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+    };
+
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let loader = Arc::new(InMemoryLoader::new());
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let quota_repo = Arc::new(InMemoryQuotaRepo::new());
+    let now = Utc::now();
+    quota_repo.seed(QuotaRecord {
+        id: Uuid::now_v7(),
+        scope_kind: "api_key".into(),
+        scope_id: *api_key_id.as_uuid(),
+        dimension: "daily_budget_usd".into(),
+        model_filter: None,
+        limit_value: limit_usd.parse::<Decimal>().unwrap(),
+        window_seconds: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+
+    let group_id = ChannelGroupId::new();
+    let channel_id = ChannelId::new();
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    unsafe {
+        std::env::set_var("KOOIX_CH_QUOTA_AUDIO_SPEECH_WM_KEY", "test-key");
+    }
+    ch_repo.seed_channel(ChannelRecord {
+        channel_id,
+        code: "quota-audio-speech-wm".into(),
+        name: "quota-audio-speech-wiremock".into(),
+        provider_type: "openai".into(),
+        base_url: format!("{}/v1", upstream.uri()),
+        supported_models: vec!["tts-1".into()],
+        status: "active".into(),
+        health: "healthy".into(),
+        timeout_ms: 60_000,
+        max_retries: 1,
+        rpm_limit: None,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
+        updated_at: now,
+    });
+    ch_repo.seed_binding(group_id, channel_id, 10, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "quota-audio-default".into(),
+        description: String::new(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let qc = Arc::new(QuotaCounter::new(pool.clone()));
+    let mut repos = Repos::in_memory();
+    repos.quotas = quota_repo;
+    repos.channels = ch_repo.clone();
+    repos.channel_groups = grp_repo.clone();
+
+    let state = AppState::new(jwt, loader, repos)
+        .with_provider_router(ProviderRouter::new(ch_repo, grp_repo))
+        .with_quota_counter(QuotaCounter::new(pool));
+    let router = build_router(state);
+
+    AudioHarness {
+        router,
+        quota_counter: qc,
+    }
+}
+
 fn chat_request_body(msg: &str) -> Body {
     Body::from(
         serde_json::to_vec(&json!({
@@ -386,6 +502,18 @@ fn image_request_body(n: u32) -> Body {
             "n": n,
             "size": "1024x1024",
             "quality": "hd"
+        }))
+        .unwrap(),
+    )
+}
+
+fn audio_speech_request_body(input: &str) -> Body {
+    Body::from(
+        serde_json::to_vec(&json!({
+            "model": "tts-1",
+            "input": input,
+            "voice": "alloy",
+            "response_format": "mp3"
         }))
         .unwrap(),
     )
@@ -520,6 +648,53 @@ async fn embeddings_predebit_settles_and_blocks_when_budget_exceeded() {
         .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
         .header("content-type", "application/json")
         .body(embedding_request_body("abcdefghijkl"))
+        .unwrap();
+    let resp2 = h.router.clone().oneshot(req2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let bytes = resp2.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "quota_exceeded");
+    assert_eq!(body["error"]["dimension"], "daily_budget_usd");
+}
+
+#[tokio::test]
+async fn audio_speech_predebit_settles_and_blocks_when_budget_exceeded() {
+    let (_c, pool) = start_redis().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/audio/speech"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(vec![0_u8, 1, 2, 3]),
+        )
+        .mount(&upstream)
+        .await;
+
+    // 9 chars × 1µ = 9µ. Budget 17µ: first request settles to 9µ;
+    // second pre-debit would make 18µ and is denied.
+    let h = setup_audio_speech(&upstream, pool.clone(), "0.000017").await;
+
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/v1/audio/speech")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(audio_speech_request_body("abcdefghi"))
+        .unwrap();
+    let resp1 = h.router.clone().oneshot(req1).await.unwrap();
+    assert_eq!(resp1.status(), StatusCode::OK);
+    let _ = resp1.into_body().collect().await.unwrap();
+
+    yield_for_settle().await;
+
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/v1/audio/speech")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(audio_speech_request_body("abcdefghi"))
         .unwrap();
     let resp2 = h.router.clone().oneshot(req2).await.unwrap();
     assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);

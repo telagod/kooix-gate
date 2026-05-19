@@ -28,7 +28,9 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use gate_auth::{AuthContext, Subject};
 use gate_cache::{QuotaCounter, RateLimiter};
-use gate_providers::{ChatRequest, EmbeddingInput, EmbeddingRequest, ImageGenerationRequest};
+use gate_providers::{
+    AudioSpeechRequest, ChatRequest, EmbeddingInput, EmbeddingRequest, ImageGenerationRequest,
+};
 use gate_storage::QuotaRecord;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -378,13 +380,16 @@ fn estimate_data_plane_cost_micros(bytes: &[u8]) -> i64 {
     if let Ok(chat_req) = serde_json::from_slice::<ChatRequest>(bytes) {
         return estimate_cost_micros(&chat_req, DEFAULT_RATE_PER_TOKEN_MICROS);
     }
+    if let Ok(audio_req) = serde_json::from_slice::<AudioSpeechRequest>(bytes) {
+        return estimate_audio_speech_cost_micros(&audio_req);
+    }
     if let Ok(embed_req) = serde_json::from_slice::<EmbeddingRequest>(bytes) {
         return estimate_embedding_cost_micros(&embed_req);
     }
     if let Ok(image_req) = serde_json::from_slice::<ImageGenerationRequest>(bytes) {
         return estimate_image_cost_micros(&image_req);
     }
-    // 非 ChatRequest / EmbeddingRequest / ImageGenerationRequest 格式（可能是其他 endpoint）—— 用保守默认值
+    // 非 ChatRequest / EmbeddingRequest / ImageGenerationRequest / AudioSpeechRequest 格式（可能是其他 endpoint）—— 用保守默认值
     // 4096 tokens × 3 micros = 12_288
     4096 * DEFAULT_RATE_PER_TOKEN_MICROS
 }
@@ -402,6 +407,12 @@ fn estimate_image_cost_micros(req: &ImageGenerationRequest) -> i64 {
     const DEFAULT_RATE_PER_IMAGE_MICROS: i64 = 80_000;
     let images = req.n.unwrap_or(1).max(1) as i64;
     (images * DEFAULT_RATE_PER_IMAGE_MICROS).min(crate::cost_estimate::MAX_ESTIMATE_MICROS)
+}
+
+fn estimate_audio_speech_cost_micros(req: &AudioSpeechRequest) -> i64 {
+    const DEFAULT_RATE_PER_TTS_CHAR_MICROS: i64 = 1;
+    let chars = req.input.chars().count() as i64;
+    (chars * DEFAULT_RATE_PER_TTS_CHAR_MICROS).min(crate::cost_estimate::MAX_ESTIMATE_MICROS)
 }
 
 #[cfg(test)]
@@ -446,6 +457,18 @@ mod tests {
         .unwrap();
 
         assert_eq!(estimate_data_plane_cost_micros(&bytes), 160_000);
+    }
+
+    #[test]
+    fn data_plane_estimator_reads_audio_speech() {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "model": "tts-1",
+            "input": "邪修一念成音",
+            "voice": "alloy"
+        }))
+        .unwrap();
+
+        assert_eq!(estimate_data_plane_cost_micros(&bytes), 6);
     }
 
     #[test]

@@ -67,6 +67,7 @@ struct DataPlaneHarness {
 
 type EmbeddingHarness = DataPlaneHarness;
 type ImageHarness = DataPlaneHarness;
+type AudioHarness = DataPlaneHarness;
 
 async fn setup_with_billing(upstream: &MockServer, with_pricing: bool) -> Harness {
     setup_with_pricing(upstream, |pricing| {
@@ -355,6 +356,126 @@ async fn setup_images_with_pricing(
     }
 }
 
+async fn setup_audio_with_pricing(
+    upstream: &MockServer,
+    model: &'static str,
+    channel_code: &'static str,
+    channel_name: &'static str,
+    seed_pricing: impl FnOnce(&Arc<InMemoryPricingRepo>),
+) -> AudioHarness {
+    use gate_providers::ProviderRouter;
+    use gate_storage::{
+        ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+    };
+
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let loader = Arc::new(InMemoryLoader::new());
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let group_id = ChannelGroupId::new();
+    let channel_id = ChannelId::new();
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let now = Utc::now();
+    unsafe {
+        std::env::set_var(
+            format!(
+                "KOOIX_CH_{}_KEY",
+                channel_code
+                    .to_uppercase()
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                    .collect::<String>()
+            ),
+            "test-key",
+        );
+    }
+    ch_repo.seed_channel(ChannelRecord {
+        channel_id,
+        code: channel_code.into(),
+        name: channel_name.into(),
+        provider_type: "openai".into(),
+        base_url: format!("{}/v1", upstream.uri()),
+        supported_models: vec![model.into()],
+        status: "active".into(),
+        health: "healthy".into(),
+        timeout_ms: 60_000,
+        max_retries: 1,
+        rpm_limit: None,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
+        updated_at: now,
+    });
+    ch_repo.seed_binding(group_id, channel_id, 10, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "audio-default".into(),
+        description: String::new(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let pricing = Arc::new(InMemoryPricingRepo::new());
+    seed_pricing(&pricing);
+    let outbox = Arc::new(InMemoryOutboxRepo::new());
+    let provider_router = ProviderRouter::new(ch_repo.clone(), grp_repo.clone());
+
+    let mut repos = Repos::in_memory();
+    repos.channels = ch_repo;
+    repos.channel_groups = grp_repo;
+
+    let state = AppState::new(jwt, loader, repos)
+        .with_provider_router(provider_router)
+        .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>)
+        .with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
+    let router = build_router(state);
+
+    AudioHarness {
+        router,
+        outbox,
+        api_key_plain: PLAINTEXT_KEY,
+        api_key_id,
+        project_id,
+        org_id,
+        channel_id,
+        channel_code,
+        channel_name,
+        model,
+    }
+}
+
 async fn start_pg() -> (
     testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>,
     sqlx::PgPool,
@@ -599,6 +720,235 @@ async fn images_apikey_emits_usage_event() {
         .await
         .unwrap();
     assert_eq!(record.model_actual, "dall-e-3");
+    assert_eq!(record.tokens_in, 0);
+    assert_eq!(record.tokens_out, 0);
+    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+}
+
+#[tokio::test]
+async fn audio_speech_apikey_emits_usage_event() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/audio/speech"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(vec![0_u8, 1, 2, 3, 4]),
+        )
+        .mount(&upstream)
+        .await;
+
+    let h = setup_audio_with_pricing(
+        &upstream,
+        "tts-1",
+        "audio-speech-wm",
+        "audio-speech-wiremock",
+        |pricing| {
+            pricing.seed(pricing_rule(
+                "tts-1",
+                "per_character_tts",
+                "per_character",
+                0.00001,
+            ));
+        },
+    )
+    .await;
+
+    let expected_request_id = Uuid::now_v7();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/audio/speech")
+        .header("authorization", format!("Bearer {}", h.api_key_plain))
+        .header("content-type", "application/json")
+        .header("x-request-id", expected_request_id.to_string())
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "tts-1",
+                "input": "hello audio",
+                "voice": "alloy",
+                "response_format": "mp3"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = h.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body.len(), 5);
+
+    yield_for_emit().await;
+
+    let events = h.outbox.snapshot();
+    assert_eq!(events.len(), 1, "expected exactly 1 audio speech event");
+    let ev = &events[0];
+    assert_eq!(ev.request_id, expected_request_id);
+    assert_eq!(ev.idempotency_key, Some(expected_request_id.to_string()));
+    assert_eq!(ev.model, "tts-1");
+    assert_eq!(ev.prompt_tokens, 0);
+    assert_eq!(ev.completion_tokens, 0);
+    assert_eq!(ev.cost_micros, 110);
+    assert_eq!(ev.status, 200);
+    assert_eq!(ev.channel_id, Some(*h.channel_id.as_uuid()));
+    let raw = ev.raw_usage.as_ref().unwrap();
+    assert_eq!(raw["endpoint"], "audio.speech");
+    assert_eq!(raw["tts_characters"], 11);
+    assert_eq!(raw["response_bytes"], 5);
+
+    let (_pg, pool) = start_pg().await;
+    seed_pg_usage_fixture(&pool, &h).await;
+    gate_billing::consumer::commit_usage(&pool, ev)
+        .await
+        .unwrap();
+
+    let usage_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM usage_records WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        usage_count, 1,
+        "audio speech event must commit usage_records"
+    );
+
+    let request_event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM request_events WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        request_event_count, 1,
+        "audio speech event must commit request_events"
+    );
+
+    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
+    let record = PgRequestLogRepo::new(pool.clone())
+        .find_by_request_id(expected_request_id)
+        .await
+        .unwrap();
+    assert_eq!(record.model_actual, "tts-1");
+    assert_eq!(record.tokens_in, 0);
+    assert_eq!(record.tokens_out, 0);
+    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+}
+
+#[tokio::test]
+async fn audio_transcription_apikey_emits_usage_event() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/audio/transcriptions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "text": "hello from audio"
+        })))
+        .mount(&upstream)
+        .await;
+
+    let h = setup_audio_with_pricing(
+        &upstream,
+        "whisper-1",
+        "audio-transcription-wm",
+        "audio-transcription-wiremock",
+        |pricing| {
+            pricing.seed(pricing_rule(
+                "whisper-1",
+                "per_request",
+                "per_request",
+                0.006,
+            ));
+        },
+    )
+    .await;
+
+    let expected_request_id = Uuid::now_v7();
+    let boundary = "----kooix-audio-test-boundary";
+    let body = format!(
+        "--{boundary}\r\n\
+Content-Disposition: form-data; name=\"model\"\r\n\r\n\
+whisper-1\r\n\
+--{boundary}\r\n\
+Content-Disposition: form-data; name=\"language\"\r\n\r\n\
+en\r\n\
+--{boundary}\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"sample.wav\"\r\n\
+Content-Type: audio/wav\r\n\r\n\
+abc123\r\n\
+--{boundary}--\r\n"
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/audio/transcriptions")
+        .header("authorization", format!("Bearer {}", h.api_key_plain))
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header("x-request-id", expected_request_id.to_string())
+        .body(Body::from(body))
+        .unwrap();
+    let resp = h.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["text"], "hello from audio");
+
+    yield_for_emit().await;
+
+    let events = h.outbox.snapshot();
+    assert_eq!(
+        events.len(),
+        1,
+        "expected exactly 1 audio transcription event"
+    );
+    let ev = &events[0];
+    assert_eq!(ev.request_id, expected_request_id);
+    assert_eq!(ev.idempotency_key, Some(expected_request_id.to_string()));
+    assert_eq!(ev.model, "whisper-1");
+    assert_eq!(ev.prompt_tokens, 0);
+    assert_eq!(ev.completion_tokens, 0);
+    assert_eq!(ev.cost_micros, 6000);
+    assert_eq!(ev.status, 200);
+    assert_eq!(ev.channel_id, Some(*h.channel_id.as_uuid()));
+    let raw = ev.raw_usage.as_ref().unwrap();
+    assert_eq!(raw["endpoint"], "audio.transcriptions");
+    assert_eq!(raw["audio_bytes"], 6);
+    assert_eq!(raw["language"], "en");
+    assert_eq!(raw["filename"], "sample.wav");
+
+    let (_pg, pool) = start_pg().await;
+    seed_pg_usage_fixture(&pool, &h).await;
+    gate_billing::consumer::commit_usage(&pool, ev)
+        .await
+        .unwrap();
+
+    let usage_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM usage_records WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        usage_count, 1,
+        "audio transcription event must commit usage_records"
+    );
+
+    let request_event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM request_events WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        request_event_count, 1,
+        "audio transcription event must commit request_events"
+    );
+
+    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
+    let record = PgRequestLogRepo::new(pool.clone())
+        .find_by_request_id(expected_request_id)
+        .await
+        .unwrap();
+    assert_eq!(record.model_actual, "whisper-1");
     assert_eq!(record.tokens_in, 0);
     assert_eq!(record.tokens_out, 0);
     assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
