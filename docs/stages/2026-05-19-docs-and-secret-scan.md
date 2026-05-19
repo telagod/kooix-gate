@@ -61,3 +61,20 @@ cargo clippy -p gate-server --all-targets -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```
+
+## Plugin Auth 前端表单
+
+本轮把 P1.1.2 的前端 channel auth strategy 配置从原始 manifest 手填推进为可 lint 表单：
+
+- `web/src/lib/components/channels/PluginAuthEditor.svelte`：创建 / 编辑 channel 共用的 Auth Strategy editor。
+- `web/src/lib/plugin-presets.ts`：新增 `PluginAuthForm`、默认 preset auth、manifest → form round-trip、`buildPluginAuthManifest` 本地 lint 与 auth 合并逻辑。
+- `web/src/routes/channels/+page.svelte`：Plugin provider 创建 / 编辑抽屉按 strategy 展示最小字段，保存前合并 auth 到 manifest；“本地 lint”按钮复用同一构造链。
+- 支持策略：`bearer`、`api_key_header`、`api_key_query`、`basic`、`custom_headers`、`hmac`、`aws_sigv4`、`oauth_client_credentials`、`none`。
+- 本地 lint 限制：secret slot 仅允许 `[a-zA-Z0-9_-]`；OAuth `token_url` 必须 HTTPS，本地仅放行 `localhost` / `127.0.0.1`；`expiry_skew_seconds` 限制 0-3600；custom headers 必须是非空 JSON object。
+
+验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test -- plugin-presets
+```

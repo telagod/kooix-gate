@@ -26,6 +26,7 @@
 		BalanceResponse
 	} from '$lib/api.js';
 	import { Alert, Badge, Button, Card, Field, FilterPills, Input, ProviderSelect } from '$lib/components/ui';
+	import PluginAuthEditor from '$lib/components/channels/PluginAuthEditor.svelte';
 	import type { ProviderOption } from '$lib/components/ui/ProviderSelect.svelte';
 	import DropdownMenu from '$lib/components/ui/DropdownMenu.svelte';
 	import DataTable from '$lib/components/templates/DataTable.svelte';
@@ -35,9 +36,12 @@
 	import { cn, dataTemplate } from '$lib/design';
 	import {
 		PLUGIN_PRESET_OPTIONS,
+		authFormFromManifest,
+		defaultPluginAuthForPreset,
 		manifestPreset,
 		selectedPluginMapping
 	} from '$lib/plugin-presets';
+	import type { PluginAuthForm } from '$lib/plugin-presets';
 	import {
 		Search,
 		Plus,
@@ -141,6 +145,8 @@
 	let tagsInput = $state('');
 	let pluginManifestInput = $state('');
 	let pluginPreset = $state('');
+	let createAuthForm = $state<PluginAuthForm>(defaultPluginAuthForPreset(''));
+	let lastCreatePluginPreset = $state('');
 
 	let editingChannel = $state<Channel | null>(null);
 	let editForm = $state<UpdateChannelRequest>({});
@@ -150,6 +156,8 @@
 	let editTagsInput = $state('');
 	let editPluginManifestInput = $state('');
 	let editPluginPreset = $state('');
+	let editAuthForm = $state<PluginAuthForm>(defaultPluginAuthForPreset(''));
+	let lastEditPluginPreset = $state('');
 
 	let deletingId = $state<string | null>(null);
 	let deleting = $state(false);
@@ -466,12 +474,60 @@
 		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
 	}
 
+	function syncCreateAuthPreset() {
+		if (pluginPreset === lastCreatePluginPreset) return;
+		createAuthForm = defaultPluginAuthForPreset(pluginPreset);
+		lastCreatePluginPreset = pluginPreset;
+	}
+
+	function syncEditAuthPreset() {
+		if (editPluginPreset === lastEditPluginPreset) return;
+		editAuthForm = defaultPluginAuthForPreset(editPluginPreset);
+		lastEditPluginPreset = editPluginPreset;
+	}
+
+	function handleCreatePresetChange(event: Event) {
+		pluginPreset = (event.currentTarget as HTMLSelectElement).value;
+		createAuthForm = defaultPluginAuthForPreset(pluginPreset);
+		lastCreatePluginPreset = pluginPreset;
+	}
+
+	function handleEditPresetChange(event: Event) {
+		editPluginPreset = (event.currentTarget as HTMLSelectElement).value;
+		editAuthForm = defaultPluginAuthForPreset(editPluginPreset);
+		lastEditPluginPreset = editPluginPreset;
+	}
+
+	function lintCreatePluginManifest() {
+		try {
+			syncCreateAuthPreset();
+			selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm);
+			createError = '';
+			showToast('Plugin manifest 本地 lint 通过');
+		} catch (err: any) {
+			createError = err?.message ?? 'Plugin manifest lint 失败';
+		}
+	}
+
+	function lintEditPluginManifest() {
+		try {
+			syncEditAuthPreset();
+			selectedPluginMapping(editPluginPreset, editPluginManifestInput, editAuthForm);
+			editError = '';
+			showToast('Plugin manifest 本地 lint 通过');
+		} catch (err: any) {
+			editError = err?.message ?? 'Plugin manifest lint 失败';
+		}
+	}
+
 	function resetCreateForm() {
 		createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
 		modelsInput = '';
 		tagsInput = '';
 		pluginManifestInput = '';
 		pluginPreset = '';
+		createAuthForm = defaultPluginAuthForPreset('');
+		lastCreatePluginPreset = '';
 	}
 
 	// ── Create ───────────────────────────────────────
@@ -481,9 +537,10 @@
 		creating = true;
 		createError = '';
 		try {
+			syncCreateAuthPreset();
 			const models = modelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const model_mapping = isPluginProvider(createForm.provider_type) ? selectedPluginMapping(pluginPreset, pluginManifestInput) : createForm.model_mapping;
+			const model_mapping = isPluginProvider(createForm.provider_type) ? selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm) : createForm.model_mapping;
 			await createChannel({ ...createForm, supported_models: models, tags, model_mapping });
 			showCreate = false;
 			resetCreateForm();
@@ -513,6 +570,8 @@
 		editModelsInput = (ch.supported_models || []).join(', ');
 		editTagsInput = (ch.tags || []).join(', ');
 		editPluginPreset = isPluginProvider(ch.provider_type) ? manifestPreset(ch.model_mapping) : '';
+		lastEditPluginPreset = editPluginPreset;
+		editAuthForm = isPluginProvider(ch.provider_type) ? authFormFromManifest(ch.model_mapping) : defaultPluginAuthForPreset('');
 		editPluginManifestInput = isPluginProvider(ch.provider_type) ? JSON.stringify(ch.model_mapping ?? {}, null, 2) : '';
 		editError = '';
 	}
@@ -523,9 +582,10 @@
 		editing = true;
 		editError = '';
 		try {
+			syncEditAuthPreset();
 			const models = editModelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = editTagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const model_mapping = isPluginProvider(editingChannel.provider_type) ? selectedPluginMapping(editPluginPreset, editPluginManifestInput) : editForm.model_mapping;
+			const model_mapping = isPluginProvider(editingChannel.provider_type) ? selectedPluginMapping(editPluginPreset, editPluginManifestInput, editAuthForm) : editForm.model_mapping;
 			const updated = await updateChannel(editingChannel.id, { ...editForm, supported_models: models, tags, model_mapping });
 			channels = channels.map(c => c.id === updated.id ? updated : c);
 			editingChannel = null;
@@ -730,14 +790,18 @@
 							{#if isPluginProvider(createForm.provider_type)}
 								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
 									<label for="ch-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
-									<select id="ch-plugin-preset" bind:value={pluginPreset} disabled={creating} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
+									<select id="ch-plugin-preset" bind:value={pluginPreset} onchange={handleCreatePresetChange} disabled={creating} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
 										{#each PLUGIN_PRESET_OPTIONS as opt}
 											<option value={opt.value}>{opt.label}</option>
 										{/each}
 									</select>
-									<label for="ch-plugin" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
+									<PluginAuthEditor bind:form={createAuthForm} disabled={creating} idPrefix="ch-auth" />
+									<div class="mb-1 flex items-center justify-between gap-2">
+										<label for="ch-plugin" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
+										<Button size="sm" variant="outline" type="button" onclick={lintCreatePluginManifest} disabled={creating}>本地 lint</Button>
+									</div>
 									<textarea id="ch-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={pluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating || !!pluginPreset}></textarea>
-									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">选预设会自动生成 manifest；自定义可映射私有 body、headers、非标准响应和 SSE token 帧。</p>
+									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">保存前会把 Auth Strategy 合并进 manifest 并本地 lint；manifest 只引用 secret slot，不写明文 secret。</p>
 								</div>
 							{/if}
 						</div>
@@ -817,15 +881,20 @@
 							{#if isPluginProvider(editingChannel.provider_type)}
 								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
 									<label for="ed-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
-									<select id="ed-plugin-preset" bind:value={editPluginPreset} disabled={editing} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
-										{#each PLUGIN_PRESET_OPTIONS as opt}
-											<option value={opt.value}>{opt.label}</option>
-										{/each}
-									</select>
-									<label for="ed-plugin" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
-									<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={editPluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing || !!editPluginPreset}></textarea>
-								</div>
-							{/if}
+										<select id="ed-plugin-preset" bind:value={editPluginPreset} onchange={handleEditPresetChange} disabled={editing} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
+											{#each PLUGIN_PRESET_OPTIONS as opt}
+												<option value={opt.value}>{opt.label}</option>
+											{/each}
+										</select>
+										<PluginAuthEditor bind:form={editAuthForm} disabled={editing} idPrefix="ed-auth" />
+										<div class="mb-1 flex items-center justify-between gap-2">
+											<label for="ed-plugin" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
+											<Button size="sm" variant="outline" type="button" onclick={lintEditPluginManifest} disabled={editing}>本地 lint</Button>
+										</div>
+										<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={editPluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing || !!editPluginPreset}></textarea>
+										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">保存前会把 Auth Strategy 合并进 manifest 并本地 lint；manifest 只引用 secret slot，不写明文 secret。</p>
+									</div>
+								{/if}
 							<div class="flex items-center gap-2">
 								<input type="checkbox" id="ed-enabled" bind:checked={editForm.enabled} disabled={editing} class="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600" />
 								<label for="ed-enabled" class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>

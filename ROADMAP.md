@@ -247,7 +247,7 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - Bedrock Converse preset 默认使用 `aws_sigv4`，不再注入临时 `X-Amz-Access-Key` / `X-Amz-Secret-Key` header。
 - [x] 内置 `oauth_client_credentials` 高级认证策略：
   - `oauth_client_credentials`：token cache + expiry refresh。
-- [ ] 前端创建 channel 时按 auth strategy 展示最小字段，保存前做本地 lint。
+- [x] 前端创建 / 编辑 channel 时按 auth strategy 展示最小字段，保存前做本地 lint。
 
 #### P1.1.3 Request 映射 DSL
 
