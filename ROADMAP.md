@@ -241,9 +241,12 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - method / path / query / body_sha256 / timestamp / nonce 可组合签名 payload。
   - 默认 `HMAC-SHA256`，支持 hex / base64 signature header。
   - 自动注入 timestamp / nonce / signature header，secret 仍只来自 `secret_slot`。
+- [x] 内置 `aws_sigv4` 高级认证策略：
+  - canonical request / string-to-sign / signing key 按 AWS Signature Version 4 生成。
+  - 自动注入 `Authorization`、`x-amz-date`、`x-amz-content-sha256`，可选 `x-amz-security-token`。
+  - Bedrock Converse preset 默认使用 `aws_sigv4`，不再注入临时 `X-Amz-Access-Key` / `X-Amz-Secret-Key` header。
 - [ ] 内置高级认证策略：
   - `oauth_client_credentials`：token cache + expiry refresh。
-  - `aws_sigv4`：为 Bedrock Converse 收口正式鉴权。
 - [ ] 前端创建 channel 时按 auth strategy 展示最小字段，保存前做本地 lint。
 
 #### P1.1.3 Request 映射 DSL
@@ -363,7 +366,7 @@ cd web && npm test -- plugin-presets
   - Ollama OpenAI endpoint
   - LocalAI
   - Xinference
-- [ ] 对 Bedrock Converse 用 plugin auth `aws_sigv4` 补齐正式鉴权。
+- [x] 对 Bedrock Converse 用 plugin auth `aws_sigv4` 补齐正式鉴权。
 
 **验收门禁**
 

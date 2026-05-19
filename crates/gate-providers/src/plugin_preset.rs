@@ -268,11 +268,7 @@ impl ProviderPresetSpec {
     fn bedrock_converse() -> Self {
         Self {
             chat_path: "/model/{{model}}/converse".to_string(),
-            headers: Map::from_iter([
-                ("X-Amz-Access-Key".to_string(), json!("{{api_key}}")),
-                ("X-Amz-Secret-Key".to_string(), json!("{{aws_secret_key}}")),
-                ("Authorization".to_string(), Value::Null),
-            ]),
+            headers: Map::from_iter([("Authorization".to_string(), Value::Null)]),
             body: None,
             stream_path: Some("stream".to_string()),
             response: ResponseManifest {

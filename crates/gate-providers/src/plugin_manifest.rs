@@ -79,6 +79,7 @@ pub(crate) enum AuthStrategy {
     Basic,
     CustomHeaders,
     Hmac,
+    AwsSigv4,
     None,
 }
 
@@ -93,6 +94,7 @@ pub(crate) struct AuthManifest {
     pub password_slot: Option<String>,
     pub headers: Map<String, Value>,
     pub hmac: HmacAuthManifest,
+    pub aws_sigv4: AwsSigv4AuthManifest,
 }
 
 impl AuthManifest {
@@ -153,6 +155,16 @@ pub(crate) enum SignatureEncoding {
     Base64,
     #[default]
     Hex,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(default)]
+pub(crate) struct AwsSigv4AuthManifest {
+    pub service: String,
+    pub region: Option<String>,
+    pub access_key_slot: String,
+    pub secret_key_slot: String,
+    pub session_token_slot: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
@@ -280,15 +292,7 @@ impl PluginManifest {
             crate::plugin_preset::ProviderPresetKind::BedrockConverse
                 if self.auth.strategy == AuthStrategy::Bearer =>
             {
-                self.auth.strategy = AuthStrategy::CustomHeaders;
-                self.auth
-                    .headers
-                    .entry("X-Amz-Access-Key".to_string())
-                    .or_insert_with(|| json!("{{api_key}}"));
-                self.auth
-                    .headers
-                    .entry("X-Amz-Secret-Key".to_string())
-                    .or_insert_with(|| json!("{{aws_secret_key}}"));
+                self.auth.strategy = AuthStrategy::AwsSigv4;
             }
             _ => {}
         }
@@ -396,6 +400,7 @@ impl Default for AuthManifest {
             password_slot: None,
             headers: Map::new(),
             hmac: HmacAuthManifest::default(),
+            aws_sigv4: AwsSigv4AuthManifest::default(),
         }
     }
 }
@@ -410,6 +415,18 @@ impl Default for HmacAuthManifest {
             signed_payload: "{{method}}\n{{path}}\n{{body_sha256}}\n{{timestamp}}\n{{nonce}}"
                 .to_string(),
             signature_encoding: SignatureEncoding::Hex,
+        }
+    }
+}
+
+impl Default for AwsSigv4AuthManifest {
+    fn default() -> Self {
+        Self {
+            service: "bedrock".to_string(),
+            region: None,
+            access_key_slot: "primary".to_string(),
+            secret_key_slot: "aws_secret_key".to_string(),
+            session_token_slot: Some("aws_session_token".to_string()),
         }
     }
 }
@@ -661,6 +678,37 @@ fn validate_auth(auth: &AuthManifest, pointer_base: &str) -> ProviderResult<()> 
                 TemplateScope::Hmac,
                 &json_pointer(pointer_base, "/auth/hmac/signed_payload"),
             )?;
+        }
+        AuthStrategy::AwsSigv4 => {
+            if auth.aws_sigv4.service.trim().is_empty() {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/aws_sigv4/service",
+                    "aws_sigv4 auth requires service",
+                ));
+            }
+            if let Some(region) = auth.aws_sigv4.region.as_deref()
+                && region.trim().is_empty()
+            {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/aws_sigv4/region",
+                    "aws_sigv4 region must not be empty when provided",
+                ));
+            }
+            validate_secret_slot(
+                pointer_base,
+                "/auth/aws_sigv4/access_key_slot",
+                &auth.aws_sigv4.access_key_slot,
+            )?;
+            validate_secret_slot(
+                pointer_base,
+                "/auth/aws_sigv4/secret_key_slot",
+                &auth.aws_sigv4.secret_key_slot,
+            )?;
+            if let Some(slot) = auth.aws_sigv4.session_token_slot.as_deref() {
+                validate_secret_slot(pointer_base, "/auth/aws_sigv4/session_token_slot", slot)?;
+            }
         }
         AuthStrategy::Bearer | AuthStrategy::None => {}
     }
@@ -984,6 +1032,50 @@ mod tests {
         );
         assert_eq!(manifest.auth.hmac.timestamp_header, "X-Timestamp");
         assert_eq!(manifest.auth.hmac.nonce_header, "X-Nonce");
+    }
+
+    #[test]
+    fn parses_aws_sigv4_auth_manifest_defaults() {
+        let manifest = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "aws_sigv4",
+                        "aws_sigv4": {
+                            "region": "us-east-1"
+                        }
+                    }
+                }
+            }),
+            "https://bedrock-runtime.us-east-1.amazonaws.com",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.auth.strategy, AuthStrategy::AwsSigv4);
+        assert_eq!(manifest.auth.aws_sigv4.service, "bedrock");
+        assert_eq!(manifest.auth.aws_sigv4.secret_key_slot, "aws_secret_key");
+        assert_eq!(
+            manifest.auth.aws_sigv4.session_token_slot.as_deref(),
+            Some("aws_session_token")
+        );
+    }
+
+    #[test]
+    fn bedrock_preset_defaults_to_aws_sigv4_without_fake_secret_headers() {
+        let manifest = PluginManifest::from_value(
+            json!({ "plugin": { "preset": { "provider": "bedrock_converse" } } }),
+            "https://bedrock-runtime.us-east-1.amazonaws.com",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.auth.strategy, AuthStrategy::AwsSigv4);
+        assert!(!manifest.request.headers.contains_key("X-Amz-Access-Key"));
+        assert!(!manifest.request.headers.contains_key("X-Amz-Secret-Key"));
+        assert_eq!(
+            manifest.request.path.as_deref(),
+            Some("/model/{{model}}/converse")
+        );
     }
 
     #[test]

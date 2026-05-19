@@ -22,11 +22,21 @@ use reqwest::Url;
 use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
 type HmacSha256 = Hmac<Sha256>;
+
+#[derive(Debug)]
+struct AwsSigv4Signature {
+    authorization: String,
+    #[cfg(test)]
+    canonical_request: String,
+    #[cfg(test)]
+    string_to_sign: String,
+}
 
 #[derive(Clone)]
 pub struct CustomHttpProvider {
@@ -246,6 +256,9 @@ impl CustomHttpProvider {
             AuthStrategy::Hmac => {
                 self.apply_hmac_auth_headers(headers, ctx, endpoint, body, method)?;
             }
+            AuthStrategy::AwsSigv4 => {
+                self.apply_aws_sigv4_auth_headers(headers, endpoint, body, method)?;
+            }
             AuthStrategy::ApiKeyQuery | AuthStrategy::None => {}
         }
         Ok(())
@@ -324,6 +337,113 @@ impl CustomHttpProvider {
             &self.manifest.auth.hmac.signed_payload,
             &ctx,
         ))
+    }
+
+    fn apply_aws_sigv4_auth_headers(
+        &self,
+        headers: &mut HeaderMap,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<()> {
+        let now = chrono::Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let date = now.format("%Y%m%d").to_string();
+        self.apply_aws_sigv4_auth_headers_at(headers, endpoint, body, method, &amz_date, &date)
+    }
+
+    fn apply_aws_sigv4_auth_headers_at(
+        &self,
+        headers: &mut HeaderMap,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+        amz_date: &str,
+        date: &str,
+    ) -> ProviderResult<()> {
+        let signature = self.aws_sigv4_signature(endpoint, body, method, amz_date, date)?;
+        insert_named_header(headers, "x-amz-date", amz_date.to_string())?;
+        insert_named_header(headers, "x-amz-content-sha256", sha256_hex(body))?;
+        if let Some(token) = self.aws_sigv4_session_token() {
+            insert_named_header(headers, "x-amz-security-token", token)?;
+        }
+        insert_named_header(headers, "authorization", signature.authorization)
+    }
+
+    fn aws_sigv4_signature(
+        &self,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+        amz_date: &str,
+        date: &str,
+    ) -> ProviderResult<AwsSigv4Signature> {
+        let conf = &self.manifest.auth.aws_sigv4;
+        let access_key = self.secret_for_slot(&conf.access_key_slot);
+        let secret_key = self.secret_for_slot(&conf.secret_key_slot);
+        if access_key.is_empty() {
+            return Err(ProviderError::Config(format!(
+                "aws_sigv4 access key slot '{}' is empty",
+                conf.access_key_slot
+            )));
+        }
+        if secret_key.is_empty() {
+            return Err(ProviderError::Config(format!(
+                "aws_sigv4 secret key slot '{}' is empty",
+                conf.secret_key_slot
+            )));
+        }
+        let url = Url::parse(endpoint)
+            .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| ProviderError::Config("plugin endpoint URL missing host".into()))?;
+        let host = match url.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_string(),
+        };
+        let region = conf
+            .region
+            .as_deref()
+            .map(Cow::Borrowed)
+            .or_else(|| infer_aws_region_from_host(&host).map(Cow::Owned))
+            .unwrap_or(Cow::Borrowed("us-east-1"));
+        let payload_hash = sha256_hex(body);
+        let canonical_uri = canonical_uri(&url);
+        let canonical_query = canonical_query_string(&url);
+        let canonical_headers =
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n");
+        let signed_headers = "host;x-amz-content-sha256;x-amz-date";
+        let canonical_request = format!(
+            "{method}\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+        );
+        let credential_scope = format!("{date}/{}/{}/aws4_request", region, conf.service);
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{}",
+            sha256_hex(canonical_request.as_bytes())
+        );
+        let signing_key = aws_sigv4_signing_key(&secret_key, date, &region, &conf.service)?;
+        let signature = hmac_sha256_hex(&signing_key, string_to_sign.as_bytes())?;
+        let authorization = format!(
+            "AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+        );
+        Ok(AwsSigv4Signature {
+            authorization,
+            #[cfg(test)]
+            canonical_request,
+            #[cfg(test)]
+            string_to_sign,
+        })
+    }
+
+    fn aws_sigv4_session_token(&self) -> Option<String> {
+        self.manifest
+            .auth
+            .aws_sigv4
+            .session_token_slot
+            .as_deref()
+            .map(|slot| self.secret_for_slot(slot))
+            .filter(|token| !token.is_empty())
     }
 
     fn secret_for_slot(&self, slot: &str) -> String {
@@ -838,6 +958,84 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+fn hmac_sha256(key: &[u8], msg: &[u8]) -> ProviderResult<Vec<u8>> {
+    let mut mac = HmacSha256::new_from_slice(key)
+        .map_err(|e| ProviderError::Config(format!("invalid hmac key: {e}")))?;
+    mac.update(msg);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn hmac_sha256_hex(key: &[u8], msg: &[u8]) -> ProviderResult<String> {
+    hmac_sha256(key, msg).map(hex::encode)
+}
+
+fn aws_sigv4_signing_key(
+    secret_key: &str,
+    date: &str,
+    region: &str,
+    service: &str,
+) -> ProviderResult<Vec<u8>> {
+    let k_date = hmac_sha256(format!("AWS4{secret_key}").as_bytes(), date.as_bytes())?;
+    let k_region = hmac_sha256(&k_date, region.as_bytes())?;
+    let k_service = hmac_sha256(&k_region, service.as_bytes())?;
+    hmac_sha256(&k_service, b"aws4_request")
+}
+
+fn infer_aws_region_from_host(host: &str) -> Option<String> {
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() >= 4
+        && labels[0].starts_with("bedrock-runtime")
+        && labels.last().is_some_and(|tld| *tld == "com")
+    {
+        return Some(labels[1].to_string());
+    }
+    None
+}
+
+fn canonical_uri(url: &Url) -> String {
+    let path = url.path();
+    if path.is_empty() {
+        "/".to_string()
+    } else {
+        path.split('/')
+            .map(uri_encode)
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+}
+
+fn canonical_query_string(url: &Url) -> String {
+    let Some(query) = url.query() else {
+        return String::new();
+    };
+    let mut pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(k, v)| (uri_encode(&k), uri_encode(&v)))
+        .collect();
+    pairs.sort();
+    if pairs.is_empty() && !query.is_empty() {
+        return query.to_string();
+    }
+    pairs
+        .into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn uri_encode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*byte as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
 fn normalize_secret_slots(secrets: HashMap<String, String>) -> HashMap<String, String> {
     let mut out: HashMap<String, String> = secrets
         .into_iter()
@@ -865,6 +1063,7 @@ fn env_key_for_secret_slot(slot: &str) -> String {
     match normalized.as_str() {
         "primary" => "KOOIX_PLUGIN_SECRET_PRIMARY".to_string(),
         "aws_secret_key" => "AWS_SECRET_ACCESS_KEY".to_string(),
+        "aws_session_token" => "AWS_SESSION_TOKEN".to_string(),
         other => format!(
             "KOOIX_PLUGIN_SECRET_{}",
             other
@@ -1332,6 +1531,83 @@ mod tests {
             64
         );
         assert!(headers.get("authorization").is_none());
+    }
+
+    #[test]
+    fn plugin_auth_aws_sigv4_signs_bedrock_request() {
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            "https://bedrock-runtime.us-east-1.amazonaws.com",
+            HashMap::from([
+                ("primary".to_string(), "AKIDEXAMPLE".to_string()),
+                (
+                    "aws_secret_key".to_string(),
+                    "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string(),
+                ),
+                ("aws_session_token".to_string(), "session-token".to_string()),
+            ]),
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "preset": { "provider": "bedrock_converse" },
+                    "auth": {
+                        "strategy": "aws_sigv4",
+                        "aws_sigv4": {
+                            "service": "bedrock",
+                            "region": "us-east-1"
+                        }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let req = make_req(false);
+        let body = provider.request_json_body(&req).unwrap();
+        let endpoint = provider.endpoint_url_for(&req).unwrap();
+        let signature = provider
+            .aws_sigv4_signature(&endpoint, &body, "POST", "20260519T092000Z", "20260519")
+            .unwrap();
+
+        assert!(signature.canonical_request.starts_with(concat!(
+            "POST\n",
+            "/model/odd-model/converse\n\n",
+            "host:bedrock-runtime.us-east-1.amazonaws.com\n",
+            "x-amz-content-sha256:"
+        )));
+        assert!(signature.string_to_sign.starts_with(
+            "AWS4-HMAC-SHA256\n20260519T092000Z\n20260519/us-east-1/bedrock/aws4_request\n"
+        ));
+        assert_eq!(
+            signature.authorization,
+            "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260519/us-east-1/bedrock/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=ceffee8ab945dd52eba6a21f6f61d5fd27c7b138ff1c6403c1815c1adebf3f9e"
+        );
+
+        let mut headers = HeaderMap::new();
+        provider
+            .apply_aws_sigv4_auth_headers_at(
+                &mut headers,
+                &endpoint,
+                &body,
+                "POST",
+                "20260519T092000Z",
+                "20260519",
+            )
+            .unwrap();
+        assert!(headers.get("authorization").is_some());
+        assert_eq!(
+            headers.get("x-amz-date").unwrap().to_str().unwrap(),
+            "20260519T092000Z"
+        );
+        assert_eq!(
+            headers
+                .get("x-amz-security-token")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "session-token"
+        );
+        assert!(headers.get("x-amz-access-key").is_none());
+        assert!(headers.get("x-amz-secret-key").is_none());
     }
 
     #[test]

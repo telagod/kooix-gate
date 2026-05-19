@@ -77,6 +77,7 @@ v1 固定以下分区：
 - `basic`：必须声明 `username_slot`，password 默认来自 encrypted channel key material。
 - `custom_headers`：必须声明 `headers`，只能使用白名单模板变量。
 - `hmac`：使用 `secret_slot` 做 HMAC-SHA256 签名，自动注入 timestamp、nonce、signature header。
+- `aws_sigv4`：AWS Signature Version 4，请求级签名，自动注入 `Authorization` / `x-amz-date` / `x-amz-content-sha256`。
 - `none`：不自动注入认证头。
 
 `secret_slot` / `username_slot` / `password_slot` 是加密材料引用，不是明文 secret。
@@ -90,7 +91,7 @@ v1 固定以下分区：
 3. DB 无 active key、repo/crypto 未配置或本地开发时，回退 env：
    - 主密钥：`KOOIX_CH_<CHANNEL_CODE>_KEY`，再退到 `KOOIX_API_KEY`。
    - 非主 slot：`KOOIX_PLUGIN_SECRET_<SLOT>`，slot 会转成大写并把非字母数字替换为 `_`。
-   - Bedrock 兼容 slot：`aws_secret_key` 回退 `AWS_SECRET_ACCESS_KEY`。
+   - AWS 兼容 slot：`aws_secret_key` 回退 `AWS_SECRET_ACCESS_KEY`，`aws_session_token` 回退 `AWS_SESSION_TOKEN`。
 
 示例：同一 channel 录入两条 key，`label=primary` 保存默认 Bearer key，`label=basic_user` 保存 Basic username；manifest 可写：
 
@@ -121,7 +122,7 @@ v1 固定以下分区：
 | `gemini` | 使用 Gemini OpenAI-compatible path `/v1beta/openai/chat/completions` |
 | `anthropic_messages` | OpenAI messages 转 Anthropic Messages API，含 stream / usage mapper |
 | `cohere_chat` | Cohere Chat OpenAI-compatible preset |
-| `bedrock_converse` | Bedrock Converse 基础 request/response 映射；v1 规划正式 `aws_sigv4` auth strategy |
+| `bedrock_converse` | Bedrock Converse request/response 映射，默认使用 `aws_sigv4` 正式签名 |
 
 示例：Azure OpenAI
 
@@ -171,7 +172,7 @@ v1 固定以下分区：
 - Path / query 模板：`{{api_key}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{last_user_message}}`、`{{request.*}}`。
 - Body 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{request.*}}`、`{{messages.*}}`。
 
-`{{api_key}}` 是运行时解密出的 channel key；`{{aws_secret_key}}` 仅供现有 Bedrock Converse preset 兼容，正式 SigV4 仍在后续阶段收口。
+`{{api_key}}` 是运行时解密出的 channel key；`{{aws_secret_key}}` / `{{aws_session_token}}` 只用于显式模板或 AWS 兼容 slot，Bedrock Converse preset 默认走 `aws_sigv4` 签名。
 
 整段占位会保留 JSON 原类型，例如 `"{{stream}}"` 渲染为 boolean；嵌在字符串里则转为字符串。
 
@@ -183,6 +184,7 @@ v1 固定以下分区：
 - `auth.strategy = "basic"`：注入 Basic auth；`username_slot` 必填，`password_slot` 未填时使用 `secret_slot`。
 - `auth.strategy = "custom_headers"`：按 `auth.headers` 模板注入 header。
 - `auth.strategy = "hmac"`：按 `auth.hmac.signed_payload` 渲染签名串，使用 `secret_slot` 计算 HMAC-SHA256，并注入 `timestamp_header`、`nonce_header`、`signature_header`。
+- `auth.strategy = "aws_sigv4"`：按 AWS Signature Version 4 生成 canonical request、string-to-sign 与 signing key，并注入 `Authorization`、`x-amz-date`、`x-amz-content-sha256`，若 `session_token_slot` 有值则注入 `x-amz-security-token`。
 - `auth.strategy = "none"`：不注入认证。
 
 若私有渠道不用 Bearer，推荐走 `auth` 分区，而不是把认证塞进 `request.headers`：
@@ -236,6 +238,37 @@ v1 固定以下分区：
 - `algorithm`: `sha256`。
 - `signature_encoding`: `hex` / `base64`。
 - `secret_slot` 仍只引用 `channel_keys.label` 或 env fallback，不允许在 manifest 中保存明文 secret。
+
+### AWS SigV4 auth
+
+`aws_sigv4` 用于 Bedrock Runtime 等 AWS API。Bedrock Converse preset 会自动使用：
+
+```json
+{
+  "plugin": {
+    "version": 1,
+    "preset": { "provider": "bedrock_converse" },
+    "auth": {
+      "strategy": "aws_sigv4",
+      "aws_sigv4": {
+        "service": "bedrock",
+        "region": "us-east-1",
+        "access_key_slot": "primary",
+        "secret_key_slot": "aws_secret_key",
+        "session_token_slot": "aws_session_token"
+      }
+    }
+  }
+}
+```
+
+说明：
+
+- `access_key_slot` 默认 `primary`，通常存 AWS access key id。
+- `secret_key_slot` 默认 `aws_secret_key`，回退 env `AWS_SECRET_ACCESS_KEY`。
+- `session_token_slot` 默认 `aws_session_token`，回退 env `AWS_SESSION_TOKEN`；为空则不发 `x-amz-security-token`。
+- `region` 可显式配置；未配置时会从 `bedrock-runtime.<region>.amazonaws.com` 形式的 host 推断，最后兜底 `us-east-1`。
+- 签名头仅包含 `host;x-amz-content-sha256;x-amz-date`，避免把用户可控业务 header 纳入不可预期签名面；出站仍建议用网络 egress 策略限制 AWS 目标。
 
 ## Non-stream response mapping
 
