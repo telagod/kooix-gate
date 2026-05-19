@@ -12,9 +12,11 @@ use anyhow::Context;
 use chrono::Duration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_server::loader::{AuthContextLoader, InMemoryLoader};
+use gate_server::modes::RuntimeMode;
 use gate_server::state::Repos;
-use gate_server::{AppState, Config, PgLoader, build_router};
+use gate_server::{AppState, Config, PgLoader, build_router_for_mode};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -28,7 +30,8 @@ async fn main() -> anyhow::Result<()> {
     gate_server::metrics::install_recorder();
 
     let cfg = Config::load().context("loading config (set KOOIX_* env vars)")?;
-    tracing::info!(addr = %cfg.listen_addr, "starting");
+    let mode = RuntimeMode::from_env().map_err(anyhow::Error::msg)?;
+    tracing::info!(addr = %cfg.listen_addr, mode = ?mode, "starting");
 
     let jwt = JwtIssuer::from_env(
         "KOOIX_JWT_SECRET",
@@ -138,77 +141,42 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("KOOIX_OPENAI_BASE_URL not set; requests without channel routing will 400");
     }
 
-    let app = build_router(state.clone());
-
-    gate_server::health_probe::spawn(state.clone());
-
-    // 带 auth + advisory lock + 分级处理的健康巡检
-    gate_server::health_check::spawn(&state);
-
-    // 定价自动同步（每 24h 从 LiteLLM 拉取）
-    if let Some(pool) = state.repos.pool() {
-        let pool = pool.clone();
-        tokio::spawn(async move {
-            // 启动时立即同步一次
-            match gate_billing::pricing_sync::sync_from_litellm_upsert(&pool).await {
-                Ok((n, s)) => {
-                    tracing::info!(upserted = n, skipped = s, "initial pricing sync done")
-                }
-                Err(e) => tracing::warn!(error = %e, "initial pricing sync failed"),
-            }
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
-            interval.tick().await; // skip first immediate tick
-            loop {
-                interval.tick().await;
-                match gate_billing::pricing_sync::sync_from_litellm_upsert(&pool).await {
-                    Ok((n, s)) => tracing::info!(upserted = n, skipped = s, "pricing sync done"),
-                    Err(e) => tracing::warn!(error = %e, "pricing sync failed"),
-                }
-            }
-        });
+    if state.repos.pool().is_some() {
+        gate_server::worker::attach_billing_repos(&mut state);
     }
 
-    // Inflight 清扫任务（每 60s 扫 expired 行退还 quota）
-    {
-        let inflight_repo = state.repos.inflight.clone();
-        let quota_counter = state.quota_counter.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                if let Some(ref qc) = quota_counter {
-                    match inflight_repo.sweep_expired().await {
-                        Ok(expired) if !expired.is_empty() => {
-                            let count = expired.len();
-                            for row in expired {
-                                for (key, micros) in
-                                    row.quota_keys.iter().zip(row.estimated_micros.iter())
-                                {
-                                    let _ = qc.refund(key, *micros).await;
-                                }
-                            }
-                            tracing::info!(count, "inflight sweep: refunded expired pre-debits");
-                        }
-                        Ok(_) => {}
-                        Err(e) => tracing::warn!(error = %e, "inflight sweep failed"),
-                    }
-                }
-            }
-        });
-    }
+    let shutdown = CancellationToken::new();
+    let worker_shutdown = shutdown.clone();
+    let mut workers = if mode.runs_workers() {
+        gate_server::worker::spawn_workers(&mut state, worker_shutdown)
+    } else {
+        Default::default()
+    };
 
-    let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
+    if let Some(app) = build_router_for_mode(mode, state.clone()) {
+        let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
+            .await
+            .context("binding listener")?;
+        tracing::info!("listening");
+
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown_signal(shutdown.clone()))
         .await
-        .context("binding listener")?;
-    tracing::info!("listening");
+        .context("serve loop")?;
+    } else {
+        tracing::info!("worker mode active; waiting for shutdown signal");
+        shutdown_signal(shutdown.clone()).await;
+    }
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await
-    .context("serve loop")?;
+    shutdown.cancel();
+    while let Some(joined) = workers.join_next().await {
+        if let Err(e) = joined {
+            tracing::warn!(error = %e, "worker task failed during shutdown");
+        }
+    }
 
     // Graceful shutdown: flush OTLP spans
     if let Some(provider) = otel_provider {
@@ -238,7 +206,7 @@ fn init_tracing(otel_provider: &Option<opentelemetry_sdk::trace::TracerProvider>
         .init();
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(shutdown: CancellationToken) {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
@@ -261,6 +229,7 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     tracing::info!("shutdown signal received");
+    shutdown.cancel();
 }
 
 /// 日志里脱敏 password 段：`postgres://user:****@host/db`

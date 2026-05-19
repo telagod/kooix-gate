@@ -13,7 +13,7 @@ pub struct RequestRecord {
     pub project_id: Uuid,
     pub api_key_id: Uuid,
     pub user_id: Option<Uuid>,
-    pub channel_id: Uuid,
+    pub channel_id: Option<Uuid>,
     pub channel_key_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
     pub model_requested: String,
@@ -90,14 +90,14 @@ pub struct DashboardStats {
     pub recent_errors: Vec<RequestRecord>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelRank {
     pub model: String,
     pub requests: i64,
     pub cost_usd: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HourlyBucket {
     pub hour: String,
     pub requests: i64,
@@ -159,10 +159,32 @@ fn encode_cursor(ts: &DateTime<Utc>, request_id: &Uuid) -> String {
     format!("{}|{}", ts.to_rfc3339(), request_id)
 }
 
-const COLS: &str = "ts, request_id, org_id, project_id, api_key_id, user_id, \
+const USAGE_COLS: &str = "ts, request_id, org_id, project_id, api_key_id, user_id, \
     channel_id, channel_key_id, group_id, model_requested, model_actual, stream, \
     tokens_in, tokens_out, tokens_cached, cost_usd::float8 AS cost_f64, \
     latency_ms, ttfb_ms, status, error_code, retries, client_ip, metadata";
+
+const EVENT_COLS: &str = "ts, request_id, org_id, project_id, api_key_id, user_id, \
+    channel_id, channel_key_id, group_id, model_requested, model_actual, stream, \
+    tokens_in, tokens_out, tokens_cached, cost_usd::float8 AS cost_f64, \
+    latency_ms, ttfb_ms, status, error_code, retries, NULL::inet AS client_ip, NULL::jsonb AS metadata";
+
+const EVENT_DETAIL_COLS: &str = "e.ts, e.request_id, e.org_id, e.project_id, e.api_key_id, e.user_id, \
+    e.channel_id, e.channel_key_id, e.group_id, e.model_requested, e.model_actual, e.stream, \
+    e.tokens_in, e.tokens_out, e.tokens_cached, e.cost_usd::float8 AS cost_f64, \
+    e.latency_ms, e.ttfb_ms, e.status, e.error_code, e.retries, d.client_ip, d.metadata";
+
+fn table_exists_sql(table: &str) -> String {
+    format!(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = '{table}')"
+    )
+}
+
+async fn table_exists(pool: &PgPool, table: &str) -> DbResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(&table_exists_sql(table))
+        .fetch_one(pool)
+        .await?)
+}
 
 fn row_to_record(r: &sqlx::postgres::PgRow) -> DbResult<RequestRecord> {
     use sqlx::Row;
@@ -195,6 +217,197 @@ fn row_to_record(r: &sqlx::postgres::PgRow) -> DbResult<RequestRecord> {
     })
 }
 
+impl PgRequestLogRepo {
+    async fn dashboard_stats_from_rollups(
+        &self,
+        org_id: Option<Uuid>,
+        hours: i64,
+    ) -> DbResult<DashboardStats> {
+        let org_filter = if org_id.is_some() {
+            "AND org_id = $2"
+        } else {
+            ""
+        };
+
+        let stats_sql = format!(
+            "WITH filtered AS (
+                SELECT * FROM usage_hourly_rollups
+                WHERE bucket >= date_trunc('hour', NOW() - make_interval(hours => $1::int)) {org_filter}
+             ), model_rank AS (
+                SELECT model_actual AS model,
+                       COALESCE(SUM(request_count), 0)::bigint AS requests,
+                       COALESCE(SUM(cost_micros), 0)::float8 / 1000000 AS cost_usd
+                FROM filtered
+                GROUP BY model_actual
+                ORDER BY requests DESC
+                LIMIT 5
+             ), hourly AS (
+                SELECT bucket, to_char(bucket, 'HH24:MI') AS hour,
+                       COALESCE(SUM(request_count), 0)::bigint AS requests,
+                       COALESCE(SUM(error_count), 0)::bigint AS errors,
+                       COALESCE(SUM(cost_micros), 0)::float8 / 1000000 AS cost_usd
+                FROM filtered
+                GROUP BY bucket
+                ORDER BY bucket ASC
+             )
+             SELECT
+                COALESCE((SELECT SUM(request_count) FROM filtered), 0)::bigint AS total_requests,
+                COALESCE((SELECT SUM(error_count) FROM filtered), 0)::bigint AS total_errors,
+                COALESCE((SELECT SUM(cost_micros) FROM filtered), 0)::float8 / 1000000 AS total_cost,
+                COALESCE((SELECT SUM(tokens_in + tokens_out) FROM filtered), 0)::bigint AS total_tokens,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('model', model, 'requests', requests, 'cost_usd', cost_usd) ORDER BY requests DESC) FROM model_rank), '[]'::jsonb) AS top_models,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('hour', hour, 'requests', requests, 'errors', errors, 'cost_usd', cost_usd) ORDER BY bucket ASC) FROM hourly), '[]'::jsonb) AS hourly_trend"
+        );
+        let mut q = sqlx::query(&stats_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let row = q.fetch_one(&self.pool).await?;
+        let total_requests: i64 = row.try_get("total_requests")?;
+        let total_errors: i64 = row.try_get("total_errors")?;
+        let total_cost: f64 = row.try_get("total_cost")?;
+        let total_tokens: i64 = row.try_get("total_tokens")?;
+        let top_models_value: serde_json::Value = row.try_get("top_models")?;
+        let hourly_trend_value: serde_json::Value = row.try_get("hourly_trend")?;
+        let top_models: Vec<ModelRank> =
+            serde_json::from_value(top_models_value).unwrap_or_default();
+        let hourly_trend: Vec<HourlyBucket> =
+            serde_json::from_value(hourly_trend_value).unwrap_or_default();
+        let error_rate = if total_requests > 0 {
+            total_errors as f64 / total_requests as f64
+        } else {
+            0.0
+        };
+
+        let events_org_filter = if org_id.is_some() {
+            "AND org_id = $2"
+        } else {
+            ""
+        };
+        let errors_sql = format!(
+            "SELECT {EVENT_COLS} FROM request_events
+             WHERE status >= 400 AND ts >= NOW() - make_interval(hours => $1::int) {events_org_filter}
+             ORDER BY ts DESC
+             LIMIT 5"
+        );
+        let mut q = sqlx::query(&errors_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let error_rows = q.fetch_all(&self.pool).await?;
+        let mut recent_errors = Vec::new();
+        for r in &error_rows {
+            if let Ok(rec) = row_to_record(r) {
+                recent_errors.push(rec);
+            }
+        }
+
+        Ok(DashboardStats {
+            total_requests,
+            total_errors,
+            error_rate,
+            p50_latency_ms: None,
+            p95_latency_ms: None,
+            total_cost_usd: total_cost,
+            total_tokens,
+            top_models,
+            hourly_trend,
+            recent_errors,
+        })
+    }
+
+    async fn filter_options_from_events(
+        &self,
+        org_id: Option<Uuid>,
+        hours: i64,
+    ) -> DbResult<FilterOptions> {
+        let org_filter = if org_id.is_some() {
+            "AND e.org_id = $2"
+        } else {
+            ""
+        };
+
+        let models_sql = format!(
+            "SELECT DISTINCT e.model_actual AS model \
+             FROM request_events e \
+             WHERE e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY model"
+        );
+        let mut q = sqlx::query(&models_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        let models = rows
+            .iter()
+            .filter_map(|r| r.try_get("model").ok())
+            .collect();
+
+        let channels_sql = format!(
+            "SELECT DISTINCT e.channel_id AS id, c.name AS label \
+             FROM request_events e \
+             LEFT JOIN channels c ON c.id = e.channel_id \
+             WHERE e.channel_id IS NOT NULL AND e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY label NULLS LAST"
+        );
+        let mut q = sqlx::query(&channels_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        let channels = rows
+            .iter()
+            .map(|r| FilterOptionItem {
+                id: r.try_get("id").unwrap_or_default(),
+                label: r.try_get("label").ok(),
+            })
+            .collect();
+
+        let projects_sql = format!(
+            "SELECT DISTINCT e.project_id AS id, p.name AS label \
+             FROM request_events e \
+             LEFT JOIN projects p ON p.id = e.project_id \
+             WHERE e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY label NULLS LAST"
+        );
+        let mut q = sqlx::query(&projects_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        let projects = rows
+            .iter()
+            .map(|r| FilterOptionItem {
+                id: r.try_get("id").unwrap_or_default(),
+                label: r.try_get("label").ok(),
+            })
+            .collect();
+
+        let errors_sql = format!(
+            "SELECT DISTINCT e.error_code \
+             FROM request_events e \
+             WHERE e.error_code IS NOT NULL AND e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
+             ORDER BY e.error_code"
+        );
+        let mut q = sqlx::query(&errors_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        let error_codes = rows
+            .iter()
+            .filter_map(|r| r.try_get("error_code").ok())
+            .collect();
+
+        Ok(FilterOptions {
+            models,
+            channels,
+            projects,
+            error_codes,
+        })
+    }
+}
+
 #[async_trait]
 impl RequestLogRepo for PgRequestLogRepo {
     async fn list(
@@ -205,6 +418,14 @@ impl RequestLogRepo for PgRequestLogRepo {
     ) -> DbResult<RequestPage> {
         let limit = limit.clamp(1, 100);
         let fetch_limit = limit + 1;
+        let use_events = table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false);
+        let (from_sql, cols) = if use_events {
+            ("request_events", EVENT_COLS)
+        } else {
+            ("usage_records", USAGE_COLS)
+        };
 
         let mut conditions = vec!["1=1".to_string()];
         let mut bind_idx = 0u32;
@@ -348,7 +569,7 @@ impl RequestLogRepo for PgRequestLogRepo {
 
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT {COLS} FROM usage_records WHERE {where_clause} ORDER BY ts DESC, request_id DESC LIMIT {fetch_limit}"
+            "SELECT {cols} FROM {from_sql} WHERE {where_clause} ORDER BY ts DESC, request_id DESC LIMIT {fetch_limit}"
         );
 
         let mut q = sqlx::query(&sql);
@@ -485,7 +706,18 @@ impl RequestLogRepo for PgRequestLogRepo {
     }
 
     async fn find_by_request_id(&self, request_id: Uuid) -> DbResult<RequestRecord> {
-        let sql = format!("SELECT {COLS} FROM usage_records WHERE request_id = $1 LIMIT 1");
+        let use_events = table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false);
+        let sql = if use_events {
+            format!(
+                "SELECT {EVENT_DETAIL_COLS} FROM request_events e \
+                 LEFT JOIN request_event_details d ON d.request_id = e.request_id \
+                 WHERE e.request_id = $1 LIMIT 1"
+            )
+        } else {
+            format!("SELECT {USAGE_COLS} FROM usage_records WHERE request_id = $1 LIMIT 1")
+        };
         let row = sqlx::query(&sql)
             .bind(request_id)
             .fetch_optional(&self.pool)
@@ -497,6 +729,12 @@ impl RequestLogRepo for PgRequestLogRepo {
 
     async fn dashboard_stats(&self, org_id: Option<Uuid>, hours: i64) -> DbResult<DashboardStats> {
         let hours = hours.clamp(1, 720);
+        if table_exists(&self.pool, "usage_hourly_rollups")
+            .await
+            .unwrap_or(false)
+        {
+            return self.dashboard_stats_from_rollups(org_id, hours).await;
+        }
         let org_filter = if org_id.is_some() {
             "AND org_id = $2"
         } else {
@@ -581,7 +819,7 @@ impl RequestLogRepo for PgRequestLogRepo {
             .collect();
 
         let errors_sql = format!(
-            "SELECT {COLS} FROM usage_records \
+            "SELECT {USAGE_COLS} FROM usage_records \
              WHERE status >= 400 AND ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
              ORDER BY ts DESC \
              LIMIT 5"
@@ -614,6 +852,12 @@ impl RequestLogRepo for PgRequestLogRepo {
 
     async fn filter_options(&self, org_id: Option<Uuid>, hours: i64) -> DbResult<FilterOptions> {
         let hours = hours.clamp(1, 720);
+        if table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false)
+        {
+            return self.filter_options_from_events(org_id, hours).await;
+        }
         let org_filter = if org_id.is_some() {
             "AND org_id = $2"
         } else {

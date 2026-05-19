@@ -22,13 +22,20 @@ pub struct BillingCtx {
     pub org_id: Uuid,
     pub channel_id: Option<Uuid>,
     pub model: String,
+    pub request_id: Uuid,
+    pub idempotency_key: String,
 }
 
 impl BillingCtx {
     /// 从 AuthContext 抽 ApiKey 主体的归属信息；非 ApiKey 主体返回 None。
     ///
     /// User 主体直调（X-Kooix-Project）当前不计费 —— 没有 api_key 归属。
-    pub fn from_auth(ctx: &AuthContext, channel_id: Option<Uuid>, model: &str) -> Option<Self> {
+    pub fn from_auth(
+        ctx: &AuthContext,
+        channel_id: Option<Uuid>,
+        model: &str,
+        request_id: Uuid,
+    ) -> Option<Self> {
         match ctx.subject()? {
             Subject::ApiKey {
                 api_key_id,
@@ -40,6 +47,8 @@ impl BillingCtx {
                 org_id: *org_id.as_uuid(),
                 channel_id,
                 model: model.to_string(),
+                request_id,
+                idempotency_key: request_id.to_string(),
             }),
             _ => None,
         }
@@ -71,6 +80,7 @@ pub async fn emit_usage(
     let pricing_row = match pricing.find_for(ctx.channel_id, &ctx.model, now).await {
         Ok(Some(p)) => p,
         Ok(None) => {
+            crate::metrics::record_billing_settle_failure("pricing_miss");
             tracing::warn!(
                 api_key_id = %ctx.api_key_id,
                 channel_id = ?ctx.channel_id,
@@ -80,6 +90,7 @@ pub async fn emit_usage(
             return;
         }
         Err(e) => {
+            crate::metrics::record_billing_settle_failure("pricing_lookup");
             tracing::warn!(
                 error = %e,
                 api_key_id = %ctx.api_key_id,
@@ -93,7 +104,8 @@ pub async fn emit_usage(
     let cost_micros = compute_cost_micros(&usage, &pricing_row);
 
     let event = UsageEvent {
-        request_id: Uuid::now_v7(),
+        request_id: ctx.request_id,
+        idempotency_key: Some(ctx.idempotency_key.clone()),
         api_key_id: ctx.api_key_id,
         project_id: ctx.project_id,
         org_id: ctx.org_id,
@@ -108,6 +120,7 @@ pub async fn emit_usage(
     };
 
     if let Err(e) = outbox.enqueue(&event).await {
+        crate::metrics::record_billing_settle_failure("outbox_enqueue");
         tracing::warn!(error = %e, "billing outbox enqueue failed");
     }
 }

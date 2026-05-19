@@ -13,9 +13,17 @@
 //! | `gate_request_duration_seconds`  | Histogram | method, path                       |
 //! | `gate_tokens_total`              | Counter   | type (prompt/completion), model     |
 //! | `gate_active_requests`           | Gauge     | (none)                             |
+//! | `gateway_stage_duration_seconds` | Histogram | stage, outcome                     |
+//! | `provider_route_decisions_total` | Counter   | provider_type, outcome             |
+//! | `provider_runtime_snapshot_version` | Gauge  | (none)                             |
+//! | `billing_outbox_lag_seconds`     | Gauge     | (none)                             |
+//! | `billing_settle_failures_total`  | Counter   | reason                             |
+//! | `usage_rollup_lag_seconds`       | Gauge     | (none)                             |
+//! | `worker_lease_owner`             | Gauge     | job                                |
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use gate_core::id::ChannelId;
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::sync::OnceLock;
 
@@ -97,6 +105,51 @@ pub fn record_tokens(model: &str, prompt: u64, completion: u64) {
         "model" => model,
     )
     .increment(completion);
+}
+
+/// Record one gateway pipeline stage with bounded-cardinality labels.
+pub fn record_gateway_stage(stage: &'static str, outcome: &'static str, duration_secs: f64) {
+    metrics::histogram!(
+        "gateway_stage_duration_seconds",
+        "stage" => stage,
+        "outcome" => outcome,
+    )
+    .record(duration_secs);
+}
+
+/// Record provider routing decisions without high-cardinality channel/model labels.
+pub fn record_provider_route_decision(
+    provider_type: &str,
+    outcome: &'static str,
+    snapshot_version: u64,
+    channel_id: Option<ChannelId>,
+) {
+    metrics::counter!(
+        "provider_route_decisions_total",
+        "provider_type" => provider_type.to_string(),
+        "outcome" => outcome,
+    )
+    .increment(1);
+    metrics::gauge!("provider_runtime_snapshot_version").set(snapshot_version as f64);
+    if let Some(channel_id) = channel_id {
+        tracing::debug!(
+            channel_id = %channel_id.as_uuid(),
+            provider_type,
+            outcome,
+            snapshot_version,
+            "provider route decision"
+        );
+    }
+}
+
+/// Read model freshness signal for usage rollups.
+pub fn record_usage_rollup_lag_seconds(lag_seconds: f64) {
+    metrics::gauge!("usage_rollup_lag_seconds").set(lag_seconds);
+}
+
+/// Billing settlement failure signal.
+pub fn record_billing_settle_failure(reason: &'static str) {
+    metrics::counter!("billing_settle_failures_total", "reason" => reason).increment(1);
 }
 
 /// Normalize URL paths to avoid label cardinality explosion.

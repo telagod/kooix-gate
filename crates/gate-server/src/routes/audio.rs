@@ -3,6 +3,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::gateway::{GatewayStage, StageOutcome};
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Multipart, State};
@@ -22,10 +23,16 @@ async fn create_speech(
     Authed(_ctx): Authed,
     Json(req): Json<AudioSpeechRequest>,
 ) -> AppResult<Response> {
+    let route_start = std::time::Instant::now();
     let provider = app
         .audio_provider
         .as_ref()
         .ok_or_else(|| AppError::BadRequest("TTS not configured".into()))?;
+    crate::gateway::record_stage(
+        GatewayStage::Route,
+        StageOutcome::Ok,
+        route_start.elapsed().as_secs_f64(),
+    );
 
     let format = req
         .response_format
@@ -40,10 +47,25 @@ async fn create_speech(
         _ => "audio/mpeg",
     };
 
-    let audio_bytes = provider
-        .speech(req)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let execute_start = std::time::Instant::now();
+    let audio_bytes = match provider.speech(req).await {
+        Ok(bytes) => {
+            crate::gateway::record_stage(
+                GatewayStage::Execute,
+                StageOutcome::Ok,
+                execute_start.elapsed().as_secs_f64(),
+            );
+            bytes
+        }
+        Err(e) => {
+            crate::gateway::record_stage(
+                GatewayStage::Execute,
+                StageOutcome::Error,
+                execute_start.elapsed().as_secs_f64(),
+            );
+            return Err(AppError::Internal(e.to_string()));
+        }
+    };
 
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, content_type)
@@ -56,10 +78,16 @@ async fn create_transcription(
     Authed(_ctx): Authed,
     mut multipart: Multipart,
 ) -> AppResult<Json<AudioTranscriptionResponse>> {
+    let route_start = std::time::Instant::now();
     let provider = app
         .audio_provider
         .as_ref()
         .ok_or_else(|| AppError::BadRequest("STT not configured".into()))?;
+    crate::gateway::record_stage(
+        GatewayStage::Route,
+        StageOutcome::Ok,
+        route_start.elapsed().as_secs_f64(),
+    );
 
     let mut audio_data: Option<bytes::Bytes> = None;
     let mut filename = "audio.wav".to_string();
@@ -103,10 +131,28 @@ async fn create_transcription(
 
     let audio_bytes = bytes::Bytes::from(audio.to_vec());
 
-    let resp = provider
+    let execute_start = std::time::Instant::now();
+    let resp = match provider
         .transcription(audio_bytes, filename, model, language)
         .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    {
+        Ok(resp) => {
+            crate::gateway::record_stage(
+                GatewayStage::Execute,
+                StageOutcome::Ok,
+                execute_start.elapsed().as_secs_f64(),
+            );
+            resp
+        }
+        Err(e) => {
+            crate::gateway::record_stage(
+                GatewayStage::Execute,
+                StageOutcome::Error,
+                execute_start.elapsed().as_secs_f64(),
+            );
+            return Err(AppError::Internal(e.to_string()));
+        }
+    };
 
     Ok(Json(resp))
 }

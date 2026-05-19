@@ -8,9 +8,11 @@
 use crate::BillingResult;
 use crate::outbox::{OutboxId, OutboxRepo};
 use crate::types::UsageEvent;
+use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 /// 失败次数上限（与 outbox.rs fetch_batch SQL 中的 retry_count < 3 对应）。
 #[allow(dead_code)]
@@ -40,11 +42,29 @@ impl Consumer {
 
     /// 运行消费循环（阻塞，直到 task 被 cancel）。
     pub async fn run(&self) {
+        self.run_until(CancellationToken::new()).await;
+    }
+
+    /// 运行消费循环，直到 `shutdown` 被触发。
+    pub async fn run_until(&self, shutdown: CancellationToken) {
         loop {
+            if shutdown.is_cancelled() {
+                tracing::info!("billing consumer shutdown requested");
+                break;
+            }
+
             if let Err(e) = self.tick().await {
                 tracing::error!(error = %e, "billing consumer tick error");
+                metrics::counter!("billing_outbox_tick_errors_total").increment(1);
             }
-            tokio::time::sleep(self.interval).await;
+
+            tokio::select! {
+                () = shutdown.cancelled() => {
+                    tracing::info!("billing consumer stopped");
+                    break;
+                }
+                () = tokio::time::sleep(self.interval) => {}
+            }
         }
     }
 
@@ -52,8 +72,10 @@ impl Consumer {
     pub async fn tick(&self) -> BillingResult<()> {
         let batch = self.outbox.fetch_batch(self.batch_size).await?;
         if batch.is_empty() {
+            metrics::gauge!("billing_outbox_batch_size").set(0.0);
             return Ok(());
         }
+        metrics::gauge!("billing_outbox_batch_size").set(batch.len() as f64);
         tracing::debug!(count = batch.len(), "billing consumer processing batch");
 
         for (outbox_id, event) in batch {
@@ -65,11 +87,16 @@ impl Consumer {
     async fn process_one(&self, outbox_id: OutboxId, event: &UsageEvent) {
         match commit_usage(&self.pool, event).await {
             Ok(()) => {
+                metrics::counter!("billing_outbox_processed_total").increment(1);
                 if let Err(e) = self.outbox.mark_done(outbox_id).await {
                     tracing::warn!(outbox_id, error = %e, "mark_done failed");
+                    metrics::counter!("billing_outbox_mark_done_failures_total").increment(1);
                 }
             }
             Err(e) => {
+                metrics::counter!("billing_outbox_failed_total").increment(1);
+                metrics::counter!("billing_settle_failures_total", "reason" => "commit_usage")
+                    .increment(1);
                 tracing::warn!(
                     outbox_id,
                     request_id = %event.request_id,
@@ -89,10 +116,46 @@ impl Consumer {
     }
 }
 
-/// 把 UsageEvent 写到 usage_records 表（幂等：ON CONFLICT DO NOTHING）。
+/// 把 UsageEvent 写到 usage_records + read model + ledger。
 ///
 /// channel_id 为 None 时直接写 NULL（fallback provider 路径无 channel 归属）。
 pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()> {
+    let idem = event
+        .idempotency_key
+        .clone()
+        .unwrap_or_else(|| event.request_id.to_string());
+    let mut tx = pool.begin().await?;
+    let inserted = sqlx::query_scalar::<_, bool>(
+        "INSERT INTO request_events \
+         (ts, request_id, idempotency_key, org_id, project_id, api_key_id, channel_id, \
+          model_requested, model_actual, tokens_in, tokens_out, tokens_cached, cost_micros, cost_usd, status) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13::numeric / 1000000, $14) \
+         ON CONFLICT (idempotency_key) DO NOTHING \
+         RETURNING TRUE",
+    )
+    .bind(event.occurred_at)
+    .bind(event.request_id)
+    .bind(&idem)
+    .bind(event.org_id)
+    .bind(event.project_id)
+    .bind(event.api_key_id)
+    .bind(event.channel_id)
+    .bind(&event.model)
+    .bind(&event.model)
+    .bind(event.prompt_tokens)
+    .bind(event.completion_tokens)
+    .bind(event.cached_tokens)
+    .bind(event.cost_micros)
+    .bind(event.status as i32)
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if !inserted {
+        tx.commit().await?;
+        metrics::counter!("billing_settle_duplicates_total").increment(1);
+        return Ok(());
+    }
+
     sqlx::query(
         "INSERT INTO usage_records \
          (ts, request_id, org_id, project_id, api_key_id, channel_id, \
@@ -105,16 +168,111 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     .bind(event.org_id)
     .bind(event.project_id)
     .bind(event.api_key_id)
-    .bind(event.channel_id) // Option<Uuid> → NULL when None
+    .bind(event.channel_id)
     .bind(&event.model)
-    .bind(&event.model) // model_actual = model_requested（C1 阶段无别名翻译）
+    .bind(&event.model)
     .bind(event.prompt_tokens)
     .bind(event.completion_tokens)
     .bind(event.cached_tokens)
     .bind(event.cost_micros)
     .bind(event.status as i32)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    let status_class = (event.status / 100) * 100;
+    let is_error = i64::from(event.status >= 400);
+    let channel_key = event.channel_id.unwrap_or_else(uuid::Uuid::nil);
+    sqlx::query(
+        "INSERT INTO usage_hourly_rollups \
+         (bucket, channel_key, org_id, project_id, api_key_id, channel_id, model_actual, status_class, \
+          request_count, error_count, tokens_in, tokens_out, tokens_cached, cost_micros) \
+         VALUES (date_trunc('hour', $1::timestamptz), $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11, $12, $13) \
+         ON CONFLICT (bucket, org_id, project_id, api_key_id, channel_key, model_actual, status_class) \
+         DO UPDATE SET request_count = usage_hourly_rollups.request_count + 1, \
+                       error_count = usage_hourly_rollups.error_count + EXCLUDED.error_count, \
+                       tokens_in = usage_hourly_rollups.tokens_in + EXCLUDED.tokens_in, \
+                       tokens_out = usage_hourly_rollups.tokens_out + EXCLUDED.tokens_out, \
+                       tokens_cached = usage_hourly_rollups.tokens_cached + EXCLUDED.tokens_cached, \
+                       cost_micros = usage_hourly_rollups.cost_micros + EXCLUDED.cost_micros, \
+                       updated_at = NOW()",
+    )
+    .bind(event.occurred_at)
+    .bind(channel_key)
+    .bind(event.org_id)
+    .bind(event.project_id)
+    .bind(event.api_key_id)
+    .bind(event.channel_id)
+    .bind(&event.model)
+    .bind(status_class as i32)
+    .bind(is_error)
+    .bind(event.prompt_tokens as i64)
+    .bind(event.completion_tokens as i64)
+    .bind(event.cached_tokens as i64)
+    .bind(event.cost_micros)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO usage_daily_rollups \
+         (bucket, channel_key, org_id, project_id, api_key_id, channel_id, model_actual, status_class, \
+          request_count, error_count, tokens_in, tokens_out, tokens_cached, cost_micros) \
+         VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11, $12, $13) \
+         ON CONFLICT (bucket, org_id, project_id, api_key_id, channel_key, model_actual, status_class) \
+         DO UPDATE SET request_count = usage_daily_rollups.request_count + 1, \
+                       error_count = usage_daily_rollups.error_count + EXCLUDED.error_count, \
+                       tokens_in = usage_daily_rollups.tokens_in + EXCLUDED.tokens_in, \
+                       tokens_out = usage_daily_rollups.tokens_out + EXCLUDED.tokens_out, \
+                       tokens_cached = usage_daily_rollups.tokens_cached + EXCLUDED.tokens_cached, \
+                       cost_micros = usage_daily_rollups.cost_micros + EXCLUDED.cost_micros, \
+                       updated_at = NOW()",
+    )
+    .bind(event.occurred_at.date_naive())
+    .bind(channel_key)
+    .bind(event.org_id)
+    .bind(event.project_id)
+    .bind(event.api_key_id)
+    .bind(event.channel_id)
+    .bind(&event.model)
+    .bind(status_class as i32)
+    .bind(is_error)
+    .bind(event.prompt_tokens as i64)
+    .bind(event.completion_tokens as i64)
+    .bind(event.cached_tokens as i64)
+    .bind(event.cost_micros)
+    .execute(&mut *tx)
+    .await?;
+
+    let lag_seconds = (Utc::now() - event.occurred_at).num_milliseconds().max(0) as f64 / 1000.0;
+    metrics::gauge!("usage_rollup_lag_seconds").set(lag_seconds);
+
+    sqlx::query(
+        "INSERT INTO billing_ledger_events \
+         (id, idempotency_key, request_id, occurred_at, org_id, project_id, api_key_id, channel_id, \
+          direction, amount_micros, source_type, source_id, status, metadata) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'debit', $9, 'llm_request', $10, 'posted', $11) \
+         ON CONFLICT (idempotency_key) DO NOTHING",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(&idem)
+    .bind(event.request_id)
+    .bind(event.occurred_at)
+    .bind(event.org_id)
+    .bind(event.project_id)
+    .bind(event.api_key_id)
+    .bind(event.channel_id)
+    .bind(event.cost_micros)
+    .bind(event.request_id.to_string())
+    .bind(serde_json::json!({
+        "model": event.model,
+        "tokens_in": event.prompt_tokens,
+        "tokens_out": event.completion_tokens,
+        "tokens_cached": event.cached_tokens,
+        "status": event.status,
+    }))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
     Ok(())
 }
 

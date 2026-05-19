@@ -385,7 +385,7 @@ export async function getChannelStats(channelId: string): Promise<ChannelStats> 
 
 // Channel probe (model discovery)
 export interface ProbeResponse {
-	channel_id: string;
+	channel_id: string | null;
 	provider_type: string;
 	models: string[];
 }

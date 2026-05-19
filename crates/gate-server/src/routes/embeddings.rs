@@ -8,6 +8,7 @@
 
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
+use crate::gateway::{GatewayStage, StageOutcome};
 use crate::state::AppState;
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -29,11 +30,32 @@ async fn create_embedding(
     headers: HeaderMap,
     Json(req): Json<EmbeddingRequest>,
 ) -> AppResult<Json<EmbeddingResponse>> {
+    let route_start = std::time::Instant::now();
     let provider = resolve_embedding_provider(&app, &ctx, &headers, &req).await?;
-    let resp = provider
-        .embed(req)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    crate::gateway::record_stage(
+        GatewayStage::Route,
+        StageOutcome::Ok,
+        route_start.elapsed().as_secs_f64(),
+    );
+    let execute_start = std::time::Instant::now();
+    let resp = match provider.embed(req).await {
+        Ok(resp) => {
+            crate::gateway::record_stage(
+                GatewayStage::Execute,
+                StageOutcome::Ok,
+                execute_start.elapsed().as_secs_f64(),
+            );
+            resp
+        }
+        Err(e) => {
+            crate::gateway::record_stage(
+                GatewayStage::Execute,
+                StageOutcome::Error,
+                execute_start.elapsed().as_secs_f64(),
+            );
+            return Err(AppError::Internal(e.to_string()));
+        }
+    };
     Ok(Json(resp))
 }
 

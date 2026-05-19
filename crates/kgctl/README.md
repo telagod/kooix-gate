@@ -47,6 +47,8 @@ kgctl admin create --email root@example.com
 | `pricing list` | 列出 `pricing_rules`，可按 model / channel 过滤 | `kgctl pricing list --model gpt-4o-mini` |
 | `pricing set` | 新建一条 global 或 channel-specific 定价规则 | `kgctl pricing set --model gpt-4o-mini --dimension input_tokens --unit per_million --rate 0.15` |
 | `pricing delete` | 删除指定定价规则 | `kgctl pricing delete --id <uuid>` |
+| `usage-storage plan` | 输出普通 PG 月分区 dry-run SQL | `kgctl usage-storage plan --partition` |
+| `usage-storage plan --timescale` | 输出 Timescale hypertable/compression/retention dry-run SQL | `kgctl usage-storage plan --timescale` |
 
 退出码：成功 0；任何步骤失败 1，标准错误用 ANSI 红色高亮原因。
 

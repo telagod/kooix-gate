@@ -130,11 +130,13 @@ async fn non_stream_apikey_emits_one_usage_event() {
 
     let h = setup_with_billing(&upstream, true).await;
 
+    let expected_request_id = Uuid::now_v7();
     let req = Request::builder()
         .method("POST")
         .uri("/v1/chat/completions")
         .header("authorization", format!("Bearer {}", h.api_key_plain))
         .header("content-type", "application/json")
+        .header("x-request-id", expected_request_id.to_string())
         .body(Body::from(
             serde_json::to_vec(&json!({
                 "model": "gpt-4o-mini",
@@ -152,6 +154,8 @@ async fn non_stream_apikey_emits_one_usage_event() {
     let events = h.outbox.snapshot();
     assert_eq!(events.len(), 1, "expected exactly 1 outbox event");
     let ev = &events[0];
+    assert_eq!(ev.request_id, expected_request_id);
+    assert_eq!(ev.idempotency_key, Some(expected_request_id.to_string()));
     assert_eq!(ev.prompt_tokens, 1000);
     assert_eq!(ev.completion_tokens, 500);
     // 1000 * 0.15 / 1M + 500 * 0.60 / 1M = 0.00015 + 0.00030 = 0.00045 USD = 450 micros

@@ -18,6 +18,7 @@
 
 use crate::cost_estimate::{DEFAULT_RATE_PER_TOKEN_MICROS, estimate_cost_micros};
 use crate::inflight::{InflightGuard, InflightGuards};
+use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::Json;
 use axum::body::Body;
@@ -298,7 +299,11 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
     // 把 guards 通过 extension 传给 handler
     if !guards.is_empty() {
         // Write inflight DB record for crash recovery
-        let request_id = uuid::Uuid::now_v7();
+        let request_id = parts
+            .extensions
+            .get::<KooixRequestId>()
+            .map(|id| id.0)
+            .unwrap_or_else(uuid::Uuid::now_v7);
         let quota_keys: Vec<String> = guards.iter().map(|g| g.key.clone()).collect();
         let est_micros: Vec<i64> = guards.iter().map(|g| g.estimated_micros).collect();
 

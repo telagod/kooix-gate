@@ -11,6 +11,9 @@ use uuid::Uuid;
 pub struct UsageEvent {
     /// 全局请求 ID（用于幂等写 usage_records）
     pub request_id: Uuid,
+    /// Stable idempotency key for exactly-once settlement across projections.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
     /// 发起请求的 API Key ID
     pub api_key_id: Uuid,
     /// Project ID

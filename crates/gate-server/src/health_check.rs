@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 
 /// 健康巡检器。
 pub struct HealthChecker {
@@ -39,12 +40,16 @@ impl HealthChecker {
 
     /// 启动后台 tokio task，返回 JoinHandle。
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
+        self.spawn_with_shutdown(CancellationToken::new())
+    }
+
+    pub fn spawn_with_shutdown(self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            self.run().await;
+            self.run(shutdown).await;
         })
     }
 
-    async fn run(self) {
+    async fn run(self, shutdown: CancellationToken) {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))
@@ -56,7 +61,13 @@ impl HealthChecker {
         let mut consecutive_failures: HashMap<ChannelId, u32> = HashMap::new();
 
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                () = shutdown.cancelled() => {
+                    tracing::info!("health_check: stopped");
+                    break;
+                }
+                _ = ticker.tick() => {}
+            }
 
             // ── Advisory lock: 只让一个实例跑巡检 ──
             let locked = match sqlx::query_scalar::<_, bool>(
@@ -370,10 +381,17 @@ impl HealthChecker {
 /// - `KOOIX_HEALTH_CHECK_INTERVAL_SECS`: 巡检间隔秒数，默认 300（5 分钟）。
 ///   设为 "0" 或 "disabled" 则不启动。
 pub fn spawn(state: &AppState) {
+    let _ = spawn_with_shutdown(state, CancellationToken::new());
+}
+
+pub fn spawn_with_shutdown(
+    state: &AppState,
+    shutdown: CancellationToken,
+) -> Option<tokio::task::JoinHandle<()>> {
     let raw = std::env::var("KOOIX_HEALTH_CHECK_INTERVAL_SECS").unwrap_or_default();
     if raw == "0" || raw.eq_ignore_ascii_case("disabled") {
         tracing::info!("health_check: disabled via KOOIX_HEALTH_CHECK_INTERVAL_SECS");
-        return;
+        return None;
     }
 
     let secs: u64 = raw.parse().unwrap_or(300);
@@ -381,11 +399,13 @@ pub fn spawn(state: &AppState) {
 
     match HealthChecker::new(state, interval) {
         Some(checker) => {
-            checker.spawn();
+            let handle = checker.spawn_with_shutdown(shutdown);
             tracing::info!(interval_secs = secs, "health_check: spawned");
+            Some(handle)
         }
         None => {
             tracing::warn!("health_check: no PgPool available (in-memory mode?), not spawning");
+            None
         }
     }
 }

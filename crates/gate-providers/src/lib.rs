@@ -30,7 +30,9 @@ pub use custom_provider::CustomHttpProvider;
 pub use error::{ProviderError, ProviderResult};
 pub use router::{
     ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,
-    InflightTracker, ProviderRouter, RoutedEmbeddingProvider, RoutedProvider,
+    InflightTracker, ProviderRouter, ProviderRuntimeChannelSnapshot, ProviderRuntimeSnapshot,
+    RouteCandidateTrace, RouteDecisionTrace, RouteSkipTrace, RoutedEmbeddingProvider,
+    RoutedProvider,
 };
 pub use types::{
     AudioSpeechRequest, AudioTranscriptionResponse, ChatChoice, ChatDelta, ChatMessage,

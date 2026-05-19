@@ -28,7 +28,9 @@ use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::cost_estimate::DEFAULT_RATE_PER_TOKEN_MICROS;
 use crate::error::{AppError, AppResult};
+use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::InflightGuards;
+use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -72,24 +74,68 @@ async fn chat_completions(
     State(app): State<AppState>,
     Authed(ctx): Authed,
     headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
     guards: Option<Extension<InflightGuards>>,
     Json(mut req): Json<ChatRequest>,
 ) -> AppResult<axum::response::Response> {
-    let (provider, channel_id, retry_config, params_override, provider_type, routed_metrics) =
-        resolve_provider(&app, &ctx, &headers, &req).await?;
+    let route_start = std::time::Instant::now();
+    let (
+        provider,
+        channel_id,
+        retry_config,
+        params_override,
+        provider_type,
+        routed_metrics,
+        routed_model,
+    ) = resolve_provider(&app, &ctx, &headers, &req).await?;
+    crate::gateway::record_stage(
+        GatewayStage::Route,
+        StageOutcome::Ok,
+        route_start.elapsed().as_secs_f64(),
+    );
 
     // Apply params_override from model alias (if any)
+    let adapt_start = std::time::Instant::now();
     apply_params_override(&mut req, &params_override);
+    if let Some(model) = routed_model {
+        req.model = model;
+    }
 
     // Adapt params for the target provider (drop unsupported OpenAI params, inject required fields)
     gate_providers::adapt::adapt_for_provider(&mut req, &provider_type);
+    crate::gateway::record_stage(
+        GatewayStage::Adapt,
+        StageOutcome::Ok,
+        adapt_start.elapsed().as_secs_f64(),
+    );
 
     // 计费上下文：仅 ApiKey 主体生成；channel_id 来自 ProviderRouter，fallback 路径为 None
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model);
+    let request_id = request_id
+        .map(|Extension(id)| id.0)
+        .unwrap_or_else(uuid::Uuid::now_v7);
+    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
     let model = req.model.clone();
 
     if req.stream {
-        let upstream = provider.chat_stream(req).await?;
+        let execute_start = std::time::Instant::now();
+        let upstream = match provider.chat_stream(req).await {
+            Ok(upstream) => {
+                crate::gateway::record_stage(
+                    GatewayStage::Execute,
+                    StageOutcome::Ok,
+                    execute_start.elapsed().as_secs_f64(),
+                );
+                upstream
+            }
+            Err(e) => {
+                crate::gateway::record_stage(
+                    GatewayStage::Execute,
+                    StageOutcome::Error,
+                    execute_start.elapsed().as_secs_f64(),
+                );
+                return Err(AppError::Provider(e));
+            }
+        };
 
         // 流式：上报成功（stream 开启意味着请求已被接受）
         if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
@@ -151,6 +197,11 @@ async fn chat_completions(
             {
                 let total_tokens = u.prompt_tokens + u.completion_tokens;
                 rl.record_tokens(ch_id, total_tokens).await;
+                crate::metrics::record_tokens(
+                    &model,
+                    u.prompt_tokens as u64,
+                    u.completion_tokens as u64,
+                );
             }
 
             // 结算 inflight guards（F3）
@@ -204,6 +255,11 @@ async fn chat_completions(
         {
             Ok(r) => {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
+                crate::gateway::record_stage(
+                    GatewayStage::Execute,
+                    StageOutcome::Ok,
+                    start.elapsed().as_secs_f64(),
+                );
                 // 上报成功 + 延迟
                 if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
                     let ch_id = ChannelId::from(ch_uuid);
@@ -227,6 +283,11 @@ async fn chat_completions(
                 r
             }
             Err(e) => {
+                crate::gateway::record_stage(
+                    GatewayStage::Execute,
+                    StageOutcome::Error,
+                    start.elapsed().as_secs_f64(),
+                );
                 // 上报失败
                 if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
                     let ch_id = ChannelId::from(ch_uuid);
@@ -262,6 +323,11 @@ async fn chat_completions(
             let ch_id = ChannelId::from(ch_uuid);
             rl.record_tokens(ch_id, total_tokens).await;
         }
+        crate::metrics::record_tokens(
+            &model,
+            resp.usage.prompt_tokens as u64,
+            resp.usage.completion_tokens as u64,
+        );
 
         // 结算 inflight guards（F3）
         if let Some(Extension(ref g)) = guards {
@@ -299,6 +365,7 @@ async fn resolve_provider(
     serde_json::Value,
     String,
     Option<Arc<ChannelMetrics>>,
+    Option<String>,
 )> {
     // 尝试从 ProviderRouter 获取
     if let Some(router) = &app.provider_router {
@@ -309,6 +376,13 @@ async fn resolve_provider(
                 Ok(Some(routed)) => {
                     let provider_type = routed.provider_type.clone();
                     let metrics = routed.metrics.clone();
+                    let resolved_model = routed.resolved_model.clone();
+                    crate::metrics::record_provider_route_decision(
+                        &provider_type,
+                        "selected",
+                        routed.decision_trace.snapshot_version,
+                        Some(routed.channel_id),
+                    );
                     return Ok((
                         routed.provider,
                         Some(*routed.channel_id.as_uuid()),
@@ -316,15 +390,28 @@ async fn resolve_provider(
                         routed.params_override,
                         provider_type,
                         metrics,
+                        Some(resolved_model),
                     ));
                 }
                 Ok(None) => {
+                    crate::metrics::record_provider_route_decision(
+                        "fallback",
+                        "none",
+                        router.snapshot_version(),
+                        None,
+                    );
                     tracing::debug!(
                         project_id = %project_id,
                         "provider_router returned None, trying fallback provider"
                     );
                 }
                 Err(e) => {
+                    crate::metrics::record_provider_route_decision(
+                        "fallback",
+                        "error",
+                        router.snapshot_version(),
+                        None,
+                    );
                     tracing::warn!(error = %e, "provider_router error, falling back");
                 }
             }
@@ -342,6 +429,7 @@ async fn resolve_provider(
         RetryConfig::default(),
         serde_json::json!({}),
         "openai".to_string(),
+        None,
         None,
     ))
 }

@@ -10,6 +10,7 @@
 //!   kgctl admin create       创建 platform super_admin 账号
 //!   kgctl doctor             一键体检：env / DB / Redis 可达性
 //!   kgctl seed-pricing       写入主流模型默认定价（幂等）
+//!   kgctl usage-storage plan 输出 usage 热表分区 / Timescale dry-run DDL
 
 use clap::{Parser, Subcommand};
 
@@ -18,6 +19,7 @@ mod doctor;
 mod migrate;
 mod pricing;
 mod setup;
+mod usage_storage;
 
 #[derive(Parser)]
 #[command(name = "kgctl", version, about = "Kooix Gate 部署/运维工具", long_about = None)]
@@ -58,6 +60,11 @@ enum Cmd {
     Pricing {
         #[command(subcommand)]
         sub: PricingCmd,
+    },
+    /// Usage/request_events 存储规划（仅 dry-run 输出，不执行 DDL）
+    UsageStorage {
+        #[command(subcommand)]
+        sub: UsageStorageCmd,
     },
 }
 
@@ -115,6 +122,25 @@ enum PricingCmd {
     },
 }
 
+#[derive(Subcommand)]
+enum UsageStorageCmd {
+    /// 输出 PostgreSQL 分区或 Timescale 可选方案 SQL（dry-run）
+    Plan {
+        /// 输出 Timescale hypertable/compression/retention 方案
+        #[arg(long, conflicts_with = "partition")]
+        timescale: bool,
+        /// 输出普通 PostgreSQL 月分区方案（默认）
+        #[arg(long)]
+        partition: bool,
+        /// 预创建未来几个月分区（普通 PostgreSQL 方案）
+        #[arg(long, default_value = "3")]
+        months_ahead: u32,
+        /// retention 窗口（月）
+        #[arg(long, default_value = "18")]
+        retention_months: u32,
+    },
+}
+
 fn main() {
     let cli = Cli::parse();
     let result: anyhow::Result<()> = match cli.cmd {
@@ -169,6 +195,22 @@ fn main() {
         Cmd::Pricing {
             sub: PricingCmd::Delete { id },
         } => run_async(pricing::delete(id)),
+        Cmd::UsageStorage {
+            sub:
+                UsageStorageCmd::Plan {
+                    timescale,
+                    partition: _,
+                    months_ahead,
+                    retention_months,
+                },
+        } => {
+            let kind = if timescale {
+                usage_storage::UsageStoragePlanKind::Timescale
+            } else {
+                usage_storage::UsageStoragePlanKind::Partition
+            };
+            usage_storage::plan(kind, months_ahead, retention_months)
+        }
     };
 
     if let Err(e) = result {

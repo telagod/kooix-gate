@@ -27,14 +27,167 @@ use crate::gemini::GeminiProvider;
 use crate::mistral::MistralProvider;
 use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
-use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
+use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
 use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+/// 单个候选 channel 在一次路由决策中的快照。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteCandidateTrace {
+    pub group_id: ChannelGroupId,
+    pub group_name: String,
+    pub channel_id: ChannelId,
+    pub channel_code: String,
+    pub provider_type: String,
+    pub priority: i32,
+    pub weight: i32,
+}
+
+/// 候选 channel 被跳过的原因。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteSkipTrace {
+    pub channel_id: ChannelId,
+    pub channel_code: String,
+    pub reason: String,
+}
+
+/// Provider 路由决策轨迹。
+///
+/// 当前 router 仍是 repo-backed lazy routing；`snapshot_version` 是热路径可观测钩子，
+/// 后续切到 compiled `ProviderRuntimeSnapshot` 时无需改调用方契约。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteDecisionTrace {
+    pub snapshot_version: u64,
+    pub requested_model: String,
+    /// alias 命中后的 target_model；未命中为 None。
+    pub alias_target_model: Option<String>,
+    /// alias 解析后的初始路由模型；未命中 alias 时等于 requested_model。
+    pub initial_model: String,
+    /// 实际选中的路由模型；可能来自 fallback model chain。
+    pub selected_model: Option<String>,
+    /// 经过 channel.model_mapping 后真正交给 provider 的模型名。
+    pub provider_model: Option<String>,
+    pub selected_group_id: Option<ChannelGroupId>,
+    pub selected_group_name: Option<String>,
+    pub selected_strategy: Option<String>,
+    pub selected_channel_id: Option<ChannelId>,
+    pub selected_channel_code: Option<String>,
+    pub selected_provider_type: Option<String>,
+    pub candidates: Vec<RouteCandidateTrace>,
+    pub skipped: Vec<RouteSkipTrace>,
+    pub fallbacks: Vec<String>,
+}
+
+/// Compiled provider runtime metadata snapshot.
+///
+/// The current router still resolves providers from repos lazily, but this
+/// snapshot is already atomically replaceable and versioned. Control-plane code
+/// can publish compiled channel/key metadata here before the route path fully
+/// switches away from repo-backed reads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderRuntimeSnapshot {
+    pub version: u64,
+    pub compiled_at_unix_ms: u128,
+    pub channels: Vec<ProviderRuntimeChannelSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderRuntimeChannelSnapshot {
+    pub channel_id: ChannelId,
+    pub channel_code: String,
+    pub provider_type: String,
+    pub supported_models: Vec<String>,
+    pub status: String,
+    pub health: String,
+}
+
+impl ProviderRuntimeSnapshot {
+    fn new(version: u64, channels: Vec<ProviderRuntimeChannelSnapshot>) -> Self {
+        Self {
+            version,
+            compiled_at_unix_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or_default(),
+            channels,
+        }
+    }
+}
+
+impl RouteDecisionTrace {
+    fn new(
+        snapshot_version: u64,
+        requested_model: &str,
+        alias_target_model: Option<String>,
+        initial_model: &str,
+    ) -> Self {
+        Self {
+            snapshot_version,
+            requested_model: requested_model.to_string(),
+            alias_target_model,
+            initial_model: initial_model.to_string(),
+            selected_model: None,
+            provider_model: None,
+            selected_group_id: None,
+            selected_group_name: None,
+            selected_strategy: None,
+            selected_channel_id: None,
+            selected_channel_code: None,
+            selected_provider_type: None,
+            candidates: Vec::new(),
+            skipped: Vec::new(),
+            fallbacks: Vec::new(),
+        }
+    }
+
+    fn record_candidates(
+        &mut self,
+        group: &gate_storage::ChannelGroupRecord,
+        ordered: &[&ChannelBinding],
+    ) {
+        self.candidates
+            .extend(ordered.iter().map(|candidate| RouteCandidateTrace {
+                group_id: group.group_id,
+                group_name: group.name.clone(),
+                channel_id: candidate.channel.channel_id,
+                channel_code: candidate.channel.code.clone(),
+                provider_type: candidate.channel.provider_type.clone(),
+                priority: candidate.priority,
+                weight: candidate.weight,
+            }));
+    }
+
+    fn record_skip(&mut self, candidate: &ChannelBinding, reason: &str) {
+        self.skipped.push(RouteSkipTrace {
+            channel_id: candidate.channel.channel_id,
+            channel_code: candidate.channel.code.clone(),
+            reason: reason.to_string(),
+        });
+    }
+
+    fn record_selected(
+        &mut self,
+        group: &gate_storage::ChannelGroupRecord,
+        candidate: &ChannelBinding,
+        selected_model: &str,
+        provider_model: &str,
+    ) {
+        self.selected_model = Some(selected_model.to_string());
+        self.provider_model = Some(provider_model.to_string());
+        self.selected_group_id = Some(group.group_id);
+        self.selected_group_name = Some(group.name.clone());
+        self.selected_strategy = Some(group.strategy.clone());
+        self.selected_channel_id = Some(candidate.channel.channel_id);
+        self.selected_channel_code = Some(candidate.channel.code.clone());
+        self.selected_provider_type = Some(candidate.channel.provider_type.clone());
+    }
+}
 
 /// 路由命中结果：Provider + 它绑定的 channel_id（计费维度归属）+ 实际使用的 model。
 #[derive(Clone)]
@@ -54,6 +207,8 @@ pub struct RoutedProvider {
     pub provider_type: String,
     /// 指向全局 ChannelMetrics，供调用方上报结果（auto-disable 机制）。
     pub metrics: Option<Arc<ChannelMetrics>>,
+    /// 本次命中的路由决策轨迹，供审计、debug 与后续 snapshot 热更新验证。
+    pub decision_trace: RouteDecisionTrace,
 }
 
 /// Embedding 路由命中结果：EmbeddingProvider + 绑定的 channel_id。
@@ -664,6 +819,10 @@ pub struct ProviderRouter {
     metrics: Option<Arc<ChannelMetrics>>,
     /// per-channel RPM/TPM 限速器。
     rate_limiter: Arc<dyn ChannelRateCheck>,
+    /// Repo-backed runtime 的单调版本钩子；control plane 热更新 snapshot 后可递增。
+    snapshot_version: AtomicU64,
+    /// Atomically replaceable compiled snapshot metadata for hot-path observability.
+    runtime_snapshot: RwLock<Arc<ProviderRuntimeSnapshot>>,
 }
 
 impl ProviderRouter {
@@ -678,6 +837,8 @@ impl ProviderRouter {
             inflight: Arc::new(InflightTracker::new()),
             metrics: Some(Arc::new(ChannelMetrics::new(10, 0.8))),
             rate_limiter: Arc::new(InMemoryChannelRateLimiter::new()),
+            snapshot_version: AtomicU64::new(1),
+            runtime_snapshot: RwLock::new(Arc::new(ProviderRuntimeSnapshot::new(1, Vec::new()))),
         }
     }
 
@@ -717,7 +878,7 @@ impl ProviderRouter {
         self.inflight.clone()
     }
 
-    /// 清除 channel 的 metrics 滑动窗口（re-enable 后由 health_probe 调用）。
+    /// 清除 channel 的 metrics 滑动窗口（re-enable 后由 health_check 调用）。
     pub fn clear_channel_metrics(&self, channel_id: ChannelId) {
         if let Some(m) = &self.metrics {
             m.clear(channel_id);
@@ -733,6 +894,29 @@ impl ProviderRouter {
     pub fn with_rate_limiter(mut self, rl: Arc<dyn ChannelRateCheck>) -> Self {
         self.rate_limiter = rl;
         self
+    }
+
+    /// 当前 provider runtime snapshot 版本。
+    pub fn snapshot_version(&self) -> u64 {
+        self.snapshot_version.load(Ordering::Relaxed)
+    }
+
+    /// Return the currently published compiled runtime snapshot metadata.
+    pub fn runtime_snapshot(&self) -> Arc<ProviderRuntimeSnapshot> {
+        self.runtime_snapshot.read().clone()
+    }
+
+    /// Publish a freshly compiled runtime snapshot and advance the observable version.
+    pub fn replace_runtime_snapshot(&self, channels: Vec<ProviderRuntimeChannelSnapshot>) -> u64 {
+        let version = self.snapshot_version.fetch_add(1, Ordering::Relaxed) + 1;
+        *self.runtime_snapshot.write() = Arc::new(ProviderRuntimeSnapshot::new(version, channels));
+        version
+    }
+
+    /// 手动推进 snapshot 版本，供 control plane 配置变更后标记热路径可观测版本。
+    pub fn bump_snapshot_version(&self) -> u64 {
+        let channels = self.runtime_snapshot.read().channels.clone();
+        self.replace_runtime_snapshot(channels)
     }
 
     /// 根据 project_id + model 选 Provider。
@@ -751,9 +935,15 @@ impl ProviderRouter {
             Some((target, po)) => (target.as_str(), po.clone()),
             None => (requested_model, serde_json::json!({})),
         };
+        let mut trace = RouteDecisionTrace::new(
+            self.snapshot_version(),
+            requested_model,
+            alias_result.as_ref().map(|(target, _)| target.clone()),
+            model,
+        );
 
         // Step 1: 尝试主模型路由
-        if let Some(mut routed) = self.route_for_model(project_id, model).await? {
+        if let Some(mut routed) = self.route_for_model(project_id, model, &mut trace).await? {
             routed.params_override = params_override;
             return Ok(Some(routed));
         }
@@ -766,7 +956,11 @@ impl ProviderRouter {
                 fallback_model = fallback,
                 "primary model route failed, trying fallback"
             );
-            if let Some(mut routed) = self.route_for_model(project_id, fallback).await? {
+            trace.fallbacks.push(fallback.to_string());
+            if let Some(mut routed) = self
+                .route_for_model(project_id, fallback, &mut trace)
+                .await?
+            {
                 routed.params_override = params_override;
                 return Ok(Some(routed));
             }
@@ -986,6 +1180,7 @@ impl ProviderRouter {
         &self,
         project_id: ProjectId,
         model: &str,
+        trace: &mut RouteDecisionTrace,
     ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 1: 找 project 的默认 channel_group
         let initial_group = match self.group_repo.find_default_for_project(project_id).await {
@@ -1028,7 +1223,10 @@ impl ProviderRouter {
                 );
             } else {
                 // Try to find a channel in this group
-                if let Some(routed) = self.try_route_in_group(&current_group, model).await? {
+                if let Some(routed) = self
+                    .try_route_in_group(&current_group, model, trace)
+                    .await?
+                {
                     return Ok(Some(routed));
                 }
             }
@@ -1072,6 +1270,7 @@ impl ProviderRouter {
         &self,
         group: &gate_storage::ChannelGroupRecord,
         model: &str,
+        trace: &mut RouteDecisionTrace,
     ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 2: 取 group 内 healthy channels
         let bindings = self
@@ -1121,6 +1320,7 @@ impl ProviderRouter {
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
         );
+        trace.record_candidates(group, &ordered);
 
         // Try each channel in order until one passes rate limits
         for candidate in &ordered {
@@ -1135,6 +1335,7 @@ impl ProviderRouter {
                     rpm_limit = ?candidate.channel.rpm_limit,
                     "channel RPM limit reached, trying next channel"
                 );
+                trace.record_skip(candidate, "rpm_limit");
                 continue;
             }
 
@@ -1149,6 +1350,7 @@ impl ProviderRouter {
                     tpm_limit = ?candidate.channel.tpm_limit,
                     "channel TPM limit reached, trying next channel"
                 );
+                trace.record_skip(candidate, "tpm_limit");
                 continue;
             }
 
@@ -1181,6 +1383,7 @@ impl ProviderRouter {
 
             // model_mapping: 如果 channel 配置了映射，翻译模型名
             let resolved_model = resolve_model_mapping(&candidate.channel.model_mapping, model);
+            trace.record_selected(group, candidate, model, &resolved_model);
 
             return Ok(Some(RoutedProvider {
                 provider,
@@ -1191,6 +1394,7 @@ impl ProviderRouter {
                 params_override: serde_json::json!({}),
                 provider_type: candidate.channel.provider_type.clone(),
                 metrics: self.metrics.clone(),
+                decision_trace: trace.clone(),
             }));
         }
 
@@ -1444,7 +1648,91 @@ mod tests {
         let (pid, router) = setup_fixtures(&[("ch-mini", "openai", vec!["gpt-4o-mini".into()], 1)]);
         let result = router.route(pid, "gpt-4o").await.unwrap();
         assert!(result.is_some(), "should fallback to gpt-4o-mini");
-        assert_eq!(result.unwrap().resolved_model, "gpt-4o-mini");
+        let routed = result.unwrap();
+        assert_eq!(routed.resolved_model, "gpt-4o-mini");
+        assert_eq!(
+            routed.decision_trace.fallbacks,
+            vec!["gpt-4o-mini".to_string()]
+        );
+        assert_eq!(
+            routed.decision_trace.selected_model.as_deref(),
+            Some("gpt-4o-mini")
+        );
+    }
+
+    #[tokio::test]
+    async fn route_decision_trace_records_candidates_and_selection() {
+        let (pid, router, ch_ids) =
+            setup_strategy_fixtures("priority", &[("ch-low", 10, 1), ("ch-high", 1, 1)]);
+
+        let routed = router.route(pid, "gpt-4o").await.unwrap().unwrap();
+        let trace = routed.decision_trace;
+
+        assert_eq!(trace.snapshot_version, 1);
+        assert_eq!(trace.requested_model, "gpt-4o");
+        assert_eq!(trace.initial_model, "gpt-4o");
+        assert_eq!(trace.selected_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(trace.provider_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(trace.selected_strategy.as_deref(), Some("priority"));
+        assert_eq!(trace.selected_channel_id, Some(ch_ids[1]));
+        assert_eq!(trace.selected_channel_code.as_deref(), Some("ch-high"));
+        assert_eq!(trace.candidates.len(), 2);
+        assert_eq!(trace.candidates[0].channel_id, ch_ids[1]);
+    }
+
+    #[tokio::test]
+    async fn route_decision_trace_records_snapshot_version_and_alias() {
+        use gate_storage::{InMemoryModelAliasRepo, ModelAliasRecord};
+
+        let (pid, router) = setup_fixtures(&[("ch-mini", "openai", vec!["gpt-4o-mini".into()], 1)]);
+        let alias_repo = Arc::new(InMemoryModelAliasRepo::new());
+        alias_repo.seed(ModelAliasRecord {
+            id: Uuid::now_v7(),
+            project_id: *pid.as_uuid(),
+            alias: "fast".to_string(),
+            target_model: "gpt-4o-mini".to_string(),
+            group_id: None,
+            params_override: serde_json::json!({ "temperature": 0.2 }),
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        let router = router.with_model_alias_repo(alias_repo);
+        assert_eq!(router.bump_snapshot_version(), 2);
+
+        let routed = router.route(pid, "fast").await.unwrap().unwrap();
+        let trace = routed.decision_trace;
+
+        assert_eq!(trace.snapshot_version, 2);
+        assert_eq!(trace.requested_model, "fast");
+        assert_eq!(trace.alias_target_model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(trace.initial_model, "gpt-4o-mini");
+        assert_eq!(trace.selected_model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(
+            routed.params_override,
+            serde_json::json!({ "temperature": 0.2 })
+        );
+    }
+
+    #[test]
+    fn provider_runtime_snapshot_is_replaceable_and_versioned() {
+        let (_pid, router, ch_ids) = setup_strategy_fixtures("priority", &[("ch-one", 1, 1)]);
+
+        assert_eq!(router.runtime_snapshot().version, 1);
+        let version = router.replace_runtime_snapshot(vec![ProviderRuntimeChannelSnapshot {
+            channel_id: ch_ids[0],
+            channel_code: "ch-one".to_string(),
+            provider_type: "openai".to_string(),
+            supported_models: vec!["gpt-4o-mini".to_string()],
+            status: "active".to_string(),
+            health: "healthy".to_string(),
+        }]);
+
+        let snapshot = router.runtime_snapshot();
+        assert_eq!(version, 2);
+        assert_eq!(snapshot.version, 2);
+        assert_eq!(snapshot.channels.len(), 1);
+        assert_eq!(snapshot.channels[0].channel_code, "ch-one");
     }
 
     // ---- G1: channel key resolution tests ----

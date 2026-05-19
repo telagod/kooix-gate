@@ -11,6 +11,7 @@ use crate::BillingResult;
 use crate::types::UsageEvent;
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
+use uuid::Uuid;
 
 /// outbox 行 ID（BIGSERIAL）
 pub type OutboxId = i64;
@@ -21,6 +22,9 @@ pub trait OutboxRepo: Send + Sync + 'static {
     async fn enqueue(&self, event: &UsageEvent) -> BillingResult<OutboxId>;
 
     /// 拉取最多 `limit` 条未处理的 outbox 行（processed_at IS NULL，按 id ASC）。
+    ///
+    /// Pg 实现会在事务中用 `FOR UPDATE SKIP LOCKED` 锁住本批行，并把
+    /// `last_error` 标为 `processing:<id-list>`，避免多 worker 重复取同一批。
     async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>>;
 
     /// 标记成功处理。
@@ -32,11 +36,15 @@ pub trait OutboxRepo: Send + Sync + 'static {
 
 pub struct PgOutboxRepo {
     pool: PgPool,
+    worker_id: String,
 }
 
 impl PgOutboxRepo {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            worker_id: format!("worker-{}", Uuid::now_v7()),
+        }
     }
 }
 
@@ -55,42 +63,80 @@ impl OutboxRepo for PgOutboxRepo {
     }
 
     async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
-        // C1 阶段：单消费者，不需要 FOR UPDATE SKIP LOCKED
-        // 多消费者场景升级时用事务包裹 + SKIP LOCKED
+        let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             "SELECT id, payload FROM outbox_events \
              WHERE topic = 'usage' \
                AND processed_at IS NULL \
                AND retry_count < 3 \
+               AND (locked_until IS NULL OR locked_until < NOW()) \
              ORDER BY id ASC \
-             LIMIT $1",
+             LIMIT $1 \
+             FOR UPDATE SKIP LOCKED",
         )
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
         let mut result = Vec::with_capacity(rows.len());
+        let mut ids = Vec::with_capacity(rows.len());
         for row in &rows {
             let id: OutboxId = row.try_get("id")?;
             let payload: serde_json::Value = row.try_get("payload")?;
             let event: UsageEvent = serde_json::from_value(payload)?;
+            ids.push(id);
             result.push((id, event));
         }
+        if !ids.is_empty() {
+            let marker = format!(
+                "processing:{}",
+                ids.iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            sqlx::query(
+                "UPDATE outbox_events \
+                 SET locked_until = NOW() + INTERVAL '5 minutes', locked_by = $2, last_error = $3 \
+                 WHERE id = ANY($1)",
+            )
+            .bind(&ids)
+            .bind(&self.worker_id)
+            .bind(marker)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if !ids.is_empty()
+            && let Ok(Some(lag_seconds)) = sqlx::query_scalar::<_, Option<f64>>(
+                "SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::float8 \
+                 FROM outbox_events \
+                 WHERE topic = 'usage' AND processed_at IS NULL AND retry_count < 3",
+            )
+            .fetch_one(&mut *tx)
+            .await
+        {
+            metrics::gauge!("billing_outbox_lag_seconds").set(lag_seconds);
+        }
+        tx.commit().await?;
         Ok(result)
     }
 
     async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
-        sqlx::query("UPDATE outbox_events SET processed_at = NOW() WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE outbox_events \
+             SET processed_at = NOW(), locked_until = NULL, locked_by = NULL \
+             WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
         sqlx::query(
             "UPDATE outbox_events \
-             SET retry_count = retry_count + 1, last_error = $2 \
+             SET retry_count = retry_count + 1, last_error = $2, locked_until = NULL, locked_by = NULL \
              WHERE id = $1",
         )
         .bind(id)

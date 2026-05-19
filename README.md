@@ -1,6 +1,12 @@
-# Kooix Gate
+<p align="center">
+  <img src="./web/src/lib/assets/kooix-logo.svg" alt="Kooix 空衍 logo" width="128" height="128" />
+</p>
+
+# Kooix Gate · 空衍
 
 > Rust + Svelte 打造的 LLM 网关。多 Org 三层租户、9 Provider 多模态、HTTP Plugin 私有协议接入、流式正确计费、可视化编排、配额拦截、SSO/OIDC。
+>
+> **空衍**：以四向 super-star 为核，以 D4 旋转轨道为门；在对称星图中收束私有协议、认证、SSE 与字段映射。
 
 竞品定位：NewAPI / OneAPI / LiteLLM 的「底盘加强版」——把它们反复踩的雷（权限粗、限流单一、租户隔离漏、流式漏扣）先治好，再谈渠道接入。
 

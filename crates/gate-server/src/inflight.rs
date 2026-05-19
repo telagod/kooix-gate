@@ -51,7 +51,7 @@ impl InflightGuard {
                 .await;
         }
         self.settled = true;
-        self.cleanup_db();
+        self.cleanup_db_now().await;
     }
 
     fn cleanup_db(&self) {
@@ -59,6 +59,12 @@ impl InflightGuard {
             tokio::spawn(async move {
                 let _ = repo.delete(rid).await;
             });
+        }
+    }
+
+    async fn cleanup_db_now(&self) {
+        if let (Some(rid), Some(repo)) = (self.request_id, self.inflight_repo.clone()) {
+            let _ = repo.delete(rid).await;
         }
     }
 }

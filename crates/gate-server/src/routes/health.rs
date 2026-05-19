@@ -1,5 +1,6 @@
 //! GET /health — 无 auth 探活
 //! GET /health/status — 系统初始化状态（无 auth）
+//! GET /route-manifest.json — runtime route contract export
 //! GET /metrics — Prometheus exposition format
 
 use crate::state::AppState;
@@ -20,9 +21,13 @@ pub struct SystemStatus {
 }
 
 pub fn router() -> Router<AppState> {
+    public_router().route("/health/status", get(system_status))
+}
+
+pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
-        .route("/health/status", get(system_status))
+        .route("/route-manifest.json", get(route_manifest))
         .route("/metrics", get(crate::metrics::metrics_handler))
 }
 
@@ -39,4 +44,8 @@ async fn system_status(State(app): State<AppState>) -> Json<SystemStatus> {
         initialized,
         version: env!("CARGO_PKG_VERSION"),
     })
+}
+
+async fn route_manifest() -> Json<serde_json::Value> {
+    Json(crate::route_manifest::manifest_json())
 }

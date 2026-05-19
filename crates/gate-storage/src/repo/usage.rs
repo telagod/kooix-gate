@@ -85,6 +85,97 @@ impl PgUsageRepo {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    async fn has_hourly_rollups(&self) -> bool {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'usage_hourly_rollups')",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(false)
+    }
+}
+
+impl PgUsageRepo {
+    async fn aggregate_from_rollups(
+        &self,
+        org_id: Option<OrgId>,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        group_by: GroupBy,
+    ) -> DbResult<Vec<UsageBucket>> {
+        let (bucket_expr, order_expr) = match group_by {
+            GroupBy::Day => (
+                "to_char(date_trunc('day', bucket), 'YYYY-MM-DD')",
+                "to_char(date_trunc('day', bucket), 'YYYY-MM-DD') ASC",
+            ),
+            GroupBy::Model => ("model_actual", "SUM(cost_micros) DESC"),
+            GroupBy::Channel => (
+                "COALESCE(channel_id::text, 'unknown')",
+                "SUM(cost_micros) DESC",
+            ),
+        };
+        let org_filter = if org_id.is_some() {
+            "AND org_id = $3"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT {bucket_expr} AS bucket, \
+                    COALESCE(SUM(cost_micros), 0)::float8 / 1000000 AS cost_usd, \
+                    COALESCE(SUM(tokens_in), 0)::bigint AS tokens_in, \
+                    COALESCE(SUM(tokens_out), 0)::bigint AS tokens_out \
+             FROM usage_hourly_rollups \
+             WHERE bucket >= $1 AND bucket < $2 {org_filter} \
+             GROUP BY bucket \
+             ORDER BY {order_expr}"
+        );
+        let mut q = sqlx::query(&sql).bind(from).bind(to);
+        if let Some(o) = org_id {
+            q = q.bind(*o.as_uuid());
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        rows.iter()
+            .map(|r| {
+                Ok(UsageBucket {
+                    key: r.try_get("bucket")?,
+                    cost_usd: r.try_get("cost_usd")?,
+                    tokens_in: r.try_get("tokens_in")?,
+                    tokens_out: r.try_get("tokens_out")?,
+                })
+            })
+            .collect()
+    }
+
+    async fn totals_from_rollups(
+        &self,
+        org_id: Option<OrgId>,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> DbResult<UsageTotals> {
+        let org_filter = if org_id.is_some() {
+            "AND org_id = $3"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT COALESCE(SUM(cost_micros), 0)::float8 / 1000000 AS cost_usd, \
+                    COALESCE(SUM(tokens_in), 0)::bigint AS tokens_in, \
+                    COALESCE(SUM(tokens_out), 0)::bigint AS tokens_out \
+             FROM usage_hourly_rollups \
+             WHERE bucket >= $1 AND bucket < $2 {org_filter}"
+        );
+        let mut q = sqlx::query(&sql).bind(from).bind(to);
+        if let Some(o) = org_id {
+            q = q.bind(*o.as_uuid());
+        }
+        let row = q.fetch_one(&self.pool).await?;
+        Ok(UsageTotals {
+            cost_usd: row.try_get("cost_usd")?,
+            tokens_in: row.try_get("tokens_in")?,
+            tokens_out: row.try_get("tokens_out")?,
+        })
+    }
 }
 
 #[async_trait]
@@ -96,6 +187,11 @@ impl UsageRepo for PgUsageRepo {
         to: DateTime<Utc>,
         group_by: GroupBy,
     ) -> DbResult<Vec<UsageBucket>> {
+        if self.has_hourly_rollups().await {
+            return self
+                .aggregate_from_rollups(org_id, from, to, group_by)
+                .await;
+        }
         // 分桶表达式 + ORDER BY 表达式
         let (bucket_expr, order_expr) = match group_by {
             GroupBy::Day => (
@@ -150,6 +246,9 @@ impl UsageRepo for PgUsageRepo {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> DbResult<UsageTotals> {
+        if self.has_hourly_rollups().await {
+            return self.totals_from_rollups(org_id, from, to).await;
+        }
         let org_filter = if org_id.is_some() {
             "AND org_id = $3"
         } else {

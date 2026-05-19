@@ -12,7 +12,7 @@ pub mod quota;
 pub mod rate_limit;
 pub mod rls;
 
-pub use base::{request_id_layers, trace_layer};
+pub use base::{KooixRequestId, request_id_extension, request_id_layers, trace_layer};
 pub use metrics::metrics_layer;
 pub use quota::quota_enforce;
 pub use rate_limit::rate_limit_by_subject;

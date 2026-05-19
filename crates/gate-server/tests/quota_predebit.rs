@@ -9,6 +9,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{Duration as ChronoDuration, Utc};
+use gate_auth::api_key as api_key_auth;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_cache::QuotaCounter;
 use gate_core::id::{ApiKeyId, OrgId, ProjectId};
@@ -23,6 +24,7 @@ use serde_json::json;
 use std::sync::Arc;
 use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
+use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::redis::Redis;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -30,6 +32,17 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const PLAINTEXT_KEY: &str = "sk-kg-test-quota-predebit-key-aaa";
+
+async fn start_pg() -> (testcontainers::ContainerAsync<Postgres>, sqlx::PgPool) {
+    let tag = std::env::var("KOOIX_TEST_PG_TAG").unwrap_or_else(|_| "17-alpine".into());
+    let container = Postgres::default().with_tag(&tag).start().await.unwrap();
+    let host = container.get_host().await.unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+    let pool = gate_storage::connect(&url, 4).await.unwrap();
+    gate_storage::run_migrations(&pool).await.unwrap();
+    (container, pool)
+}
 
 async fn start_redis() -> (
     testcontainers::ContainerAsync<Redis>,
@@ -341,4 +354,133 @@ async fn no_quota_configured_passes_through() {
         assert_eq!(resp.status(), StatusCode::OK);
         let _ = resp.into_body().collect().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
+    use gate_billing::{InMemoryOutboxRepo, InMemoryPricingRepo, OutboxRepo, PricingRepo};
+    use gate_storage::{
+        ApiKeyRepo, OrgRepo, PgApiKeyRepo, PgInFlightRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo,
+        PgUserRepo, ProjectRepo, QuotaRepo, UserRepo,
+    };
+
+    let (_redis_c, redis_pool) = start_redis().await;
+    let (_pg_c, pg_pool) = start_pg().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_response(10, 5)))
+        .mount(&upstream)
+        .await;
+
+    let user_repo = PgUserRepo::new(pg_pool.clone());
+    let org_repo = PgOrgRepo::new(pg_pool.clone());
+    let project_repo = PgProjectRepo::new(pg_pool.clone());
+    let api_key_repo = PgApiKeyRepo::new(pg_pool.clone());
+    let user = user_repo
+        .create("quota-request-id@test.dev", None, None, None)
+        .await
+        .unwrap();
+    let org = org_repo
+        .create("ReqId Org", "reqid-org", user.id)
+        .await
+        .unwrap();
+    let project = project_repo
+        .create(org.id, "ReqId Project", "reqid-project")
+        .await
+        .unwrap();
+    let api_key_id = api_key_repo
+        .create(
+            project.id,
+            "ReqId Key",
+            &api_key_auth::hash(PLAINTEXT_KEY),
+            "sk-kg-test",
+            "-aaa",
+            user.id,
+            &[],
+        )
+        .await
+        .unwrap();
+
+    let quota_repo = PgQuotaRepo::new(pg_pool.clone());
+    quota_repo
+        .upsert(gate_storage::QuotaUpsert {
+            scope_kind: "api_key".into(),
+            scope_id: *api_key_id.as_uuid(),
+            dimension: "daily_budget_usd".into(),
+            model_filter: None,
+            limit_value: "1.0".parse::<Decimal>().unwrap(),
+            window_seconds: None,
+        })
+        .await
+        .unwrap();
+
+    let provider = OpenAiProvider::new(format!("{}/v1", upstream.uri()), "test-key").unwrap();
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id: project.id,
+            org_id: org.id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+    let pricing = Arc::new(InMemoryPricingRepo::new());
+    pricing.seed_global("gpt-4o-mini", 0.15, 0.60);
+    let outbox = Arc::new(InMemoryOutboxRepo::new());
+    let mut repos = Repos::from_pg(pg_pool.clone());
+    repos.quotas = Arc::new(quota_repo);
+    repos.inflight = Arc::new(PgInFlightRepo::new(pg_pool.clone()));
+    let state = AppState::new(jwt, loader, repos)
+        .with_provider(provider)
+        .with_quota_counter(QuotaCounter::new(redis_pool))
+        .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>)
+        .with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
+    let router = build_router(state);
+
+    let expected_request_id = Uuid::now_v7();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .header("x-request-id", expected_request_id.to_string())
+        .body(chat_request_body("Hi"))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let _ = resp.into_body().collect().await.unwrap();
+
+    yield_for_settle().await;
+
+    let inflight_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM inflight_requests WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pg_pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        inflight_count, 0,
+        "settled guard should delete the same request_id"
+    );
+
+    let events = outbox.snapshot();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].request_id, expected_request_id);
+    assert_eq!(
+        events[0].idempotency_key,
+        Some(expected_request_id.to_string())
+    );
 }

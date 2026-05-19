@@ -97,6 +97,7 @@ async fn seed_fixture(pool: &PgPool) -> Fixture {
 fn make_event(fix: &Fixture) -> UsageEvent {
     UsageEvent {
         request_id: Uuid::now_v7(),
+        idempotency_key: None,
         api_key_id: fix.api_key_id,
         project_id: fix.project_id,
         org_id: fix.org_id,
@@ -183,4 +184,88 @@ async fn one_failure_doesnt_affect_others() {
         count, 4,
         "expected 4 usage_records (2 direct + 2 from consumer)"
     );
+}
+
+#[tokio::test]
+async fn concurrent_consumers_do_not_double_consume() {
+    let (_c, pool, fix) = start_pg().await;
+    let outbox = Arc::new(PgOutboxRepo::new(pool.clone()));
+
+    for _ in 0..100 {
+        outbox.enqueue(&make_event(&fix)).await.unwrap();
+    }
+
+    let c1 = Consumer::new(outbox.clone(), pool.clone(), 10, Duration::from_secs(9999));
+    let c2 = Consumer::new(outbox.clone(), pool.clone(), 10, Duration::from_secs(9999));
+
+    let (r1, r2) = tokio::join!(
+        async {
+            for _ in 0..10 {
+                c1.tick().await.unwrap();
+            }
+        },
+        async {
+            for _ in 0..10 {
+                c2.tick().await.unwrap();
+            }
+        }
+    );
+    let _ = (r1, r2);
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usage_records")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 100, "expected exactly 100 usage_records");
+
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM outbox_events WHERE processed_at IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, 0, "expected 0 pending outbox events");
+}
+
+#[tokio::test]
+async fn commit_usage_writes_read_models_rollups_and_ledger_once() {
+    let (_c, pool, fix) = start_pg().await;
+    let mut event = make_event(&fix);
+    event.idempotency_key = Some("idem-test-once".to_string());
+
+    commit_usage(&pool, &event).await.unwrap();
+    commit_usage(&pool, &event).await.unwrap();
+
+    let usage_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usage_records")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(usage_count, 1);
+
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(event_count, 1);
+
+    let hourly_requests: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(request_count), 0)::bigint FROM usage_hourly_rollups",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(hourly_requests, 1);
+
+    let daily_requests: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(request_count), 0)::bigint FROM usage_daily_rollups",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(daily_requests, 1);
+
+    let ledger_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM billing_ledger_events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ledger_count, 1);
 }

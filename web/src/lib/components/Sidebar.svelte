@@ -6,6 +6,7 @@
 	import { getMe } from '$lib/api.js';
 	import type { MeResult } from '$lib/api.js';
 	import { theme, toggleTheme } from '$lib/stores/theme';
+	import KooixLogo from '$lib/components/brand/KooixLogo.svelte';
 
 	import {
 		LayoutDashboard,
@@ -74,16 +75,15 @@
 	<!-- Header -->
 	<div class="flex items-center justify-between px-3 h-14 border-b border-zinc-200 dark:border-white/[0.06]">
 		{#if !collapsed}
-			<a href="/orgs" class="flex items-center gap-2 truncate">
-				<div class="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-					<span class="text-white text-[10px] font-bold">K</span>
+			<a href="/orgs" class="flex items-center gap-2 truncate text-zinc-900 dark:text-zinc-100">
+				<KooixLogo size={26} tone="tile" title="Kooix 空衍" />
+				<div class="min-w-0">
+					<span class="block text-[13px] font-semibold leading-4 tracking-tight">Kooix Gate</span>
+					<span class="block text-[10px] font-medium leading-3 tracking-[0.18em] text-zinc-500 dark:text-zinc-400">空衍</span>
 				</div>
-				<span class="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">Kooix Gate</span>
 			</a>
 		{:else}
-			<div class="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mx-auto">
-				<span class="text-white text-[10px] font-bold">K</span>
-			</div>
+			<KooixLogo size={26} tone="tile" title="Kooix 空衍" class="mx-auto text-zinc-900 dark:text-zinc-100" />
 		{/if}
 		{#if !collapsed}
 			<button

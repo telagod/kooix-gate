@@ -19,6 +19,8 @@ tracing.workspace = true
 async-trait.workspace = true
 reqwest.workspace = true
 parking_lot = "0.12"
+metrics.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
 testcontainers = "0.27"
