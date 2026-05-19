@@ -217,3 +217,36 @@ cargo test -p gate-server --test perf_smoke -- --nocapture
 cargo test -p gate-server --test quota_predebit -- --nocapture
 cargo test --workspace
 ```
+
+## P1.3 `/v1/embeddings` billing/quota loop
+
+本轮把 P1.3 `/v1/embeddings` 从简单代理补成可对账的 data-plane 闭环：
+
+- Embedding route 走 `ProviderRouter::route_embedding`，只选择 `active + healthy` 且 capability 声明 `embeddings=true` 的内置 embedding provider channel。
+- 路由结果贯通 `resolved_model` 与 `channel_id`：model alias / channel `model_mapping` 会写回 upstream request，billing event 与 request log 使用实际模型和命中 channel。
+- `least_conn` 策略在 embedding 选中 channel 后 acquire，并在成功 / provider error 路径 release，避免 inflight 计数漂移。
+- 成功响应读取 upstream `EmbeddingResponse.usage`：`prompt_tokens` 使用上游值，`completion_tokens=0`，`total_tokens` 至少不小于 prompt tokens。
+- Billing outbox 写入 `raw_usage.endpoint="embeddings"`；consumer `commit_usage` 后能落 `usage_records`、`request_events`，并可通过 `PgRequestLogRepo.find_by_request_id` 读到 request log read model。
+- quota middleware 支持解析 `EmbeddingRequest`：按 input 字符数 / 4 估算 pre-debit；handler 完成后用实际 `usage.total_tokens` settle，多退少补。
+- provider error 不再包装为 `internal`；auth、rate limit、invalid request、policy、upstream、network、decode、config 与 mapped error 进入统一 `AppError::Provider` shape，同时写 channel key failure cooldown / circuit breaker 统计与 upstream error metrics。
+- embedding 暂不走全局 provider fallback：`AppState.provider` 是 `Arc<dyn Provider>`，无法安全下转 `EmbeddingProvider`；没有匹配 embedding channel 时返回清晰 `bad request: no embedding channel found for model ...`。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo test -p gate-server middleware::quota::tests -- --nocapture
+cargo test -p gate-server --test billing_e2e embeddings_apikey_emits_usage_event -- --nocapture
+cargo test -p gate-server --test quota_predebit embeddings_predebit_settles_and_blocks_when_budget_exceeded -- --nocapture
+cargo test -p gate-server --test quota_predebit embedding_request_id_is_shared_by_quota_inflight_and_billing_outbox -- --nocapture
+cargo test -p gate-server --test chat_e2e
+cargo test -p gate-server --test billing_e2e
+cargo test -p gate-server --test quota_predebit -- --nocapture
+cargo test -p gate-providers --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo test --workspace
+npm --prefix web run check
+npm --prefix web test
+gitleaks detect --source . --redact --verbose
+tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
+```

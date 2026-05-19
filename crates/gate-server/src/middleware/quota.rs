@@ -28,7 +28,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use gate_auth::{AuthContext, Subject};
 use gate_cache::{QuotaCounter, RateLimiter};
-use gate_providers::ChatRequest;
+use gate_providers::{ChatRequest, EmbeddingInput, EmbeddingRequest};
 use gate_storage::QuotaRecord;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -239,7 +239,7 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         )
     });
 
-    // 若有 budget quota，尝试从 body 解析 ChatRequest 以估算费用
+    // 若有 budget quota，尝试从 body 解析 data-plane request 以估算费用
     // 失败不阻断——用默认估值
     let (estimated_micros, body) = if has_budget {
         let bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
@@ -250,14 +250,7 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
                 return next.run(req).await;
             }
         };
-        let est = match serde_json::from_slice::<ChatRequest>(&bytes) {
-            Ok(chat_req) => estimate_cost_micros(&chat_req, DEFAULT_RATE_PER_TOKEN_MICROS),
-            Err(_) => {
-                // 非 ChatRequest 格式（可能是其他 endpoint）—— 用保守默认值
-                // 4096 tokens × 3 micros = 12_288
-                4096 * DEFAULT_RATE_PER_TOKEN_MICROS
-            }
-        };
+        let est = estimate_data_plane_cost_micros(&bytes);
         (est, Body::from(bytes))
     } else {
         (0, body)
@@ -379,4 +372,68 @@ fn quota_exceeded_response(dimension: &str, retry_after_ms: u64) -> impl IntoRes
         HeaderValue::from_str(&secs.to_string()).unwrap_or(HeaderValue::from_static("1")),
     );
     resp
+}
+
+fn estimate_data_plane_cost_micros(bytes: &[u8]) -> i64 {
+    if let Ok(chat_req) = serde_json::from_slice::<ChatRequest>(bytes) {
+        return estimate_cost_micros(&chat_req, DEFAULT_RATE_PER_TOKEN_MICROS);
+    }
+    if let Ok(embed_req) = serde_json::from_slice::<EmbeddingRequest>(bytes) {
+        return estimate_embedding_cost_micros(&embed_req);
+    }
+    // 非 ChatRequest / EmbeddingRequest 格式（可能是其他 endpoint）—— 用保守默认值
+    // 4096 tokens × 3 micros = 12_288
+    4096 * DEFAULT_RATE_PER_TOKEN_MICROS
+}
+
+fn estimate_embedding_cost_micros(req: &EmbeddingRequest) -> i64 {
+    let prompt_chars: usize = match &req.input {
+        EmbeddingInput::Single(s) => s.len(),
+        EmbeddingInput::Multiple(values) => values.iter().map(String::len).sum(),
+    };
+    let prompt_tokens = (prompt_chars / 4) as i64;
+    (prompt_tokens * DEFAULT_RATE_PER_TOKEN_MICROS).min(crate::cost_estimate::MAX_ESTIMATE_MICROS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_plane_estimator_reads_embedding_single_input() {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "model": "text-embedding-3-small",
+            "input": "abcdefghijkl"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            estimate_data_plane_cost_micros(&bytes),
+            3 * DEFAULT_RATE_PER_TOKEN_MICROS
+        );
+    }
+
+    #[test]
+    fn data_plane_estimator_reads_embedding_multiple_input() {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "model": "text-embedding-3-small",
+            "input": ["abcdefgh", "ijklmnop"]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            estimate_data_plane_cost_micros(&bytes),
+            4 * DEFAULT_RATE_PER_TOKEN_MICROS
+        );
+    }
+
+    #[test]
+    fn data_plane_estimator_falls_back_for_unknown_body() {
+        let bytes = br#"{"foo":"bar"}"#;
+
+        assert_eq!(
+            estimate_data_plane_cost_micros(bytes),
+            4096 * DEFAULT_RATE_PER_TOKEN_MICROS
+        );
+    }
 }

@@ -219,6 +219,8 @@ pub struct RoutedProvider {
 pub struct RoutedEmbeddingProvider {
     pub provider: Arc<dyn EmbeddingProvider>,
     pub channel_id: ChannelId,
+    /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
+    pub resolved_model: String,
     /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
     pub key_id: Option<ChannelKeyId>,
 }
@@ -1171,6 +1173,10 @@ impl ProviderRouter {
                 continue;
             }
 
+            if group.strategy == "least_conn" {
+                self.inflight.acquire(candidate.channel.channel_id);
+            }
+
             let (api_key, key_id) = self
                 .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
                 .await?;
@@ -1184,6 +1190,7 @@ impl ProviderRouter {
             return Ok(Some(RoutedEmbeddingProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
+                resolved_model: resolve_model_mapping(&candidate.channel.model_mapping, model),
                 key_id,
             }));
         }

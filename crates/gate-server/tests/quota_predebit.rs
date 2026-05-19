@@ -12,7 +12,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use gate_auth::api_key as api_key_auth;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_cache::QuotaCounter;
-use gate_core::id::{ApiKeyId, OrgId, ProjectId};
+use gate_core::id::{ApiKeyId, ChannelGroupId, ChannelId, OrgId, ProjectId};
 use gate_providers::openai::OpenAiProvider;
 use gate_server::loader::{ApiKeyRecord, InMemoryLoader};
 use gate_server::state::Repos;
@@ -58,6 +58,12 @@ async fn start_redis() -> (
 }
 
 struct Harness {
+    router: axum::Router,
+    #[allow(dead_code)]
+    quota_counter: Arc<QuotaCounter>,
+}
+
+struct EmbeddingHarness {
     router: axum::Router,
     #[allow(dead_code)]
     quota_counter: Arc<QuotaCounter>,
@@ -125,12 +131,132 @@ async fn setup(upstream: &MockServer, pool: fred::clients::RedisPool, limit_usd:
     }
 }
 
+async fn setup_embeddings(
+    upstream: &MockServer,
+    pool: fred::clients::RedisPool,
+    limit_usd: &str,
+) -> EmbeddingHarness {
+    use gate_providers::ProviderRouter;
+    use gate_storage::{
+        ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+    };
+
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let loader = Arc::new(InMemoryLoader::new());
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let quota_repo = Arc::new(InMemoryQuotaRepo::new());
+    let now = Utc::now();
+    quota_repo.seed(QuotaRecord {
+        id: Uuid::now_v7(),
+        scope_kind: "api_key".into(),
+        scope_id: *api_key_id.as_uuid(),
+        dimension: "daily_budget_usd".into(),
+        model_filter: None,
+        limit_value: limit_usd.parse::<Decimal>().unwrap(),
+        window_seconds: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+
+    let group_id = ChannelGroupId::new();
+    let channel_id = ChannelId::new();
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    unsafe {
+        std::env::set_var("KOOIX_CH_QUOTA_EMBED_WM_KEY", "test-key");
+    }
+    ch_repo.seed_channel(ChannelRecord {
+        channel_id,
+        code: "quota-embed-wm".into(),
+        name: "quota-embed-wiremock".into(),
+        provider_type: "openai".into(),
+        base_url: format!("{}/v1", upstream.uri()),
+        supported_models: vec!["text-embedding-3-small".into()],
+        status: "active".into(),
+        health: "healthy".into(),
+        timeout_ms: 60_000,
+        max_retries: 1,
+        rpm_limit: None,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
+        updated_at: now,
+    });
+    ch_repo.seed_binding(group_id, channel_id, 10, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "quota-embedding-default".into(),
+        description: String::new(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let qc = Arc::new(QuotaCounter::new(pool.clone()));
+    let mut repos = Repos::in_memory();
+    repos.quotas = quota_repo;
+    repos.channels = ch_repo.clone();
+    repos.channel_groups = grp_repo.clone();
+
+    let state = AppState::new(jwt, loader, repos)
+        .with_provider_router(ProviderRouter::new(ch_repo, grp_repo))
+        .with_quota_counter(QuotaCounter::new(pool));
+    let router = build_router(state);
+
+    EmbeddingHarness {
+        router,
+        quota_counter: qc,
+    }
+}
+
 fn chat_request_body(msg: &str) -> Body {
     Body::from(
         serde_json::to_vec(&json!({
             "model": "gpt-4o-mini",
             "messages": [{"role": "user", "content": msg}],
             "max_tokens": 100
+        }))
+        .unwrap(),
+    )
+}
+
+fn embedding_request_body(input: &str) -> Body {
+    Body::from(
+        serde_json::to_vec(&json!({
+            "model": "text-embedding-3-small",
+            "input": input
         }))
         .unwrap(),
     )
@@ -153,12 +279,72 @@ fn mock_response(prompt_tokens: u32, completion_tokens: u32) -> serde_json::Valu
     })
 }
 
+fn mock_embedding_response(prompt_tokens: u32) -> serde_json::Value {
+    json!({
+        "object": "list",
+        "data": [{
+            "object": "embedding",
+            "index": 0,
+            "embedding": [0.1, 0.2, 0.3]
+        }],
+        "model": "text-embedding-3-small",
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "total_tokens": prompt_tokens
+        }
+    })
+}
+
 /// 等 spawn 出去的 settle/refund task 跑完。
 async fn yield_for_settle() {
     for _ in 0..20 {
         tokio::task::yield_now().await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
+}
+
+#[tokio::test]
+async fn embeddings_predebit_settles_and_blocks_when_budget_exceeded() {
+    let (_c, pool) = start_redis().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_embedding_response(2)))
+        .mount(&upstream)
+        .await;
+
+    // 12 chars / 4 = 3 estimated tokens × 3µ = 9µ.
+    // Actual upstream usage = 2 tokens × 3µ = 6µ.
+    // Budget 14µ: first request settles to 6µ; second pre-debit would make 15µ and is denied.
+    let h = setup_embeddings(&upstream, pool.clone(), "0.000014").await;
+
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/v1/embeddings")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(embedding_request_body("abcdefghijkl"))
+        .unwrap();
+    let resp1 = h.router.clone().oneshot(req1).await.unwrap();
+    assert_eq!(resp1.status(), StatusCode::OK);
+    let _ = resp1.into_body().collect().await.unwrap();
+
+    yield_for_settle().await;
+
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/v1/embeddings")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(embedding_request_body("abcdefghijkl"))
+        .unwrap();
+    let resp2 = h.router.clone().oneshot(req2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let bytes = resp2.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "quota_exceeded");
+    assert_eq!(body["error"]["dimension"], "daily_budget_usd");
 }
 
 /// Test 1: request succeeds and guard settles (refunds overestimate).
@@ -357,19 +543,21 @@ async fn no_quota_configured_passes_through() {
 }
 
 #[tokio::test]
-async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
+async fn embedding_request_id_is_shared_by_quota_inflight_and_billing_outbox() {
     use gate_billing::{InMemoryOutboxRepo, InMemoryPricingRepo, OutboxRepo, PricingRepo};
+    use gate_providers::ProviderRouter;
     use gate_storage::{
-        ApiKeyRepo, OrgRepo, PgApiKeyRepo, PgInFlightRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo,
-        PgUserRepo, ProjectRepo, QuotaRepo, UserRepo,
+        ApiKeyRepo, ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo,
+        InMemoryChannelRepo, OrgRepo, PgApiKeyRepo, PgInFlightRepo, PgOrgRepo, PgProjectRepo,
+        PgQuotaRepo, PgUserRepo, ProjectRepo, QuotaRepo, UserRepo,
     };
 
     let (_redis_c, redis_pool) = start_redis().await;
     let (_pg_c, pg_pool) = start_pg().await;
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(mock_response(10, 5)))
+        .and(path("/v1/embeddings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_embedding_response(10)))
         .mount(&upstream)
         .await;
 
@@ -392,7 +580,7 @@ async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
     let api_key_id = api_key_repo
         .create(
             project.id,
-            "ReqId Key",
+            "ReqId Embedding Key",
             &api_key_auth::hash(PLAINTEXT_KEY),
             "sk-kg-test",
             "-aaa",
@@ -401,6 +589,49 @@ async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
         )
         .await
         .unwrap();
+
+    let group_id = ChannelGroupId::new();
+    let channel_id = ChannelId::new();
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let now = Utc::now();
+    unsafe {
+        std::env::set_var("KOOIX_CH_REQID_EMBED_WM_KEY", "test-key");
+    }
+    ch_repo.seed_channel(ChannelRecord {
+        channel_id,
+        code: "reqid-embed-wm".into(),
+        name: "reqid-embed-wiremock".into(),
+        provider_type: "openai".into(),
+        base_url: format!("{}/v1", upstream.uri()),
+        supported_models: vec!["text-embedding-3-small".into()],
+        status: "active".into(),
+        health: "healthy".into(),
+        timeout_ms: 60_000,
+        max_retries: 1,
+        rpm_limit: None,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
+        updated_at: now,
+    });
+    ch_repo.seed_binding(group_id, channel_id, 10, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "reqid-embedding-default".into(),
+        description: String::new(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    grp_repo.seed_default(project.id, group_id);
 
     let quota_repo = PgQuotaRepo::new(pg_pool.clone());
     quota_repo
@@ -415,7 +646,6 @@ async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
         .await
         .unwrap();
 
-    let provider = OpenAiProvider::new(format!("{}/v1", upstream.uri()), "test-key").unwrap();
     let loader = Arc::new(InMemoryLoader::new());
     loader.add_api_key(
         PLAINTEXT_KEY,
@@ -438,13 +668,27 @@ async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
     )
     .unwrap();
     let pricing = Arc::new(InMemoryPricingRepo::new());
-    pricing.seed_global("gpt-4o-mini", 0.15, 0.60);
+    pricing.seed(gate_billing::PricingRule {
+        id: Uuid::now_v7(),
+        channel_id: None,
+        model: "text-embedding-3-small".into(),
+        dimension: "input_tokens".into(),
+        unit: "per_million_tokens".into(),
+        rate: 0.02,
+        conditions: json!({}),
+        effective_from: chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap(),
+        effective_until: None,
+        priority: 0,
+        description: None,
+    });
     let outbox = Arc::new(InMemoryOutboxRepo::new());
     let mut repos = Repos::from_pg(pg_pool.clone());
     repos.quotas = Arc::new(quota_repo);
     repos.inflight = Arc::new(PgInFlightRepo::new(pg_pool.clone()));
+    repos.channels = ch_repo.clone();
+    repos.channel_groups = grp_repo.clone();
     let state = AppState::new(jwt, loader, repos)
-        .with_provider(provider)
+        .with_provider_router(ProviderRouter::new(ch_repo, grp_repo))
         .with_quota_counter(QuotaCounter::new(redis_pool))
         .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>)
         .with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
@@ -453,11 +697,11 @@ async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
     let expected_request_id = Uuid::now_v7();
     let req = Request::builder()
         .method("POST")
-        .uri("/v1/chat/completions")
+        .uri("/v1/embeddings")
         .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
         .header("content-type", "application/json")
         .header("x-request-id", expected_request_id.to_string())
-        .body(chat_request_body("Hi"))
+        .body(embedding_request_body("abcdefghijkl"))
         .unwrap();
     let resp = router.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -479,6 +723,9 @@ async fn request_id_is_shared_by_quota_inflight_and_billing_outbox() {
     let events = outbox.snapshot();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].request_id, expected_request_id);
+    assert_eq!(events[0].model, "text-embedding-3-small");
+    assert_eq!(events[0].prompt_tokens, 10);
+    assert_eq!(events[0].completion_tokens, 0);
     assert_eq!(
         events[0].idempotency_key,
         Some(expected_request_id.to_string())

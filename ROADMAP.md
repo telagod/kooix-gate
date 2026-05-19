@@ -381,11 +381,13 @@ cd web && npm test -- plugin-presets
 **目标**：提升 OpenAI-compatible 覆盖度，减少迁移成本。
 
 - [x] `/v1/models` 聚合真实 channel capabilities。
-- [ ] `/v1/embeddings` 路由闭环补强：
+- [x] `/v1/embeddings` 路由闭环补强：
   - pricing
   - quota
   - request log
   - usage record
+  - routed model / channel_id
+  - provider error shape
 - [ ] `/v1/images/generations` 接入 provider adapter 与计费。
 - [ ] `/v1/audio/transcriptions` / `/v1/audio/speech` 接入 provider adapter 与计费。
 - [ ] 评估 `/v1/responses`：

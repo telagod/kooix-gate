@@ -9,10 +9,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use chrono::Duration as ChronoDuration;
+use chrono::{Duration as ChronoDuration, Utc};
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_billing::{InMemoryOutboxRepo, InMemoryPricingRepo, OutboxRepo, PricingRepo, PricingRule};
-use gate_core::id::{ApiKeyId, OrgId, ProjectId, UserId};
+use gate_core::id::{ApiKeyId, ChannelGroupId, ChannelId, OrgId, ProjectId, UserId};
 use gate_providers::openai::OpenAiProvider;
 use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
@@ -50,6 +50,16 @@ struct Harness {
     user_jwt: String,
     /// 计费用：API key 主体路径用这个 key 调
     api_key_plain: &'static str,
+}
+
+struct EmbeddingHarness {
+    router: axum::Router,
+    outbox: Arc<InMemoryOutboxRepo>,
+    api_key_plain: &'static str,
+    api_key_id: ApiKeyId,
+    project_id: ProjectId,
+    org_id: OrgId,
+    channel_id: ChannelId,
 }
 
 async fn setup_with_billing(upstream: &MockServer, with_pricing: bool) -> Harness {
@@ -125,6 +135,193 @@ async fn setup_with_pricing(
     }
 }
 
+async fn setup_embeddings_with_pricing(
+    upstream: &MockServer,
+    seed_pricing: impl FnOnce(&Arc<InMemoryPricingRepo>),
+) -> EmbeddingHarness {
+    use gate_providers::ProviderRouter;
+    use gate_storage::{
+        ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+    };
+
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let loader = Arc::new(InMemoryLoader::new());
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let group_id = ChannelGroupId::new();
+    let channel_id = ChannelId::new();
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let now = Utc::now();
+    unsafe {
+        std::env::set_var("KOOIX_CH_EMBED_WM_KEY", "test-key");
+    }
+    ch_repo.seed_channel(ChannelRecord {
+        channel_id,
+        code: "embed-wm".into(),
+        name: "embed-wiremock".into(),
+        provider_type: "openai".into(),
+        base_url: format!("{}/v1", upstream.uri()),
+        supported_models: vec!["text-embedding-3-small".into()],
+        status: "active".into(),
+        health: "healthy".into(),
+        timeout_ms: 60_000,
+        max_retries: 1,
+        rpm_limit: None,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
+        updated_at: now,
+    });
+    ch_repo.seed_binding(group_id, channel_id, 10, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "embedding-default".into(),
+        description: String::new(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let pricing = Arc::new(InMemoryPricingRepo::new());
+    seed_pricing(&pricing);
+    let outbox = Arc::new(InMemoryOutboxRepo::new());
+    let provider_router = ProviderRouter::new(ch_repo.clone(), grp_repo.clone());
+
+    let mut repos = Repos::in_memory();
+    repos.channels = ch_repo;
+    repos.channel_groups = grp_repo;
+
+    let state = AppState::new(jwt, loader, repos)
+        .with_provider_router(provider_router)
+        .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>)
+        .with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
+    let router = build_router(state);
+
+    EmbeddingHarness {
+        router,
+        outbox,
+        api_key_plain: PLAINTEXT_KEY,
+        api_key_id,
+        project_id,
+        org_id,
+        channel_id,
+    }
+}
+
+async fn start_pg() -> (
+    testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>,
+    sqlx::PgPool,
+) {
+    use testcontainers::ImageExt;
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::postgres::Postgres;
+
+    let tag = std::env::var("KOOIX_TEST_PG_TAG").unwrap_or_else(|_| "17-alpine".into());
+    let container = Postgres::default().with_tag(&tag).start().await.unwrap();
+    let host = container.get_host().await.unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+    let pool = gate_storage::connect(&url, 4).await.unwrap();
+    gate_storage::run_migrations(&pool).await.unwrap();
+    (container, pool)
+}
+
+async fn seed_pg_usage_fixture(pool: &sqlx::PgPool, h: &EmbeddingHarness) {
+    let user_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind("embedding-billing@test.dev")
+    .bind("Embedding Billing Test")
+    .bind("$argon2id$v=19$m=19456,t=2,p=1$placeholder$placeholder")
+    .execute(pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO organizations (id, name, slug, owner_user_id) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(h.org_id.as_uuid())
+    .bind("embedding-billing-org")
+    .bind("embedding-billing-org")
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    sqlx::query("INSERT INTO projects (id, org_id, name, slug) VALUES ($1, $2, $3, $4)")
+        .bind(h.project_id.as_uuid())
+        .bind(h.org_id.as_uuid())
+        .bind("embedding-billing-project")
+        .bind("embedding-billing-project")
+        .execute(pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO api_keys (id, project_id, name, key_hash, key_prefix, key_last4, created_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(h.api_key_id.as_uuid())
+    .bind(h.project_id.as_uuid())
+    .bind("embedding-billing-key")
+    .bind("fakehash_for_embedding_billing_test_000000000000")
+    .bind("sk-kg-test")
+    .bind("test")
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO channels \
+         (id, code, name, provider_type, base_url, config_enc, supported_models, status, health) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', 'healthy')",
+    )
+    .bind(h.channel_id.as_uuid())
+    .bind("embed-wm")
+    .bind("embed-wiremock")
+    .bind("openai")
+    .bind("http://example.invalid/v1")
+    .bind(Vec::<u8>::new())
+    .bind(vec!["text-embedding-3-small".to_string()])
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// 等 spawn 出去的 emit_usage task 跑完。简单 sleep 几次让 tokio 调度。
 async fn yield_for_emit() {
     for _ in 0..20 {
@@ -185,6 +382,106 @@ async fn non_stream_apikey_emits_one_usage_event() {
     assert_eq!(ev.cost_micros, 450);
     assert_eq!(ev.status, 200);
     assert_eq!(ev.model, "gpt-4o-mini");
+}
+
+#[tokio::test]
+async fn embeddings_apikey_emits_usage_event() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "object": "list",
+            "data": [{
+                "object": "embedding",
+                "index": 0,
+                "embedding": [0.1, 0.2, 0.3]
+            }],
+            "model": "text-embedding-3-small",
+            "usage": { "prompt_tokens": 1000, "total_tokens": 1000 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let h = setup_embeddings_with_pricing(&upstream, |pricing| {
+        pricing.seed(pricing_rule(
+            "text-embedding-3-small",
+            "input_tokens",
+            "per_million_tokens",
+            0.02,
+        ));
+    })
+    .await;
+
+    let expected_request_id = Uuid::now_v7();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/embeddings")
+        .header("authorization", format!("Bearer {}", h.api_key_plain))
+        .header("content-type", "application/json")
+        .header("x-request-id", expected_request_id.to_string())
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "text-embedding-3-small",
+                "input": "hello embeddings"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = h.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["object"], "list");
+
+    yield_for_emit().await;
+
+    let events = h.outbox.snapshot();
+    assert_eq!(events.len(), 1, "expected exactly 1 embedding usage event");
+    let ev = &events[0];
+    assert_eq!(ev.request_id, expected_request_id);
+    assert_eq!(ev.idempotency_key, Some(expected_request_id.to_string()));
+    assert_eq!(ev.model, "text-embedding-3-small");
+    assert_eq!(ev.prompt_tokens, 1000);
+    assert_eq!(ev.completion_tokens, 0);
+    assert_eq!(ev.cost_micros, 20);
+    assert_eq!(ev.status, 200);
+    assert_eq!(ev.channel_id, Some(*h.channel_id.as_uuid()));
+    assert_eq!(ev.raw_usage.as_ref().unwrap()["endpoint"], "embeddings");
+
+    let (_pg, pool) = start_pg().await;
+    seed_pg_usage_fixture(&pool, &h).await;
+    gate_billing::consumer::commit_usage(&pool, ev)
+        .await
+        .unwrap();
+
+    let usage_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM usage_records WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(usage_count, 1, "embedding event must commit usage_records");
+
+    let request_event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM request_events WHERE request_id = $1")
+            .bind(expected_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        request_event_count, 1,
+        "embedding event must commit request_events"
+    );
+
+    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
+    let record = PgRequestLogRepo::new(pool.clone())
+        .find_by_request_id(expected_request_id)
+        .await
+        .unwrap();
+    assert_eq!(record.model_actual, "text-embedding-3-small");
+    assert_eq!(record.tokens_in, 1000);
+    assert_eq!(record.tokens_out, 0);
+    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
 }
 
 #[tokio::test]
