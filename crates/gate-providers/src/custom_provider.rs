@@ -7,19 +7,26 @@
 use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::openai::check_status;
-use crate::plugin_manifest::{AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest};
+use crate::plugin_manifest::{
+    AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest, RequestMethod, SignatureEncoding,
+};
 use crate::plugin_preset::{StreamManifest, adapt_chat_request};
 use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
 use async_trait::async_trait;
 use base64::Engine as _;
 use futures::stream::{BoxStream, StreamExt};
+use hmac::{Hmac, Mac};
+use reqwest::Method;
 use reqwest::Url;
 use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 pub struct CustomHttpProvider {
@@ -70,6 +77,13 @@ impl CustomHttpProvider {
         self.endpoint_url_with_context(&ctx)
     }
 
+    fn request_method(&self) -> Method {
+        match self.manifest.request.method {
+            RequestMethod::Get => Method::GET,
+            RequestMethod::Post => Method::POST,
+        }
+    }
+
     fn endpoint_url_with_context(&self, ctx: &Value) -> ProviderResult<String> {
         let path = self
             .manifest
@@ -116,14 +130,33 @@ impl CustomHttpProvider {
         Ok(url.to_string())
     }
 
+    #[cfg(test)]
     fn request_headers_for(&self, req: &ChatRequest) -> ProviderResult<HeaderMap> {
-        let ctx = self.request_context_for(req)?;
-        self.request_headers_with_context(&ctx)
+        let body = self.request_json_body(req)?;
+        let endpoint = self.endpoint_url_for(req)?;
+        self.request_headers_for_parts(req, &endpoint, &body, self.request_method().as_str())
     }
 
-    fn request_headers_with_context(&self, ctx: &Value) -> ProviderResult<HeaderMap> {
+    fn request_headers_for_parts(
+        &self,
+        req: &ChatRequest,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<HeaderMap> {
+        let ctx = self.request_context_for(req)?;
+        self.request_headers_with_context(&ctx, endpoint, body, method)
+    }
+
+    fn request_headers_with_context(
+        &self,
+        ctx: &Value,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<HeaderMap> {
         let mut headers = HeaderMap::new();
-        self.apply_auth_headers(&mut headers, ctx)?;
+        self.apply_auth_headers(&mut headers, ctx, endpoint, body, method)?;
         for (k, v) in &self.manifest.request.headers {
             if v.is_null() {
                 continue;
@@ -153,7 +186,14 @@ impl CustomHttpProvider {
         })
     }
 
-    fn apply_auth_headers(&self, headers: &mut HeaderMap, ctx: &Value) -> ProviderResult<()> {
+    fn apply_auth_headers(
+        &self,
+        headers: &mut HeaderMap,
+        ctx: &Value,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<()> {
         match self.manifest.auth.strategy {
             AuthStrategy::Bearer => {
                 let secret = self.secret_for_slot(self.manifest.auth.secret_slot());
@@ -203,9 +243,87 @@ impl CustomHttpProvider {
                     insert_named_header(headers, name, render_template(value, ctx))?;
                 }
             }
+            AuthStrategy::Hmac => {
+                self.apply_hmac_auth_headers(headers, ctx, endpoint, body, method)?;
+            }
             AuthStrategy::ApiKeyQuery | AuthStrategy::None => {}
         }
         Ok(())
+    }
+
+    fn apply_hmac_auth_headers(
+        &self,
+        headers: &mut HeaderMap,
+        ctx: &Value,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<()> {
+        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let nonce = uuid::Uuid::now_v7().to_string();
+        let signature = self.hmac_signature(endpoint, body, method, &timestamp, &nonce, ctx)?;
+        let hmac = &self.manifest.auth.hmac;
+        insert_named_header(headers, &hmac.timestamp_header, timestamp)?;
+        insert_named_header(headers, &hmac.nonce_header, nonce)?;
+        insert_named_header(headers, &hmac.signature_header, signature)
+    }
+
+    fn hmac_signature(
+        &self,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+        timestamp: &str,
+        nonce: &str,
+        ctx: &Value,
+    ) -> ProviderResult<String> {
+        let secret = self.secret_for_slot(self.manifest.auth.secret_slot());
+        if secret.is_empty() {
+            return Err(ProviderError::Config(format!(
+                "hmac auth secret slot '{}' is empty",
+                self.manifest.auth.secret_slot()
+            )));
+        }
+        let signed_payload =
+            self.hmac_signed_payload(endpoint, body, method, timestamp, nonce, ctx)?;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .map_err(|e| ProviderError::Config(format!("invalid hmac secret: {e}")))?;
+        mac.update(signed_payload.as_bytes());
+        let signature = mac.finalize().into_bytes();
+        Ok(match self.manifest.auth.hmac.signature_encoding {
+            SignatureEncoding::Base64 => {
+                base64::engine::general_purpose::STANDARD.encode(signature)
+            }
+            SignatureEncoding::Hex => hex::encode(signature),
+        })
+    }
+
+    fn hmac_signed_payload(
+        &self,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+        timestamp: &str,
+        nonce: &str,
+        request_ctx: &Value,
+    ) -> ProviderResult<String> {
+        let url = Url::parse(endpoint)
+            .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
+        let body_text = std::str::from_utf8(body).unwrap_or_default();
+        let ctx = json!({
+            "method": method,
+            "path": url.path(),
+            "query": url.query().unwrap_or_default(),
+            "body": body_text,
+            "body_sha256": sha256_hex(body),
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "request": request_ctx.get("request").cloned().unwrap_or(Value::Null),
+        });
+        Ok(render_template_str(
+            &self.manifest.auth.hmac.signed_payload,
+            &ctx,
+        ))
     }
 
     fn secret_for_slot(&self, slot: &str) -> String {
@@ -340,13 +458,16 @@ impl Provider for CustomHttpProvider {
     async fn chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
         req.stream = false;
         let body = self.request_json_body(&req)?;
-        let mut headers = self.request_headers_for(&req)?;
+        let endpoint = self.endpoint_url_for(&req)?;
+        let method = self.request_method();
+        let mut headers =
+            self.request_headers_for_parts(&req, &endpoint, &body, method.as_str())?;
         headers
             .entry(reqwest::header::CONTENT_TYPE)
             .or_insert(HeaderValue::from_static("application/json"));
         let resp = self
             .client
-            .post(self.endpoint_url_for(&req)?)
+            .request(method, endpoint)
             .headers(headers)
             .body(body)
             .send()
@@ -364,13 +485,16 @@ impl Provider for CustomHttpProvider {
     ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
         req.stream = true;
         let body = self.request_json_body(&req)?;
-        let mut headers = self.request_headers_for(&req)?;
+        let endpoint = self.endpoint_url_for(&req)?;
+        let method = self.request_method();
+        let mut headers =
+            self.request_headers_for_parts(&req, &endpoint, &body, method.as_str())?;
         headers
             .entry(reqwest::header::CONTENT_TYPE)
             .or_insert(HeaderValue::from_static("application/json"));
         let resp = self
             .client
-            .post(self.endpoint_url_for(&req)?)
+            .request(method, endpoint)
             .headers(headers)
             .body(body)
             .send()
@@ -708,6 +832,10 @@ fn insert_header(headers: &mut HeaderMap, name: HeaderName, value: String) -> Pr
         .map_err(|e| ProviderError::Config(format!("invalid plugin header value: {e}")))?;
     headers.insert(name, value);
     Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
 }
 
 fn normalize_secret_slots(secrets: HashMap<String, String>) -> HashMap<String, String> {
@@ -1136,6 +1264,74 @@ mod tests {
                 .get("x-alt-key")
                 .is_some_and(|value| value != "primary-key")
         );
+    }
+
+    #[test]
+    fn plugin_auth_hmac_signs_method_path_body_timestamp_nonce() {
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            "https://api.example.com",
+            HashMap::from([("signing".to_string(), "hmac-secret".to_string())]),
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "hmac",
+                        "secret_slot": "signing",
+                        "hmac": {
+                            "signature_header": "X-Kooix-Signature",
+                            "timestamp_header": "X-Kooix-Timestamp",
+                            "nonce_header": "X-Kooix-Nonce",
+                            "signed_payload": "{{method}}\n{{path}}\n{{query}}\n{{body_sha256}}\n{{timestamp}}\n{{nonce}}",
+                            "signature_encoding": "hex"
+                        }
+                    },
+                    "request": {
+                        "path": "/private/chat/{{model}}",
+                        "query": { "stream": "{{stream}}" },
+                        "body": { "prompt": "{{last_user_message}}", "stream": "{{stream}}" }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let req = make_req(false);
+        let body = provider.request_json_body(&req).unwrap();
+        let endpoint = provider.endpoint_url_for(&req).unwrap();
+        let ctx = provider.request_context_for(&req).unwrap();
+        let signature = provider
+            .hmac_signature(&endpoint, &body, "POST", "1700000000", "nonce-1", &ctx)
+            .unwrap();
+
+        assert_eq!(
+            provider
+                .hmac_signed_payload(&endpoint, &body, "POST", "1700000000", "nonce-1", &ctx)
+                .unwrap(),
+            format!(
+                "POST\n/private/chat/odd-model\nstream=false\n{}\n1700000000\nnonce-1",
+                sha256_hex(&body)
+            )
+        );
+        assert_eq!(
+            signature,
+            "d7304b247aa7c8ddc7618cca688b5f2f1de8dd13cc5169739655a9348510e854"
+        );
+
+        let headers = provider
+            .request_headers_for_parts(&req, &endpoint, &body, "POST")
+            .unwrap();
+        assert!(headers.get("x-kooix-timestamp").is_some());
+        assert!(headers.get("x-kooix-nonce").is_some());
+        assert_eq!(
+            headers
+                .get("x-kooix-signature")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert!(headers.get("authorization").is_none());
     }
 
     #[test]

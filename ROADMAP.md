@@ -237,8 +237,11 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - `channel_keys.label` 归一为 secret slot，`primary` / `api_key` 兼容旧主密钥。
   - Plugin runtime 会把同一 channel 的 active key 解密成 slot map；非 plugin provider 仍只取 primary。
   - DB 无 key、repo/crypto 未配置或本地开发时回退 `KOOIX_CH_<CODE>_KEY` / `KOOIX_API_KEY` / `KOOIX_PLUGIN_SECRET_<SLOT>`。
+- [x] 内置 `hmac` 高级认证策略：
+  - method / path / query / body_sha256 / timestamp / nonce 可组合签名 payload。
+  - 默认 `HMAC-SHA256`，支持 hex / base64 signature header。
+  - 自动注入 timestamp / nonce / signature header，secret 仍只来自 `secret_slot`。
 - [ ] 内置高级认证策略：
-  - `hmac`：method/path/body/timestamp nonce 签名。
   - `oauth_client_credentials`：token cache + expiry refresh。
   - `aws_sigv4`：为 Bedrock Converse 收口正式鉴权。
 - [ ] 前端创建 channel 时按 auth strategy 展示最小字段，保存前做本地 lint。

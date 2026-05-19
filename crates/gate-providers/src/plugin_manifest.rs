@@ -78,6 +78,7 @@ pub(crate) enum AuthStrategy {
     ApiKeyQuery,
     Basic,
     CustomHeaders,
+    Hmac,
     None,
 }
 
@@ -91,6 +92,7 @@ pub(crate) struct AuthManifest {
     pub username_slot: Option<String>,
     pub password_slot: Option<String>,
     pub headers: Map<String, Value>,
+    pub hmac: HmacAuthManifest,
 }
 
 impl AuthManifest {
@@ -125,6 +127,32 @@ impl AuthManifest {
             .map(str::trim)
             .filter(|s| !s.is_empty())
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HmacAlgorithm {
+    #[default]
+    Sha256,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(default)]
+pub(crate) struct HmacAuthManifest {
+    pub algorithm: HmacAlgorithm,
+    pub signature_header: String,
+    pub timestamp_header: String,
+    pub nonce_header: String,
+    pub signed_payload: String,
+    pub signature_encoding: SignatureEncoding,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SignatureEncoding {
+    Base64,
+    #[default]
+    Hex,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
@@ -367,6 +395,21 @@ impl Default for AuthManifest {
             username_slot: None,
             password_slot: None,
             headers: Map::new(),
+            hmac: HmacAuthManifest::default(),
+        }
+    }
+}
+
+impl Default for HmacAuthManifest {
+    fn default() -> Self {
+        Self {
+            algorithm: HmacAlgorithm::Sha256,
+            signature_header: "X-Signature".to_string(),
+            timestamp_header: "X-Timestamp".to_string(),
+            nonce_header: "X-Nonce".to_string(),
+            signed_payload: "{{method}}\n{{path}}\n{{body_sha256}}\n{{timestamp}}\n{{nonce}}"
+                .to_string(),
+            signature_encoding: SignatureEncoding::Hex,
         }
     }
 }
@@ -591,6 +634,34 @@ fn validate_auth(auth: &AuthManifest, pointer_base: &str) -> ProviderResult<()> 
                 )?;
             }
         }
+        AuthStrategy::Hmac => {
+            if auth.hmac.signature_header.trim().is_empty() {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/hmac/signature_header",
+                    "hmac auth requires signature_header",
+                ));
+            }
+            if auth.hmac.timestamp_header.trim().is_empty() {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/hmac/timestamp_header",
+                    "hmac auth requires timestamp_header",
+                ));
+            }
+            if auth.hmac.nonce_header.trim().is_empty() {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/hmac/nonce_header",
+                    "hmac auth requires nonce_header",
+                ));
+            }
+            validate_template_str(
+                &auth.hmac.signed_payload,
+                TemplateScope::Hmac,
+                &json_pointer(pointer_base, "/auth/hmac/signed_payload"),
+            )?;
+        }
         AuthStrategy::Bearer | AuthStrategy::None => {}
     }
     if let Some(secret_slot) = auth.secret_slot.as_deref() {
@@ -677,6 +748,7 @@ enum TemplateScope {
     Query,
     Header,
     Body,
+    Hmac,
 }
 
 fn validate_template_value(
@@ -778,6 +850,12 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
             ) || path.starts_with("request.")
                 || path.starts_with("messages.")
         }
+        TemplateScope::Hmac => {
+            matches!(
+                path,
+                "method" | "path" | "query" | "body" | "body_sha256" | "timestamp" | "nonce"
+            ) || path.starts_with("request.")
+        }
     }
 }
 
@@ -874,6 +952,63 @@ mod tests {
             Some("/v1/messages/{{model}}")
         );
         assert_eq!(manifest.auth.strategy, AuthStrategy::ApiKeyHeader);
+    }
+
+    #[test]
+    fn parses_hmac_auth_manifest_defaults_and_payload_template() {
+        let manifest = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "hmac",
+                        "secret_slot": "signing-key",
+                        "hmac": {
+                            "signature_header": "X-Kooix-Signature",
+                            "signed_payload": "{{method}}\n{{path}}\n{{body_sha256}}\n{{timestamp}}\n{{nonce}}",
+                            "signature_encoding": "base64"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.auth.strategy, AuthStrategy::Hmac);
+        assert_eq!(manifest.auth.secret_slot(), "signing-key");
+        assert_eq!(manifest.auth.hmac.signature_header, "X-Kooix-Signature");
+        assert_eq!(
+            manifest.auth.hmac.signature_encoding,
+            SignatureEncoding::Base64
+        );
+        assert_eq!(manifest.auth.hmac.timestamp_header, "X-Timestamp");
+        assert_eq!(manifest.auth.hmac.nonce_header, "X-Nonce");
+    }
+
+    #[test]
+    fn hmac_rejects_unknown_payload_template_variable() {
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "hmac",
+                        "hmac": {
+                            "signed_payload": "{{api_key}}\n{{body_sha256}}"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported template variable {{api_key}}"),
+            "err={err}"
+        );
     }
 
     #[test]

@@ -29,12 +29,13 @@ tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf
 
 ## Plugin secret slots
 
-本轮把 P1.1.2 的 “Secret 来源统一” 从 TODO 收口为代码路径：
+本轮把 P1.1.2 的 “Secret 来源统一” 与首个高级认证 `hmac` 从 TODO 收口为代码路径：
 
 - `CustomHttpProvider::new_with_secret_slots` 接收 slot map，`new_with_opts` 继续兼容旧 primary API key。
 - `ProviderRouter::resolve_secrets_for_channel` 读取同一 channel 的 active `channel_keys`，按 `label` 归一为 secret slot 并用 `EnvelopeKms` 解密。
 - `primary` / `api_key` / 空 label 保持旧主密钥语义；非 plugin provider 仍只使用 primary。
 - repo/crypto 缺失或 DB 无 active key 时回退 env：`KOOIX_CH_<CODE>_KEY`、`KOOIX_API_KEY`、`KOOIX_PLUGIN_SECRET_<SLOT>`、`AWS_SECRET_ACCESS_KEY`。
+- `auth.strategy = "hmac"` 支持 method/path/query/body_sha256/timestamp/nonce 签名 payload，使用 `secret_slot` 做 HMAC-SHA256，并自动注入 timestamp / nonce / signature header。
 
 验证命令：
 
@@ -42,5 +43,8 @@ tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf
 cargo test -p gate-providers router_db_key_decrypt_roundtrip -- --nocapture
 cargo test -p gate-providers router_secret_slots_use_channel_key_labels -- --nocapture
 cargo test -p gate-providers plugin_auth_uses_explicit_secret_slot_map -- --nocapture
+cargo test -p gate-providers plugin_auth_hmac_signs_method_path_body_timestamp_nonce -- --nocapture
+cargo test -p gate-providers parses_hmac_auth_manifest_defaults_and_payload_template -- --nocapture
+cargo test -p gate-providers hmac_rejects_unknown_payload_template_variable -- --nocapture
 cargo test -p gate-providers plugin -- --nocapture
 ```

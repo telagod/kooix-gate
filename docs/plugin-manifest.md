@@ -76,6 +76,7 @@ v1 固定以下分区：
 - `api_key_query`：必须声明 `query_name`；默认高风险，仅用于必须把 key 放 query 的上游。
 - `basic`：必须声明 `username_slot`，password 默认来自 encrypted channel key material。
 - `custom_headers`：必须声明 `headers`，只能使用白名单模板变量。
+- `hmac`：使用 `secret_slot` 做 HMAC-SHA256 签名，自动注入 timestamp、nonce、signature header。
 - `none`：不自动注入认证头。
 
 `secret_slot` / `username_slot` / `password_slot` 是加密材料引用，不是明文 secret。
@@ -181,6 +182,7 @@ v1 固定以下分区：
 - `auth.strategy = "api_key_query"`：追加 `query_name=<secret_slot>`。
 - `auth.strategy = "basic"`：注入 Basic auth；`username_slot` 必填，`password_slot` 未填时使用 `secret_slot`。
 - `auth.strategy = "custom_headers"`：按 `auth.headers` 模板注入 header。
+- `auth.strategy = "hmac"`：按 `auth.hmac.signed_payload` 渲染签名串，使用 `secret_slot` 计算 HMAC-SHA256，并注入 `timestamp_header`、`nonce_header`、`signature_header`。
 - `auth.strategy = "none"`：不注入认证。
 
 若私有渠道不用 Bearer，推荐走 `auth` 分区，而不是把认证塞进 `request.headers`：
@@ -193,6 +195,47 @@ v1 固定以下分区：
   }
 }
 ```
+
+### HMAC auth
+
+`hmac` 用于 method/path/body/timestamp/nonce 类私有签名协议。默认签名串：
+
+```text
+{{method}}
+{{path}}
+{{body_sha256}}
+{{timestamp}}
+{{nonce}}
+```
+
+可用模板变量只限：`{{method}}`、`{{path}}`、`{{query}}`、`{{body}}`、`{{body_sha256}}`、`{{timestamp}}`、`{{nonce}}`、`{{request.*}}`。
+
+示例：
+
+```json
+{
+  "plugin": {
+    "version": 1,
+    "auth": {
+      "strategy": "hmac",
+      "secret_slot": "signing",
+      "hmac": {
+        "signature_header": "X-Signature",
+        "timestamp_header": "X-Timestamp",
+        "nonce_header": "X-Nonce",
+        "signed_payload": "{{method}}\n{{path}}\n{{query}}\n{{body_sha256}}\n{{timestamp}}\n{{nonce}}",
+        "signature_encoding": "hex"
+      }
+    }
+  }
+}
+```
+
+当前支持：
+
+- `algorithm`: `sha256`。
+- `signature_encoding`: `hex` / `base64`。
+- `secret_slot` 仍只引用 `channel_keys.label` 或 env fallback，不允许在 manifest 中保存明文 secret。
 
 ## Non-stream response mapping
 
