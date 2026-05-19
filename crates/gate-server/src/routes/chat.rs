@@ -92,6 +92,42 @@ pub(crate) async fn settle_guards(guards: &InflightGuards, usage: &Usage) {
     }
 }
 
+pub(crate) async fn record_channel_success_observation(
+    app: &AppState,
+    channel_id: Option<uuid::Uuid>,
+    routed_metrics: &Option<Arc<ChannelMetrics>>,
+    latency_ms: u64,
+    source: &'static str,
+) {
+    let Some(ch_uuid) = channel_id else {
+        return;
+    };
+    let ch_id = ChannelId::from(ch_uuid);
+    if let Some(m) = routed_metrics {
+        m.record(ch_id, true);
+        m.record_latency(ch_id, latency_ms);
+        if m.should_disable(ch_id) {
+            let repos = app.repos.clone();
+            tokio::spawn(async move {
+                if let Err(e) = repos
+                    .channels
+                    .auto_disable(ch_id, "success rate below threshold")
+                    .await
+                {
+                    tracing::warn!(channel_id = %ch_id.as_uuid(), error = %e, "auto_disable failed");
+                } else {
+                    tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
+                }
+            });
+        }
+    }
+    if let Some(router) = &app.provider_router {
+        router
+            .record_channel_latency(ch_id, latency_ms, true, source)
+            .await;
+    }
+}
+
 async fn chat_completions(
     State(app): State<AppState>,
     Authed(ctx): Authed,
@@ -162,25 +198,15 @@ async fn chat_completions(
             }
         };
 
-        // 流式：上报成功（stream 开启意味着请求已被接受）
-        if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
-            let ch_id = ChannelId::from(ch_uuid);
-            m.record(ch_id, true);
-            if m.should_disable(ch_id) {
-                let repos = app.repos.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = repos
-                        .channels
-                        .auto_disable(ch_id, "success rate below threshold")
-                        .await
-                    {
-                        tracing::warn!(channel_id = %ch_id.as_uuid(), error = %e, "auto_disable failed");
-                    } else {
-                        tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
-                    }
-                });
-            }
-        }
+        // 流式：stream 建立成功即上报首包延迟，供 least_latency 滑窗使用。
+        record_channel_success_observation(
+            &app,
+            channel_id,
+            &routed_metrics,
+            execute_start.elapsed().as_millis() as u64,
+            "request",
+        )
+        .await;
         report_channel_success(&app, routed_key_id).await;
 
         // 累积流式 usage：包装 stream，inspect 每个 chunk，记下最后含 usage 的那个
@@ -304,26 +330,15 @@ async fn chat_completions(
                     StageOutcome::Ok,
                     start.elapsed().as_secs_f64(),
                 );
-                // 上报成功 + 延迟
-                if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
-                    let ch_id = ChannelId::from(ch_uuid);
-                    m.record(ch_id, true);
-                    m.record_latency(ch_id, elapsed_ms);
-                    if m.should_disable(ch_id) {
-                        let repos = app.repos.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = repos
-                                .channels
-                                .auto_disable(ch_id, "success rate below threshold")
-                                .await
-                            {
-                                tracing::warn!(channel_id = %ch_id.as_uuid(), error = %e, "auto_disable failed");
-                            } else {
-                                tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
-                            }
-                        });
-                    }
-                }
+                // 上报成功 + 延迟（内存窗口 + 持久化滑窗）
+                record_channel_success_observation(
+                    &app,
+                    channel_id,
+                    &routed_metrics,
+                    elapsed_ms,
+                    "request",
+                )
+                .await;
                 report_channel_success(&app, routed_key_id).await;
                 r
             }

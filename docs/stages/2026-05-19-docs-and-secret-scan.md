@@ -25,6 +25,32 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.4 `least_latency` 持久化滑窗
+
+本轮把 `least_latency` 从单进程 `ChannelMetrics` 升级为可跨实例复用的持久化滑窗：
+
+- 新增 migration `20260520000001_channel_latency_samples.sql` 与 `ChannelLatencyRepo`，记录 `channel_id`、`latency_ms`、`success`、`source=request|health_probe`。
+- `ProviderRouter` 注入 `channel_latency_repo` 后，在 `least_latency` 策略中按候选 channel 一次批量查询近窗口成功均值；查询失败或无样本时回退内存 metrics，不阻断数据面。
+- `chat`、`responses` 和后台 health probe 都写入 latency samples；流式请求以 stream 建立耗时作为首包/建立延迟样本。
+- `docs/observability-runbook.md` 增加 DB 滑窗与 Prometheus probe 指标的职责边界：Prometheus 做趋势告警，DB 滑窗做路由决策。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-storage -p gate-providers -p gate-server --all-targets
+cargo test -p gate-storage --test channel_latency -- --nocapture
+cargo test -p gate-providers least_latency -- --nocapture
+cargo test -p gate-server --test c1_routing health_checker -- --nocapture
+cargo test -p gate-server --all-targets
+cargo test -p gate-providers --all-targets
+cargo clippy --all-targets -- -D warnings
+npm --prefix web run check
+npm --prefix web test
+/home/telagod/.local/bin/gitleaks detect --source . --redact --verbose
+tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && /home/telagod/.local/bin/gitleaks detect --source "$tmp" --no-git --redact --verbose
+```
+
 ## P1.4 health probe standardization
 
 本轮收口 P1.4 首项 Health probe 标准化：

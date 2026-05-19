@@ -153,6 +153,7 @@ async fn make_fixture() -> Fix {
         api_keys,
         channels,
         channel_groups,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(gate_storage::InMemoryChannelKeyRepo::new()),
         identity_providers,
         user_identities,

@@ -14,6 +14,7 @@ pub mod audit;
 pub mod billing;
 pub mod channel;
 pub mod channel_key;
+pub mod channel_latency;
 pub mod identity;
 pub mod inflight;
 pub mod membership;

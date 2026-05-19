@@ -131,6 +131,7 @@ async fn build_fixture(
         api_keys: Arc::new(InMemoryApiKeyRepo::new()),
         channels: Arc::new(InMemoryChannelRepo::new()),
         channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: idp_repo_concrete.clone(),
         user_identities: user_identities.clone(),

@@ -37,7 +37,10 @@ use crate::plugin_manifest::{plugin_manifest, plugin_manifest_retry_config};
 use crate::{ProviderCapabilities, provider_capabilities};
 use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
-use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
+use gate_storage::{
+    ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelLatencyRepo, ChannelRepo,
+    ModelAliasRepo,
+};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -538,6 +541,8 @@ impl ChannelRateCheck for InMemoryChannelRateLimiter {
 /// Backward-compat alias.
 pub type ChannelRateLimiter = InMemoryChannelRateLimiter;
 
+const DEFAULT_CHANNEL_LATENCY_WINDOW_SECS: i64 = 300;
+
 // ============================================================================
 // InflightTracker — least_conn 策略用的 inflight 计数器
 // ============================================================================
@@ -686,6 +691,7 @@ fn order_channels_by_strategy<'a>(
     rr_counter: &AtomicU64,
     inflight: &InflightTracker,
     metrics: Option<&ChannelMetrics>,
+    persistent_latencies: Option<&HashMap<ChannelId, u64>>,
 ) -> Vec<&'a ChannelBinding> {
     if compatible.len() <= 1 {
         return compatible.to_vec();
@@ -727,9 +733,12 @@ fn order_channels_by_strategy<'a>(
         "least_latency" => {
             // 按延迟升序排
             let mut sorted: Vec<_> = compatible.to_vec();
-            if let Some(m) = metrics {
-                sorted.sort_by_key(|c| m.avg_latency(c.channel.channel_id));
-            }
+            sorted.sort_by_key(|c| {
+                persistent_latencies
+                    .and_then(|latencies| latencies.get(&c.channel.channel_id).copied())
+                    .or_else(|| metrics.map(|m| m.avg_latency(c.channel.channel_id)))
+                    .unwrap_or(u64::MAX)
+            });
             sorted
         }
         // "priority" + 未知 → 已按 priority ASC 排序的原始顺序
@@ -987,6 +996,9 @@ pub struct ProviderRouter {
     inflight: Arc<InflightTracker>,
     /// 滑动窗口成功率追踪（auto-disable 机制）。
     metrics: Option<Arc<ChannelMetrics>>,
+    /// 持久化 latency samples；least_latency 先查它，再 fail-open 回退内存 metrics。
+    channel_latency_repo: Option<Arc<dyn ChannelLatencyRepo>>,
+    latency_window_secs: i64,
     /// per-channel RPM/TPM 限速器。
     rate_limiter: Arc<dyn ChannelRateCheck>,
     /// Repo-backed runtime 的单调版本钩子；control plane 热更新 snapshot 后可递增。
@@ -1006,6 +1018,8 @@ impl ProviderRouter {
             rr_counter: AtomicU64::new(0),
             inflight: Arc::new(InflightTracker::new()),
             metrics: Some(Arc::new(ChannelMetrics::new(10, 0.8))),
+            channel_latency_repo: None,
+            latency_window_secs: DEFAULT_CHANNEL_LATENCY_WINDOW_SECS,
             rate_limiter: Arc::new(InMemoryChannelRateLimiter::new()),
             snapshot_version: AtomicU64::new(1),
             runtime_snapshot: RwLock::new(Arc::new(ProviderRuntimeSnapshot::new(1, Vec::new()))),
@@ -1036,6 +1050,18 @@ impl ProviderRouter {
         self
     }
 
+    /// 挂载持久化 latency repo，启用 least_latency 多实例滑窗。
+    pub fn with_channel_latency_repo(mut self, repo: Arc<dyn ChannelLatencyRepo>) -> Self {
+        self.channel_latency_repo = Some(repo);
+        self
+    }
+
+    /// 配置 least_latency 持久化滑窗大小（秒）。
+    pub fn with_latency_window_secs(mut self, secs: i64) -> Self {
+        self.latency_window_secs = secs.max(1);
+        self
+    }
+
     /// 释放 channel 的 inflight 计数（请求结束后调用）。
     ///
     /// 对非 least_conn 策略也是安全的（no-op if channel wasn't tracked）。
@@ -1058,6 +1084,57 @@ impl ProviderRouter {
     /// 暴露只读 metrics 句柄给 health checker，用于把 probe 成功率/延迟喂给 least_latency。
     pub fn channel_metrics(&self) -> Option<Arc<ChannelMetrics>> {
         self.metrics.clone()
+    }
+
+    /// 记录一次 channel latency observation；DB 故障 fail-open，只告警不阻断数据面。
+    pub async fn record_channel_latency(
+        &self,
+        channel_id: ChannelId,
+        latency_ms: u64,
+        success: bool,
+        source: &str,
+    ) {
+        let Some(repo) = &self.channel_latency_repo else {
+            return;
+        };
+        if let Err(e) = repo
+            .record_sample(channel_id, latency_ms, success, source)
+            .await
+        {
+            tracing::warn!(
+                channel_id = %channel_id.as_uuid(),
+                source = source,
+                error = %e,
+                "channel latency sample write failed; falling back to in-memory metrics"
+            );
+        }
+    }
+
+    async fn persistent_latencies_for_strategy(
+        &self,
+        strategy: &str,
+        compatible: &[&ChannelBinding],
+    ) -> Option<HashMap<ChannelId, u64>> {
+        if strategy != "least_latency" || compatible.len() <= 1 {
+            return None;
+        }
+        let repo = self.channel_latency_repo.as_ref()?;
+        let ids: Vec<ChannelId> = compatible
+            .iter()
+            .map(|candidate| candidate.channel.channel_id)
+            .collect();
+        match repo.avg_latency_ms(&ids, self.latency_window_secs).await {
+            Ok(latencies) if !latencies.is_empty() => Some(latencies),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    window_secs = self.latency_window_secs,
+                    "channel latency window query failed; falling back to in-memory metrics"
+                );
+                None
+            }
+        }
     }
 
     /// 获取 rate_limiter 的引用（供调用方上报 token 消耗）。
@@ -1334,12 +1411,16 @@ impl ProviderRouter {
             return Ok(None);
         }
 
+        let persistent_latencies = self
+            .persistent_latencies_for_strategy(&group.strategy, &compatible)
+            .await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
             &self.rr_counter,
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
+            persistent_latencies.as_ref(),
         );
 
         for candidate in &ordered {
@@ -1509,12 +1590,16 @@ impl ProviderRouter {
             return Ok(None);
         }
 
+        let persistent_latencies = self
+            .persistent_latencies_for_strategy(&group.strategy, &compatible)
+            .await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
             &self.rr_counter,
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
+            persistent_latencies.as_ref(),
         );
 
         for candidate in &ordered {
@@ -1682,12 +1767,16 @@ impl ProviderRouter {
             return Ok(None);
         }
 
+        let persistent_latencies = self
+            .persistent_latencies_for_strategy(&group.strategy, &compatible)
+            .await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
             &self.rr_counter,
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
+            persistent_latencies.as_ref(),
         );
 
         for candidate in &ordered {
@@ -1976,12 +2065,16 @@ impl ProviderRouter {
         // Strategy ordering: sort channels into preference order based on strategy
         // For priority/round_robin/weighted_random, select_channel picks one.
         // To support "try next on rate limit", we iterate candidates in order.
+        let persistent_latencies = self
+            .persistent_latencies_for_strategy(&group.strategy, &compatible)
+            .await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
             &self.rr_counter,
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
+            persistent_latencies.as_ref(),
         );
         trace.record_candidates(group, &ordered);
         let mut last_miss = RouteMiss {
@@ -2357,7 +2450,8 @@ mod tests {
     use chrono::Utc;
     use gate_core::id::{ChannelGroupId, ChannelId, ProjectId};
     use gate_storage::{
-        ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+        ChannelGroupRecord, ChannelLatencyRepo, ChannelRecord, InMemoryChannelGroupRepo,
+        InMemoryChannelLatencyRepo, InMemoryChannelRepo,
     };
     use uuid::Uuid;
 
@@ -3328,6 +3422,28 @@ mod tests {
         assert_eq!(tracker.current(ch), 1);
         tracker.release(ch);
         assert_eq!(tracker.current(ch), 0);
+    }
+
+    #[tokio::test]
+    async fn least_latency_prefers_persistent_sliding_window() {
+        let (pid, router, ch_ids) =
+            setup_strategy_fixtures("least_latency", &[("ch-a", 1, 1), ("ch-b", 2, 1)]);
+        let latency_repo = Arc::new(InMemoryChannelLatencyRepo::new());
+        latency_repo
+            .record_sample(ch_ids[0], 200, true, "request")
+            .await
+            .unwrap();
+        latency_repo
+            .record_sample(ch_ids[1], 50, true, "health_probe")
+            .await
+            .unwrap();
+        let router = router.with_channel_latency_repo(latency_repo);
+
+        let routed = router.route(pid, "any").await.unwrap().unwrap();
+        assert_eq!(
+            routed.channel_id, ch_ids[1],
+            "persistent sliding window should beat priority for least_latency"
+        );
     }
 
     // ---- priority still works (regression) ----

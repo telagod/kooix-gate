@@ -227,7 +227,8 @@ impl HealthChecker {
                             status_bucket,
                             latency_ms,
                         },
-                    );
+                    )
+                    .await;
                     self.handle_success(ch, consecutive_failures, is_cooldown)
                         .await;
                     return;
@@ -242,7 +243,8 @@ impl HealthChecker {
                                 status_bucket,
                                 latency_ms,
                             },
-                        );
+                        )
+                        .await;
                         self.handle_auth_failure(ch, consecutive_failures, status)
                             .await;
                     }
@@ -254,7 +256,8 @@ impl HealthChecker {
                                 status_bucket,
                                 latency_ms,
                             },
-                        );
+                        )
+                        .await;
                         // 限流：瞬态错误，只记日志不改状态
                         tracing::warn!(
                             channel = %ch.code,
@@ -270,7 +273,8 @@ impl HealthChecker {
                                 status_bucket,
                                 latency_ms,
                             },
-                        );
+                        )
+                        .await;
                         // 超时：累计失败，≥3 次 auto_disable
                         self.handle_transient_failure(ch, consecutive_failures, "timeout: 408")
                             .await;
@@ -283,7 +287,8 @@ impl HealthChecker {
                                 status_bucket,
                                 latency_ms,
                             },
-                        );
+                        )
+                        .await;
                         // 其他错误码：累计
                         self.handle_transient_failure(
                             ch,
@@ -308,7 +313,8 @@ impl HealthChecker {
                         status_bucket: "network",
                         latency_ms,
                     },
-                );
+                )
+                .await;
                 self.handle_transient_failure(ch, consecutive_failures, &reason)
                     .await;
             }
@@ -474,7 +480,8 @@ impl HealthChecker {
                             status_bucket,
                             latency_ms,
                         },
-                    );
+                    )
+                    .await;
                     self.handle_success(ch, consecutive_failures, is_cooldown)
                         .await;
                 } else if status == 401 || status == 403 {
@@ -485,7 +492,8 @@ impl HealthChecker {
                             status_bucket,
                             latency_ms,
                         },
-                    );
+                    )
+                    .await;
                     self.handle_auth_failure(ch, consecutive_failures, status)
                         .await;
                 } else if status == 429 {
@@ -496,7 +504,8 @@ impl HealthChecker {
                             status_bucket,
                             latency_ms,
                         },
-                    );
+                    )
+                    .await;
                     tracing::warn!(
                         channel = %ch.code,
                         status,
@@ -510,7 +519,8 @@ impl HealthChecker {
                             status_bucket,
                             latency_ms,
                         },
-                    );
+                    )
+                    .await;
                     self.handle_transient_failure(
                         ch,
                         consecutive_failures,
@@ -532,7 +542,8 @@ impl HealthChecker {
                         status_bucket: "network",
                         latency_ms,
                     },
-                );
+                )
+                .await;
                 self.handle_transient_failure(ch, consecutive_failures, &reason)
                     .await;
             }
@@ -551,7 +562,7 @@ impl HealthChecker {
         );
     }
 
-    fn record_probe_observation(
+    async fn record_probe_observation(
         &self,
         ch: &gate_storage::ChannelRecord,
         observation: ProbeObservation,
@@ -567,6 +578,16 @@ impl HealthChecker {
         {
             metrics.record(ch.channel_id, observation.outcome == "success");
             metrics.record_latency(ch.channel_id, observation.latency_ms);
+        }
+        if let Some(router) = &self.provider_router {
+            router
+                .record_channel_latency(
+                    ch.channel_id,
+                    observation.latency_ms,
+                    observation.outcome == "success",
+                    "health_probe",
+                )
+                .await;
         }
         tracing::debug!(
             channel = %ch.code,

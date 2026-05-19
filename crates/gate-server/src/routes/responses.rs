@@ -230,11 +230,14 @@ async fn create_response_non_stream(
                 StageOutcome::Ok,
                 start.elapsed().as_secs_f64(),
             );
-            if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
-                let ch_id = ChannelId::from(ch_uuid);
-                m.record(ch_id, true);
-                m.record_latency(ch_id, start.elapsed().as_millis() as u64);
-            }
+            chat::record_channel_success_observation(
+                &app,
+                channel_id,
+                &routed_metrics,
+                start.elapsed().as_millis() as u64,
+                "request",
+            )
+            .await;
             chat::report_channel_success(&app, routed_key_id).await;
             resp
         }
@@ -314,9 +317,14 @@ async fn create_response_stream(
         }
     };
 
-    if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
-        m.record(ChannelId::from(ch_uuid), true);
-    }
+    chat::record_channel_success_observation(
+        &app,
+        channel_id,
+        &routed_metrics,
+        execute_start.elapsed().as_millis() as u64,
+        "request",
+    )
+    .await;
     chat::report_channel_success(&app, routed_key_id).await;
 
     let app_for_tail = app.clone();

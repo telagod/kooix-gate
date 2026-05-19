@@ -101,10 +101,12 @@ async fn main() -> anyhow::Result<()> {
     {
         let channel_repo = state.repos.channels.clone();
         let group_repo = state.repos.channel_groups.clone();
+        let latency_repo = state.repos.channel_latency.clone();
         let key_repo = state.repos.channel_keys.clone();
         let alias_repo = state.repos.model_aliases.clone();
 
         let mut router = gate_providers::ProviderRouter::new(channel_repo, group_repo)
+            .with_channel_latency_repo(latency_repo)
             .with_channel_key_repo(key_repo)
             .with_model_alias_repo(alias_repo);
 

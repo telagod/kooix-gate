@@ -167,6 +167,7 @@ fn build_fixture() -> Fixture {
         api_keys: Arc::new(InMemoryApiKeyRepo::new()),
         channels: channels_repo,
         channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(InMemoryUserIdentityRepo::new()),

@@ -25,6 +25,23 @@ histogram_quantile(0.95, sum(rate(provider_health_probe_duration_seconds_bucket[
 - `status_bucket=5xx|network` 持续升高：上游不可用或网络异常，连续失败达到阈值会进入 auto-disable。
 - compile-time provider 使用默认低成本 probe model；channel `supported_models[0]` 会覆盖默认模型，plugin channel 使用 manifest `probe.model` / `max_cost_micros`。
 
+## `least_latency` persistent window
+
+`least_latency` 路由先读 `channel_latency_samples` 的近窗口成功样本均值；若查询失败或无样本，则 fail-open 回退 `ProviderRouter` 内存 `ChannelMetrics`。
+
+```sql
+SELECT channel_id, FLOOR(AVG(latency_ms))::BIGINT AS avg_latency_ms
+FROM channel_latency_samples
+WHERE ts >= NOW() - INTERVAL '5 minutes'
+  AND success = TRUE
+GROUP BY channel_id
+ORDER BY avg_latency_ms ASC;
+```
+
+- `source` 只允许 `request` / `health_probe`，避免高基数污染。
+- health probe 指标用于 Prometheus 趋势告警；DB 滑窗用于路由决策，不依赖外部 Prometheus query。
+- 若表体积增长，先按保留期跑 `ChannelLatencyRepo::prune_older_than`，再考虑分区。
+
 ## Billing / usage settlement
 
 ```promql

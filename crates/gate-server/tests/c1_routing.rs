@@ -92,6 +92,7 @@ fn repos_with_channels(
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: key_repo,
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
@@ -308,6 +309,7 @@ async fn full_chain_api_key_to_upstream() {
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
@@ -451,6 +453,7 @@ async fn full_chain_rewrites_model_from_alias_and_channel_mapping() {
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
@@ -612,6 +615,7 @@ async fn plugin_manifest_channel_model_mapping_rewrites_deployment_path() {
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
@@ -753,6 +757,7 @@ async fn full_chain_plugin_channel_normalizes_private_sse() {
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
@@ -1119,16 +1124,16 @@ async fn health_checker_standard_probe_records_latency_for_least_latency() {
     .await
     .unwrap();
 
-    let router = Arc::new(ProviderRouter::new(
-        Arc::new(gate_storage::PgChannelRepo::new(pool.clone())),
-        Arc::new(gate_storage::PgChannelGroupRepo::new(pool.clone())),
-    ));
-    let state = AppState::new(
-        test_jwt(),
-        Arc::new(InMemoryLoader::new()),
-        Repos::from_pg(pool.clone()),
-    )
-    .with_provider_router_arc(router.clone());
+    let repos = Repos::from_pg(pool.clone());
+    let router = Arc::new(
+        ProviderRouter::new(
+            Arc::new(gate_storage::PgChannelRepo::new(pool.clone())),
+            Arc::new(gate_storage::PgChannelGroupRepo::new(pool.clone())),
+        )
+        .with_channel_latency_repo(repos.channel_latency.clone()),
+    );
+    let state = AppState::new(test_jwt(), Arc::new(InMemoryLoader::new()), repos)
+        .with_provider_router_arc(router.clone());
 
     let checker = HealthChecker::new(&state, std::time::Duration::from_millis(10)).unwrap();
     let shutdown = CancellationToken::new();
@@ -1141,6 +1146,16 @@ async fn health_checker_standard_probe_records_latency_for_least_latency() {
     assert_eq!(ch.supported_models, vec!["gpt-4o-mini".to_string()]);
     let metrics = router.channel_metrics().unwrap();
     assert_ne!(metrics.avg_latency(channel_id), u64::MAX);
+    let latency = state
+        .repos
+        .channel_latency
+        .avg_latency_ms(&[channel_id], 300)
+        .await
+        .unwrap();
+    assert!(
+        latency.contains_key(&channel_id),
+        "health probe should persist latency sample"
+    );
 }
 
 #[tokio::test]

@@ -427,7 +427,7 @@ cargo test -p gate-providers --all-targets
   - [x] 每 provider 默认 probe model。
   - [x] probe 成本上限。
   - [x] 成功率 / 延迟 / 错误码分桶。
-- [ ] least_latency 从内存指标升级为持久化滑窗或 Prometheus query。
+- [x] least_latency 从内存指标升级为持久化滑窗或 Prometheus query。
 - [ ] fallback 策略可视化：
   - group chain 图
   - 循环检测

@@ -196,6 +196,7 @@ async fn fixture() -> Fixture {
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,
+        channel_latency: Arc::new(gate_storage::InMemoryChannelLatencyRepo::new()),
         channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
         identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
         user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
