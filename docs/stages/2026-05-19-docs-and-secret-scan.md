@@ -187,3 +187,33 @@ cargo test -p gate-server --test channel_plugin_e2e plugin_manifest_builder_flow
 npm --prefix web test -- plugin-presets
 npm --prefix web run check
 ```
+
+## P1.3 `/v1/models` capability aggregation
+
+本轮把 P1.3 第一项从路线项落成 data-plane API 行为：
+
+- `GET /v1/models` 从所有 `active + healthy` channel 的 `supported_models` 聚合模型，disabled / unhealthy channel 不再出现在对外模型列表。
+- 每个 `ModelInfo` 新增可选 `capabilities` 字段，shape 复用 `ProviderCapabilities`：`chat`、`streaming`、`tools`、`embeddings`、`image`、`audio`、`vision`、`json_mode`、`batch`。
+- 同一模型由多个 channel 承载时，capability 以 truthy OR union 聚合，代表当前至少有一条健康运行链可提供该能力。
+- Plugin channel capability 以 `model_mapping.plugin` manifest v1 解析结果为准；manifest 无效时回退 provider 默认 capability，保持旧渠道兼容。
+- 前端 `ModelInfo` 类型同步加入 `capabilities?: ProviderCapabilities`，避免 OpenAI-compatible model list 扩展字段造成 TS 漂移。
+
+验证命令：
+
+```bash
+cargo test -p gate-server --test perf_smoke models_endpoint_aggregates_healthy_channel_capabilities -- --nocapture
+cargo test -p gate-server --test perf_smoke -- --nocapture
+```
+
+### Side fix: quota inflight insert/settle race
+
+全量 `cargo test --workspace` 暴露 `request_id_is_shared_by_quota_inflight_and_billing_outbox` 偶发失败：`quota_enforce` 把 `inflight_requests` insert 放进后台 task，短请求可能先完成 handler settle/delete，随后后台 insert 才落库，导致同一 `x-request-id` 残留一条 inflight 记录。
+
+修复：`quota_enforce` 在把 `InflightGuards` 交给 handler 前同步 best-effort insert；DB 写失败仍 fail-open 继续请求，但不再允许 insert/delete 生命周期乱序。
+
+验证命令：
+
+```bash
+cargo test -p gate-server --test quota_predebit -- --nocapture
+cargo test --workspace
+```

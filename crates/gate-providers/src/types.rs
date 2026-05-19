@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::capabilities::ProviderCapabilities;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
@@ -320,6 +322,8 @@ pub struct ModelInfo {
     pub object: String,
     pub created: i64,
     pub owned_by: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ProviderCapabilities>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

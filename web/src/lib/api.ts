@@ -914,6 +914,7 @@ export interface ModelInfo {
 	object: string;
 	created: number;
 	owned_by: string;
+	capabilities?: ProviderCapabilities;
 }
 
 export async function listModels(): Promise<ModelInfo[]> {

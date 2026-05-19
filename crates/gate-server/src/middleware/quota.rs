@@ -330,13 +330,9 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
             quota_keys: quota_keys.clone(),
             estimated_micros: est_micros.clone(),
         };
-        // Best-effort write: don't block request on DB failure
-        let repo_for_insert = inflight_repo.clone();
-        tokio::spawn(async move {
-            if let Err(e) = repo_for_insert.insert(&record).await {
-                tracing::warn!(error = %e, "inflight insert failed (crash recovery degraded)");
-            }
-        });
+        if let Err(e) = inflight_repo.insert(&record).await {
+            tracing::warn!(error = %e, "inflight insert failed (crash recovery degraded)");
+        }
 
         // Attach DB cleanup to guards
         let guards: Vec<_> = guards

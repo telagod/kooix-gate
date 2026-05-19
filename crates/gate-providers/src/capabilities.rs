@@ -83,6 +83,14 @@ impl ProviderCapabilities {
         self.batch |= defaults.batch;
     }
 
+    /// Merge another capability set by OR-ing truthy fields.
+    ///
+    /// Used when one public model is served by multiple channels and the API
+    /// needs to expose the union of currently available runtime capabilities.
+    pub fn merge_truthy(&mut self, other: &Self) {
+        self.merge_truthy_defaults(other);
+    }
+
     pub fn missing_for_chat_request(
         &self,
         req: &crate::types::ChatRequest,
