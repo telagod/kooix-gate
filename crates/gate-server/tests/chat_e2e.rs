@@ -4,7 +4,7 @@
 //! - 鉴权：未携带 auth → 401
 //! - 非流式：handler → provider → wiremock → handler 返回完整 JSON
 //! - 流式：handler 转发 SSE chunks，客户端拿到累计的 content
-//! - 上游 401 → 502 + upstream_auth_failed code
+//! - 上游 401 → 502 + normalized authentication_error code
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -319,7 +319,44 @@ async fn chat_completions_upstream_auth_failure_maps_to_502() {
     assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(body["error"]["code"], "upstream_auth_failed");
+    assert_eq!(body["error"]["code"], "authentication_error");
+    assert_eq!(body["error"]["type"], "authentication_error");
+    assert_eq!(body["error"]["message"], "upstream auth failed");
+    assert_eq!(body["error"]["upstream_status"], 401);
+}
+
+#[tokio::test]
+async fn chat_completions_upstream_404_maps_to_model_not_found() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json!({"error": {"message": "model gone"}})),
+        )
+        .mount(&upstream)
+        .await;
+
+    let (router, tok) = setup(&upstream).await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {tok}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "missing-model",
+                "messages": [{"role": "user", "content": "x"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "model_not_found");
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+    assert_eq!(body["error"]["upstream_status"], 404);
 }
 
 #[tokio::test]

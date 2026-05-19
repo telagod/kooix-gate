@@ -9,7 +9,7 @@
 
 use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::InflightGuards;
 use crate::middleware::KooixRequestId;
@@ -338,9 +338,10 @@ async fn resolve_audio_provider(
         return Ok((provider.clone(), None, None, None));
     }
 
-    Err(AppError::BadRequest(format!(
-        "no audio channel found for model '{model}'"
-    )))
+    Err(AppError::NoRoute {
+        capability: "audio",
+        model: model.to_string(),
+    })
 }
 
 fn release_audio_channel(app: &AppState, channel_id: Option<Uuid>) {
@@ -365,7 +366,7 @@ async fn report_audio_key_failure(
     key_id: Option<ChannelKeyId>,
     error: &ProviderError,
 ) {
-    let failure = audio_failure_policy(error);
+    let failure = provider_failure_policy(error);
     if let Some(key_id) = key_id
         && let Err(e) = app
             .repos
@@ -381,63 +382,6 @@ async fn report_audio_key_failure(
         tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "audio channel key failure report failed");
     }
     crate::metrics::record_upstream_error(failure.kind_label);
-}
-
-struct AudioFailurePolicy {
-    kind_label: &'static str,
-    error_code: Option<i32>,
-    cooldown_secs: i64,
-    circuit_breaker_failures: u32,
-}
-
-fn audio_failure_policy(error: &ProviderError) -> AudioFailurePolicy {
-    let (kind_label, error_code, cooldown_ms, circuit_breaker_failures) = match error {
-        ProviderError::Auth(_) => ("authentication_error", Some(401), None, None),
-        ProviderError::RateLimited { retry_after_ms } => {
-            ("rate_limit_error", Some(429), *retry_after_ms, None)
-        }
-        ProviderError::InvalidRequest(_) => ("invalid_request_error", Some(400), None, None),
-        ProviderError::Policy(_) => ("policy_error", Some(403), None, None),
-        ProviderError::Upstream { status, .. } => (
-            "upstream_error",
-            Some((*status).into()),
-            status.ge(&500).then_some(60_000),
-            None,
-        ),
-        ProviderError::Mapped {
-            status, metadata, ..
-        } => {
-            let label = match metadata.kind {
-                gate_providers::error::NormalizedProviderErrorKind::Authentication => {
-                    "authentication_error"
-                }
-                gate_providers::error::NormalizedProviderErrorKind::RateLimit => "rate_limit_error",
-                gate_providers::error::NormalizedProviderErrorKind::InvalidRequest => {
-                    "invalid_request_error"
-                }
-                gate_providers::error::NormalizedProviderErrorKind::Policy => "policy_error",
-                gate_providers::error::NormalizedProviderErrorKind::Upstream => "upstream_error",
-            };
-            (
-                label,
-                status.map(i32::from),
-                metadata.cooldown_ms.or(metadata.retry_after_ms),
-                metadata.circuit_breaker_failures,
-            )
-        }
-        ProviderError::Network(_) => ("network_error", None, Some(60_000), None),
-        ProviderError::Decode(_) => ("decode_error", None, None, None),
-        ProviderError::Config(_) => ("config_error", None, None, None),
-    };
-
-    AudioFailurePolicy {
-        kind_label,
-        error_code,
-        cooldown_secs: cooldown_ms
-            .map(|ms| ms.div_ceil(1000).max(1) as i64)
-            .unwrap_or(300),
-        circuit_breaker_failures: circuit_breaker_failures.unwrap_or(3).max(1),
-    }
 }
 
 async fn extract_project_id(

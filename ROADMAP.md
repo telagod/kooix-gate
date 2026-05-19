@@ -404,12 +404,12 @@ cd web && npm test -- plugin-presets
   - [x] 已按 OpenAI 新 API 做 thin adapter 到 chat。
   - [x] 保持轻量：支持 string / item-array input、instructions、stream、tools、tool_choice、max_output_tokens。
   - [x] 不复刻完整 tool/state machine。
-- [ ] 统一 error shape：
-  - upstream auth
-  - rate limit
-  - quota exceeded
-  - model not found
-  - no healthy channel
+- [x] 统一 error shape：
+  - [x] upstream auth → `authentication_error`。
+  - [x] rate limit → `rate_limit_error` + `Retry-After` / `retry_after_ms`。
+  - [x] quota exceeded → `quota_exceeded` / `quota_error`。
+  - [x] model not found → `model_not_found`。
+  - [x] no healthy channel → `no_healthy_channel`。
 
 **验收门禁**
 

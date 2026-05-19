@@ -238,6 +238,11 @@ pub(crate) fn check_status(resp: &reqwest::Response) -> ProviderResult<()> {
             retry_after_ms: retry,
         });
     }
+    if code == 404 {
+        return Err(ProviderError::ModelNotFound(format!(
+            "upstream returned {code}"
+        )));
+    }
     Ok(())
 }
 

@@ -544,7 +544,7 @@ async fn plugin_error_mapper_normalizes_model_not_found_and_policy_block() {
         missing,
         ProviderError::Mapped {
             metadata: gate_providers::error::ProviderErrorMetadata {
-                kind: gate_providers::error::NormalizedProviderErrorKind::InvalidRequest,
+                kind: gate_providers::error::NormalizedProviderErrorKind::ModelNotFound,
                 ..
             },
             ..

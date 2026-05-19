@@ -25,6 +25,31 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.3 data-plane error shape unification
+
+本轮把 P1.3 最后一项 error shape 收口为同一响应骨架：
+
+- 统一响应体：`{ "error": { "code": "...", "type": "...", "message": "...", ... } }`；保留旧测试依赖的 `code`，新增 OpenAI-compatible `type`。
+- 上游 auth：`authentication_error`，对客户端返回 502，避免暴露真实 provider key 细节。
+- 上游 rate limit：`rate_limit_error`，保留 `retry_after_ms` 并写 `Retry-After` header。
+- quota middleware：`quota_exceeded` + `type="quota_error"`，仍返回 429，并保留 `dimension` / `retry_after_ms`。
+- model missing：OpenAI-compatible / Anthropic / Bedrock / HTTP Plugin mapper 均归一为 `model_not_found`。
+- no healthy route：`route_chat_required` 在有 project routing 但无健康/兼容 channel 时返回 normalized `no_healthy_channel`，不再静默 fallback 到全局 provider。
+- channel key failure policy 从 chat / embeddings / images / audio 分散实现收束到 `provider_failure_policy`，channel cooldown、circuit breaker、metrics label 共用一套分类。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo test -p gate-server --test chat_e2e
+cargo test -p gate-server --test c1_routing route_chat_no_healthy_channel_returns_normalized_error -- --nocapture
+cargo test -p gate-server --test quota_enforce rpm_quota_blocks_after_limit -- --nocapture
+cargo test -p gate-server --test rate_limit_mw user_hits_429_after_quota_exhausted -- --nocapture
+cargo test -p gate-providers --test custom_provider plugin_error_mapper_normalizes_model_not_found_and_policy_block -- --nocapture
+cargo test -p gate-providers --all-targets
+cargo clippy --all-targets -- -D warnings
+```
+
 ## P1.3 `/v1/responses` thin adapter
 
 本轮按 ROADMAP 的“先做 thin adapter 到 chat，不复刻完整 tool/state machine”收口 `/v1/responses`：

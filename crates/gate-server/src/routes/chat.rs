@@ -27,7 +27,7 @@
 use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::cost_estimate::{DEFAULT_RATE_PER_TOKEN_MICROS, estimate_cost_micros};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::InflightGuards;
 use crate::middleware::KooixRequestId;
@@ -383,8 +383,9 @@ pub(crate) fn metered_tokens(usage: &Usage) -> u32 {
 ///
 /// 返回顺序：
 /// 1. ProviderRouter 选到 → 返回 `(Provider, Some(channel_id))`
-/// 2. ProviderRouter 找不到（返回 None） → fallback 到 AppState.provider，channel_id=None
-/// 3. 均无 → 400
+/// 2. User 主体无 `X-Kooix-Project` → fallback 到 AppState.provider，channel_id=None
+/// 3. 有 project 但找不到可用 channel → normalized provider error
+/// 4. 均无 → 400
 pub(crate) async fn resolve_provider(
     app: &AppState,
     ctx: &gate_auth::AuthContext,
@@ -405,8 +406,8 @@ pub(crate) async fn resolve_provider(
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
 
         if let Some(project_id) = project_id_opt {
-            match router.route_chat(project_id, req).await {
-                Ok(Some(routed)) => {
+            match router.route_chat_required(project_id, req).await {
+                Ok(routed) => {
                     let provider_type = routed.provider_type.clone();
                     let metrics = routed.metrics.clone();
                     let resolved_model = routed.resolved_model.clone();
@@ -427,26 +428,15 @@ pub(crate) async fn resolve_provider(
                         Some(resolved_model),
                     ));
                 }
-                Ok(None) => {
-                    crate::metrics::record_provider_route_decision(
-                        "fallback",
-                        "none",
-                        router.snapshot_version(),
-                        None,
-                    );
-                    tracing::debug!(
-                        project_id = %project_id,
-                        "provider_router returned None, trying fallback provider"
-                    );
-                }
                 Err(e) => {
                     crate::metrics::record_provider_route_decision(
-                        "fallback",
+                        "provider_router",
                         "error",
                         router.snapshot_version(),
                         None,
                     );
-                    tracing::warn!(error = %e, "provider_router error, falling back");
+                    tracing::warn!(error = %e, "provider_router error");
+                    return Err(AppError::Provider(e));
                 }
             }
         }
@@ -517,88 +507,6 @@ pub(crate) async fn report_channel_failure(
         }
     }
     crate::metrics::record_upstream_error(failure.kind_label);
-}
-
-struct ProviderFailurePolicy {
-    kind_label: &'static str,
-    reason: String,
-    error_code: Option<i32>,
-    cooldown_secs: i64,
-    circuit_breaker_failures: u32,
-}
-
-fn provider_failure_policy(error: &ProviderError) -> ProviderFailurePolicy {
-    let (kind_label, reason, error_code, cooldown_ms, circuit_breaker_failures) = match error {
-        ProviderError::Auth(message) => (
-            "authentication_error",
-            message.clone(),
-            Some(401),
-            None,
-            None,
-        ),
-        ProviderError::RateLimited { retry_after_ms } => (
-            "rate_limit_error",
-            error.to_string(),
-            Some(429),
-            *retry_after_ms,
-            None,
-        ),
-        ProviderError::InvalidRequest(message) => (
-            "invalid_request_error",
-            message.clone(),
-            Some(400),
-            None,
-            None,
-        ),
-        ProviderError::Policy(message) => ("policy_error", message.clone(), Some(403), None, None),
-        ProviderError::Upstream { status, body } => (
-            "upstream_error",
-            body.clone(),
-            Some((*status).into()),
-            status.ge(&500).then_some(60_000),
-            None,
-        ),
-        ProviderError::Mapped {
-            status,
-            message,
-            metadata,
-            ..
-        } => {
-            let label = match metadata.kind {
-                gate_providers::error::NormalizedProviderErrorKind::Authentication => {
-                    "authentication_error"
-                }
-                gate_providers::error::NormalizedProviderErrorKind::RateLimit => "rate_limit_error",
-                gate_providers::error::NormalizedProviderErrorKind::InvalidRequest => {
-                    "invalid_request_error"
-                }
-                gate_providers::error::NormalizedProviderErrorKind::Policy => "policy_error",
-                gate_providers::error::NormalizedProviderErrorKind::Upstream => "upstream_error",
-            };
-            (
-                label,
-                message.clone(),
-                status.map(i32::from),
-                metadata.cooldown_ms.or(metadata.retry_after_ms),
-                metadata.circuit_breaker_failures,
-            )
-        }
-        ProviderError::Network(message) => {
-            ("network_error", message.clone(), None, Some(60_000), None)
-        }
-        ProviderError::Decode(message) => ("decode_error", message.clone(), None, None, None),
-        ProviderError::Config(message) => ("config_error", message.clone(), None, None, None),
-    };
-
-    ProviderFailurePolicy {
-        kind_label,
-        reason: format!("{kind_label}: {reason}"),
-        error_code,
-        cooldown_secs: cooldown_ms
-            .map(|ms| ms.div_ceil(1000).max(1) as i64)
-            .unwrap_or(300),
-        circuit_breaker_failures: circuit_breaker_failures.unwrap_or(3).max(1),
-    }
 }
 
 /// 从 AuthContext + headers 提取 project_id（带越权校验）。

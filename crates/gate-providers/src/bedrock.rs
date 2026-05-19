@@ -210,7 +210,23 @@ impl Provider for BedrockProvider {
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            return Err(ProviderError::Upstream { status, body });
+            return Err(match status {
+                401 | 403 => ProviderError::Auth(format!("upstream returned {status}")),
+                404 => ProviderError::ModelNotFound(if body.trim().is_empty() {
+                    format!("upstream returned {status}")
+                } else {
+                    body
+                }),
+                429 => ProviderError::RateLimited {
+                    retry_after_ms: None,
+                },
+                400..=499 => ProviderError::InvalidRequest(if body.trim().is_empty() {
+                    format!("upstream returned {status}")
+                } else {
+                    body
+                }),
+                _ => ProviderError::Upstream { status, body },
+            });
         }
 
         let parsed: ConverseResponse = resp.json().await?;

@@ -930,7 +930,7 @@ impl CustomHttpProvider {
                 ],
             )
         {
-            return NormalizedProviderErrorKind::InvalidRequest;
+            return NormalizedProviderErrorKind::ModelNotFound;
         }
         if code.is_some_and(|code| {
             self.manifest

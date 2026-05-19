@@ -423,7 +423,7 @@ Path 规则：
 
 - auth / invalid key → `authentication_error`。
 - rate limit → `rate_limit_error`，保留 `Retry-After` 秒数为毫秒级 retry-after。
-- model missing / invalid model → `invalid_request_error`。
+- model missing / invalid model → `model_not_found`（`type="invalid_request_error"`）。
 - vendor safety / policy block → `policy_error`。
 - unknown 5xx / 显式 retryable status/code → retryable upstream error。
 

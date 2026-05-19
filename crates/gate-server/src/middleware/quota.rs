@@ -353,6 +353,7 @@ struct ErrBody<'a> {
 #[derive(serde::Serialize)]
 struct ErrDetail<'a> {
     code: &'a str,
+    r#type: &'a str,
     message: String,
     dimension: &'a str,
     retry_after_ms: u64,
@@ -363,6 +364,7 @@ fn quota_exceeded_response(dimension: &str, retry_after_ms: u64) -> impl IntoRes
     let body = Json(ErrBody {
         error: ErrDetail {
             code: "quota_exceeded",
+            r#type: "quota_error",
             message: format!("quota '{dimension}' exhausted"),
             dimension,
             retry_after_ms,

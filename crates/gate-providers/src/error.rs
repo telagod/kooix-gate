@@ -11,6 +11,7 @@ use thiserror::Error;
 pub enum NormalizedProviderErrorKind {
     Authentication,
     RateLimit,
+    ModelNotFound,
     InvalidRequest,
     Policy,
     Upstream,
@@ -39,6 +40,9 @@ pub enum ProviderError {
     #[error("upstream invalid request: {0}")]
     InvalidRequest(String),
 
+    #[error("upstream model not found: {0}")]
+    ModelNotFound(String),
+
     #[error("upstream policy blocked: {0}")]
     Policy(String),
 
@@ -62,6 +66,21 @@ pub enum ProviderError {
 
 impl From<reqwest::Error> for ProviderError {
     fn from(e: reqwest::Error) -> Self {
+        if let Some(status) = e.status() {
+            let code = status.as_u16();
+            return match code {
+                401 | 403 => Self::Auth(format!("upstream returned {code}")),
+                404 => Self::ModelNotFound(format!("upstream returned {code}")),
+                429 => Self::RateLimited {
+                    retry_after_ms: None,
+                },
+                400..=499 => Self::InvalidRequest(format!("upstream returned {code}")),
+                _ => Self::Upstream {
+                    status: code,
+                    body: format!("upstream returned {code}"),
+                },
+            };
+        }
         if e.is_timeout() || e.is_connect() {
             Self::Network(e.to_string())
         } else if e.is_decode() {

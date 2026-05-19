@@ -1204,3 +1204,79 @@ async fn route_chat_skips_channel_missing_requested_capability() {
         "fallback selected"
     );
 }
+
+#[tokio::test]
+async fn route_chat_no_healthy_channel_returns_normalized_error() {
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    let api_key_id = ApiKeyId::new();
+    let group_id = ChannelGroupId::new();
+    let disabled_id = ChannelId::new();
+
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let key_repo = Arc::new(InMemoryChannelKeyRepo::new());
+
+    let mut disabled = make_channel(disabled_id, "dead-openai", "https://placeholder.invalid/v1");
+    disabled.status = "disabled".to_string();
+    disabled.health = "unhealthy".to_string();
+    ch_repo.seed_channel(disabled);
+    ch_repo.seed_binding(group_id, disabled_id, 1, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "dead-group".to_string(),
+        description: String::new(),
+        strategy: "priority".to_string(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let plaintext = "sk-kg-test-no-healthy-channel-key-000000";
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        plaintext,
+        gate_server::loader::ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let repos = repos_with_channels(ch_repo.clone(), grp_repo.clone(), key_repo);
+    let state = AppState::new(test_jwt(), loader, repos)
+        .with_provider_router(ProviderRouter::new(ch_repo, grp_repo));
+    let router = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {plaintext}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "x"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "no_healthy_channel");
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+    assert_eq!(body["error"]["upstream_code"], "no_healthy_channel");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no healthy chat channel found")
+    );
+}

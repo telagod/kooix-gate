@@ -10,7 +10,7 @@
 
 use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::InflightGuards;
 use crate::middleware::KooixRequestId;
@@ -196,10 +196,10 @@ async fn resolve_embedding_provider(
     // gate-providers 的 OpenAiProvider 等同时实现 Provider + EmbeddingProvider，
     // 但 AppState.provider 字段类型是 Arc<dyn Provider>，无法直接转型。
     // 因此 embedding 暂不走全局 provider fallback；没有匹配 channel 就返回清晰错误。
-    Err(AppError::BadRequest(format!(
-        "no embedding channel found for model '{}'",
-        req.model
-    )))
+    Err(AppError::NoRoute {
+        capability: "embedding",
+        model: req.model.clone(),
+    })
 }
 
 async fn report_embedding_key_success(app: &AppState, key_id: Option<ChannelKeyId>) {
@@ -216,7 +216,7 @@ async fn report_embedding_key_failure(
     key_id: Option<ChannelKeyId>,
     error: &ProviderError,
 ) {
-    let failure = embedding_failure_policy(error);
+    let failure = provider_failure_policy(error);
     if let Some(key_id) = key_id
         && let Err(e) = app
             .repos
@@ -232,63 +232,6 @@ async fn report_embedding_key_failure(
         tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "embedding channel key failure report failed");
     }
     crate::metrics::record_upstream_error(failure.kind_label);
-}
-
-struct EmbeddingFailurePolicy {
-    kind_label: &'static str,
-    error_code: Option<i32>,
-    cooldown_secs: i64,
-    circuit_breaker_failures: u32,
-}
-
-fn embedding_failure_policy(error: &ProviderError) -> EmbeddingFailurePolicy {
-    let (kind_label, error_code, cooldown_ms, circuit_breaker_failures) = match error {
-        ProviderError::Auth(_) => ("authentication_error", Some(401), None, None),
-        ProviderError::RateLimited { retry_after_ms } => {
-            ("rate_limit_error", Some(429), *retry_after_ms, None)
-        }
-        ProviderError::InvalidRequest(_) => ("invalid_request_error", Some(400), None, None),
-        ProviderError::Policy(_) => ("policy_error", Some(403), None, None),
-        ProviderError::Upstream { status, .. } => (
-            "upstream_error",
-            Some((*status).into()),
-            status.ge(&500).then_some(60_000),
-            None,
-        ),
-        ProviderError::Mapped {
-            status, metadata, ..
-        } => {
-            let label = match metadata.kind {
-                gate_providers::error::NormalizedProviderErrorKind::Authentication => {
-                    "authentication_error"
-                }
-                gate_providers::error::NormalizedProviderErrorKind::RateLimit => "rate_limit_error",
-                gate_providers::error::NormalizedProviderErrorKind::InvalidRequest => {
-                    "invalid_request_error"
-                }
-                gate_providers::error::NormalizedProviderErrorKind::Policy => "policy_error",
-                gate_providers::error::NormalizedProviderErrorKind::Upstream => "upstream_error",
-            };
-            (
-                label,
-                status.map(i32::from),
-                metadata.cooldown_ms.or(metadata.retry_after_ms),
-                metadata.circuit_breaker_failures,
-            )
-        }
-        ProviderError::Network(_) => ("network_error", None, Some(60_000), None),
-        ProviderError::Decode(_) => ("decode_error", None, None, None),
-        ProviderError::Config(_) => ("config_error", None, None, None),
-    };
-
-    EmbeddingFailurePolicy {
-        kind_label,
-        error_code,
-        cooldown_secs: cooldown_ms
-            .map(|ms| ms.div_ceil(1000).max(1) as i64)
-            .unwrap_or(300),
-        circuit_breaker_failures: circuit_breaker_failures.unwrap_or(3).max(1),
-    }
 }
 
 /// 从 AuthContext + headers 提取 project_id（与 chat.rs 完全相同的越权校验逻辑）。

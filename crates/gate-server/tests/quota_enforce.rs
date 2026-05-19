@@ -310,6 +310,7 @@ async fn rpm_quota_blocks_after_limit() {
     assert_eq!(allowed, 5, "first 5 should pass");
     assert_eq!(denied, 1, "6th should 429");
     assert_eq!(last_body["error"]["code"], "quota_exceeded");
+    assert_eq!(last_body["error"]["type"], "quota_error");
     assert_eq!(last_body["error"]["dimension"], "rpm");
     assert!(last_body["error"]["retry_after_ms"].as_u64().unwrap() > 0);
 }

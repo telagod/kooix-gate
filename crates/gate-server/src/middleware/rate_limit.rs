@@ -2,7 +2,7 @@
 //!
 //! 设计要点：
 //! - Subject 识别优先级：ApiKeyId > UserId > client_ip（未知主体）
-//! - 超限返回 429，body `{error:{code:"rate_limited", retry_after_ms}}`
+//! - 超限返回 429，body `{error:{code,type,message,retry_after_ms}}`
 //! - 限流不 panic：RateLimiter 失败 (Redis 宕) 时 fail-open，只 warn
 //!   - 宁可放行也不阻断全站；后续可在 Config 里加开关切 fail-closed
 
@@ -92,6 +92,7 @@ struct ErrBody<'a> {
 #[derive(serde::Serialize)]
 struct ErrDetail<'a> {
     code: &'a str,
+    r#type: &'a str,
     message: &'a str,
     retry_after_ms: u64,
 }
@@ -101,6 +102,7 @@ fn rate_limited_response(retry_after_ms: u64) -> impl IntoResponse {
     let body = Json(ErrBody {
         error: ErrDetail {
             code: "rate_limited",
+            r#type: "rate_limit_error",
             message: "too many requests",
             retry_after_ms,
         },

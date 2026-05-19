@@ -93,6 +93,7 @@ async fn user_hits_429_after_quota_exhausted() {
             let bytes = resp.into_body().collect().await.unwrap().to_bytes();
             let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(body["error"]["code"], "rate_limited");
+            assert_eq!(body["error"]["type"], "rate_limit_error");
         }
     }
     assert_eq!(allowed, 3, "first 3 should pass");

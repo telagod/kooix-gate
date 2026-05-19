@@ -22,10 +22,13 @@ use crate::Provider;
 use crate::anthropic::AnthropicProvider;
 use crate::azure::AzureProvider;
 use crate::bedrock::BedrockProvider;
+use crate::capabilities::ProviderCapability;
 use crate::cohere::CohereProvider;
 use crate::custom_provider::CustomHttpProvider;
 use crate::deepseek::DeepSeekProvider;
-use crate::error::{ProviderError, ProviderResult};
+use crate::error::{
+    NormalizedProviderErrorKind, ProviderError, ProviderErrorMetadata, ProviderResult,
+};
 use crate::gemini::GeminiProvider;
 use crate::mistral::MistralProvider;
 use crate::ollama::OllamaProvider;
@@ -60,6 +63,82 @@ pub struct RouteSkipTrace {
     pub channel_id: ChannelId,
     pub channel_code: String,
     pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouteMissReason {
+    NoDefaultGroup,
+    NoHealthyChannels,
+    ModelUnsupported,
+    MissingCapability,
+    NoActiveSecret,
+    RateLimited,
+    FallbackExhausted,
+}
+
+impl RouteMissReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            RouteMissReason::NoDefaultGroup => "no_default_group",
+            RouteMissReason::NoHealthyChannels => "no_healthy_channels",
+            RouteMissReason::ModelUnsupported => "model_unsupported",
+            RouteMissReason::MissingCapability => "missing_capability",
+            RouteMissReason::NoActiveSecret => "no_active_secret",
+            RouteMissReason::RateLimited => "rate_limited",
+            RouteMissReason::FallbackExhausted => "fallback_exhausted",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RouteMiss {
+    reason: RouteMissReason,
+    message: String,
+    capability: Option<ProviderCapability>,
+    selected_model: String,
+    trace: RouteDecisionTrace,
+}
+
+impl RouteMiss {
+    fn provider_error(self) -> ProviderError {
+        let _ = (&self.capability, &self.selected_model, &self.trace);
+        let metadata = ProviderErrorMetadata {
+            kind: match self.reason {
+                RouteMissReason::RateLimited => NormalizedProviderErrorKind::RateLimit,
+                _ => NormalizedProviderErrorKind::ModelNotFound,
+            },
+            retryable: false,
+            cooldown_ms: None,
+            circuit_breaker_failures: None,
+            retry_after_ms: None,
+        };
+        let status = match self.reason {
+            RouteMissReason::RateLimited => Some(429),
+            _ => Some(404),
+        };
+        let code = match self.reason {
+            RouteMissReason::NoHealthyChannels => "no_healthy_channel",
+            other => other.as_str(),
+        };
+        ProviderError::Mapped {
+            status,
+            code: Some(code.to_string()),
+            message: self.message,
+            metadata,
+        }
+    }
+}
+
+enum RouteAttempt<T> {
+    Routed(T),
+    Miss(Box<RouteMiss>),
+}
+
+fn route_not_found_message(kind: &str, model: &str, reason: RouteMissReason) -> String {
+    format!(
+        "no healthy {kind} channel found for model '{model}' ({})",
+        reason.as_str()
+    )
 }
 
 /// Provider 路由决策轨迹。
@@ -1024,6 +1103,21 @@ impl ProviderRouter {
             .await
     }
 
+    /// 严格路由：找不到可用 channel 时返回 normalized provider error，而不是 None。
+    pub async fn route_chat_required(
+        &self,
+        project_id: ProjectId,
+        req: &crate::types::ChatRequest,
+    ) -> ProviderResult<RoutedProvider> {
+        match self
+            .route_with_request_outcome(project_id, &req.model, Some(req))
+            .await?
+        {
+            Ok(routed) => Ok(routed),
+            Err(miss) => Err(miss.provider_error()),
+        }
+    }
+
     /// 根据完整 chat request 选 Provider，并按 channel capability 做细粒度过滤。
     pub async fn route_chat(
         &self,
@@ -1040,6 +1134,18 @@ impl ProviderRouter {
         requested_model: &str,
         req: Option<&crate::types::ChatRequest>,
     ) -> ProviderResult<Option<RoutedProvider>> {
+        Ok(self
+            .route_with_request_outcome(project_id, requested_model, req)
+            .await?
+            .ok())
+    }
+
+    async fn route_with_request_outcome(
+        &self,
+        project_id: ProjectId,
+        requested_model: &str,
+        req: Option<&crate::types::ChatRequest>,
+    ) -> ProviderResult<Result<RoutedProvider, Box<RouteMiss>>> {
         // Step 0: alias 解析
         let alias_result = self.resolve_alias(project_id, requested_model).await?;
         let (model, params_override) = match &alias_result {
@@ -1054,16 +1160,20 @@ impl ProviderRouter {
         );
 
         // Step 1: 尝试主模型路由
-        if let Some(mut routed) = self
+        let mut miss = match self
             .route_for_model(project_id, model, req, &mut trace)
             .await?
         {
-            routed.params_override = params_override;
-            return Ok(Some(routed));
-        }
+            RouteAttempt::Routed(mut routed) => {
+                routed.params_override = params_override;
+                return Ok(Ok(routed));
+            }
+            RouteAttempt::Miss(miss) => Some(miss),
+        };
 
         // Step 2: 主模型路由失败，尝试 fallback 链
         for fallback in fallback_models(model) {
+            let mut miss_before_fallback = miss;
             tracing::info!(
                 project_id = %project_id,
                 original_model = model,
@@ -1071,16 +1181,35 @@ impl ProviderRouter {
                 "primary model route failed, trying fallback"
             );
             trace.fallbacks.push(fallback.to_string());
-            if let Some(mut routed) = self
+            match self
                 .route_for_model(project_id, fallback, req, &mut trace)
                 .await?
             {
-                routed.params_override = params_override;
-                return Ok(Some(routed));
+                RouteAttempt::Routed(mut routed) => {
+                    routed.params_override = params_override;
+                    return Ok(Ok(routed));
+                }
+                RouteAttempt::Miss(next_miss) => {
+                    if !matches!(
+                        next_miss.reason,
+                        RouteMissReason::NoDefaultGroup | RouteMissReason::NoHealthyChannels
+                    ) {
+                        miss_before_fallback = Some(next_miss);
+                    }
+                }
             }
+            miss = miss_before_fallback;
         }
 
-        Ok(None)
+        Ok(Err(miss.unwrap_or_else(|| {
+            Box::new(RouteMiss {
+                reason: RouteMissReason::FallbackExhausted,
+                message: route_not_found_message("chat", model, RouteMissReason::FallbackExhausted),
+                capability: None,
+                selected_model: model.to_string(),
+                trace,
+            })
+        })))
     }
 
     /// 按 project_id + model 选 EmbeddingProvider。
@@ -1647,7 +1776,7 @@ impl ProviderRouter {
         model: &str,
         req: Option<&crate::types::ChatRequest>,
         trace: &mut RouteDecisionTrace,
-    ) -> ProviderResult<Option<RoutedProvider>> {
+    ) -> ProviderResult<RouteAttempt<RoutedProvider>> {
         // Step 1: 找 project 的默认 channel_group
         let initial_group = match self.group_repo.find_default_for_project(project_id).await {
             Ok(g) => g,
@@ -1657,7 +1786,17 @@ impl ProviderRouter {
                     model = model,
                     "no default channel_group for project, falling back"
                 );
-                return Ok(None);
+                return Ok(RouteAttempt::Miss(Box::new(RouteMiss {
+                    reason: RouteMissReason::NoDefaultGroup,
+                    message: route_not_found_message(
+                        "chat",
+                        model,
+                        RouteMissReason::NoDefaultGroup,
+                    ),
+                    capability: None,
+                    selected_model: model.to_string(),
+                    trace: trace.clone(),
+                })));
             }
             Err(e) => {
                 return Err(ProviderError::Config(format!(
@@ -1670,6 +1809,7 @@ impl ProviderRouter {
         let mut current_group = initial_group;
         let mut depth = 0u8;
         const MAX_FALLBACK_DEPTH: u8 = 5;
+        let mut last_miss = None;
 
         loop {
             if depth > MAX_FALLBACK_DEPTH {
@@ -1679,7 +1819,19 @@ impl ProviderRouter {
                     depth = depth,
                     "fallback chain exceeded max depth"
                 );
-                return Ok(None);
+                return Ok(RouteAttempt::Miss(last_miss.unwrap_or_else(|| {
+                    Box::new(RouteMiss {
+                        reason: RouteMissReason::FallbackExhausted,
+                        message: route_not_found_message(
+                            "chat",
+                            model,
+                            RouteMissReason::FallbackExhausted,
+                        ),
+                        capability: None,
+                        selected_model: model.to_string(),
+                        trace: trace.clone(),
+                    })
+                })));
             }
 
             if !current_group.enabled {
@@ -1689,11 +1841,12 @@ impl ProviderRouter {
                 );
             } else {
                 // Try to find a channel in this group
-                if let Some(routed) = self
+                match self
                     .try_route_in_group(&current_group, model, req, trace)
                     .await?
                 {
-                    return Ok(Some(routed));
+                    RouteAttempt::Routed(routed) => return Ok(RouteAttempt::Routed(routed)),
+                    RouteAttempt::Miss(miss) => last_miss = Some(miss),
                 }
             }
 
@@ -1717,11 +1870,37 @@ impl ProviderRouter {
                                 error = %e,
                                 "fallback group lookup failed"
                             );
-                            return Ok(None);
+                            return Ok(RouteAttempt::Miss(last_miss.unwrap_or_else(|| {
+                                Box::new(RouteMiss {
+                                    reason: RouteMissReason::FallbackExhausted,
+                                    message: route_not_found_message(
+                                        "chat",
+                                        model,
+                                        RouteMissReason::FallbackExhausted,
+                                    ),
+                                    capability: None,
+                                    selected_model: model.to_string(),
+                                    trace: trace.clone(),
+                                })
+                            })));
                         }
                     }
                 }
-                None => return Ok(None),
+                None => {
+                    return Ok(RouteAttempt::Miss(last_miss.unwrap_or_else(|| {
+                        Box::new(RouteMiss {
+                            reason: RouteMissReason::FallbackExhausted,
+                            message: route_not_found_message(
+                                "chat",
+                                model,
+                                RouteMissReason::FallbackExhausted,
+                            ),
+                            capability: None,
+                            selected_model: model.to_string(),
+                            trace: trace.clone(),
+                        })
+                    })));
+                }
             }
         }
     }
@@ -1738,7 +1917,7 @@ impl ProviderRouter {
         model: &str,
         req: Option<&crate::types::ChatRequest>,
         trace: &mut RouteDecisionTrace,
-    ) -> ProviderResult<Option<RoutedProvider>> {
+    ) -> ProviderResult<RouteAttempt<RoutedProvider>> {
         // Step 2: 取 group 内 healthy channels
         let bindings = self
             .channel_repo
@@ -1752,7 +1931,13 @@ impl ProviderRouter {
                 model = model,
                 "no healthy channels in group"
             );
-            return Ok(None);
+            return Ok(RouteAttempt::Miss(Box::new(RouteMiss {
+                reason: RouteMissReason::NoHealthyChannels,
+                message: route_not_found_message("chat", model, RouteMissReason::NoHealthyChannels),
+                capability: None,
+                selected_model: model.to_string(),
+                trace: trace.clone(),
+            })));
         }
 
         // Step 3: 按 model_filter / supported_models 过滤
@@ -1774,7 +1959,13 @@ impl ProviderRouter {
                 model = model,
                 "no channels support model in group"
             );
-            return Ok(None);
+            return Ok(RouteAttempt::Miss(Box::new(RouteMiss {
+                reason: RouteMissReason::ModelUnsupported,
+                message: route_not_found_message("chat", model, RouteMissReason::ModelUnsupported),
+                capability: None,
+                selected_model: model.to_string(),
+                trace: trace.clone(),
+            })));
         }
 
         // Strategy ordering: sort channels into preference order based on strategy
@@ -1788,6 +1979,13 @@ impl ProviderRouter {
             self.metrics.as_ref().map(|m| m.as_ref()),
         );
         trace.record_candidates(group, &ordered);
+        let mut last_miss = RouteMiss {
+            reason: RouteMissReason::FallbackExhausted,
+            message: route_not_found_message("chat", model, RouteMissReason::FallbackExhausted),
+            capability: None,
+            selected_model: model.to_string(),
+            trace: trace.clone(),
+        };
 
         // Try each channel in order until one passes rate limits
         for candidate in &ordered {
@@ -1809,6 +2007,17 @@ impl ProviderRouter {
                         "channel capability matrix rejected chat route candidate"
                     );
                     trace.record_skip(candidate, &reason);
+                    last_miss = RouteMiss {
+                        reason: RouteMissReason::MissingCapability,
+                        message: route_not_found_message(
+                            "chat",
+                            model,
+                            RouteMissReason::MissingCapability,
+                        ),
+                        capability: missing.first().copied(),
+                        selected_model: model.to_string(),
+                        trace: trace.clone(),
+                    };
                     continue;
                 }
             }
@@ -1826,6 +2035,17 @@ impl ProviderRouter {
                     "plugin channel has no active secret, trying next channel"
                 );
                 trace.record_skip(candidate, "no_active_secret");
+                last_miss = RouteMiss {
+                    reason: RouteMissReason::NoActiveSecret,
+                    message: route_not_found_message(
+                        "chat",
+                        model,
+                        RouteMissReason::NoActiveSecret,
+                    ),
+                    capability: None,
+                    selected_model: model.to_string(),
+                    trace: trace.clone(),
+                };
                 continue;
             }
 
@@ -1841,6 +2061,13 @@ impl ProviderRouter {
                     "channel RPM limit reached, trying next channel"
                 );
                 trace.record_skip(candidate, "rpm_limit");
+                last_miss = RouteMiss {
+                    reason: RouteMissReason::RateLimited,
+                    message: route_not_found_message("chat", model, RouteMissReason::RateLimited),
+                    capability: None,
+                    selected_model: model.to_string(),
+                    trace: trace.clone(),
+                };
                 continue;
             }
 
@@ -1856,6 +2083,13 @@ impl ProviderRouter {
                     "channel TPM limit reached, trying next channel"
                 );
                 trace.record_skip(candidate, "tpm_limit");
+                last_miss = RouteMiss {
+                    reason: RouteMissReason::RateLimited,
+                    message: route_not_found_message("chat", model, RouteMissReason::RateLimited),
+                    capability: None,
+                    selected_model: model.to_string(),
+                    trace: trace.clone(),
+                };
                 continue;
             }
 
@@ -1904,7 +2138,7 @@ impl ProviderRouter {
                 self.inflight.acquire(candidate.channel.channel_id);
             }
 
-            return Ok(Some(RoutedProvider {
+            return Ok(RouteAttempt::Routed(RoutedProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
                 resolved_model,
@@ -1924,7 +2158,7 @@ impl ProviderRouter {
             compatible_count = compatible.len(),
             "all compatible channels are rate-limited"
         );
-        Ok(None)
+        Ok(RouteAttempt::Miss(Box::new(last_miss)))
     }
 
     /// G1: 从 DB 取 primary channel key → 解密；无则 fallback env var。
@@ -2294,6 +2528,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn route_chat_required_normalizes_model_not_found() {
+        let (pid, router) = setup_fixtures(&[
+            ("ch-gpt", "openai", vec!["gpt-4o".into()], 1),
+            ("ch-claude", "openai", vec!["claude-3".into()], 2),
+        ]);
+        let err = match router
+            .route_chat_required(
+                pid,
+                &ChatRequest {
+                    model: "gemini-pro".to_string(),
+                    messages: vec![ChatMessage::text(Role::User, "hi")],
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            Ok(_) => panic!("expected route miss"),
+            Err(err) => err,
+        };
+
+        match err {
+            ProviderError::Mapped {
+                status,
+                code,
+                message,
+                metadata,
+            } => {
+                assert_eq!(status, Some(404));
+                assert_eq!(code.as_deref(), Some("model_unsupported"));
+                assert_eq!(metadata.kind, NormalizedProviderErrorKind::ModelNotFound);
+                assert!(message.contains("no healthy chat channel found"));
+            }
+            other => panic!("expected mapped route miss, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn model_filter_priority_respected_among_compatible() {
         let (pid, router) = setup_fixtures(&[
             ("ch-low-prio", "openai", vec!["gpt-4o".into()], 10),
@@ -2459,6 +2730,62 @@ mod tests {
             "trace should explain capability rejection: {:?}",
             routed.decision_trace.skipped
         );
+    }
+
+    #[tokio::test]
+    async fn route_chat_required_normalizes_no_healthy_channel() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let mut dead = make_channel_with_models("dead-openai", "openai", vec![]);
+        dead.status = "disabled".to_string();
+        dead.health = "unhealthy".to_string();
+        let dead_id = dead.channel_id;
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "dead-group".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        group_repo.seed_default(project_id, group_id);
+        channel_repo.seed_channel(dead);
+        channel_repo.seed_binding(group_id, dead_id, 1, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let err = match router
+            .route_chat_required(
+                project_id,
+                &ChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: vec![ChatMessage::text(Role::User, "hi")],
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            Ok(_) => panic!("expected route miss"),
+            Err(err) => err,
+        };
+
+        match err {
+            ProviderError::Mapped {
+                status,
+                code,
+                metadata,
+                ..
+            } => {
+                assert_eq!(status, Some(404));
+                assert_eq!(code.as_deref(), Some("no_healthy_channel"));
+                assert_eq!(metadata.kind, NormalizedProviderErrorKind::ModelNotFound);
+            }
+            other => panic!("expected mapped no healthy route miss, got {other:?}"),
+        }
     }
 
     #[test]
