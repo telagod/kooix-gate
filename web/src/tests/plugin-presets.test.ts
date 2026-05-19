@@ -23,7 +23,14 @@ describe('plugin provider presets', () => {
 
 	it('builds and detects preset manifest', () => {
 		const manifest = pluginManifestFromPreset('anthropic_messages');
-		expect(manifest).toEqual({ plugin: { preset: { provider: 'anthropic_messages' } } });
+		expect(manifest).toEqual({
+			plugin: {
+				version: 1,
+				capabilities: { chat: true, streaming: true },
+				auth: { strategy: 'bearer', secret_slot: 'primary' },
+				preset: { provider: 'anthropic_messages' }
+			}
+		});
 		expect(manifestPreset(manifest)).toBe('anthropic_messages');
 	});
 

@@ -87,7 +87,7 @@ pnpm build
 Channel 表单在 `provider_type=plugin` 时提供预设下拉：
 
 - 预设清单在 `src/lib/plugin-presets.ts`，当前 UI 覆盖 OpenAI-compatible、Anthropic Messages、Azure OpenAI、Gemini、DeepSeek、Mistral、Cohere、Ollama、Groq、Together、OpenRouter、Moonshot、智谱、通义千问、零一万物、Bedrock Converse；后端 manifest 也接受 `openai` alias。
-- 选择预设会生成 `{ "plugin": { "preset": { "provider": "..." } } }`；自定义 manifest 仍可直接输入 JSON。
+- 选择预设会生成 `plugin.version = 1` manifest（含 capabilities / auth / preset）；旧 v0 `{ "plugin": { "preset": { "provider": "..." } } }` 仍由后端自动升级；自定义 manifest 仍可直接输入 JSON。
 - 测试在 `src/tests/plugin-presets.test.ts`，新增预设时同步补选项和测试。
 
 ## 技术选型

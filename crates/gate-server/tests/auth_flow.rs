@@ -538,6 +538,61 @@ async fn admin_can_create_plugin_channel_with_provider_preset_manifest() {
 }
 
 #[tokio::test]
+async fn admin_exposes_plugin_manifest_schema() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+    let (status, body) = call(
+        &f.router,
+        "GET",
+        "/v1/admin/plugin-manifest/schema",
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["$defs"]["PluginManifest"]["properties"]["version"]["type"],
+        "integer"
+    );
+    assert!(body["$defs"]["PluginManifest"]["properties"]["auth"].is_object());
+}
+
+#[tokio::test]
+async fn admin_rejects_invalid_plugin_manifest_with_pointer() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+    let body = serde_json::json!({
+        "code": "plugin-bad",
+        "provider_type": "plugin",
+        "base_url": "https://api.openai.com/v1",
+        "supported_models": ["gpt-4o-mini"],
+        "model_mapping": {
+            "plugin": {
+                "version": 1,
+                "security": { "max_request_bytes": "too-large" }
+            }
+        }
+    });
+
+    let (status, body) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/channels",
+        Some(&tok),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("/plugin/security/max_request_bytes"),
+        "body={body}"
+    );
+}
+
+#[tokio::test]
 async fn admin_rejects_api_key_subject() {
     let f = fixture();
     let (status, body) = call(

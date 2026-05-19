@@ -1,6 +1,6 @@
-# HTTP Plugin Manifest v0
+# HTTP Plugin Manifest v1
 
-> v0.2.0 的渠道插件化边界：先把运行期 HTTP Plugin manifest 固定为可承诺能力，再在后续 v1 schema / builder / debugger 上继续扩展。
+> v0.2.0 先冻结运行期 HTTP Plugin manifest v0；当前主线已进入 v1：固定顶层分区、强类型解析、JSON Schema 与 JSON pointer 错误，为 UI builder / CLI lint / replay harness 共用同一契约。
 
 Kooix Gate 的核心竞争力不是内置多少 Provider，而是让私有协议、认证差异、非标准响应和奇葩 SSE 帧都能通过 manifest 接入，不必重新编译 `gate-providers`。
 
@@ -9,35 +9,76 @@ Kooix Gate 的核心竞争力不是内置多少 Provider，而是让私有协议
 - Channel 的 `provider_type` 设为 `plugin` / `custom` / `http` / `http_plugin`。
 - Manifest 放在 `channels.model_mapping.plugin`。
 - 密钥仍走 `channel_keys` envelope encryption；本地开发可由 env fallback 注入。
-- Manifest 是不可信配置：不得写入明文密钥；v0.2.0 已启用 path/header/body 模板白名单、绝对 URL 默认禁用、内网/metadata host 拒绝与 body/response/SSE 大小限制。
+- Manifest 是不可信配置：不得写入明文密钥；已启用 path/query/header/body 模板白名单、绝对 URL 默认禁用、内网/metadata host 拒绝与 body/response/SSE 大小限制。
+- v0 旧形态仍自动升级：`{ "plugin": { "preset": { "provider": "openai_compatible" } } }` 会在运行时升级为 `plugin.version = 1` 内部结构。
+- JSON Schema 入口：
+  - API：`GET /v1/admin/plugin-manifest/schema`
+  - CLI：`kgctl plugin schema`
+  - lint：`kgctl plugin lint manifest.json --base-url https://api.example.com/v1`
 
 最小 OpenAI-compatible preset：
 
 ```json
 {
   "plugin": {
+    "version": 1,
+    "capabilities": { "chat": true, "streaming": true },
+    "auth": { "strategy": "bearer", "secret_slot": "primary" },
     "preset": { "provider": "openai_compatible" }
   }
 }
 ```
 
-## 顶层结构
+## 顶层结构 v1
 
-v0 当前支持以下分区：
+v1 固定以下分区：
 
 ```json
 {
   "plugin": {
+    "version": 1,
+    "metadata": {},
+    "capabilities": {},
+    "auth": {},
     "preset": { "provider": "openai_compatible" },
     "request": {},
     "response": {},
     "stream": {},
+    "usage": {},
+    "error": {},
+    "probe": {},
     "security": {}
   }
 }
 ```
 
-兼容入口：如果顶层没有 `plugin`，运行时也会接受 `adapter`、`protocol` 或直接把整个对象当作 manifest。
+固定分区语义：
+
+- `metadata`：name、vendor、homepage、docs、owner、tags。
+- `capabilities`：chat、streaming、tools、embeddings、image、audio、vision、json_mode、batch。
+- `auth`：认证策略与 secret slot 引用；不允许明文 secret。
+- `request`：method、path、query、headers、body、timeout、retry。
+- `response`：非流式字段映射。
+- `stream`：SSE / chunked streaming 映射。
+- `usage`：token / image / audio / cache / batch 归一规则。
+- `error`：状态码与错误 body 映射。
+- `probe`：健康检查与模型探测。
+- `security`：出站 allowlist、大小限制、header redaction。
+
+兼容入口：如果顶层没有 `plugin`，运行时也会接受 `adapter`、`protocol` 或直接把整个对象当作 manifest；未声明 `version` 的旧结构按 v0 自动升级。
+
+## Auth strategy
+
+当前 v1 强类型 schema 已固定策略名：
+
+- `bearer`：默认 `Authorization: Bearer <channel key>`。
+- `api_key_header`：必须声明 `header_name`。
+- `api_key_query`：必须声明 `query_name`；默认高风险，仅用于必须把 key 放 query 的上游。
+- `basic`：必须声明 `username_slot`，password 默认来自 encrypted channel key material。
+- `custom_headers`：必须声明 `headers`，只能使用白名单模板变量。
+- `none`：不自动注入认证头。
+
+`secret_slot` / `username_slot` / `password_slot` 是加密材料引用，不是明文 secret。
 
 ## Provider preset
 
@@ -60,6 +101,7 @@ v0 当前支持以下分区：
 ```json
 {
   "plugin": {
+    "version": 1,
     "preset": {
       "provider": "azure_openai",
       "api_version": "2024-02-15-preview"
@@ -70,15 +112,17 @@ v0 当前支持以下分区：
 
 ## Request mapping
 
-`request.chat_path` 默认只支持相对 `base_url` 的 path，并可使用模板变量：
+`request.path` 默认只支持相对 `base_url` 的 path，并可使用模板变量；旧字段 `request.chat_path` 仍作为 alias 接受：
 
 ```json
 {
   "plugin": {
+    "version": 1,
+    "auth": { "strategy": "custom_headers", "headers": { "X-Api-Key": "{{api_key}}" } },
     "request": {
-      "chat_path": "/private/chat/{{model}}",
+      "path": "/private/chat/{{model}}",
+      "query": { "stream": "{{stream}}" },
       "headers": {
-        "X-Api-Key": "{{api_key}}",
         "X-Model": "{{model}}"
       },
       "body": {
@@ -94,30 +138,32 @@ v0 当前支持以下分区：
 
 ### 模板变量白名单
 
-当前 v0 支持：
+当前 v1 支持：
 
 - Header 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`。
-- Path 模板：`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{last_user_message}}`、`{{request.*}}`。
+- Path / query 模板：`{{api_key}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{last_user_message}}`、`{{request.*}}`。
 - Body 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{request.*}}`、`{{messages.*}}`。
 
-`{{api_key}}` 是运行时解密出的 channel key；`{{aws_secret_key}}` 仅供现有 Bedrock Converse v0 preset 兼容，正式 SigV4 在 v1 收口。
+`{{api_key}}` 是运行时解密出的 channel key；`{{aws_secret_key}}` 仅供现有 Bedrock Converse preset 兼容，正式 SigV4 仍在后续阶段收口。
 
 整段占位会保留 JSON 原类型，例如 `"{{stream}}"` 渲染为 boolean；嵌在字符串里则转为字符串。
 
-### 默认 Authorization
+### Runtime auth 注入
 
-- 未设置 `Authorization` 且 `api_key` 非空时，默认注入 `Authorization: Bearer {{api_key}}`。
-- 若私有渠道不用 Bearer，可显式写：
+- `auth.strategy = "bearer"`：注入 `Authorization: Bearer <secret_slot>`。
+- `auth.strategy = "api_key_header"`：注入 `header_name: <secret_slot>`。
+- `auth.strategy = "api_key_query"`：追加 `query_name=<secret_slot>`。
+- `auth.strategy = "basic"`：注入 Basic auth；`username_slot` 必填，`password_slot` 未填时使用 `secret_slot`。
+- `auth.strategy = "custom_headers"`：按 `auth.headers` 模板注入 header。
+- `auth.strategy = "none"`：不注入认证。
+
+若私有渠道不用 Bearer，推荐走 `auth` 分区，而不是把认证塞进 `request.headers`：
 
 ```json
 {
   "plugin": {
-    "request": {
-      "headers": {
-        "Authorization": null,
-        "X-Api-Key": "{{api_key}}"
-      }
-    }
+    "version": 1,
+    "auth": { "strategy": "api_key_header", "header_name": "X-Api-Key" }
   }
 }
 ```

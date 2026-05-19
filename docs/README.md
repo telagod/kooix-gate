@@ -13,7 +13,7 @@
 | [RELEASE.md](../RELEASE.md) | 发布、回滚、部署前后 smoke runbook。 |
 | [AGENTS.md](../AGENTS.md) | 仓库级工程规则与 Codex 执行约束。 |
 | [CLAUDE.md](../CLAUDE.md) | 与 AGENTS 同步的项目规则副本。 |
-| [plugin-manifest.md](./plugin-manifest.md) | HTTP Plugin manifest v0 边界、示例与安全约束。 |
+| [plugin-manifest.md](./plugin-manifest.md) | HTTP Plugin manifest v1 schema、兼容升级、示例与安全约束。 |
 | [security-runbook.md](./security-runbook.md) | 密钥、JWT、Channel key、Redis quota、Plugin 风险处置。 |
 | [observability-runbook.md](./observability-runbook.md) | Gateway、billing、worker 指标与 PromQL 入口。 |
 

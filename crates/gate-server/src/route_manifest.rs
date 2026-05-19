@@ -146,6 +146,12 @@ pub const ROUTES: &[RouteMeta] = &[
         CONTROL_PLANE
     ),
     route!("GET", "/v1/orgs/:org_id/quota-alerts", User, CONTROL_PLANE),
+    route!(
+        "GET",
+        "/v1/admin/plugin-manifest/schema",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
     route!("GET", "/v1/admin/channels", PlatformAdmin, CONTROL_PLANE),
     route!("POST", "/v1/admin/channels", PlatformAdmin, CONTROL_PLANE),
     route!(

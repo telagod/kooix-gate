@@ -13,6 +13,7 @@ gate-crypto = { path = "../gate-crypto" }
 gate-auth = { path = "../gate-auth" }
 gate-storage = { path = "../gate-storage" }
 gate-cache = { path = "../gate-cache" }
+gate-providers = { path = "../gate-providers" }
 
 clap.workspace = true
 anyhow.workspace = true

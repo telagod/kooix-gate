@@ -20,6 +20,7 @@ pub mod gemini;
 pub mod mistral;
 pub mod ollama;
 pub mod openai;
+pub mod plugin_manifest;
 pub(crate) mod plugin_preset;
 pub mod retry;
 pub mod router;
@@ -28,6 +29,7 @@ pub mod types;
 
 pub use custom_provider::CustomHttpProvider;
 pub use error::{ProviderError, ProviderResult};
+pub use plugin_manifest::{plugin_manifest_schema_json, validate_plugin_manifest};
 pub use router::{
     ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,
     InflightTracker, ProviderRouter, ProviderRuntimeChannelSnapshot, ProviderRuntimeSnapshot,

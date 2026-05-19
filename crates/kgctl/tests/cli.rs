@@ -449,6 +449,46 @@ fn env_lists_all_required_vars_including_oidc_redirect() {
         .stdout(predicate::str::contains("KOOIX_OIDC_DEFAULT_REDIRECT"));
 }
 
+#[test]
+fn plugin_schema_and_lint_work_without_services() {
+    kg().args(["plugin", "schema"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("plugin"))
+        .stdout(predicate::str::contains("capabilities"))
+        .stdout(predicate::str::contains("auth"));
+
+    let mut lint = kg();
+    lint.args(["plugin", "lint", "--base-url", "https://api.example.com/v1"])
+        .write_stdin(
+            r#"{
+              "plugin": {
+                "version": 1,
+                "capabilities": { "chat": true, "streaming": true },
+                "auth": { "strategy": "bearer", "secret_slot": "primary" },
+                "preset": { "provider": "openai_compatible" }
+              }
+            }"#,
+        )
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("plugin manifest ok"));
+
+    let mut bad = kg();
+    bad.args(["plugin", "lint", "--base-url", "https://api.example.com/v1"])
+        .write_stdin(
+            r#"{
+              "plugin": {
+                "version": 1,
+                "auth": { "strategy": "api_key_header" }
+              }
+            }"#,
+        )
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("/plugin/auth/header_name"));
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 6. smoke
 // ────────────────────────────────────────────────────────────────────────────

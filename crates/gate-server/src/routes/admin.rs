@@ -153,6 +153,7 @@ pub struct BatchResult {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/plugin-manifest/schema", get(plugin_manifest_schema))
         .route("/channels", get(list_channels).post(create_channel))
         .route(
             "/channels/:id",
@@ -232,6 +233,12 @@ pub fn router() -> Router<AppState> {
             "/pricing-rules/:id",
             axum::routing::delete(delete_pricing_rule),
         )
+}
+
+async fn plugin_manifest_schema(Authed(ctx): Authed) -> AppResult<Json<serde_json::Value>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelRead, Scope::Platform);
+    Ok(Json(gate_providers::plugin_manifest_schema_json()))
 }
 
 async fn list_channels(
@@ -340,6 +347,14 @@ async fn create_channel(
     }
 
     let name = req.name.unwrap_or_else(|| code.clone());
+    if is_plugin_provider(&req.provider_type) {
+        let mapping = req
+            .model_mapping
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
+        gate_providers::validate_plugin_manifest(mapping, &req.base_url)
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    }
 
     let record = app
         .repos
@@ -381,6 +396,18 @@ async fn update_channel(
     require!(ctx, Permission::ChannelUpdate, Scope::Platform);
 
     let channel_id = ChannelId::from(id.0);
+    if req.model_mapping.is_some() || req.base_url.is_some() {
+        let current = app.repos.channels.find_by_id(channel_id).await?;
+        if is_plugin_provider(&current.provider_type) {
+            let mapping = req
+                .model_mapping
+                .clone()
+                .unwrap_or_else(|| current.model_mapping.clone());
+            let base_url = req.base_url.as_deref().unwrap_or(&current.base_url);
+            gate_providers::validate_plugin_manifest(mapping, base_url)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        }
+    }
     let record = app
         .repos
         .channels
@@ -405,6 +432,10 @@ async fn update_channel(
         .emit(&ctx, "channel.update", "channel", Some(*id), None);
 
     Ok(Json(record_to_summary(record)))
+}
+
+fn is_plugin_provider(provider_type: &str) -> bool {
+    matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
 }
 
 async fn delete_channel(

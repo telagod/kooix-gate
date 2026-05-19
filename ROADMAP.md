@@ -210,8 +210,8 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
 
 #### P1.1.1 Manifest schema v1
 
-- [ ] 定义 `plugin.version = 1`，保留 v0 自动升级路径。
-- [ ] Manifest 顶层分区固定：
+- [x] 定义 `plugin.version = 1`，保留 v0 自动升级路径。
+- [x] Manifest 顶层分区固定：
   - `metadata`：name、vendor、homepage、docs、owner、tags。
   - `capabilities`：chat、streaming、tools、embeddings、image、audio、vision、json_mode、batch。
   - `auth`：认证策略，不允许明文 secret。
@@ -222,17 +222,18 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - `error`：状态码与错误 body 映射。
   - `probe`：健康检查与模型探测。
   - `security`：出站 allowlist、大小限制、header redaction。
-- [ ] 提供 JSON Schema，用于后端校验、前端表单、CLI lint 共用。
-- [ ] `model_mapping.plugin` 继续作为存储入口，但内部解析为强类型 manifest，错误信息带 JSON pointer。
+- [x] 提供 JSON Schema，用于后端校验、前端表单、CLI lint 共用。
+- [x] `model_mapping.plugin` 继续作为存储入口，但内部解析为强类型 manifest，错误信息带 JSON pointer。
 
 #### P1.1.2 认证插件化
 
-- [ ] 内置认证策略：
+- [x] 内置基础认证策略：
   - `bearer`：`Authorization: Bearer {{api_key}}`。
   - `api_key_header`：如 `X-Api-Key` / `api-key`。
   - `api_key_query`：query 参数签发，默认高风险提示。
   - `basic`：username/password 来自 encrypted channel key material。
   - `custom_headers`：仅允许白名单变量。
+- [ ] 内置高级认证策略：
   - `hmac`：method/path/body/timestamp nonce 签名。
   - `oauth_client_credentials`：token cache + expiry refresh。
   - `aws_sigv4`：为 Bedrock Converse 收口正式鉴权。

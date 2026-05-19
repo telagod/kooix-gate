@@ -18,6 +18,7 @@ use clap::{Parser, Subcommand};
 mod admin;
 mod doctor;
 mod migrate;
+mod plugin;
 mod pricing;
 mod setup;
 mod smoke;
@@ -97,6 +98,11 @@ enum Cmd {
         #[command(subcommand)]
         sub: UsageStorageCmd,
     },
+    /// HTTP Plugin manifest 工具
+    Plugin {
+        #[command(subcommand)]
+        sub: PluginCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -169,6 +175,20 @@ enum UsageStorageCmd {
         /// retention 窗口（月）
         #[arg(long, default_value = "18")]
         retention_months: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum PluginCmd {
+    /// 输出 HTTP Plugin manifest v1 JSON Schema
+    Schema,
+    /// 校验 manifest JSON（默认从 stdin 读取，path 可传文件或 -）
+    Lint {
+        /// manifest 文件路径；不传或传 - 时读 stdin
+        path: Option<String>,
+        /// 用于 preset 展开与绝对路径校验的上游 base URL
+        #[arg(long, default_value = "https://example.com")]
+        base_url: String,
     },
 }
 
@@ -257,6 +277,10 @@ fn main() {
             };
             usage_storage::plan(kind, months_ahead, retention_months)
         }
+        Cmd::Plugin { sub } => match sub {
+            PluginCmd::Schema => plugin::schema(),
+            PluginCmd::Lint { path, base_url } => plugin::lint(path, base_url),
+        },
     };
 
     if let Err(e) = result {

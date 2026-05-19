@@ -24,7 +24,16 @@ export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] = [
 ];
 
 export function pluginManifestFromPreset(provider: string): Record<string, unknown> {
-	return provider ? { plugin: { preset: { provider } } } : {};
+	return provider
+		? {
+				plugin: {
+					version: 1,
+					capabilities: { chat: true, streaming: true },
+					auth: { strategy: 'bearer', secret_slot: 'primary' },
+					preset: { provider }
+				}
+			}
+		: {};
 }
 
 export function parsePluginManifest(input: string): Record<string, unknown> {

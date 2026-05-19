@@ -7,26 +7,18 @@
 use crate::Provider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::openai::check_status;
-use crate::plugin_preset::{
-    PresetManifest, ProviderPresetSpec, ResponseManifest, StreamManifest, adapt_chat_request,
-};
+use crate::plugin_manifest::{AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest};
+use crate::plugin_preset::{StreamManifest, adapt_chat_request};
 use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
 use async_trait::async_trait;
+use base64::Engine as _;
 use futures::stream::{BoxStream, StreamExt};
+use reqwest::Url;
 use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
-use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use std::net::IpAddr;
 use std::sync::Arc;
-
-const DEFAULT_CHAT_PATH: &str = "/chat/completions";
-const DEFAULT_MAX_REQUEST_BYTES: usize = 1024 * 1024;
-const DEFAULT_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
-const DEFAULT_MAX_SSE_EVENT_BYTES: usize = 1024 * 1024;
-const HARD_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
-const HARD_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
-const HARD_MAX_SSE_EVENT_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct CustomHttpProvider {
@@ -67,7 +59,7 @@ impl CustomHttpProvider {
         let path = self
             .manifest
             .request
-            .chat_path
+            .path
             .as_deref()
             .unwrap_or(DEFAULT_CHAT_PATH);
         let rendered = render_template_str(path, ctx);
@@ -79,11 +71,34 @@ impl CustomHttpProvider {
                 ));
             }
             validate_http_endpoint(&rendered, true)?;
-            return Ok(rendered);
+            return self.url_with_query(rendered, ctx);
         }
         let endpoint = format!("{}{}", self.base_url, slash_path(&rendered));
         validate_http_endpoint(&endpoint, false)?;
-        Ok(endpoint)
+        self.url_with_query(endpoint, ctx)
+    }
+
+    fn url_with_query(&self, endpoint: String, ctx: &Value) -> ProviderResult<String> {
+        let mut url = Url::parse(&endpoint)
+            .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            for (name, value) in &self.manifest.request.query {
+                if value.is_null() {
+                    continue;
+                }
+                pairs.append_pair(name, &render_template(value, ctx));
+            }
+            if self.manifest.auth.strategy == AuthStrategy::ApiKeyQuery
+                && let Some(name) = self.manifest.auth.query_name()
+            {
+                pairs.append_pair(
+                    name,
+                    &self.secret_for_slot(self.manifest.auth.secret_slot()),
+                );
+            }
+        }
+        Ok(url.to_string())
     }
 
     fn request_headers_for(&self, req: &ChatRequest) -> ProviderResult<HeaderMap> {
@@ -93,6 +108,7 @@ impl CustomHttpProvider {
 
     fn request_headers_with_context(&self, ctx: &Value) -> ProviderResult<HeaderMap> {
         let mut headers = HeaderMap::new();
+        self.apply_auth_headers(&mut headers, ctx)?;
         for (k, v) in &self.manifest.request.headers {
             if v.is_null() {
                 continue;
@@ -106,22 +122,6 @@ impl CustomHttpProvider {
             headers.insert(name, value);
         }
 
-        let suppress_authorization = self
-            .manifest
-            .request
-            .headers
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("authorization") && v.is_null());
-        if !self.api_key.is_empty()
-            && !suppress_authorization
-            && !headers.contains_key(reqwest::header::AUTHORIZATION)
-        {
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", self.api_key))
-                    .map_err(|e| ProviderError::Config(format!("invalid authorization: {e}")))?,
-            );
-        }
         Ok(headers)
     }
 
@@ -130,6 +130,86 @@ impl CustomHttpProvider {
             "api_key": self.api_key,
             "aws_secret_key": std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
         })
+    }
+
+    fn apply_auth_headers(&self, headers: &mut HeaderMap, ctx: &Value) -> ProviderResult<()> {
+        match self.manifest.auth.strategy {
+            AuthStrategy::Bearer => {
+                if !self.api_key.is_empty() {
+                    insert_header(
+                        headers,
+                        reqwest::header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}",
+                            self.secret_for_slot(self.manifest.auth.secret_slot())
+                        ),
+                    )?;
+                }
+            }
+            AuthStrategy::ApiKeyHeader => {
+                if let Some(name) = self.manifest.auth.header_name() {
+                    insert_named_header(
+                        headers,
+                        name,
+                        self.secret_for_slot(self.manifest.auth.secret_slot()),
+                    )?;
+                }
+            }
+            AuthStrategy::Basic => {
+                let username = self
+                    .manifest
+                    .auth
+                    .username_slot()
+                    .map(|slot| self.secret_for_slot(slot))
+                    .unwrap_or_default();
+                let password = self
+                    .manifest
+                    .auth
+                    .password_slot()
+                    .map(|slot| self.secret_for_slot(slot))
+                    .unwrap_or_else(|| self.secret_for_slot(self.manifest.auth.secret_slot()));
+                let encoded = base64::engine::general_purpose::STANDARD
+                    .encode(format!("{username}:{password}"));
+                insert_header(
+                    headers,
+                    reqwest::header::AUTHORIZATION,
+                    format!("Basic {encoded}"),
+                )?;
+            }
+            AuthStrategy::CustomHeaders => {
+                for (name, value) in &self.manifest.auth.headers {
+                    if value.is_null() {
+                        continue;
+                    }
+                    insert_named_header(headers, name, render_template(value, ctx))?;
+                }
+            }
+            AuthStrategy::ApiKeyQuery | AuthStrategy::None => {}
+        }
+        Ok(())
+    }
+
+    fn secret_for_slot(&self, slot: &str) -> String {
+        match slot {
+            "primary" | "api_key" | "" => self.api_key.clone(),
+            "aws_secret_key" => std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
+            other => {
+                let env_key = format!(
+                    "KOOIX_PLUGIN_SECRET_{}",
+                    other
+                        .chars()
+                        .map(|c| {
+                            if c.is_ascii_alphanumeric() {
+                                c.to_ascii_uppercase()
+                            } else {
+                                '_'
+                            }
+                        })
+                        .collect::<String>()
+                );
+                std::env::var(env_key).unwrap_or_default()
+            }
+        }
     }
 
     fn request_context_for(&self, req: &ChatRequest) -> ProviderResult<Value> {
@@ -298,143 +378,6 @@ impl Provider for CustomHttpProvider {
             max_sse_event_bytes: self.manifest.security.max_sse_event_bytes(),
         };
         Ok(normalize_plugin_sse(resp.bytes_stream(), mapper).boxed())
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(default)]
-struct PluginManifest {
-    preset: PresetManifest,
-    request: RequestManifest,
-    response: ResponseManifest,
-    stream: StreamManifest,
-    security: SecurityManifest,
-}
-
-impl PluginManifest {
-    fn from_value(value: Value, base_url: &str) -> ProviderResult<Self> {
-        let manifest_value = value
-            .get("plugin")
-            .or_else(|| value.get("adapter"))
-            .or_else(|| value.get("protocol"))
-            .cloned()
-            .unwrap_or(value);
-
-        let mut manifest = if manifest_value.is_null() || manifest_value == json!({}) {
-            Self::default()
-        } else {
-            serde_json::from_value(manifest_value)
-                .map_err(|e| ProviderError::Config(format!("invalid plugin manifest: {e}")))?
-        };
-        manifest.apply_preset(base_url)?;
-        manifest.validate()?;
-        Ok(manifest)
-    }
-
-    fn apply_preset(&mut self, base_url: &str) -> ProviderResult<()> {
-        let Some(kind) = self.preset.kind else {
-            return Ok(());
-        };
-        let spec =
-            ProviderPresetSpec::for_kind(kind, base_url, self.preset.api_version.as_deref())?;
-        self.preset.adapter = spec.adapter;
-        if self.request.chat_path.is_none() {
-            self.request.chat_path = Some(spec.chat_path);
-        }
-        if self.request.body.is_none() {
-            self.request.body = spec.body;
-        }
-        for (k, v) in spec.headers {
-            self.request.headers.entry(k).or_insert(v);
-        }
-        if let Some(path) = spec.stream_path {
-            self.request.stream_path = path;
-        }
-        self.response.apply_defaults(spec.response);
-        self.stream.apply_defaults(spec.stream);
-        Ok(())
-    }
-
-    fn validate(&self) -> ProviderResult<()> {
-        if let Some(path) = &self.request.chat_path {
-            validate_template_str(path, TemplateScope::Path, "plugin.request.chat_path")?;
-        }
-        for (name, value) in &self.request.headers {
-            validate_template_value(
-                value,
-                TemplateScope::Header,
-                &format!("plugin.request.headers.{name}"),
-            )?;
-        }
-        if let Some(body) = &self.request.body {
-            validate_template_value(body, TemplateScope::Body, "plugin.request.body")?;
-        }
-        self.security.validate()
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct RequestManifest {
-    chat_path: Option<String>,
-    headers: Map<String, Value>,
-    body: Option<Value>,
-    force_stream_field: bool,
-    stream_path: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(default)]
-struct SecurityManifest {
-    max_request_bytes: Option<usize>,
-    max_response_bytes: Option<usize>,
-    max_sse_event_bytes: Option<usize>,
-    allow_absolute_chat_path: bool,
-}
-
-impl SecurityManifest {
-    fn max_request_bytes(&self) -> usize {
-        self.max_request_bytes.unwrap_or(DEFAULT_MAX_REQUEST_BYTES)
-    }
-
-    fn max_response_bytes(&self) -> usize {
-        self.max_response_bytes
-            .unwrap_or(DEFAULT_MAX_RESPONSE_BYTES)
-    }
-
-    fn max_sse_event_bytes(&self) -> usize {
-        self.max_sse_event_bytes
-            .unwrap_or(DEFAULT_MAX_SSE_EVENT_BYTES)
-    }
-
-    fn validate(&self) -> ProviderResult<()> {
-        validate_limit(
-            "plugin.security.max_request_bytes",
-            self.max_request_bytes(),
-            HARD_MAX_REQUEST_BYTES,
-        )?;
-        validate_limit(
-            "plugin.security.max_response_bytes",
-            self.max_response_bytes(),
-            HARD_MAX_RESPONSE_BYTES,
-        )?;
-        validate_limit(
-            "plugin.security.max_sse_event_bytes",
-            self.max_sse_event_bytes(),
-            HARD_MAX_SSE_EVENT_BYTES,
-        )
-    }
-}
-
-impl Default for RequestManifest {
-    fn default() -> Self {
-        Self {
-            chat_path: None,
-            headers: Map::new(),
-            body: None,
-            force_stream_field: true,
-            stream_path: "stream".to_string(),
-        }
     }
 }
 
@@ -727,119 +670,6 @@ fn render_template_str(template: &str, ctx: &Value) -> String {
     out
 }
 
-#[derive(Debug, Clone, Copy)]
-enum TemplateScope {
-    Path,
-    Header,
-    Body,
-}
-
-fn validate_template_value(
-    value: &Value,
-    scope: TemplateScope,
-    location: &str,
-) -> ProviderResult<()> {
-    match value {
-        Value::String(s) => validate_template_str(s, scope, location),
-        Value::Array(arr) => {
-            for (idx, item) in arr.iter().enumerate() {
-                validate_template_value(item, scope, &format!("{location}[{idx}]"))?;
-            }
-            Ok(())
-        }
-        Value::Object(obj) => {
-            for (key, item) in obj {
-                validate_template_value(item, scope, &format!("{location}.{key}"))?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
-
-fn validate_template_str(
-    template: &str,
-    scope: TemplateScope,
-    location: &str,
-) -> ProviderResult<()> {
-    for path in template_paths(template) {
-        if !placeholder_allowed(scope, &path) {
-            return Err(ProviderError::Config(format!(
-                "{location} uses unsupported template variable {{{{{path}}}}}"
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn template_paths(template: &str) -> Vec<String> {
-    let mut paths = Vec::new();
-    let mut rest = template;
-    while let Some(start) = rest.find("{{") {
-        let after_start = &rest[start + 2..];
-        let Some(end) = after_start.find("}}") else {
-            break;
-        };
-        paths.push(after_start[..end].trim().to_string());
-        rest = &after_start[end + 2..];
-    }
-    paths
-}
-
-fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
-    let path = path.trim().trim_start_matches("$.").trim_start_matches('$');
-    if path.is_empty() {
-        return false;
-    }
-    match scope {
-        TemplateScope::Header => matches!(
-            path,
-            "api_key"
-                | "aws_secret_key"
-                | "model"
-                | "stream"
-                | "temperature"
-                | "top_p"
-                | "max_tokens"
-        ),
-        TemplateScope::Path => {
-            matches!(
-                path,
-                "model" | "stream" | "temperature" | "top_p" | "max_tokens" | "last_user_message"
-            ) || path.starts_with("request.")
-        }
-        TemplateScope::Body => {
-            matches!(
-                path,
-                "api_key"
-                    | "aws_secret_key"
-                    | "model"
-                    | "messages"
-                    | "stream"
-                    | "temperature"
-                    | "top_p"
-                    | "max_tokens"
-                    | "last_user_message"
-            ) || path.starts_with("request.")
-                || path.starts_with("messages.")
-        }
-    }
-}
-
-fn validate_limit(name: &str, value: usize, hard_max: usize) -> ProviderResult<()> {
-    if value == 0 {
-        return Err(ProviderError::Config(format!(
-            "{name} must be greater than 0"
-        )));
-    }
-    if value > hard_max {
-        return Err(ProviderError::Config(format!(
-            "{name} must be <= {hard_max} bytes"
-        )));
-    }
-    Ok(())
-}
-
 fn enforce_size(name: &str, actual: usize, limit: usize) -> ProviderResult<()> {
     if actual > limit {
         return Err(ProviderError::Decode(format!(
@@ -857,6 +687,19 @@ fn enforce_response_length_hint(resp: &reqwest::Response, limit: usize) -> Provi
         return Ok(());
     };
     enforce_size("plugin response body", len, limit)
+}
+
+fn insert_named_header(headers: &mut HeaderMap, name: &str, value: String) -> ProviderResult<()> {
+    let name = HeaderName::from_bytes(name.as_bytes())
+        .map_err(|e| ProviderError::Config(format!("invalid plugin header {name:?}: {e}")))?;
+    insert_header(headers, name, value)
+}
+
+fn insert_header(headers: &mut HeaderMap, name: HeaderName, value: String) -> ProviderResult<()> {
+    let value = HeaderValue::from_str(&value)
+        .map_err(|e| ProviderError::Config(format!("invalid plugin header value: {e}")))?;
+    headers.insert(name, value);
+    Ok(())
 }
 
 fn validate_http_endpoint(endpoint: &str, deny_internal_host: bool) -> ProviderResult<()> {
@@ -1008,6 +851,7 @@ fn map_finish_reason(s: &str) -> Option<FinishReason> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin_manifest::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SSE_EVENT_BYTES};
     use futures::StreamExt;
 
     fn make_req(stream: bool) -> ChatRequest {
@@ -1129,6 +973,87 @@ mod tests {
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"], "Hi");
         assert_eq!(body["stream"], true);
+    }
+
+    #[test]
+    fn plugin_auth_api_key_query_appends_secret_to_url() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com/v1",
+            "query-key",
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": { "strategy": "api_key_query", "query_name": "key" },
+                    "request": {
+                        "path": "/private/chat",
+                        "query": { "model": "{{model}}" }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let url = provider.endpoint_url_for(&make_req(false)).unwrap();
+        assert_eq!(
+            url,
+            "https://api.example.com/v1/private/chat?model=odd-model&key=query-key"
+        );
+        let headers = provider.request_headers_for(&make_req(false)).unwrap();
+        assert!(headers.get("authorization").is_none());
+    }
+
+    #[test]
+    fn plugin_auth_basic_and_custom_headers_use_secret_slots() {
+        // SAFETY: unit test only needs process env for a synthetic plugin secret.
+        unsafe {
+            std::env::set_var("KOOIX_PLUGIN_SECRET_USER", "basic-user");
+        }
+
+        let basic = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "basic-pass",
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "basic",
+                        "username_slot": "user",
+                        "password_slot": "primary"
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let headers = basic.request_headers_for(&make_req(false)).unwrap();
+        assert_eq!(
+            headers.get("authorization").unwrap(),
+            "Basic YmFzaWMtdXNlcjpiYXNpYy1wYXNz"
+        );
+
+        let custom = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "primary-key",
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "custom_headers",
+                        "headers": {
+                            "X-Api-Key": "{{api_key}}",
+                            "X-Model": "{{model}}"
+                        }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let headers = custom.request_headers_for(&make_req(false)).unwrap();
+        assert_eq!(headers.get("x-api-key").unwrap(), "primary-key");
+        assert_eq!(headers.get("x-model").unwrap(), "odd-model");
+        assert!(headers.get("authorization").is_none());
     }
 
     #[test]

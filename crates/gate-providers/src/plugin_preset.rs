@@ -2,15 +2,16 @@
 
 use crate::error::ProviderResult;
 use crate::types::*;
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::borrow::Cow;
 
 const DEFAULT_CHAT_PATH: &str = "/chat/completions";
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ProviderPresetKind {
+pub(crate) enum ProviderPresetKind {
     Openai,
     OpenaiCompatible,
     Deepseek,
@@ -31,35 +32,36 @@ pub(super) enum ProviderPresetKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PresetAdapter {
+pub(crate) enum PresetAdapter {
     OpenaiCompatible,
     AnthropicMessages,
     BedrockConverse,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(super) struct PresetManifest {
-    #[serde(alias = "provider")]
-    pub(super) kind: Option<ProviderPresetKind>,
-    pub(super) api_version: Option<String>,
+pub(crate) struct PresetManifest {
+    #[serde(rename = "provider", alias = "kind")]
+    pub(crate) kind: Option<ProviderPresetKind>,
+    pub(crate) api_version: Option<String>,
     #[serde(skip)]
-    pub(super) adapter: Option<PresetAdapter>,
+    #[schemars(skip)]
+    pub(crate) adapter: Option<PresetAdapter>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(super) struct ResponseManifest {
-    pub(super) openai_compatible: Option<bool>,
-    pub(super) id_path: Option<String>,
-    pub(super) model_path: Option<String>,
-    pub(super) content_path: Option<String>,
-    pub(super) finish_reason_path: Option<String>,
-    pub(super) usage: UsageManifest,
+pub(crate) struct ResponseManifest {
+    pub(crate) openai_compatible: Option<bool>,
+    pub(crate) id_path: Option<String>,
+    pub(crate) model_path: Option<String>,
+    pub(crate) content_path: Option<String>,
+    pub(crate) finish_reason_path: Option<String>,
+    pub(crate) usage: UsageManifest,
 }
 
 impl ResponseManifest {
-    pub(super) fn apply_defaults(&mut self, defaults: Self) {
+    pub(crate) fn apply_defaults(&mut self, defaults: Self) {
         self.openai_compatible = self.openai_compatible.or(defaults.openai_compatible);
         self.id_path = self.id_path.take().or(defaults.id_path);
         self.model_path = self.model_path.take().or(defaults.model_path);
@@ -71,27 +73,27 @@ impl ResponseManifest {
         self.usage.apply_defaults(defaults.usage);
     }
 
-    pub(super) fn is_openai_compatible(&self) -> bool {
+    pub(crate) fn is_openai_compatible(&self) -> bool {
         self.openai_compatible.unwrap_or(true)
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(super) struct StreamManifest {
-    pub(super) openai_compatible: Option<bool>,
-    pub(super) event_path: Option<String>,
-    pub(super) done: Vec<String>,
-    pub(super) id_path: Option<String>,
-    pub(super) model_path: Option<String>,
-    pub(super) role_path: Option<String>,
-    pub(super) content_path: Option<String>,
-    pub(super) finish_reason_path: Option<String>,
-    pub(super) usage: UsageManifest,
+pub(crate) struct StreamManifest {
+    pub(crate) openai_compatible: Option<bool>,
+    pub(crate) event_path: Option<String>,
+    pub(crate) done: Vec<String>,
+    pub(crate) id_path: Option<String>,
+    pub(crate) model_path: Option<String>,
+    pub(crate) role_path: Option<String>,
+    pub(crate) content_path: Option<String>,
+    pub(crate) finish_reason_path: Option<String>,
+    pub(crate) usage: UsageManifest,
 }
 
 impl StreamManifest {
-    pub(super) fn apply_defaults(&mut self, defaults: Self) {
+    pub(crate) fn apply_defaults(&mut self, defaults: Self) {
         self.openai_compatible = self.openai_compatible.or(defaults.openai_compatible);
         self.event_path = self.event_path.take().or(defaults.event_path);
         if self.done.is_empty() {
@@ -108,26 +110,26 @@ impl StreamManifest {
         self.usage.apply_defaults(defaults.usage);
     }
 
-    pub(super) fn is_openai_compatible(&self) -> bool {
+    pub(crate) fn is_openai_compatible(&self) -> bool {
         self.openai_compatible.unwrap_or(true)
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(super) struct UsageManifest {
-    pub(super) prompt_tokens_path: Option<String>,
-    pub(super) completion_tokens_path: Option<String>,
-    pub(super) total_tokens_path: Option<String>,
-    pub(super) cached_tokens_path: Option<String>,
-    pub(super) output_only_completion_tokens: bool,
+pub(crate) struct UsageManifest {
+    pub(crate) prompt_tokens_path: Option<String>,
+    pub(crate) completion_tokens_path: Option<String>,
+    pub(crate) total_tokens_path: Option<String>,
+    pub(crate) cached_tokens_path: Option<String>,
+    pub(crate) output_only_completion_tokens: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct ExtractedUsage {
-    pub(super) usage: Usage,
-    pub(super) completion_present: bool,
-    pub(super) total_present: bool,
+pub(crate) struct ExtractedUsage {
+    pub(crate) usage: Usage,
+    pub(crate) completion_present: bool,
+    pub(crate) total_present: bool,
 }
 
 impl UsageManifest {
@@ -148,7 +150,7 @@ impl UsageManifest {
         self.output_only_completion_tokens |= defaults.output_only_completion_tokens;
     }
 
-    pub(super) fn extract(&self, value: &Value) -> Usage {
+    pub(crate) fn extract(&self, value: &Value) -> Usage {
         self.extract_with_presence(value).usage
     }
 
@@ -190,7 +192,7 @@ impl UsageManifest {
         }
     }
 
-    pub(super) fn extract_optional(&self, value: &Value) -> Option<ExtractedUsage> {
+    pub(crate) fn extract_optional(&self, value: &Value) -> Option<ExtractedUsage> {
         let usage = self.extract_with_presence(value);
         (usage.usage.prompt_tokens > 0
             || usage.usage.completion_tokens > 0
@@ -200,18 +202,18 @@ impl UsageManifest {
 }
 
 #[derive(Debug)]
-pub(super) struct ProviderPresetSpec {
-    pub(super) chat_path: String,
-    pub(super) headers: Map<String, Value>,
-    pub(super) body: Option<Value>,
-    pub(super) stream_path: Option<String>,
-    pub(super) response: ResponseManifest,
-    pub(super) stream: StreamManifest,
-    pub(super) adapter: Option<PresetAdapter>,
+pub(crate) struct ProviderPresetSpec {
+    pub(crate) chat_path: String,
+    pub(crate) headers: Map<String, Value>,
+    pub(crate) body: Option<Value>,
+    pub(crate) stream_path: Option<String>,
+    pub(crate) response: ResponseManifest,
+    pub(crate) stream: StreamManifest,
+    pub(crate) adapter: Option<PresetAdapter>,
 }
 
 impl ProviderPresetSpec {
-    pub(super) fn for_kind(
+    pub(crate) fn for_kind(
         kind: ProviderPresetKind,
         base_url: &str,
         api_version: Option<&str>,
