@@ -9,7 +9,7 @@
 use chrono::Utc;
 use gate_auth::AuthContext;
 use gate_auth::context::Subject;
-use gate_billing::{OutboxRepo, PricingRepo, UsageEvent, compute_cost_micros};
+use gate_billing::{CostContext, OutboxRepo, PricingRepo, UsageEvent, compute_cost};
 use gate_providers::Usage;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -77,9 +77,9 @@ pub async fn emit_usage(
     };
 
     let now = Utc::now();
-    let pricing_row = match pricing.find_for(ctx.channel_id, &ctx.model, now).await {
-        Ok(Some(p)) => p,
-        Ok(None) => {
+    let pricing_rules = match pricing.find_rules(ctx.channel_id, &ctx.model, now).await {
+        Ok(rules) if !rules.is_empty() => rules,
+        Ok(_) => {
             crate::metrics::record_billing_settle_failure("pricing_miss");
             tracing::warn!(
                 api_key_id = %ctx.api_key_id,
@@ -101,7 +101,7 @@ pub async fn emit_usage(
         }
     };
 
-    let cost_micros = compute_cost_micros(&usage, &pricing_row);
+    let cost_micros = compute_cost(&cost_context_from_usage(&usage), &pricing_rules);
 
     let event = UsageEvent {
         request_id: ctx.request_id,
@@ -114,6 +114,10 @@ pub async fn emit_usage(
         prompt_tokens: usage.prompt_tokens as i32,
         completion_tokens: usage.completion_tokens as i32,
         cached_tokens: usage.cached_tokens as i32,
+        reasoning_tokens: usage.reasoning_tokens.unwrap_or_default() as i32,
+        image_units: usage.image_units.unwrap_or_default() as i32,
+        audio_seconds: usage.audio_seconds.unwrap_or_default(),
+        raw_usage: usage.raw.clone(),
         cost_micros,
         occurred_at: now,
         status,
@@ -123,4 +127,16 @@ pub async fn emit_usage(
         crate::metrics::record_billing_settle_failure("outbox_enqueue");
         tracing::warn!(error = %e, "billing outbox enqueue failed");
     }
+}
+
+fn cost_context_from_usage(usage: &Usage) -> CostContext {
+    let mut ctx = CostContext::from_tokens(
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        usage.cached_tokens,
+    );
+    ctx.reasoning_tokens = usage.reasoning_tokens.unwrap_or_default();
+    ctx.images_generated = usage.image_units.unwrap_or_default();
+    ctx.audio_minutes = usage.audio_seconds.unwrap_or_default() / 60.0;
+    ctx
 }

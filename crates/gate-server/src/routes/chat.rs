@@ -175,9 +175,9 @@ async fn chat_completions(
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
         let wrapped = upstream.inspect(move |item| {
             if let Ok(chunk) = item
-                && let Some(u) = chunk.usage
+                && let Some(u) = &chunk.usage
             {
-                *captured_clone.lock() = Some(u);
+                *captured_clone.lock() = Some(u.clone());
             }
         });
 
@@ -195,7 +195,7 @@ async fn chat_completions(
             if let (Some(rl), Some(ch_id)) = (&rate_limiter_for_tpm, tpm_channel_id)
                 && let Some(ref u) = usage
             {
-                let total_tokens = u.prompt_tokens + u.completion_tokens;
+                let total_tokens = metered_tokens(u);
                 rl.record_tokens(ch_id, total_tokens).await;
                 crate::metrics::record_tokens(
                     &model,
@@ -318,7 +318,7 @@ async fn chat_completions(
 
         // 记录 token 消耗到 per-channel TPM 计数器
         if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
-            let total_tokens = resp.usage.prompt_tokens + resp.usage.completion_tokens;
+            let total_tokens = metered_tokens(&resp.usage);
             let rl = router.rate_limiter();
             let ch_id = ChannelId::from(ch_uuid);
             rl.record_tokens(ch_id, total_tokens).await;
@@ -336,7 +336,7 @@ async fn chat_completions(
 
         // 非流式：response 立刻拿到 usage，spawn 一个 task 推 outbox（不阻塞返回）
         if let Some(bctx) = billing_ctx {
-            let usage = resp.usage;
+            let usage = resp.usage.clone();
             let outbox = app.outbox.clone();
             let pricing = app.pricing.clone();
             tokio::spawn(async move {
@@ -345,6 +345,12 @@ async fn chat_completions(
         }
         Ok(Json(resp).into_response())
     }
+}
+
+fn metered_tokens(usage: &Usage) -> u32 {
+    usage
+        .total_tokens
+        .max(usage.prompt_tokens.saturating_add(usage.completion_tokens))
 }
 
 /// 按 subject 类型解析 project_id，再经 ProviderRouter 选 Provider。

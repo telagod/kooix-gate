@@ -96,3 +96,23 @@ cargo test -p gate-providers plugin -- --nocapture
 cargo test -p gate-server --test c1_routing plugin_manifest_channel_model_mapping_rewrites_deployment_path -- --nocapture
 cargo test -p gate-server --test c1_routing full_chain_rewrites_model_from_alias_and_channel_mapping -- --nocapture
 ```
+
+## Plugin Response / Usage Mapping
+
+本轮把 P1.1.4 的非流式 response / usage 映射收口为稳定 evaluator 与可对账响应字段：
+
+- 字段路径从简单 dot path 扩展为 `nested.object`、`array.0.index`、`path.a|path.b|default:<json>` first non-null fallback。
+- 非流式 response 新增 `reasoning_content_path`、`tool_calls_path`、`request_id_path`、`metadata_path`；`request_id` 与 `upstream_metadata` 会保留在 `ChatResponse`，便于日志 / replay / vendor 对账。
+- Usage 新增 `reasoning_tokens_path`、`image_units_path`、`audio_seconds_path`、`raw_path`；`raw_path` 保存 vendor 原始 usage metadata。
+- 字段缺失按 0 / fallback 处理；usage 类型不匹配会返回 decode error，避免静默错计费。
+- pricing 管理页维度改为后端 `pricing_rules` 实际消费的维度名：`per_image`、`per_minute_audio`、`reasoning_tokens` 等，避免 UI 写入旧维度后计费引擎无法匹配。
+- Billing emit 改为直接读取 `pricing_rules` 并用 `compute_cost(CostContext, rules)`，不再只走 legacy `ModelPricing` 的 input/output/cached 三列；reasoning/image/audio 映射出来后可被同名 pricing dimension 消费。
+
+验证命令：
+
+```bash
+cargo test -p gate-providers response_mapping -- --nocapture
+cargo test -p gate-providers plugin_maps_response_paths_fallback_tool_calls_metadata_and_usage_units -- --nocapture
+cargo test -p gate-server --test billing_e2e non_stream_usage_event_keeps_raw_and_multimodal_cost_dimensions -- --nocapture
+cargo check -p gate-server
+```

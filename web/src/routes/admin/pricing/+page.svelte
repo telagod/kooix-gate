@@ -30,8 +30,37 @@
 
 	let deletingId = $state('');
 
-	const dimensions = ['input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_tokens', 'images_generated', 'audio_seconds_in', 'tts_characters'];
-	const units = ['per_million', 'per_unit', 'per_second', 'per_character', 'per_image'];
+	const dimensions = [
+		'input_tokens',
+		'output_tokens',
+		'cached_input_tokens',
+		'cache_write_tokens',
+		'reasoning_tokens',
+		'audio_input_tokens',
+		'audio_output_tokens',
+		'image_input_tokens',
+		'image_output_tokens',
+		'per_image',
+		'per_minute_audio',
+		'per_character_tts',
+		'per_second_video',
+		'per_search',
+		'per_request',
+		'batch_multiplier',
+		'priority_multiplier',
+		'region_multiplier'
+	];
+	const units = [
+		'per_million_tokens',
+		'per_million_characters',
+		'per_image',
+		'per_minute',
+		'per_second',
+		'per_character',
+		'per_search',
+		'per_request',
+		'multiplier'
+	];
 	const dimensionOptions = dimensions.map((value) => ({ value, label: value }));
 	const unitOptions = units.map((value) => ({ value, label: value }));
 

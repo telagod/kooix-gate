@@ -144,6 +144,35 @@ fn compute_cost_micros_large_volume_no_overflow() {
     assert_eq!(cost, 9_000_000_000);
 }
 
+#[test]
+fn compute_cost_micros_includes_cached_discount_and_ignores_unpriced_multimodal() {
+    let pricing = ModelPricing {
+        channel_id: None,
+        model: "private-multimodal".into(),
+        input_per_million: 1.0,
+        output_per_million: 2.0,
+        cached_input_per_million: Some(0.25),
+        effective_from: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+        effective_until: None,
+    };
+    let usage = Usage {
+        prompt_tokens: 1000,
+        completion_tokens: 100,
+        total_tokens: 1100,
+        cached_tokens: 400,
+        reasoning_tokens: Some(50),
+        image_units: Some(2),
+        audio_seconds: Some(90.0),
+        ..Default::default()
+    };
+
+    // input uncached: 600 * $1/M = 600 micros
+    // cached input: 400 * $0.25/M = 100 micros
+    // output: 100 * $2/M = 200 micros
+    // multimodal dimensions are preserved on Usage, but legacy ModelPricing has no rates for them.
+    assert_eq!(compute_cost_micros(&usage, &pricing), 900);
+}
+
 // ============================================================================
 // InMemoryPricingRepo — 纯内存语义
 // ============================================================================

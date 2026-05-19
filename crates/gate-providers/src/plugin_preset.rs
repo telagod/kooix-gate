@@ -1,6 +1,6 @@
 //! Built-in provider presets for the runtime HTTP plugin.
 
-use crate::error::ProviderResult;
+use crate::error::{ProviderError, ProviderResult};
 use crate::types::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,11 @@ pub(crate) struct ResponseManifest {
     pub(crate) id_path: Option<String>,
     pub(crate) model_path: Option<String>,
     pub(crate) content_path: Option<String>,
+    pub(crate) reasoning_content_path: Option<String>,
+    pub(crate) tool_calls_path: Option<String>,
     pub(crate) finish_reason_path: Option<String>,
+    pub(crate) request_id_path: Option<String>,
+    pub(crate) metadata_path: Option<String>,
     pub(crate) usage: UsageManifest,
 }
 
@@ -66,10 +70,17 @@ impl ResponseManifest {
         self.id_path = self.id_path.take().or(defaults.id_path);
         self.model_path = self.model_path.take().or(defaults.model_path);
         self.content_path = self.content_path.take().or(defaults.content_path);
+        self.reasoning_content_path = self
+            .reasoning_content_path
+            .take()
+            .or(defaults.reasoning_content_path);
+        self.tool_calls_path = self.tool_calls_path.take().or(defaults.tool_calls_path);
         self.finish_reason_path = self
             .finish_reason_path
             .take()
             .or(defaults.finish_reason_path);
+        self.request_id_path = self.request_id_path.take().or(defaults.request_id_path);
+        self.metadata_path = self.metadata_path.take().or(defaults.metadata_path);
         self.usage.apply_defaults(defaults.usage);
     }
 
@@ -122,10 +133,14 @@ pub(crate) struct UsageManifest {
     pub(crate) completion_tokens_path: Option<String>,
     pub(crate) total_tokens_path: Option<String>,
     pub(crate) cached_tokens_path: Option<String>,
+    pub(crate) reasoning_tokens_path: Option<String>,
+    pub(crate) image_units_path: Option<String>,
+    pub(crate) audio_seconds_path: Option<String>,
+    pub(crate) raw_path: Option<String>,
     pub(crate) output_only_completion_tokens: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct ExtractedUsage {
     pub(crate) usage: Usage,
     pub(crate) completion_present: bool,
@@ -147,57 +162,91 @@ impl UsageManifest {
             .cached_tokens_path
             .take()
             .or(defaults.cached_tokens_path);
+        self.reasoning_tokens_path = self
+            .reasoning_tokens_path
+            .take()
+            .or(defaults.reasoning_tokens_path);
+        self.image_units_path = self.image_units_path.take().or(defaults.image_units_path);
+        self.audio_seconds_path = self
+            .audio_seconds_path
+            .take()
+            .or(defaults.audio_seconds_path);
+        self.raw_path = self.raw_path.take().or(defaults.raw_path);
         self.output_only_completion_tokens |= defaults.output_only_completion_tokens;
     }
 
-    pub(crate) fn extract(&self, value: &Value) -> Usage {
-        self.extract_with_presence(value).usage
+    pub(crate) fn extract(&self, value: &Value) -> ProviderResult<Usage> {
+        Ok(self.extract_with_presence(value)?.usage)
     }
 
-    fn extract_with_presence(&self, value: &Value) -> ExtractedUsage {
-        let prompt = self
-            .prompt_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32)
-            .unwrap_or_default();
-        let completion_raw = self
-            .completion_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32);
+    fn extract_with_presence(&self, value: &Value) -> ProviderResult<ExtractedUsage> {
+        let prompt = extract_u32(
+            value,
+            self.prompt_tokens_path.as_deref(),
+            "prompt_tokens_path",
+        )?
+        .unwrap_or_default();
+        let completion_raw = extract_u32(
+            value,
+            self.completion_tokens_path.as_deref(),
+            "completion_tokens_path",
+        )?;
         let completion = completion_raw.unwrap_or_default();
-        let total_raw = self
-            .total_tokens_path
-            .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32);
+        let total_raw = extract_u32(
+            value,
+            self.total_tokens_path.as_deref(),
+            "total_tokens_path",
+        )?;
         let total = total_raw.unwrap_or_else(|| prompt + completion);
-        let cached = self
-            .cached_tokens_path
+        let cached = extract_u32(
+            value,
+            self.cached_tokens_path.as_deref(),
+            "cached_tokens_path",
+        )?
+        .unwrap_or_default();
+        let reasoning_tokens = extract_u32(
+            value,
+            self.reasoning_tokens_path.as_deref(),
+            "reasoning_tokens_path",
+        )?;
+        let image_units = extract_u32(value, self.image_units_path.as_deref(), "image_units_path")?;
+        let audio_seconds = extract_f64(
+            value,
+            self.audio_seconds_path.as_deref(),
+            "audio_seconds_path",
+        )?;
+        let raw = self
+            .raw_path
             .as_deref()
-            .and_then(|p| get_path(value, p))
-            .and_then(value_to_u32)
-            .unwrap_or_default();
+            .and_then(|p| eval_path_value(value, p).ok().flatten());
 
-        ExtractedUsage {
+        Ok(ExtractedUsage {
             usage: Usage {
                 prompt_tokens: prompt,
                 completion_tokens: completion,
                 total_tokens: total,
                 cached_tokens: cached,
+                reasoning_tokens,
+                image_units,
+                audio_seconds,
+                raw,
             },
             completion_present: completion_raw.is_some(),
             total_present: total_raw.is_some(),
-        }
+        })
     }
 
-    pub(crate) fn extract_optional(&self, value: &Value) -> Option<ExtractedUsage> {
-        let usage = self.extract_with_presence(value);
-        (usage.usage.prompt_tokens > 0
+    pub(crate) fn extract_optional(&self, value: &Value) -> ProviderResult<Option<ExtractedUsage>> {
+        let usage = self.extract_with_presence(value)?;
+        Ok((usage.usage.prompt_tokens > 0
             || usage.usage.completion_tokens > 0
-            || usage.usage.total_tokens > 0)
-            .then_some(usage)
+            || usage.usage.total_tokens > 0
+            || usage.usage.cached_tokens > 0
+            || usage.usage.reasoning_tokens.unwrap_or_default() > 0
+            || usage.usage.image_units.unwrap_or_default() > 0
+            || usage.usage.audio_seconds.unwrap_or_default() > 0.0
+            || usage.usage.raw.is_some())
+        .then_some(usage))
     }
 }
 
@@ -282,8 +331,11 @@ impl ProviderPresetSpec {
                     completion_tokens_path: Some("usage.outputTokens".to_string()),
                     total_tokens_path: Some("usage.totalTokens".to_string()),
                     cached_tokens_path: None,
+                    raw_path: Some("usage".to_string()),
                     output_only_completion_tokens: false,
+                    ..Default::default()
                 },
+                ..Default::default()
             },
             stream: StreamManifest {
                 openai_compatible: Some(false),
@@ -299,7 +351,9 @@ impl ProviderPresetSpec {
                     completion_tokens_path: Some("usage.outputTokens".to_string()),
                     total_tokens_path: Some("usage.totalTokens".to_string()),
                     cached_tokens_path: None,
+                    raw_path: Some("usage".to_string()),
                     output_only_completion_tokens: false,
+                    ..Default::default()
                 },
             },
             adapter: Some(PresetAdapter::BedrockConverse),
@@ -327,8 +381,11 @@ impl ProviderPresetSpec {
                     completion_tokens_path: Some("usage.output_tokens".to_string()),
                     total_tokens_path: None,
                     cached_tokens_path: Some("usage.cache_read_input_tokens".to_string()),
+                    raw_path: Some("usage".to_string()),
                     output_only_completion_tokens: false,
+                    ..Default::default()
                 },
+                ..Default::default()
             },
             stream: StreamManifest {
                 openai_compatible: Some(false),
@@ -344,7 +401,9 @@ impl ProviderPresetSpec {
                     completion_tokens_path: Some("usage.output_tokens".to_string()),
                     total_tokens_path: None,
                     cached_tokens_path: Some("message.usage.cache_read_input_tokens".to_string()),
+                    raw_path: Some("usage|message.usage".to_string()),
                     output_only_completion_tokens: true,
+                    ..Default::default()
                 },
             },
             adapter: Some(PresetAdapter::AnthropicMessages),
@@ -369,9 +428,19 @@ impl ProviderPresetSpec {
     }
 }
 
-fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+pub(crate) fn eval_path_value(value: &Value, expr: &str) -> ProviderResult<Option<Value>> {
+    for candidate in split_fallback(expr) {
+        match eval_path_candidate(value, candidate)? {
+            Some(v) if !is_null_value(v) => return Ok(Some(v.clone())),
+            Some(_) | None => {}
+        }
+    }
+    literal_default(expr)
+}
+
+fn eval_path_candidate<'a>(value: &'a Value, path: &str) -> ProviderResult<Option<&'a Value>> {
     if path.is_empty() || path == "." || path == "$" {
-        return Some(value);
+        return Ok(Some(value));
     }
     let mut cur = value;
     for segment in path.trim_start_matches("$.").split('.') {
@@ -379,18 +448,90 @@ fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
             continue;
         }
         cur = match cur {
-            Value::Object(map) => map.get(segment)?,
-            Value::Array(arr) => arr.get(segment.parse::<usize>().ok()?)?,
-            _ => return None,
+            Value::Object(map) => match map.get(segment) {
+                Some(value) => value,
+                None => return Ok(None),
+            },
+            Value::Array(arr) => {
+                let idx = segment.parse::<usize>().map_err(|_| {
+                    ProviderError::Config(format!(
+                        "invalid array index {segment:?} in path {path:?}"
+                    ))
+                })?;
+                match arr.get(idx) {
+                    Some(value) => value,
+                    None => return Ok(None),
+                }
+            }
+            _ => return Ok(None),
         };
     }
-    Some(cur)
+    Ok(Some(cur))
+}
+
+fn split_fallback(expr: &str) -> impl Iterator<Item = &str> {
+    expr.split('|')
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with("default:") && !s.starts_with("literal:"))
+}
+
+fn literal_default(expr: &str) -> ProviderResult<Option<Value>> {
+    let default = expr.split('|').map(str::trim).find_map(|part| {
+        part.strip_prefix("default:")
+            .or_else(|| part.strip_prefix("literal:"))
+            .map(str::trim)
+    });
+    let Some(default) = default else {
+        return Ok(None);
+    };
+    let value = serde_json::from_str(default)
+        .map_err(|e| ProviderError::Config(format!("invalid literal default {default:?}: {e}")))?;
+    Ok(Some(value))
+}
+
+fn is_null_value(value: &Value) -> bool {
+    matches!(value, Value::Null)
+}
+
+fn extract_u32(value: &Value, path: Option<&str>, field: &str) -> ProviderResult<Option<u32>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let Some(value) = eval_path_value(value, path)? else {
+        return Ok(None);
+    };
+    value_to_u32(&value)
+        .ok_or_else(|| {
+            ProviderError::Decode(format!(
+                "plugin usage {field} at {path:?} is not an unsigned integer"
+            ))
+        })
+        .map(Some)
+}
+
+fn extract_f64(value: &Value, path: Option<&str>, field: &str) -> ProviderResult<Option<f64>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let Some(value) = eval_path_value(value, path)? else {
+        return Ok(None);
+    };
+    value_to_f64(&value)
+        .ok_or_else(|| {
+            ProviderError::Decode(format!("plugin usage {field} at {path:?} is not a number"))
+        })
+        .map(Some)
 }
 
 fn value_to_u32(v: &Value) -> Option<u32> {
     v.as_u64()
         .and_then(|n| u32::try_from(n).ok())
         .or_else(|| v.as_str().and_then(|s| s.parse::<u32>().ok()))
+}
+
+fn value_to_f64(v: &Value) -> Option<f64> {
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
 }
 
 pub(super) fn adapt_chat_request(

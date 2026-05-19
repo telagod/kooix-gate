@@ -376,6 +376,7 @@ impl PluginManifest {
                 &json_pointer(pointer_base, "/request/body"),
             )?;
         }
+        validate_response_paths(&self.response, &json_pointer(pointer_base, "/response"))?;
         self.security.validate(pointer_base)
     }
 }
@@ -797,6 +798,95 @@ fn validate_auth(auth: &AuthManifest, pointer_base: &str) -> ProviderResult<()> 
     reject_plain_secret_strings(auth, pointer_base)
 }
 
+fn validate_response_paths(response: &ResponseManifest, pointer: &str) -> ProviderResult<()> {
+    for (suffix, path) in [
+        ("/id_path", response.id_path.as_deref()),
+        ("/model_path", response.model_path.as_deref()),
+        ("/content_path", response.content_path.as_deref()),
+        (
+            "/reasoning_content_path",
+            response.reasoning_content_path.as_deref(),
+        ),
+        ("/tool_calls_path", response.tool_calls_path.as_deref()),
+        (
+            "/finish_reason_path",
+            response.finish_reason_path.as_deref(),
+        ),
+        ("/request_id_path", response.request_id_path.as_deref()),
+        ("/metadata_path", response.metadata_path.as_deref()),
+        (
+            "/usage/prompt_tokens_path",
+            response.usage.prompt_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/completion_tokens_path",
+            response.usage.completion_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/total_tokens_path",
+            response.usage.total_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/cached_tokens_path",
+            response.usage.cached_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/reasoning_tokens_path",
+            response.usage.reasoning_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/image_units_path",
+            response.usage.image_units_path.as_deref(),
+        ),
+        (
+            "/usage/audio_seconds_path",
+            response.usage.audio_seconds_path.as_deref(),
+        ),
+        ("/usage/raw_path", response.usage.raw_path.as_deref()),
+    ] {
+        if let Some(path) = path {
+            validate_mapping_path(path, &json_pointer(pointer, suffix))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_mapping_path(expr: &str, pointer: &str) -> ProviderResult<()> {
+    let mut has_path = false;
+    let mut has_default = false;
+    for segment in expr.split('|').map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(literal) = segment
+            .strip_prefix("default:")
+            .or_else(|| segment.strip_prefix("literal:"))
+        {
+            has_default = true;
+            serde_json::from_str::<Value>(literal.trim()).map_err(|e| {
+                ProviderError::Config(format!(
+                    "invalid plugin manifest at {pointer}: invalid literal default {literal:?}: {e}"
+                ))
+            })?;
+            continue;
+        }
+        has_path = true;
+        for part in segment.trim_start_matches("$.").split('.') {
+            if part.is_empty() {
+                continue;
+            }
+            if part.contains('[') || part.contains(']') {
+                return Err(ProviderError::Config(format!(
+                    "invalid plugin manifest at {pointer}: use dot array indexes like choices.0.message.content"
+                )));
+            }
+        }
+    }
+    if !has_path && !has_default {
+        return Err(ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: mapping path cannot be empty"
+        )));
+    }
+    Ok(())
+}
+
 fn header_belongs_to_auth(auth: &AuthManifest, header: &str) -> bool {
     auth.header_name()
         .is_some_and(|name| name.eq_ignore_ascii_case(header))
@@ -1165,6 +1255,71 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("unsupported template variable {{messages}}"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn response_mapping_accepts_fallback_defaults_and_multimodal_usage_paths() {
+        let manifest = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "response": {
+                        "openai_compatible": false,
+                        "id_path": "missing.id|trace.request_id|default:\"local\"",
+                        "model_path": "result.0.model",
+                        "content_path": "result.0.text",
+                        "reasoning_content_path": "result.0.reasoning",
+                        "tool_calls_path": "result.0.tool_calls",
+                        "finish_reason_path": "result.0.finish",
+                        "request_id_path": "trace.request_id",
+                        "metadata_path": "vendor",
+                        "usage": {
+                            "prompt_tokens_path": "usage.input",
+                            "completion_tokens_path": "usage.output",
+                            "total_tokens_path": "usage.total|default:0",
+                            "cached_tokens_path": "usage.cached",
+                            "reasoning_tokens_path": "usage.reasoning",
+                            "image_units_path": "usage.images",
+                            "audio_seconds_path": "usage.audio_seconds",
+                            "raw_path": "usage"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap();
+
+        assert_eq!(
+            manifest.response.request_id_path.as_deref(),
+            Some("trace.request_id")
+        );
+        assert_eq!(
+            manifest.response.usage.image_units_path.as_deref(),
+            Some("usage.images")
+        );
+    }
+
+    #[test]
+    fn response_mapping_rejects_bracket_array_index() {
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "response": {
+                        "openai_compatible": false,
+                        "content_path": "choices[0].message.content"
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("use dot array indexes"),
             "err={err}"
         );
     }

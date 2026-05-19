@@ -31,6 +31,18 @@ pub struct UsageEvent {
     /// 缓存命中 token 数
     #[serde(default)]
     pub cached_tokens: i32,
+    /// 推理 token 数（仍主要用于 ledger metadata；旧 usage_records 投影暂不单列）
+    #[serde(default)]
+    pub reasoning_tokens: i32,
+    /// 图片生成单位数（仍主要用于 ledger metadata；旧 usage_records 投影暂不单列）
+    #[serde(default)]
+    pub image_units: i32,
+    /// 音频秒数（仍主要用于 ledger metadata；旧 usage_records 投影暂不单列）
+    #[serde(default)]
+    pub audio_seconds: f64,
+    /// 上游原始 usage metadata，便于对账与排障。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_usage: Option<serde_json::Value>,
     /// 费用（微美元，1 USD = 1_000_000 cost_micros）
     pub cost_micros: i64,
     /// 事件发生时间

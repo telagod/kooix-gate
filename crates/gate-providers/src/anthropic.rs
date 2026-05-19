@@ -322,7 +322,15 @@ fn from_anthropic_response(resp: AnthropicResponse) -> ChatResponse {
             completion_tokens: resp.usage.output_tokens,
             total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
             cached_tokens: resp.usage.cache_read_input_tokens,
+            raw: Some(serde_json::json!({
+                "input_tokens": resp.usage.input_tokens,
+                "output_tokens": resp.usage.output_tokens,
+                "cache_read_input_tokens": resp.usage.cache_read_input_tokens
+            })),
+            ..Default::default()
         },
+        request_id: None,
+        upstream_metadata: None,
     }
 }
 
@@ -636,6 +644,12 @@ fn drain_anthropic_events(
                     completion_tokens: u.output_tokens,
                     total_tokens: st.input_tokens + u.output_tokens,
                     cached_tokens: st.cached_tokens,
+                    raw: Some(serde_json::json!({
+                        "input_tokens": st.input_tokens,
+                        "output_tokens": u.output_tokens,
+                        "cache_read_input_tokens": st.cached_tokens
+                    })),
+                    ..Default::default()
                 });
                 out.push(Ok(ChatStreamChunk {
                     id: st.id.clone(),

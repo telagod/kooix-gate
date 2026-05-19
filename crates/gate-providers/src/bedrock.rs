@@ -242,8 +242,15 @@ impl Provider for BedrockProvider {
                 prompt_tokens: parsed.usage.input_tokens,
                 completion_tokens: parsed.usage.output_tokens,
                 total_tokens: parsed.usage.total_tokens,
+                raw: Some(serde_json::json!({
+                    "inputTokens": parsed.usage.input_tokens,
+                    "outputTokens": parsed.usage.output_tokens,
+                    "totalTokens": parsed.usage.total_tokens
+                })),
                 ..Default::default()
             },
+            request_id: None,
+            upstream_metadata: None,
         })
     }
 

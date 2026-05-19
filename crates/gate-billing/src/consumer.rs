@@ -267,6 +267,10 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
         "tokens_in": event.prompt_tokens,
         "tokens_out": event.completion_tokens,
         "tokens_cached": event.cached_tokens,
+        "reasoning_tokens": event.reasoning_tokens,
+        "image_units": event.image_units,
+        "audio_seconds": event.audio_seconds,
+        "raw_usage": event.raw_usage,
         "status": event.status,
     }))
     .execute(&mut *tx)

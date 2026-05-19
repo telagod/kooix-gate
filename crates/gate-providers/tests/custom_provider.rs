@@ -83,6 +83,109 @@ async fn plugin_maps_private_non_stream_request_and_response() {
 }
 
 #[tokio::test]
+async fn plugin_maps_response_paths_fallback_tool_calls_metadata_and_usage_units() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "trace": { "request_id": "up-req-42" },
+            "result": {
+                "alternatives": [
+                    {
+                        "model_name": null,
+                        "native_model": "private-native",
+                        "answer": {
+                            "reasoning": "思路",
+                            "text": "结果"
+                        },
+                        "finish": "tool_use",
+                        "toolCalls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup",
+                                    "arguments": "{\"q\":\"x\"}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "stats": {
+                "input": "11",
+                "output": 3,
+                "cached": 2,
+                "reasoning": 5,
+                "images": 1,
+                "audio_seconds": "1.25"
+            },
+            "vendor": {
+                "region": "moon-1",
+                "usage": { "opaque": true }
+            }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "secret-key",
+        json!({
+            "plugin": {
+                "request": { "chat_path": "/private/chat" },
+                "response": {
+                    "openai_compatible": false,
+                    "id_path": "missing.id|trace.request_id|default:\"fallback-id\"",
+                    "model_path": "result.alternatives.0.model_name|result.alternatives.0.native_model",
+                    "content_path": "result.alternatives.0.answer.text",
+                    "reasoning_content_path": "result.alternatives.0.answer.reasoning",
+                    "tool_calls_path": "result.alternatives.0.toolCalls",
+                    "finish_reason_path": "result.alternatives.0.finish",
+                    "request_id_path": "trace.request_id",
+                    "metadata_path": "vendor",
+                    "usage": {
+                        "prompt_tokens_path": "stats.input",
+                        "completion_tokens_path": "stats.output",
+                        "total_tokens_path": "stats.total|default:14",
+                        "cached_tokens_path": "stats.cached",
+                        "reasoning_tokens_path": "stats.reasoning",
+                        "image_units_path": "stats.images",
+                        "audio_seconds_path": "stats.audio_seconds",
+                        "raw_path": "stats"
+                    }
+                }
+            }
+        }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(resp.id, "up-req-42");
+    assert_eq!(resp.model, "private-native");
+    assert_eq!(resp.request_id.as_deref(), Some("up-req-42"));
+    assert_eq!(resp.upstream_metadata.as_ref().unwrap()["region"], "moon-1");
+    assert_eq!(resp.choices[0].message.content_text(), "思路\n结果");
+    assert_eq!(
+        resp.choices[0].message.tool_calls.as_ref().unwrap()[0].id,
+        "call_1"
+    );
+    assert_eq!(
+        resp.choices[0].finish_reason,
+        Some(gate_providers::FinishReason::ToolCalls)
+    );
+    assert_eq!(resp.usage.prompt_tokens, 11);
+    assert_eq!(resp.usage.completion_tokens, 3);
+    assert_eq!(resp.usage.total_tokens, 14);
+    assert_eq!(resp.usage.cached_tokens, 2);
+    assert_eq!(resp.usage.reasoning_tokens, Some(5));
+    assert_eq!(resp.usage.image_units, Some(1));
+    assert_eq!(resp.usage.audio_seconds, Some(1.25));
+    assert_eq!(resp.usage.raw.as_ref().unwrap()["reasoning"], 5);
+}
+
+#[tokio::test]
 async fn plugin_normalizes_private_sse_stream() {
     let upstream = MockServer::start().await;
     let sse = concat!(
@@ -145,7 +248,7 @@ async fn plugin_normalizes_private_sse_stream() {
             finish = chunk.choices[0].finish_reason;
         }
         if chunk.usage.is_some() {
-            usage = chunk.usage;
+            usage = chunk.usage.clone();
         }
     }
 
@@ -198,7 +301,7 @@ async fn preset_openai_compatible_posts_normalized_request_and_streams_usage() {
             content.push_str(c);
         }
         if chunk.usage.is_some() {
-            usage = chunk.usage;
+            usage = chunk.usage.clone();
         }
     }
 

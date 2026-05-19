@@ -339,12 +339,20 @@ v1 固定以下分区：
       "id_path": "request.id",
       "model_path": "result.model",
       "content_path": "result.text",
+      "reasoning_content_path": "result.reasoning",
+      "tool_calls_path": "result.tool_calls",
       "finish_reason_path": "result.finish",
+      "request_id_path": "request.id",
+      "metadata_path": "vendor",
       "usage": {
         "prompt_tokens_path": "usage.input",
         "completion_tokens_path": "usage.output",
         "total_tokens_path": "usage.total",
-        "cached_tokens_path": "usage.cache_read"
+        "cached_tokens_path": "usage.cache_read",
+        "reasoning_tokens_path": "usage.reasoning",
+        "image_units_path": "usage.images",
+        "audio_seconds_path": "usage.audio_seconds",
+        "raw_path": "usage"
       }
     }
   }
@@ -355,8 +363,16 @@ Path 规则：
 
 - `a.b.c` 读取 nested object。
 - `choices.0.message.content` 支持 array index。
+- `foo.bar|fallback.path|default:""` 表示 first non-null fallback，`default:` / `literal:` 后面必须是合法 JSON literal。
 - `.` / `$` 表示整个对象。
-- 缺失字段会回退默认值；usage 缺失时按 0 处理。
+- 缺失字段会回退默认值；usage 缺失时按 0 处理，类型不匹配会作为上游 decode error 暴露。
+
+字段语义：
+
+- `reasoning_content_path` 会与 `content_path` 合并到 assistant message 文本里，保持 OpenAI-compatible response shape。
+- `tool_calls_path` 必须能反序列化为 OpenAI-compatible `tool_calls` 数组。
+- `request_id_path` / `metadata_path` 透传为 `request_id` / `upstream_metadata`，用于日志、replay 与供应商对账。
+- `usage.raw_path` 会把 vendor 原始 usage metadata 保留在 response usage 的 `raw` 字段；`image_units_path`、`audio_seconds_path` 暂先进入响应与定价上下文，旧 `usage_records` 投影仍只保存 token / cache / cost。
 
 `finish_reason` 会归一：`stop` / `stopped` / `stop_sequence` / `end_turn` / `done` → `stop`；`max_tokens` → `length`；`tool_use` → `tool_calls`；`safety` → `content_filter`。
 

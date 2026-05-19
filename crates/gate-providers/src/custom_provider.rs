@@ -10,7 +10,7 @@ use crate::openai::check_status;
 use crate::plugin_manifest::{
     AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest, RequestMethod, SignatureEncoding,
 };
-use crate::plugin_preset::{StreamManifest, adapt_chat_request};
+use crate::plugin_preset::{StreamManifest, adapt_chat_request, eval_path_value};
 use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
 use async_trait::async_trait;
@@ -684,49 +684,75 @@ impl CustomHttpProvider {
             return Ok(serde_json::from_value(value)?);
         }
 
-        let id = self
-            .manifest
-            .response
+        let response = &self.manifest.response;
+        let id = response
             .id_path
             .as_deref()
-            .and_then(|p| get_path(&value, p))
-            .and_then(value_to_string)
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v))
             .unwrap_or_else(|| format!("chatcmpl-{}", uuid::Uuid::now_v7()));
-        let model = self
-            .manifest
-            .response
+        let model = response
             .model_path
             .as_deref()
-            .and_then(|p| get_path(&value, p))
-            .and_then(value_to_string)
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v))
             .unwrap_or_else(|| requested_model.to_string());
-        let content = self
-            .manifest
-            .response
+        let content = response
             .content_path
             .as_deref()
-            .and_then(|p| get_path(&value, p))
-            .and_then(value_to_string)
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v))
             .unwrap_or_default();
-        let finish_reason = self
-            .manifest
-            .response
+        let reasoning_content = response
+            .reasoning_content_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v));
+        let finish_reason = response
             .finish_reason_path
             .as_deref()
-            .and_then(|p| get_path(&value, p))
-            .and_then(value_to_string)
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v))
             .and_then(|s| map_finish_reason(&s));
-        let usage = self.manifest.response.usage.extract(&value);
+        let tool_calls = response
+            .tool_calls_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .map(serde_json::from_value::<Vec<ToolCall>>)
+            .transpose()?;
+        let request_id = response
+            .request_id_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v));
+        let upstream_metadata = response
+            .metadata_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten());
+        let usage = response.usage.extract(&value)?;
+        let content = merge_reasoning_content(content, reasoning_content);
 
         Ok(ChatResponse {
             id,
             model,
             choices: vec![ChatChoice {
                 index: 0,
-                message: ChatMessage::text(Role::Assistant, content),
+                message: ChatMessage {
+                    role: Role::Assistant,
+                    content: if content.is_empty() {
+                        None
+                    } else {
+                        Some(MessageContent::Text(content))
+                    },
+                    name: None,
+                    tool_calls,
+                    tool_call_id: None,
+                },
                 finish_reason,
             }],
             usage,
+            request_id,
+            upstream_metadata,
         })
     }
 }
@@ -944,15 +970,15 @@ fn map_plugin_event(
         .and_then(|p| get_path(event_value, p))
         .and_then(value_to_string)
         .and_then(|s| map_finish_reason(&s));
-    let usage = mapper
-        .stream
-        .usage
-        .extract_optional(event_value)
-        .and_then(|usage| {
+    let usage = match mapper.stream.usage.extract_optional(event_value) {
+        Ok(Some(usage)) => {
             let emit = usage.completion_present || usage.total_present || finish_reason.is_some();
             let merged = merge_usage_state(usage.usage, &mut st);
             emit.then_some(merged)
-        });
+        }
+        Ok(None) => None,
+        Err(e) => return Some(Err(e)),
+    };
 
     if role.is_none() && content.is_none() && finish_reason.is_none() && usage.is_none() {
         return None;
@@ -1008,6 +1034,20 @@ fn merge_usage_state(usage: Usage, state: &mut StreamState) -> Usage {
         completion_tokens,
         total_tokens,
         cached_tokens,
+        reasoning_tokens: usage.reasoning_tokens,
+        image_units: usage.image_units,
+        audio_seconds: usage.audio_seconds,
+        raw: usage.raw,
+    }
+}
+
+fn merge_reasoning_content(content: String, reasoning: Option<String>) -> String {
+    match (reasoning, content) {
+        (Some(reasoning), content) if !reasoning.is_empty() && !content.is_empty() => {
+            format!("{reasoning}\n{content}")
+        }
+        (Some(reasoning), _) if !reasoning.is_empty() => reasoning,
+        (_, content) => content,
     }
 }
 
@@ -2373,6 +2413,6 @@ mod tests {
         assert_eq!(chunks[1].choices[0].delta.content.as_deref(), Some("he"));
         assert_eq!(chunks[2].choices[0].delta.content.as_deref(), Some("llo"));
         assert_eq!(chunks[3].choices[0].finish_reason, Some(FinishReason::Stop));
-        assert_eq!(chunks[3].usage.unwrap().total_tokens, 5);
+        assert_eq!(chunks[3].usage.as_ref().unwrap().total_tokens, 5);
     }
 }

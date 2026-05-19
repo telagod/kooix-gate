@@ -269,12 +269,12 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
 
 #### P1.1.4 Response / Usage 字段映射
 
-- [ ] 字段抽取从简单 dot path 扩展为稳定 path evaluator：
+- [x] 字段抽取从简单 dot path 扩展为稳定 path evaluator：
   - nested object
   - array index
   - first non-null fallback
   - literal default
-- [ ] 非流式 response 映射：
+- [x] 非流式 response 映射：
   - id
   - model
   - content
@@ -282,7 +282,7 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - tool_calls
   - finish_reason
   - request_id / upstream metadata
-- [ ] Usage 归一：
+- [x] Usage 归一：
   - prompt tokens
   - completion tokens
   - total tokens
@@ -290,7 +290,7 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - image units
   - audio seconds
   - vendor 原始 usage metadata 保留。
-- [ ] 字段缺失时区分：可估算 / 不可计费 / 上游错误。
+- [x] 字段缺失时区分：可估算 / 不可计费 / 上游错误。
 
 #### P1.1.5 SSE normalizer 产品化
 

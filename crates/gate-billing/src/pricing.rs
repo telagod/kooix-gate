@@ -480,12 +480,15 @@ pub fn compute_cost(ctx: &CostContext, rules: &[PricingRule]) -> i64 {
 
 /// Legacy compat
 pub fn compute_cost_micros(usage: &gate_providers::Usage, pricing: &ModelPricing) -> i64 {
-    let ctx = CostContext::from_tokens(
+    let mut ctx = CostContext::from_tokens(
         usage.prompt_tokens,
         usage.completion_tokens,
         usage.cached_tokens,
     );
-    let rules = vec![
+    ctx.reasoning_tokens = usage.reasoning_tokens.unwrap_or_default();
+    ctx.images_generated = usage.image_units.unwrap_or_default();
+    ctx.audio_minutes = usage.audio_seconds.unwrap_or_default() / 60.0;
+    let mut rules = vec![
         PricingRule {
             id: Uuid::nil(),
             channel_id: pricing.channel_id,
@@ -513,6 +516,21 @@ pub fn compute_cost_micros(usage: &gate_providers::Usage, pricing: &ModelPricing
             description: None,
         },
     ];
+    if let Some(rate) = pricing.cached_input_per_million {
+        rules.push(PricingRule {
+            id: Uuid::nil(),
+            channel_id: pricing.channel_id,
+            model: pricing.model.clone(),
+            dimension: "cached_input_tokens".into(),
+            unit: "per_million_tokens".into(),
+            rate,
+            conditions: serde_json::json!({}),
+            effective_from: pricing.effective_from,
+            effective_until: pricing.effective_until,
+            priority: 0,
+            description: None,
+        });
+    }
     compute_cost(&ctx, &rules)
 }
 

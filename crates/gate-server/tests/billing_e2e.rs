@@ -4,14 +4,14 @@
 //! 验证：
 //! 1. 非流式 chat → outbox 里有 1 条 UsageEvent（cost_micros 正确）
 //! 2. 流式 chat → drain 完成后 outbox 里有 1 条 UsageEvent（用最后一帧 usage 算费）
-//! 3. 没挂 pricing → 不阻断，没事件入 outbox（warn-only）
+//! 3. 找不到匹配 pricing rules → 不阻断，没事件入 outbox（warn-only）
 //! 4. User 主体（非 ApiKey）→ 不计费（D4 阶段策略）
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Duration as ChronoDuration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
-use gate_billing::{InMemoryOutboxRepo, InMemoryPricingRepo, OutboxRepo, PricingRepo};
+use gate_billing::{InMemoryOutboxRepo, InMemoryPricingRepo, OutboxRepo, PricingRepo, PricingRule};
 use gate_core::id::{ApiKeyId, OrgId, ProjectId, UserId};
 use gate_providers::openai::OpenAiProvider;
 use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
@@ -28,6 +28,22 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const PLAINTEXT_KEY: &str = "sk-kg-test-billing-key-1234567890";
 
+fn pricing_rule(model: &str, dimension: &str, unit: &str, rate: f64) -> PricingRule {
+    PricingRule {
+        id: Uuid::now_v7(),
+        channel_id: None,
+        model: model.to_string(),
+        dimension: dimension.to_string(),
+        unit: unit.to_string(),
+        rate,
+        conditions: json!({}),
+        effective_from: chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap(),
+        effective_until: None,
+        priority: 0,
+        description: None,
+    }
+}
+
 struct Harness {
     router: axum::Router,
     outbox: Arc<InMemoryOutboxRepo>,
@@ -37,6 +53,18 @@ struct Harness {
 }
 
 async fn setup_with_billing(upstream: &MockServer, with_pricing: bool) -> Harness {
+    setup_with_pricing(upstream, |pricing| {
+        if with_pricing {
+            pricing.seed_global("gpt-4o-mini", 0.15, 0.60);
+        }
+    })
+    .await
+}
+
+async fn setup_with_pricing(
+    upstream: &MockServer,
+    seed_pricing: impl FnOnce(&Arc<InMemoryPricingRepo>),
+) -> Harness {
     let jwt = JwtIssuer::new(
         b"test-secret-32-bytes-minimum-ok!",
         "kg-test",
@@ -75,19 +103,14 @@ async fn setup_with_billing(upstream: &MockServer, with_pricing: bool) -> Harnes
 
     let provider = OpenAiProvider::new(format!("{}/v1", upstream.uri()), "test-key").unwrap();
 
-    // Pricing: gpt-4o-mini $0.15/M in, $0.60/M out
     let pricing = Arc::new(InMemoryPricingRepo::new());
-    if with_pricing {
-        pricing.seed_global("gpt-4o-mini", 0.15, 0.60);
-    }
+    seed_pricing(&pricing);
     let outbox = Arc::new(InMemoryOutboxRepo::new());
 
-    let mut state = AppState::new(jwt, loader, Repos::in_memory())
+    let state = AppState::new(jwt, loader, Repos::in_memory())
         .with_provider(provider)
-        .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>);
-    if with_pricing {
-        state = state.with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
-    }
+        .with_outbox(outbox.clone() as Arc<dyn OutboxRepo>)
+        .with_pricing(pricing.clone() as Arc<dyn PricingRepo>);
     let jwt_issuer = state.jwt.clone();
     let router = build_router(state);
     let (tok, _) = jwt_issuer
@@ -165,6 +188,100 @@ async fn non_stream_apikey_emits_one_usage_event() {
 }
 
 #[tokio::test]
+async fn non_stream_usage_event_keeps_raw_and_multimodal_cost_dimensions() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-mm-1",
+            "model": "private-mm",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "world" },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 100,
+                "total_tokens": 1100,
+                "cached_tokens": 400,
+                "reasoning_tokens": 50,
+                "image_units": 2,
+                "audio_seconds": 120,
+                "raw": { "vendor": "private", "meter": "m1" }
+            }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let h = setup_with_pricing(&upstream, |pricing| {
+        pricing.seed(pricing_rule(
+            "private-mm",
+            "input_tokens",
+            "per_million_tokens",
+            1.0,
+        ));
+        pricing.seed(pricing_rule(
+            "private-mm",
+            "output_tokens",
+            "per_million_tokens",
+            2.0,
+        ));
+        pricing.seed(pricing_rule(
+            "private-mm",
+            "cached_input_tokens",
+            "per_million_tokens",
+            0.25,
+        ));
+        pricing.seed(pricing_rule(
+            "private-mm",
+            "reasoning_tokens",
+            "per_million_tokens",
+            4.0,
+        ));
+        pricing.seed(pricing_rule("private-mm", "per_image", "per_image", 0.08));
+        pricing.seed(pricing_rule(
+            "private-mm",
+            "per_minute_audio",
+            "per_minute",
+            0.01,
+        ));
+    })
+    .await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", h.api_key_plain))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "private-mm",
+                "messages": [{"role": "user", "content": "Hi"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = h.router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let _ = resp.into_body().collect().await.unwrap();
+
+    yield_for_emit().await;
+
+    let events = h.outbox.snapshot();
+    assert_eq!(events.len(), 1);
+    let ev = &events[0];
+    assert_eq!(ev.reasoning_tokens, 50);
+    assert_eq!(ev.image_units, 2);
+    assert_eq!(ev.audio_seconds, 120.0);
+    assert_eq!(ev.raw_usage.as_ref().unwrap()["vendor"], "private");
+    // uncached input 600u @ $1/M = 600µ, cached 400u @ $0.25/M = 100µ,
+    // output 100u @ $2/M = 200µ, reasoning 50u @ $4/M = 200µ,
+    // images 2 * $0.08 = 160000µ, audio 2min * $0.01 = 20000µ.
+    assert_eq!(ev.cost_micros, 181100);
+}
+
+#[tokio::test]
 async fn stream_apikey_emits_one_usage_event_from_final_frame() {
     let upstream = MockServer::start().await;
     // 最后一帧带 usage（OpenAI include_usage=true 的行为）
@@ -222,7 +339,7 @@ async fn stream_apikey_emits_one_usage_event_from_final_frame() {
 }
 
 #[tokio::test]
-async fn no_pricing_means_no_billing_but_request_succeeds() {
+async fn empty_pricing_rules_mean_no_billing_but_request_succeeds() {
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
@@ -239,7 +356,7 @@ async fn no_pricing_means_no_billing_but_request_succeeds() {
         .mount(&upstream)
         .await;
 
-    // with_pricing=false → 没挂 pricing
+    // with_pricing=false → 挂空 pricing repo，模拟没有匹配 rules。
     let h = setup_with_billing(&upstream, false).await;
 
     let req = Request::builder()
@@ -260,7 +377,7 @@ async fn no_pricing_means_no_billing_but_request_succeeds() {
 
     yield_for_emit().await;
 
-    // pricing 未挂 → 没有 outbox 事件（warn-only）
+    // pricing rules 缺失 → 没有 outbox 事件（warn-only）
     let events = h.outbox.snapshot();
     assert!(
         events.is_empty(),
