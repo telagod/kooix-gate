@@ -28,7 +28,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use gate_auth::{AuthContext, Subject};
 use gate_cache::{QuotaCounter, RateLimiter};
-use gate_providers::{ChatRequest, EmbeddingInput, EmbeddingRequest};
+use gate_providers::{ChatRequest, EmbeddingInput, EmbeddingRequest, ImageGenerationRequest};
 use gate_storage::QuotaRecord;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -381,7 +381,10 @@ fn estimate_data_plane_cost_micros(bytes: &[u8]) -> i64 {
     if let Ok(embed_req) = serde_json::from_slice::<EmbeddingRequest>(bytes) {
         return estimate_embedding_cost_micros(&embed_req);
     }
-    // 非 ChatRequest / EmbeddingRequest 格式（可能是其他 endpoint）—— 用保守默认值
+    if let Ok(image_req) = serde_json::from_slice::<ImageGenerationRequest>(bytes) {
+        return estimate_image_cost_micros(&image_req);
+    }
+    // 非 ChatRequest / EmbeddingRequest / ImageGenerationRequest 格式（可能是其他 endpoint）—— 用保守默认值
     // 4096 tokens × 3 micros = 12_288
     4096 * DEFAULT_RATE_PER_TOKEN_MICROS
 }
@@ -393,6 +396,12 @@ fn estimate_embedding_cost_micros(req: &EmbeddingRequest) -> i64 {
     };
     let prompt_tokens = (prompt_chars / 4) as i64;
     (prompt_tokens * DEFAULT_RATE_PER_TOKEN_MICROS).min(crate::cost_estimate::MAX_ESTIMATE_MICROS)
+}
+
+fn estimate_image_cost_micros(req: &ImageGenerationRequest) -> i64 {
+    const DEFAULT_RATE_PER_IMAGE_MICROS: i64 = 80_000;
+    let images = req.n.unwrap_or(1).max(1) as i64;
+    (images * DEFAULT_RATE_PER_IMAGE_MICROS).min(crate::cost_estimate::MAX_ESTIMATE_MICROS)
 }
 
 #[cfg(test)]
@@ -425,6 +434,18 @@ mod tests {
             estimate_data_plane_cost_micros(&bytes),
             4 * DEFAULT_RATE_PER_TOKEN_MICROS
         );
+    }
+
+    #[test]
+    fn data_plane_estimator_reads_image_generation() {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "model": "dall-e-3",
+            "prompt": "draw a gate",
+            "n": 2
+        }))
+        .unwrap();
+
+        assert_eq!(estimate_data_plane_cost_micros(&bytes), 160_000);
     }
 
     #[test]

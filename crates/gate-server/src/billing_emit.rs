@@ -138,5 +138,15 @@ fn cost_context_from_usage(usage: &Usage) -> CostContext {
     ctx.reasoning_tokens = usage.reasoning_tokens.unwrap_or_default();
     ctx.images_generated = usage.image_units.unwrap_or_default();
     ctx.audio_minutes = usage.audio_seconds.unwrap_or_default() / 60.0;
+    if let Some(raw) = usage.raw.as_ref().and_then(|v| v.as_object()) {
+        ctx.image_quality = raw
+            .get("quality")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        ctx.image_size = raw
+            .get("size")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+    }
     ctx
 }

@@ -388,7 +388,12 @@ cd web && npm test -- plugin-presets
   - usage record
   - routed model / channel_id
   - provider error shape
-- [ ] `/v1/images/generations` 接入 provider adapter 与计费。
+- [x] `/v1/images/generations` 接入 provider adapter 与计费：
+  - routed model / channel_id
+  - pricing / billing outbox
+  - quota pre-debit / settle
+  - request log / usage record
+  - provider error shape
 - [ ] `/v1/audio/transcriptions` / `/v1/audio/speech` 接入 provider adapter 与计费。
 - [ ] 评估 `/v1/responses`：
   - 若跟 OpenAI 新 API 对齐，先做 thin adapter 到 chat。

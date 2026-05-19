@@ -25,6 +25,32 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.3 `/v1/images/generations` adapter/billing loop
+
+本轮把 P1.3 `/v1/images/generations` 从单一 fallback provider 代理推进为可对账 data-plane 闭环：
+
+- ProviderRouter 新增 `route_image`，按 project default group / fallback group / channel strategy 选择 image-capable channel。
+- 当前 image runtime 仅支持 compile-time OpenAI-compatible `ImageProvider`，因此会过滤 plugin channel（即使 manifest 声明 `image=true`），避免路由到尚未实现的 runtime adapter。
+- 路由结果贯通 `resolved_model` 与 `channel_id`：model alias / channel `model_mapping` 会写回 upstream request，billing event 与 request log 使用实际模型和命中 channel。
+- `least_conn` acquire 移到 provider/key 构造成功之后，避免构造失败泄露 inflight 计数；image 成功 / provider error 路径都会 release。
+- 成功响应按 billable image units 生成 `Usage`：`image_units = max(request.n, returned_images, 1)`，token 维度为 0，`raw_usage.endpoint="images.generations"`。
+- `billing_emit` 会把 image request 的 `quality` / `size` 写入 `CostContext`，因此 `per_image` pricing rule 的 `conditions` 可按图片质量和尺寸命中。
+- Billing outbox → `commit_usage` 后能落 `usage_records`、`request_events` 与 request log read model；image 请求在 read model 中 token 为 0，但成本和 channel 归属可对账。
+- quota middleware 支持解析 `ImageGenerationRequest`，按默认 `$0.08/image` 估算 budget pre-debit；handler 完成后按 billable image units settle。
+- provider error 不再包装为 `internal`，统一走 `AppError::Provider`，并同步 channel key failure cooldown / circuit breaker 统计与 upstream error metrics。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-server -p gate-providers
+cargo test -p gate-server middleware::quota::tests -- --nocapture
+cargo test -p gate-server --test billing_e2e images_apikey_emits_usage_event -- --nocapture
+cargo test -p gate-server --test quota_predebit images_predebit_settles_and_blocks_when_budget_exceeded -- --nocapture
+cargo test -p gate-server --test billing_e2e embeddings_apikey_emits_usage_event -- --nocapture
+cargo test -p gate-server --test quota_predebit embeddings_predebit_settles_and_blocks_when_budget_exceeded -- --nocapture
+```
+
 说明：`--no-git --source .` 会扫描 `.env` 与 `target/` 等 gitignored 本地文件；用于泄露排障时有价值，但不代表仓库可提交内容。本轮仓库口径采用 git history + tracked/unignored working tree 两条扫描。
 
 ## Plugin secret slots

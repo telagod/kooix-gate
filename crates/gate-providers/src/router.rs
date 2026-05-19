@@ -16,6 +16,7 @@
 //! 6. 找不到 channel_group 或 channel → 返回 None，调用方 fallback 到 AppState.provider
 
 use crate::EmbeddingProvider;
+use crate::ImageProvider;
 use crate::Provider;
 use crate::anthropic::AnthropicProvider;
 use crate::azure::AzureProvider;
@@ -218,6 +219,17 @@ pub struct RoutedProvider {
 #[derive(Clone)]
 pub struct RoutedEmbeddingProvider {
     pub provider: Arc<dyn EmbeddingProvider>,
+    pub channel_id: ChannelId,
+    /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
+    pub resolved_model: String,
+    /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
+    pub key_id: Option<ChannelKeyId>,
+}
+
+/// Image 路由命中结果：ImageProvider + 绑定的 channel_id。
+#[derive(Clone)]
+pub struct RoutedImageProvider {
+    pub provider: Arc<dyn ImageProvider>,
     pub channel_id: ChannelId,
     /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
     pub resolved_model: String,
@@ -774,6 +786,26 @@ fn build_embedding_provider(
     }
 }
 
+/// 按 provider_type 构造 ImageProvider 实例。
+fn build_image_provider(
+    channel: &gate_storage::ChannelRecord,
+    api_key: String,
+    opts: crate::ProviderOpts,
+) -> ProviderResult<Arc<dyn ImageProvider>> {
+    match channel.provider_type.as_str() {
+        "openai" | "openai_compatible" => {
+            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn ImageProvider>)
+        }
+        _ => {
+            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn ImageProvider>)
+        }
+    }
+}
+
 /// API key 来源策略（env 回退，DB 优先路径在 route_for_model 内）。
 ///
 /// 优先级：
@@ -1173,10 +1205,6 @@ impl ProviderRouter {
                 continue;
             }
 
-            if group.strategy == "least_conn" {
-                self.inflight.acquire(candidate.channel.channel_id);
-            }
-
             let (api_key, key_id) = self
                 .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
                 .await?;
@@ -1187,7 +1215,184 @@ impl ProviderRouter {
             let provider: Arc<dyn EmbeddingProvider> =
                 build_embedding_provider(&candidate.channel, api_key, opts)?;
 
+            if group.strategy == "least_conn" {
+                self.inflight.acquire(candidate.channel.channel_id);
+            }
+
             return Ok(Some(RoutedEmbeddingProvider {
+                provider,
+                channel_id: candidate.channel.channel_id,
+                resolved_model: resolve_model_mapping(&candidate.channel.model_mapping, model),
+                key_id,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    /// 按 project_id + model 选 ImageProvider。
+    ///
+    /// 当前仅 compile-time OpenAI-compatible image provider 支持图片生成；plugin image
+    /// runtime adapter 还未实现，所以 plugin channel 即使声明 image 也会被过滤。
+    pub async fn route_image(
+        &self,
+        project_id: ProjectId,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedImageProvider>> {
+        let alias_result = self.resolve_alias(project_id, model).await?;
+        let resolved = match &alias_result {
+            Some((target, _)) => target.as_str(),
+            None => model,
+        };
+
+        if let Some(routed) = self.route_image_for_model(project_id, resolved).await? {
+            return Ok(Some(routed));
+        }
+
+        for fallback in fallback_models(resolved) {
+            if let Some(routed) = self.route_image_for_model(project_id, fallback).await? {
+                return Ok(Some(routed));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// 为指定 model 做 image 路由（group → fallback chain → channel → ImageProvider）。
+    async fn route_image_for_model(
+        &self,
+        project_id: ProjectId,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedImageProvider>> {
+        let initial_group = match self.group_repo.find_default_for_project(project_id).await {
+            Ok(g) => g,
+            Err(gate_storage::DbError::NotFound) => return Ok(None),
+            Err(e) => {
+                return Err(ProviderError::Config(format!(
+                    "channel_group lookup failed: {e}"
+                )));
+            }
+        };
+
+        let mut current_group = initial_group;
+        let mut depth = 0u8;
+        const MAX_FALLBACK_DEPTH: u8 = 5;
+
+        loop {
+            if depth > MAX_FALLBACK_DEPTH {
+                tracing::warn!(
+                    model = model,
+                    depth = depth,
+                    "image fallback chain exceeded max depth"
+                );
+                return Ok(None);
+            }
+
+            if current_group.enabled
+                && let Some(routed) = self.try_route_image_in_group(&current_group, model).await?
+            {
+                return Ok(Some(routed));
+            }
+
+            match current_group.fallback_group_id {
+                Some(fallback_id) => match self.group_repo.find_by_id(fallback_id).await {
+                    Ok(g) => {
+                        current_group = g;
+                        depth += 1;
+                    }
+                    Err(_) => return Ok(None),
+                },
+                None => return Ok(None),
+            }
+        }
+    }
+
+    /// Steps 2-4 for image: list channels, filter (model + image-capable provider),
+    /// select by strategy with rate limit fallback, construct `Arc<dyn ImageProvider>`.
+    async fn try_route_image_in_group(
+        &self,
+        group: &gate_storage::ChannelGroupRecord,
+        model: &str,
+    ) -> ProviderResult<Option<RoutedImageProvider>> {
+        let bindings = self
+            .channel_repo
+            .list_healthy_in_group(group.group_id)
+            .await
+            .map_err(|e| ProviderError::Config(format!("channel list failed: {e}")))?;
+
+        if bindings.is_empty() {
+            return Ok(None);
+        }
+
+        let compatible: Vec<_> = bindings
+            .iter()
+            .filter(|b| {
+                let model_ok = if !b.model_filter.is_empty() {
+                    b.model_filter.iter().any(|m| m == model)
+                } else {
+                    b.channel.supported_models.is_empty()
+                        || b.channel.supported_models.iter().any(|m| m == model)
+                };
+                let provider_ok = channel_capabilities(&b.channel).image
+                    && supports_image_runtime(&b.channel.provider_type);
+                model_ok && provider_ok
+            })
+            .collect();
+
+        if compatible.is_empty() {
+            return Ok(None);
+        }
+
+        let ordered = order_channels_by_strategy(
+            &group.strategy,
+            &compatible,
+            &self.rr_counter,
+            &self.inflight,
+            self.metrics.as_ref().map(|m| m.as_ref()),
+        );
+
+        for candidate in &ordered {
+            if !self
+                .rate_limiter
+                .check_rpm(candidate.channel.channel_id, candidate.channel.rpm_limit)
+                .await
+            {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    rpm_limit = ?candidate.channel.rpm_limit,
+                    "channel RPM limit reached for image generation, trying next"
+                );
+                continue;
+            }
+
+            if !self
+                .rate_limiter
+                .check_tpm(candidate.channel.channel_id, candidate.channel.tpm_limit)
+                .await
+            {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    tpm_limit = ?candidate.channel.tpm_limit,
+                    "channel TPM limit reached for image generation, trying next"
+                );
+                continue;
+            }
+
+            let (api_key, key_id) = self
+                .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
+                .await?;
+            let opts = crate::ProviderOpts {
+                timeout_ms: candidate.channel.timeout_ms as u64,
+            };
+
+            let provider: Arc<dyn ImageProvider> =
+                build_image_provider(&candidate.channel, api_key, opts)?;
+
+            if group.strategy == "least_conn" {
+                self.inflight.acquire(candidate.channel.channel_id);
+            }
+
+            return Ok(Some(RoutedImageProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
                 resolved_model: resolve_model_mapping(&candidate.channel.model_mapping, model),
@@ -1449,11 +1654,6 @@ impl ProviderRouter {
                 continue;
             }
 
-            // least_conn: 选中后递增 inflight 计数
-            if group.strategy == "least_conn" {
-                self.inflight.acquire(candidate.channel.channel_id);
-            }
-
             tracing::debug!(
                 group = %group.name,
                 channel = %candidate.channel.code,
@@ -1493,6 +1693,11 @@ impl ProviderRouter {
             // model_mapping: 如果 channel 配置了映射，翻译模型名
             let resolved_model = resolve_model_mapping(&candidate.channel.model_mapping, model);
             trace.record_selected(group, candidate, model, &resolved_model);
+
+            // least_conn: provider/key 构造成功后再递增 inflight，避免构造失败泄露计数。
+            if group.strategy == "least_conn" {
+                self.inflight.acquire(candidate.channel.channel_id);
+            }
 
             return Ok(Some(RoutedProvider {
                 provider,
@@ -1653,6 +1858,10 @@ impl ProviderRouter {
 
 fn is_plugin_provider(provider_type: &str) -> bool {
     matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
+}
+
+fn supports_image_runtime(provider_type: &str) -> bool {
+    matches!(provider_type, "openai" | "openai_compatible")
 }
 
 fn channel_capabilities(channel: &gate_storage::ChannelRecord) -> ProviderCapabilities {

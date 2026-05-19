@@ -1,12 +1,28 @@
 //! POST /v1/images/generations — 图片生成代理（OpenAI 兼容）。
+//!
+//! Provider 选路优先级：
+//! 1. 若 AppState 有 provider_router，用它按 project_id 选 image-capable channel。
+//!    - project_id 来源：API key 主体直接取；User 主体从 X-Kooix-Project 头取。
+//! 2. 路由器找不到可用 channel → fallback 到 AppState.image_provider。
+//! 3. 均无 → 400 Bad Request。
 
 use crate::auth::Authed;
+use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::error::{AppError, AppResult};
 use crate::gateway::{GatewayStage, StageOutcome};
+use crate::inflight::InflightGuards;
+use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::extract::State;
-use axum::{Json, Router, routing::post};
+use axum::http::HeaderMap;
+use axum::{Extension, Json, Router, routing::post};
+use gate_auth::AuthError;
+use gate_auth::context::Subject;
+use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
 use gate_providers::types::{ImageGenerationRequest, ImageGenerationResponse};
+use gate_providers::{ImageProvider, ProviderError, RoutedImageProvider, Usage};
+use std::sync::Arc;
+use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/images/generations", post(create_image))
@@ -14,22 +30,31 @@ pub fn router() -> Router<AppState> {
 
 async fn create_image(
     State(app): State<AppState>,
-    Authed(_ctx): Authed,
-    Json(req): Json<ImageGenerationRequest>,
+    Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
+    guards: Option<Extension<InflightGuards>>,
+    Json(mut req): Json<ImageGenerationRequest>,
 ) -> AppResult<Json<ImageGenerationResponse>> {
     let route_start = std::time::Instant::now();
-    let provider = app
-        .image_provider
-        .as_ref()
-        .ok_or_else(|| AppError::BadRequest("image generation not configured".into()))?;
+    let (provider, channel_id, routed_key_id, routed_model) =
+        resolve_image_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
         StageOutcome::Ok,
         route_start.elapsed().as_secs_f64(),
     );
+    if let Some(model) = routed_model {
+        req.model = model;
+    }
+
+    let request_id = request_id
+        .map(|Extension(id)| id.0)
+        .unwrap_or_else(Uuid::now_v7);
+    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
 
     let execute_start = std::time::Instant::now();
-    let resp = match provider.generate_image(req).await {
+    let resp = match provider.generate_image(req.clone()).await {
         Ok(resp) => {
             crate::gateway::record_stage(
                 GatewayStage::Execute,
@@ -44,9 +69,255 @@ async fn create_image(
                 StageOutcome::Error,
                 execute_start.elapsed().as_secs_f64(),
             );
-            return Err(AppError::Internal(e.to_string()));
+            if let Some(router) = &app.provider_router
+                && let Some(ch_uuid) = channel_id
+            {
+                router.release_channel(ChannelId::from(ch_uuid));
+            }
+            report_image_key_failure(&app, routed_key_id, &e).await;
+            return Err(AppError::Provider(e));
         }
     };
 
+    let usage = image_usage(&req, &resp);
+    if let Some(router) = &app.provider_router
+        && let Some(ch_uuid) = channel_id
+    {
+        router.release_channel(ChannelId::from(ch_uuid));
+    }
+    report_image_key_success(&app, routed_key_id).await;
+
+    if let Some(Extension(ref g)) = guards {
+        settle_image_guards(g, &usage).await;
+    }
+
+    if let Some(bctx) = billing_ctx {
+        let outbox = app.outbox.clone();
+        let pricing = app.pricing.clone();
+        tokio::spawn(async move {
+            emit_usage(outbox, pricing, bctx, usage, 200).await;
+        });
+    }
+
     Ok(Json(resp))
+}
+
+fn image_usage(req: &ImageGenerationRequest, resp: &ImageGenerationResponse) -> Usage {
+    let requested = req.n.unwrap_or(1).max(1);
+    let actual = (resp.data.len() as u32).max(1);
+    let image_units = actual.max(requested);
+    Usage {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        image_units: Some(image_units),
+        raw: Some(serde_json::json!({
+            "endpoint": "images.generations",
+            "image_units": image_units,
+            "requested_n": requested,
+            "returned_images": resp.data.len(),
+            "quality": req.quality,
+            "size": req.size,
+            "style": req.style
+        })),
+        ..Default::default()
+    }
+}
+
+async fn settle_image_guards(guards: &InflightGuards, usage: &Usage) {
+    const RATE_PER_IMAGE_MICROS: i64 = 80_000;
+    let actual = usage.image_units.unwrap_or(1).max(1) as i64 * RATE_PER_IMAGE_MICROS;
+    let mut taken = guards.take();
+    for g in &mut taken {
+        g.settle(actual).await;
+    }
+}
+
+async fn resolve_image_provider(
+    app: &AppState,
+    ctx: &gate_auth::AuthContext,
+    headers: &HeaderMap,
+    req: &ImageGenerationRequest,
+) -> AppResult<(
+    Arc<dyn ImageProvider>,
+    Option<Uuid>,
+    Option<ChannelKeyId>,
+    Option<String>,
+)> {
+    if let Some(router) = &app.provider_router {
+        let project_id_opt = extract_project_id(app, ctx, headers).await?;
+
+        if let Some(project_id) = project_id_opt {
+            match router.route_image(project_id, &req.model).await {
+                Ok(Some(RoutedImageProvider {
+                    provider,
+                    channel_id,
+                    key_id,
+                    resolved_model,
+                    ..
+                })) => {
+                    return Ok((
+                        provider,
+                        Some(*channel_id.as_uuid()),
+                        key_id,
+                        Some(resolved_model),
+                    ));
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        project_id = %project_id,
+                        model = %req.model,
+                        "provider_router returned None for image generation, trying fallback"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "provider_router error for image generation");
+                    return Err(AppError::Provider(e));
+                }
+            }
+        }
+    }
+
+    if let Some(provider) = &app.image_provider {
+        return Ok((provider.clone(), None, None, None));
+    }
+
+    Err(AppError::BadRequest(format!(
+        "no image generation channel found for model '{}'",
+        req.model
+    )))
+}
+
+async fn report_image_key_success(app: &AppState, key_id: Option<ChannelKeyId>) {
+    let Some(key_id) = key_id else {
+        return;
+    };
+    if let Err(e) = app.repos.channel_keys.report_success(key_id).await {
+        tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "image channel key success report failed");
+    }
+}
+
+async fn report_image_key_failure(
+    app: &AppState,
+    key_id: Option<ChannelKeyId>,
+    error: &ProviderError,
+) {
+    let failure = image_failure_policy(error);
+    if let Some(key_id) = key_id
+        && let Err(e) = app
+            .repos
+            .channel_keys
+            .report_failure(
+                key_id,
+                failure.error_code,
+                failure.cooldown_secs,
+                failure.circuit_breaker_failures,
+            )
+            .await
+    {
+        tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "image channel key failure report failed");
+    }
+    crate::metrics::record_upstream_error(failure.kind_label);
+}
+
+struct ImageFailurePolicy {
+    kind_label: &'static str,
+    error_code: Option<i32>,
+    cooldown_secs: i64,
+    circuit_breaker_failures: u32,
+}
+
+fn image_failure_policy(error: &ProviderError) -> ImageFailurePolicy {
+    let (kind_label, error_code, cooldown_ms, circuit_breaker_failures) = match error {
+        ProviderError::Auth(_) => ("authentication_error", Some(401), None, None),
+        ProviderError::RateLimited { retry_after_ms } => {
+            ("rate_limit_error", Some(429), *retry_after_ms, None)
+        }
+        ProviderError::InvalidRequest(_) => ("invalid_request_error", Some(400), None, None),
+        ProviderError::Policy(_) => ("policy_error", Some(403), None, None),
+        ProviderError::Upstream { status, .. } => (
+            "upstream_error",
+            Some((*status).into()),
+            status.ge(&500).then_some(60_000),
+            None,
+        ),
+        ProviderError::Mapped {
+            status, metadata, ..
+        } => {
+            let label = match metadata.kind {
+                gate_providers::error::NormalizedProviderErrorKind::Authentication => {
+                    "authentication_error"
+                }
+                gate_providers::error::NormalizedProviderErrorKind::RateLimit => "rate_limit_error",
+                gate_providers::error::NormalizedProviderErrorKind::InvalidRequest => {
+                    "invalid_request_error"
+                }
+                gate_providers::error::NormalizedProviderErrorKind::Policy => "policy_error",
+                gate_providers::error::NormalizedProviderErrorKind::Upstream => "upstream_error",
+            };
+            (
+                label,
+                status.map(i32::from),
+                metadata.cooldown_ms.or(metadata.retry_after_ms),
+                metadata.circuit_breaker_failures,
+            )
+        }
+        ProviderError::Network(_) => ("network_error", None, Some(60_000), None),
+        ProviderError::Decode(_) => ("decode_error", None, None, None),
+        ProviderError::Config(_) => ("config_error", None, None, None),
+    };
+
+    ImageFailurePolicy {
+        kind_label,
+        error_code,
+        cooldown_secs: cooldown_ms
+            .map(|ms| ms.div_ceil(1000).max(1) as i64)
+            .unwrap_or(300),
+        circuit_breaker_failures: circuit_breaker_failures.unwrap_or(3).max(1),
+    }
+}
+
+async fn extract_project_id(
+    app: &AppState,
+    ctx: &gate_auth::AuthContext,
+    headers: &HeaderMap,
+) -> AppResult<Option<ProjectId>> {
+    if let Some(Subject::ApiKey { project_id, .. }) = ctx.subject() {
+        return Ok(Some(*project_id));
+    }
+
+    let Some(raw) = headers.get("x-kooix-project").and_then(|v| v.to_str().ok()) else {
+        return Ok(None);
+    };
+
+    let project_id: ProjectId = raw
+        .trim()
+        .parse()
+        .map_err(|_| AppError::BadRequest("invalid X-Kooix-Project".into()))?;
+
+    let project = app.repos.projects.find_by_id(project_id).await?;
+    let Some(org) = ctx.current_org() else {
+        return Err(AppError::Auth(AuthError::Forbidden {
+            action: "image.use_project".into(),
+            resource: format!("project:{}", project_id.as_uuid()),
+        }));
+    };
+    if project.org_id != org {
+        return Err(AppError::Auth(AuthError::Forbidden {
+            action: "image.use_project".into(),
+            resource: format!("project:{}", project_id.as_uuid()),
+        }));
+    }
+
+    if !ctx.is_super_admin()
+        && ctx.project_role(&org, &project_id).is_none()
+        && ctx.org_role(&org).is_none()
+    {
+        return Err(AppError::Auth(AuthError::Forbidden {
+            action: "image.use_project".into(),
+            resource: format!("project:{}", project_id.as_uuid()),
+        }));
+    }
+
+    Ok(Some(project_id))
 }

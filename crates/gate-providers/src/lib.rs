@@ -42,7 +42,7 @@ pub use router::{
     ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,
     InflightTracker, ProviderRouter, ProviderRuntimeChannelSnapshot, ProviderRuntimeSnapshot,
     RouteCandidateTrace, RouteDecisionTrace, RouteSkipTrace, RoutedEmbeddingProvider,
-    RoutedProvider,
+    RoutedImageProvider, RoutedProvider,
 };
 pub use types::{
     AudioSpeechRequest, AudioTranscriptionResponse, ChatChoice, ChatDelta, ChatMessage,
