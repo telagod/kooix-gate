@@ -803,6 +803,18 @@ fn fallback_models(model: &str) -> &'static [&'static str] {
 }
 
 fn resolve_model_mapping(mapping: &serde_json::Value, model: &str) -> String {
+    let mapping = mapping
+        .as_object()
+        .and_then(|map| {
+            if map.contains_key("plugin") {
+                map.get("models")
+                    .or_else(|| map.get("model_aliases"))
+                    .or_else(|| map.get("deployments"))
+            } else {
+                Some(mapping)
+            }
+        })
+        .unwrap_or(mapping);
     if let serde_json::Value::Object(map) = mapping
         && let Some(serde_json::Value::String(target)) = map.get(model)
     {
@@ -1615,6 +1627,29 @@ mod tests {
     #[test]
     fn fallback_chain_claude_sonnet() {
         assert_eq!(fallback_models("claude-3-sonnet"), &["claude-3-haiku"]);
+    }
+
+    #[test]
+    fn plugin_model_mapping_preserves_manifest_and_maps_deployment_model() {
+        let mapping = serde_json::json!({
+            "plugin": {
+                "version": 1,
+                "preset": { "provider": "azure_openai" }
+            },
+            "models": {
+                "gpt-4o-mini": "native-mini-deployment"
+            }
+        });
+
+        assert_eq!(
+            resolve_model_mapping(&mapping, "gpt-4o-mini"),
+            "native-mini-deployment"
+        );
+        assert_eq!(
+            resolve_model_mapping(&mapping, "gpt-4o"),
+            "gpt-4o",
+            "plugin manifest must not be mistaken for legacy flat model mapping"
+        );
     }
 
     // ---- helpers for model-filter routing tests (G7) ----

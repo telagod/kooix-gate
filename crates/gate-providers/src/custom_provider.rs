@@ -149,7 +149,9 @@ impl CustomHttpProvider {
                 if value.is_null() {
                     continue;
                 }
-                pairs.append_pair(name, &render_template(value, ctx));
+                if let Some(rendered) = render_template(value, ctx) {
+                    pairs.append_pair(name, &rendered);
+                }
             }
             if self.manifest.auth.strategy == AuthStrategy::ApiKeyQuery
                 && let Some(name) = self.manifest.auth.query_name()
@@ -207,9 +209,11 @@ impl CustomHttpProvider {
             if v.is_null() {
                 continue;
             }
+            let Some(rendered) = render_template(v, ctx) else {
+                continue;
+            };
             let name = HeaderName::from_bytes(k.as_bytes())
                 .map_err(|e| ProviderError::Config(format!("invalid plugin header {k:?}: {e}")))?;
-            let rendered = render_template(v, ctx);
             let value = HeaderValue::from_str(&rendered).map_err(|e| {
                 ProviderError::Config(format!("invalid plugin header value for {k}: {e}"))
             })?;
@@ -244,6 +248,7 @@ impl CustomHttpProvider {
             "api_key": primary,
             "secrets": secrets,
             "aws_secret_key": self.secret_for_slot("aws_secret_key"),
+            "aws_session_token": self.secret_for_slot("aws_session_token"),
         })
     }
 
@@ -301,7 +306,9 @@ impl CustomHttpProvider {
                     if value.is_null() {
                         continue;
                     }
-                    insert_named_header(headers, name, render_template(value, ctx))?;
+                    if let Some(rendered) = render_template(value, ctx) {
+                        insert_named_header(headers, name, rendered)?;
+                    }
                 }
             }
             AuthStrategy::Hmac => {
@@ -1014,6 +1021,7 @@ fn request_context(req: &ChatRequest, extra: &Value) -> Value {
         .unwrap_or_default();
     let mut ctx = json!({
         "request": req,
+        "extra": req.extra,
         "model": req.model,
         "messages": req.messages,
         "last_user_message": last_user,
@@ -1021,6 +1029,9 @@ fn request_context(req: &ChatRequest, extra: &Value) -> Value {
         "temperature": req.temperature,
         "top_p": req.top_p,
         "max_tokens": req.max_tokens,
+        "tools": req.tools.clone(),
+        "tool_choice": req.tool_choice.clone(),
+        "metadata": req.extra.get("metadata").cloned().unwrap_or(Value::Null),
     });
     if let (Some(dst), Some(src)) = (ctx.as_object_mut(), extra.as_object()) {
         for (k, v) in src {
@@ -1031,28 +1042,101 @@ fn request_context(req: &ChatRequest, extra: &Value) -> Value {
 }
 
 fn render_value(template: &Value, ctx: &Value) -> Value {
+    render_value_optional(template, ctx)
+        .map(|rendered| rendered.value)
+        .unwrap_or(Value::Null)
+}
+
+struct RenderedValue {
+    value: Value,
+    conditional: bool,
+}
+
+fn render_value_optional(template: &Value, ctx: &Value) -> Option<RenderedValue> {
     match template {
         Value::String(s) => {
             if let Some(path) = whole_placeholder(s) {
-                get_path(ctx, path).cloned().unwrap_or(Value::Null)
+                let value = get_path(ctx, path)?;
+                if is_empty_placeholder_value(value) {
+                    None
+                } else {
+                    Some(RenderedValue {
+                        value: value.clone(),
+                        conditional: true,
+                    })
+                }
             } else {
-                Value::String(render_template_str(s, ctx))
+                Some(RenderedValue {
+                    value: Value::String(render_template_str(s, ctx)),
+                    conditional: false,
+                })
             }
         }
-        Value::Array(arr) => Value::Array(arr.iter().map(|v| render_value(v, ctx)).collect()),
-        Value::Object(obj) => Value::Object(
-            obj.iter()
-                .map(|(k, v)| (k.clone(), render_value(v, ctx)))
-                .collect(),
-        ),
-        other => other.clone(),
+        Value::Array(arr) => {
+            let mut conditional = false;
+            let mut values = Vec::with_capacity(arr.len());
+            for value in arr {
+                match render_value_optional(value, ctx) {
+                    Some(rendered) => {
+                        conditional |= rendered.conditional;
+                        values.push(rendered.value);
+                    }
+                    None => conditional = true,
+                }
+            }
+            if conditional && values.is_empty() {
+                None
+            } else {
+                Some(RenderedValue {
+                    value: Value::Array(values),
+                    conditional,
+                })
+            }
+        }
+        Value::Object(obj) => {
+            let mut conditional = false;
+            let mut values = serde_json::Map::new();
+            for (key, value) in obj {
+                match render_value_optional(value, ctx) {
+                    Some(rendered) => {
+                        conditional |= rendered.conditional;
+                        values.insert(key.clone(), rendered.value);
+                    }
+                    None => conditional = true,
+                }
+            }
+            if conditional && values.is_empty() {
+                None
+            } else {
+                Some(RenderedValue {
+                    value: Value::Object(values),
+                    conditional,
+                })
+            }
+        }
+        other => Some(RenderedValue {
+            value: other.clone(),
+            conditional: false,
+        }),
     }
 }
 
-fn render_template(template: &Value, ctx: &Value) -> String {
-    match template {
-        Value::String(s) => render_template_str(s, ctx),
-        other => value_to_string(other).unwrap_or_default(),
+fn render_template(template: &Value, ctx: &Value) -> Option<String> {
+    let rendered = render_value_optional(template, ctx)?.value;
+    if is_empty_placeholder_value(&rendered) {
+        None
+    } else {
+        value_to_string(&rendered)
+    }
+}
+
+fn is_empty_placeholder_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(s) => s.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        Value::Object(map) => map.is_empty(),
+        Value::Bool(_) | Value::Number(_) => false,
     }
 }
 
@@ -1464,6 +1548,78 @@ mod tests {
         assert_eq!(body["prompt"], "Hi plugin");
         assert_eq!(body["streaming"], true);
         assert_eq!(body["limit"], 16);
+    }
+
+    #[test]
+    fn request_template_supports_tools_tool_choice_metadata_and_prunes_empty_fields() {
+        let manifest = json!({
+            "plugin": {
+                "version": 1,
+                "request": {
+                    "path": "/deployments/{{metadata.deployment}}/chat",
+                    "query": {
+                        "tenant": "{{metadata.tenant}}",
+                        "missing": "{{metadata.missing}}"
+                    },
+                    "headers": {
+                        "X-Tenant": "{{metadata.tenant}}",
+                        "X-Missing": "{{metadata.missing}}"
+                    },
+                    "body": {
+                        "model": "{{model}}",
+                        "messages": "{{messages}}",
+                        "tools": "{{tools}}",
+                        "tool_choice": "{{tool_choice}}",
+                        "metadata": "{{metadata}}",
+                        "drop_null": "{{metadata.missing}}",
+                        "drop_empty_array": "{{request.parallel_tool_calls}}",
+                        "nested": {
+                            "keep": "literal",
+                            "drop": "{{metadata.missing}}"
+                        }
+                    }
+                }
+            }
+        });
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://private.example/v1",
+            "k",
+            manifest,
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let mut req = make_req(false);
+        req.tools = Some(vec![ToolDef {
+            r#type: "function".into(),
+            function: FunctionDef {
+                name: "lookup".into(),
+                description: Some("Lookup docs".into()),
+                parameters: Some(json!({"type": "object"})),
+            },
+        }]);
+        req.tool_choice = Some(json!({"type": "function", "function": {"name": "lookup"}}));
+        req.extra.insert(
+            "metadata".into(),
+            json!({ "tenant": "acme", "deployment": "private-deploy" }),
+        );
+
+        assert_eq!(
+            provider.endpoint_url_for(&req).unwrap(),
+            "https://private.example/v1/deployments/private-deploy/chat?tenant=acme"
+        );
+        let headers = provider.request_headers_for(&req).unwrap();
+        assert_eq!(headers.get("x-tenant").unwrap(), "acme");
+        assert!(headers.get("x-missing").is_none());
+
+        let body = provider.build_body(&req).unwrap();
+        assert_eq!(body["model"], "odd-model");
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["tools"][0]["function"]["name"], "lookup");
+        assert_eq!(body["tool_choice"]["function"]["name"], "lookup");
+        assert_eq!(body["metadata"]["tenant"], "acme");
+        assert!(body.get("drop_null").is_none());
+        assert!(body.get("drop_empty_array").is_none());
+        assert_eq!(body["nested"], json!({ "keep": "literal" }));
     }
 
     #[test]

@@ -394,6 +394,163 @@ async fn full_chain_rewrites_model_from_alias_and_channel_mapping() {
     assert_eq!(body["choices"][0]["message"]["content"], "mapped!");
 }
 
+#[tokio::test]
+async fn plugin_manifest_channel_model_mapping_rewrites_deployment_path() {
+    unsafe {
+        std::env::set_var("KOOIX_API_KEY", "test-key");
+    }
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/deployments/native-mini/chat"))
+        .and(body_partial_json(json!({
+            "model": "native-mini",
+            "metadata": { "tenant": "acme" }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-plugin-mapped",
+            "model": "native-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "plugin mapped!" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let org_id = OrgId::new();
+    let project_id = ProjectId::new();
+    let api_key_id = ApiKeyId::new();
+    let group_id = ChannelGroupId::new();
+    let ch_id = ChannelId::new();
+
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let mut channel = make_plugin_channel(
+        ch_id,
+        "plugin-mapped-channel",
+        &format!("{}/v1", upstream.uri()),
+        json!({
+            "plugin": {
+                "version": 1,
+                "auth": { "strategy": "none" },
+                "request": {
+                    "path": "/deployments/{{model}}/chat",
+                    "body": {
+                        "model": "{{model}}",
+                        "prompt": "{{last_user_message}}",
+                        "metadata": "{{metadata}}"
+                    }
+                }
+            },
+            "models": {
+                "gpt-4o-mini": "native-mini"
+            }
+        }),
+    );
+    channel.supported_models = vec!["gpt-4o-mini".to_string()];
+    ch_repo.seed_channel(channel);
+    ch_repo.seed_binding(group_id, ch_id, 10, 1);
+
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "plugin-mapped-group".to_string(),
+        description: String::new(),
+        strategy: "priority".to_string(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let alias_repo = Arc::new(gate_storage::InMemoryModelAliasRepo::new());
+    alias_repo.seed(gate_storage::ModelAliasRecord {
+        id: uuid::Uuid::now_v7(),
+        project_id: *project_id.as_uuid(),
+        alias: "fast".to_string(),
+        target_model: "gpt-4o-mini".to_string(),
+        group_id: None,
+        params_override: json!({
+            "metadata": { "tenant": "acme" }
+        }),
+        enabled: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
+
+    let provider_router =
+        ProviderRouter::new(ch_repo.clone(), grp_repo.clone()).with_model_alias_repo(alias_repo);
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let plaintext = "sk-kg-test-plugin-mapped-routing-key-000000";
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        plaintext,
+        gate_server::loader::ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+    let repos = Repos {
+        users: Arc::new(gate_storage::InMemoryUserRepo::new()),
+        orgs: Arc::new(gate_storage::InMemoryOrgRepo::new()),
+        projects: Arc::new(gate_storage::InMemoryProjectRepo::new()),
+        memberships: Arc::new(gate_storage::InMemoryMembershipRepo::new()),
+        api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
+        channels: ch_repo,
+        channel_groups: grp_repo,
+        channel_keys: Arc::new(InMemoryChannelKeyRepo::new()),
+        identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
+        user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
+        oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),
+        usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
+        model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
+        inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        pg_pool: None,
+    };
+    let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
+    let router = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {plaintext}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "fast",
+                "messages": [{"role": "user", "content": "rewrite me!"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "expected plugin upstream mock to match rewritten deployment path"
+    );
+}
+
 /// 完整链路：plugin channel 私有 SSE → /v1/chat/completions 归一化 SSE。
 #[tokio::test]
 async fn full_chain_plugin_channel_normalizes_private_sse() {

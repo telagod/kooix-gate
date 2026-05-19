@@ -148,14 +148,18 @@ v1 固定以下分区：
     "version": 1,
     "auth": { "strategy": "custom_headers", "headers": { "X-Api-Key": "{{api_key}}" } },
     "request": {
-      "path": "/private/chat/{{model}}",
-      "query": { "stream": "{{stream}}" },
+      "path": "/private/chat/{{metadata.deployment}}",
+      "query": { "stream": "{{stream}}", "tenant": "{{metadata.tenant}}" },
       "headers": {
-        "X-Model": "{{model}}"
+        "X-Model": "{{model}}",
+        "X-Tenant": "{{metadata.tenant}}"
       },
       "body": {
         "modelName": "{{model}}",
+        "messages": "{{messages}}",
         "prompt": "{{last_user_message}}",
+        "tools": "{{tools}}",
+        "toolChoice": "{{tool_choice}}",
         "stream": "{{stream}}",
         "limit": "{{max_tokens}}"
       }
@@ -168,13 +172,34 @@ v1 固定以下分区：
 
 当前 v1 支持：
 
-- Header 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`。
-- Path / query 模板：`{{api_key}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{last_user_message}}`、`{{request.*}}`。
-- Body 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{request.*}}`、`{{messages.*}}`。
+- Header 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{tools}}`、`{{tool_choice}}`、`{{metadata.*}}`、`{{extra.*}}`。
+- Path / query 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{last_user_message}}`、`{{tools}}`、`{{tool_choice}}`、`{{request.*}}`、`{{metadata.*}}`、`{{extra.*}}`。
+- Body 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{messages}}`、`{{tools}}`、`{{tool_choice}}`、`{{metadata}}`、`{{extra}}`、`{{last_user_message}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{request.*}}`、`{{messages.*}}`、`{{metadata.*}}`、`{{extra.*}}`。
 
 `{{api_key}}` 是运行时解密出的 channel key；`{{aws_secret_key}}` / `{{aws_session_token}}` 只用于显式模板或 AWS 兼容 slot，Bedrock Converse preset 默认走 `aws_sigv4` 签名。
 
-整段占位会保留 JSON 原类型，例如 `"{{stream}}"` 渲染为 boolean；嵌在字符串里则转为字符串。
+整段占位会保留 JSON 原类型，例如 `"{{stream}}"` 渲染为 boolean；嵌在字符串里则转为字符串。整段占位若解析为 `null`、空字符串、空数组或空对象，会从 query/header/body object 中跳过，用于条件字段。
+
+### Model mapping + deployment path
+
+当 channel 同时需要 plugin manifest 与模型 / deployment 改写时，`model_mapping` 可在 `plugin` 旁声明 `models`（别名：`model_aliases` / `deployments`）：
+
+```json
+{
+  "plugin": {
+    "version": 1,
+    "request": {
+      "path": "/deployments/{{model}}/chat",
+      "body": { "model": "{{model}}", "messages": "{{messages}}" }
+    }
+  },
+  "models": {
+    "gpt-4o-mini": "private-mini-deployment"
+  }
+}
+```
+
+请求链路顺序是：project model alias → channel `models` / `model_aliases` / `deployments` → plugin `request.path` / `request.body` 模板。Azure OpenAI 与 Bedrock preset 也走同一条 manifest path。
 
 ### Runtime auth 注入
 

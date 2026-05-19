@@ -951,35 +951,52 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
         return false;
     }
     match scope {
-        TemplateScope::Header => matches!(
-            path,
-            "api_key"
-                | "aws_secret_key"
-                | "model"
-                | "stream"
-                | "temperature"
-                | "top_p"
-                | "max_tokens"
-        ),
+        TemplateScope::Header => {
+            matches!(
+                path,
+                "api_key"
+                    | "aws_secret_key"
+                    | "aws_session_token"
+                    | "model"
+                    | "stream"
+                    | "temperature"
+                    | "top_p"
+                    | "max_tokens"
+                    | "tools"
+                    | "tool_choice"
+            ) || path.starts_with("metadata.")
+                || path.starts_with("extra.")
+        }
         TemplateScope::Path | TemplateScope::Query => {
             matches!(
                 path,
                 "api_key"
+                    | "aws_secret_key"
+                    | "aws_session_token"
                     | "model"
                     | "stream"
                     | "temperature"
                     | "top_p"
                     | "max_tokens"
                     | "last_user_message"
+                    | "tools"
+                    | "tool_choice"
             ) || path.starts_with("request.")
+                || path.starts_with("metadata.")
+                || path.starts_with("extra.")
         }
         TemplateScope::Body => {
             matches!(
                 path,
                 "api_key"
                     | "aws_secret_key"
+                    | "aws_session_token"
                     | "model"
                     | "messages"
+                    | "metadata"
+                    | "extra"
+                    | "tools"
+                    | "tool_choice"
                     | "stream"
                     | "temperature"
                     | "top_p"
@@ -987,6 +1004,8 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
                     | "last_user_message"
             ) || path.starts_with("request.")
                 || path.starts_with("messages.")
+                || path.starts_with("metadata.")
+                || path.starts_with("extra.")
         }
         TemplateScope::Hmac => {
             matches!(
@@ -1090,6 +1109,64 @@ mod tests {
             Some("/v1/messages/{{model}}")
         );
         assert_eq!(manifest.auth.strategy, AuthStrategy::ApiKeyHeader);
+    }
+
+    #[test]
+    fn request_mapping_accepts_tool_choice_and_metadata_templates() {
+        let manifest = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "request": {
+                        "path": "/deployments/{{metadata.deployment}}/chat",
+                        "query": {
+                            "tenant": "{{metadata.tenant}}",
+                            "tool": "{{tool_choice}}"
+                        },
+                        "headers": {
+                            "X-Tenant": "{{metadata.tenant}}"
+                        },
+                        "body": {
+                            "messages": "{{messages}}",
+                            "tools": "{{tools}}",
+                            "toolChoice": "{{tool_choice}}",
+                            "metadata": "{{metadata}}"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap();
+
+        assert_eq!(
+            manifest.request.path.as_deref(),
+            Some("/deployments/{{metadata.deployment}}/chat")
+        );
+    }
+
+    #[test]
+    fn request_mapping_rejects_header_messages_template_variable() {
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "request": {
+                        "headers": {
+                            "X-Leak": "{{messages}}"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported template variable {{messages}}"),
+            "err={err}"
+        );
     }
 
     #[test]

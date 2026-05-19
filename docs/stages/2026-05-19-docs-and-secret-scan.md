@@ -78,3 +78,21 @@ git diff --check
 npm --prefix web run check
 npm --prefix web test -- plugin-presets
 ```
+
+## Plugin Request Mapping DSL
+
+本轮把 P1.1.3 的 request mapping 从基础模板推进到可覆盖私有 deployment 的 DSL：
+
+- `request.path` / `request.query` / `request.headers` / `request.body` 模板新增 `tools`、`tool_choice`、`metadata.*`、`extra.*`，body 也支持整段 `metadata` / `extra`。
+- 整段占位继续保留 JSON 原类型；缺失、`null`、空字符串、空数组、空对象会在 query/header/body object 中自动跳过，避免私有上游拒绝未知空字段。
+- Header 仍保留分域白名单：`{{messages}}` 等大 payload 不能塞进 header，manifest 加载时直接拒绝。
+- Anthropic Messages 与 Bedrock Converse preset 继续通过 `adapt_chat_request` 做 message transform，覆盖 system prompt、multimodal parts、tool calls / tool results 基础映射。
+- Plugin channel 的 `model_mapping` 可同时保留 `plugin` manifest 与 `models` / `model_aliases` / `deployments` 映射，路由顺序为 project model alias → channel deployment mapping → plugin request 模板。
+
+验证命令：
+
+```bash
+cargo test -p gate-providers plugin -- --nocapture
+cargo test -p gate-server --test c1_routing plugin_manifest_channel_model_mapping_rewrites_deployment_path -- --nocapture
+cargo test -p gate-server --test c1_routing full_chain_rewrites_model_from_alias_and_channel_mapping -- --nocapture
+```

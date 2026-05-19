@@ -251,7 +251,7 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
 
 #### P1.1.3 Request 映射 DSL
 
-- [ ] 支持 path / query / header / body 模板：
+- [x] 支持 path / query / header / body 模板：
   - `{{model}}`
   - `{{messages}}`
   - `{{last_user_message}}`
@@ -259,13 +259,13 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - `{{temperature}}` / `{{max_tokens}}` / `{{top_p}}`
   - `{{tools}}` / `{{tool_choice}}`
   - `{{metadata.*}}`
-- [ ] 支持 message transform：
+- [x] 支持 message transform：
   - OpenAI messages → vendor messages。
   - system prompt 合并 / 拆分。
   - multimodal parts 映射。
   - tool calls / tool results 映射。
-- [ ] 支持条件字段：参数为空时不发，避免私有渠道拒绝未知字段。
-- [ ] 支持 model alias / deployment path：Azure、Bedrock、私有 deployment 都走 manifest。
+- [x] 支持条件字段：参数为空时不发，避免私有渠道拒绝未知字段。
+- [x] 支持 model alias / deployment path：Azure、Bedrock、私有 deployment 都走 manifest。
 
 #### P1.1.4 Response / Usage 字段映射
 
