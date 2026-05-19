@@ -18,6 +18,7 @@
 	let degradedCount = $derived(channels.filter(c => c.health === 'degraded').length);
 	let unhealthyCount = $derived(channels.filter(c => c.health === 'unhealthy').length);
 	let activeCount = $derived(channels.filter(c => c.status === 'active').length);
+	let drainingCount = $derived(channels.filter(c => c.status === 'draining').length);
 	let disabledCount = $derived(channels.filter(c => c.status === 'disabled').length);
 
 	// Group by provider
@@ -201,7 +202,8 @@
 		<!-- Stats cards -->
 		<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
 			<Stat title="总渠道" value={String(totalCount)} />
-			<Stat title="Active" value={String(activeCount)} subtitle="{disabledCount} disabled" />
+			<Stat title="Active" value={String(activeCount)} subtitle="{drainingCount} draining · {disabledCount} disabled" />
+			<Stat title="Draining" value={String(drainingCount)} class="border-amber-200 dark:border-amber-900" />
 			<Stat title="Healthy" value={String(healthyCount)} class="border-green-200 dark:border-green-900" />
 			<Stat title="Degraded" value={String(degradedCount)} class="border-amber-200 dark:border-amber-900" />
 			<Stat title="Unhealthy" value={String(unhealthyCount)} class="border-red-200 dark:border-red-900" />

@@ -270,6 +270,12 @@ export interface Channel {
 	updated_at: string;
 }
 
+export interface ChannelDrainStatus {
+	channel: Channel;
+	inflight: number;
+	safe_to_disable: boolean;
+}
+
 export interface ProviderCapabilities {
 	chat: boolean;
 	streaming: boolean;
@@ -360,6 +366,20 @@ export async function updateChannel(id: string, data: UpdateChannelRequest): Pro
 
 export async function deleteChannel(id: string): Promise<void> {
 	return apiFetch(`/v1/admin/channels/${rawId(id)}`, { method: 'DELETE' });
+}
+
+export async function drainChannel(id: string): Promise<ChannelDrainStatus> {
+	return apiFetch<ChannelDrainStatus>(`/v1/admin/channels/${rawId(id)}/drain`, { method: 'POST' });
+}
+
+export async function getChannelDrainStatus(id: string): Promise<ChannelDrainStatus> {
+	return apiFetch<ChannelDrainStatus>(`/v1/admin/channels/${rawId(id)}/drain-status`);
+}
+
+export async function disableChannelWhenIdle(id: string): Promise<ChannelDrainStatus> {
+	return apiFetch<ChannelDrainStatus>(`/v1/admin/channels/${rawId(id)}/disable-when-idle`, {
+		method: 'POST'
+	});
 }
 
 export async function batchEnableChannels(ids: string[]): Promise<{ affected: number }> {

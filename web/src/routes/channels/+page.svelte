@@ -13,6 +13,9 @@
 		batchEnableChannels,
 		batchDisableChannels,
 		batchDeleteChannels,
+		drainChannel,
+		getChannelDrainStatus,
+		disableChannelWhenIdle,
 		probeChannel,
 		testChannel,
 		getChannelBalance,
@@ -72,7 +75,9 @@
 		ArrowDown,
 		ChevronLeft,
 		ChevronRight,
-		Zap
+		Zap,
+		CirclePause,
+		ShieldCheck
 	} from 'lucide-svelte';
 
 	const PROVIDER_OPTIONS: ProviderOption[] = [
@@ -103,6 +108,7 @@
 	const STATUS_OPTIONS = [
 		{ value: '', label: '全部状态' },
 		{ value: 'active', label: 'Active' },
+		{ value: 'draining', label: 'Draining' },
 		{ value: 'disabled', label: 'Disabled' },
 	];
 
@@ -138,6 +144,9 @@
 	let testingIds = $state<Set<string>>(new Set());
 	let balances = $state<Record<string, BalanceResponse>>({});
 	let loadingBalanceIds = $state<Set<string>>(new Set());
+	let drainStatuses = $state<Record<string, { inflight: number; safe_to_disable: boolean }>>({});
+	let drainingIds = $state<Set<string>>(new Set());
+	let disablingIdleIds = $state<Set<string>>(new Set());
 
 	let probeResult = $state<ProbeResponse | null>(null);
 	let probeChannelName = $state('');
@@ -383,6 +392,46 @@
 			channels = channels.map(c => c.id === updated.id ? updated : c);
 		} catch (err: any) {
 			showToast(err?.message ?? '切换失败', 'err');
+		}
+	}
+
+	async function handleDrain(ch: Channel) {
+		drainingIds = new Set([...drainingIds, ch.id]);
+		try {
+			const result = await drainChannel(ch.id);
+			channels = channels.map(c => c.id === result.channel.id ? result.channel : c);
+			drainStatuses = { ...drainStatuses, [result.channel.id]: { inflight: result.inflight, safe_to_disable: result.safe_to_disable } };
+			showToast(result.safe_to_disable ? '已进入 Draining，可安全禁用' : `已进入 Draining，等待 ${result.inflight} 个 inflight`);
+		} catch (err: any) {
+			showToast(err?.message ?? 'Drain 失败', 'err');
+		} finally {
+			drainingIds = new Set([...drainingIds].filter(id => id !== ch.id));
+		}
+	}
+
+	async function refreshDrainStatus(ch: Channel) {
+		try {
+			const result = await getChannelDrainStatus(ch.id);
+			channels = channels.map(c => c.id === result.channel.id ? result.channel : c);
+			drainStatuses = { ...drainStatuses, [result.channel.id]: { inflight: result.inflight, safe_to_disable: result.safe_to_disable } };
+			showToast(result.safe_to_disable ? 'Inflight 已清空' : `仍有 ${result.inflight} 个 inflight`);
+		} catch (err: any) {
+			showToast(err?.message ?? '刷新 drain 状态失败', 'err');
+		}
+	}
+
+	async function handleDisableWhenIdle(ch: Channel) {
+		disablingIdleIds = new Set([...disablingIdleIds, ch.id]);
+		try {
+			const result = await disableChannelWhenIdle(ch.id);
+			channels = channels.map(c => c.id === result.channel.id ? result.channel : c);
+			drainStatuses = { ...drainStatuses, [result.channel.id]: { inflight: result.inflight, safe_to_disable: result.safe_to_disable } };
+			showToast('Inflight 已清空，Channel 已禁用');
+		} catch (err: any) {
+			showToast(err?.message ?? '仍有 inflight，暂不能禁用', 'err');
+			await refreshDrainStatus(ch);
+		} finally {
+			disablingIdleIds = new Set([...disablingIdleIds].filter(id => id !== ch.id));
 		}
 	}
 
@@ -889,6 +938,13 @@ data: {"payload":{"type":"message_stop"}}
 		return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-200 dark:ring-zinc-700';
 	}
 
+	function statusBadgeCls(status: string): string {
+		if (status === 'active') return 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 ring-1 ring-green-600/10 dark:ring-green-400/20';
+		if (status === 'draining') return 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-1 ring-amber-600/10 dark:ring-amber-400/20';
+		if (status === 'disabled') return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-200 dark:ring-zinc-700';
+		return 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-red-600/10 dark:ring-red-400/20';
+	}
+
 	function healthDot(health: string): string {
 		if (health === 'healthy') return 'bg-green-500';
 		if (health === 'degraded') return 'bg-amber-500';
@@ -910,9 +966,13 @@ data: {"payload":{"type":"message_stop"}}
 
 	function getMenuItems(ch: Channel) {
 		const isTesting = testingIds.has(ch.id);
+		const isDraining = drainingIds.has(ch.id);
+		const isDisabling = disablingIdleIds.has(ch.id);
 		const items: any[] = [
 			{ label: '测试连通性', icon: Zap, disabled: isTesting, onclick: () => handleTest(ch) },
 			{ label: 'Probe 模型', icon: Radar, onclick: () => handleProbe(ch) },
+			{ label: 'Drain 停新请求', icon: CirclePause, disabled: ch.status === 'draining' || ch.status === 'disabled' || isDraining, onclick: () => handleDrain(ch) },
+			{ label: '空闲后禁用', icon: ShieldCheck, disabled: isDisabling, onclick: () => handleDisableWhenIdle(ch) },
 			{ label: '编辑', icon: Pencil, onclick: () => startEdit(ch) },
 			{ label: '管理 Keys', icon: Key, onclick: () => goto(`/channels/${rawId(ch.id)}`) },
 		];
@@ -1562,16 +1622,27 @@ data: {"payload":{"type":"message_stop"}}
 						<!-- Status -->
 						<td class="px-4 py-4 text-center" onclick={(e: MouseEvent) => e.stopPropagation()}>
 							{#if isPlatformAdmin}
-								<button
-									type="button"
-									onclick={() => handleToggleEnabled(ch)}
-									class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {ch.status === 'active' ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}"
-									title={ch.status === 'active' ? '点击禁用' : '点击启用'}
-								>
-									<span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform {ch.status === 'active' ? 'translate-x-4.5' : 'translate-x-0.5'}"></span>
-								</button>
+								<div class="flex flex-col items-center gap-1.5">
+									<button
+										type="button"
+										onclick={() => handleToggleEnabled(ch)}
+										class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {ch.status === 'active' ? 'bg-green-500' : ch.status === 'draining' ? 'bg-amber-500' : 'bg-zinc-300 dark:bg-zinc-600'}"
+										title={ch.status === 'active' ? '点击禁用' : '点击启用'}
+									>
+										<span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform {ch.status === 'active' ? 'translate-x-4.5' : 'translate-x-0.5'}"></span>
+									</button>
+									{#if ch.status !== 'active'}
+										<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium {statusBadgeCls(ch.status)}">
+											{#if ch.status === 'draining'}<CirclePause size={10} />{/if}
+											{ch.status}
+										</span>
+									{/if}
+								</div>
 							{:else}
-								<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium {ch.status === 'active' ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}">{ch.status}</span>
+								<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {statusBadgeCls(ch.status)}">
+									{#if ch.status === 'draining'}<CirclePause size={12} />{/if}
+									{ch.status}
+								</span>
 							{/if}
 						</td>
 						<!-- Health -->
@@ -1641,6 +1712,30 @@ data: {"payload":{"type":"message_stop"}}
 										<p class="text-xs text-zinc-700 dark:text-zinc-300">{fmtDate(ch.created_at)}</p>
 									</div>
 								</div>
+								{#if ch.status === 'draining'}
+									{@const drainInfo = drainStatuses[ch.id]}
+									<div class="mt-4 rounded-lg border border-amber-200/70 bg-amber-50 px-3 py-3 dark:border-amber-800/40 dark:bg-amber-900/10">
+										<div class="flex flex-wrap items-center justify-between gap-3">
+											<div class="flex items-start gap-2">
+												<CirclePause size={16} class="mt-0.5 text-amber-600 dark:text-amber-400" />
+												<div>
+													<p class="text-sm font-medium text-amber-800 dark:text-amber-300">Draining：已禁止新请求</p>
+													<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+														{drainInfo ? `当前 inflight=${drainInfo.inflight}，${drainInfo.safe_to_disable ? '可安全禁用' : '等待现有请求完成'}` : '点击刷新读取当前 inflight。'}
+													</p>
+												</div>
+											</div>
+											{#if isPlatformAdmin}
+												<div class="flex gap-2">
+													<Button variant="outline" size="sm" onclick={() => refreshDrainStatus(ch)}>刷新</Button>
+													<Button size="sm" onclick={() => handleDisableWhenIdle(ch)} disabled={disablingIdleIds.has(ch.id)}>
+														{disablingIdleIds.has(ch.id) ? '检查中...' : '空闲后禁用'}
+													</Button>
+												</div>
+											{/if}
+										</div>
+									</div>
+								{/if}
 								{#if ch.tags && ch.tags.length > 0}
 									<div class="mt-4">
 										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">标签</p>

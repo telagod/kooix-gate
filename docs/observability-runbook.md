@@ -81,6 +81,28 @@ ORDER BY chain.depth;
 - 若 API 返回 `fallback_stats.has_cycle=true`，说明历史数据或绕过控制面的写入制造了环；控制台更新会阻止新的自引用 / 循环 / 深度超过 5 的配置。
 - 旧事件或全局 fallback provider 路径可能没有 `group_id`，不会进入 group hit-rate 统计。
 
+## Channel draining
+
+Draining 用于安全下线 channel / key：先停止新请求，再等待现有 inflight 清空，最后禁用 channel。
+
+操作链：
+
+```bash
+curl -X POST "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/drain" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+curl "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/drain-status" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+curl -X POST "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/disable-when-idle" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+- `status='draining'` 不进入 `ChannelRepo::list_healthy_in_group`，因此不会接收新 route。
+- `drain-status.inflight` 来自当前进程 `ProviderRouter::InflightTracker`，与 `least_conn` 请求生命周期一致。
+- `disable-when-idle` 在 `inflight > 0` 时返回 400；等 `safe_to_disable=true` 后再执行即可下线 key/channel。
+- 多实例部署时，当前 inflight 视图是进程内 router 计数；后续若要跨实例强一致 drain，需要补 channel-level distributed active request gauge。
+
 ## Billing / usage settlement
 
 ```promql

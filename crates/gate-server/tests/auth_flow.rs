@@ -20,11 +20,13 @@ use gate_core::id::*;
 use gate_core::identity::{
     OrgRole, OrgStatus, Organization, PlatformRole, Project, ProjectRole, ProjectStatus,
 };
+use gate_providers::ProviderRouter;
 use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
 use gate_server::{AppState, build_router};
 use gate_storage::{
-    ApiKeyRecord as RepoApiKey, InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo,
+    ApiKeyRecord as RepoApiKey, ChannelGroupRecord, ChannelRecord, InMemoryApiKeyRepo,
+    InMemoryChannelGroupRepo, InMemoryChannelRepo, InMemoryMembershipRepo, InMemoryOrgRepo,
     InMemoryProjectRepo, InMemoryUserRepo,
 };
 use http_body_util::BodyExt;
@@ -662,6 +664,179 @@ async fn admin_group_detail_exposes_fallback_chain_and_validates_cycles() {
     assert_eq!(detail["fallback_stats"]["has_cycle"], false);
     assert!(detail["projects_using"].is_array());
     assert!(detail["project_ids"].is_array());
+}
+
+#[tokio::test]
+async fn admin_channel_draining_stops_new_requests_and_waits_for_inflight() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+
+    let channel_repo = Arc::new(InMemoryChannelRepo::new());
+    let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let project_id = f.proj_a;
+    let group_id = ChannelGroupId::new();
+    let draining_id = ChannelId::new();
+    let active_id = ChannelId::new();
+    let now = Utc::now();
+
+    group_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "drain-test".into(),
+        description: String::new(),
+        strategy: "priority".into(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    group_repo.seed_default(project_id, group_id);
+
+    let make_channel = |id: ChannelId, code: &str| ChannelRecord {
+        channel_id: id,
+        code: code.to_string(),
+        name: code.to_string(),
+        provider_type: "openai".to_string(),
+        base_url: "http://localhost:9999".to_string(),
+        supported_models: vec![],
+        status: "active".to_string(),
+        health: "healthy".to_string(),
+        timeout_ms: 60000,
+        max_retries: 2,
+        rpm_limit: None,
+        tpm_limit: None,
+        tags: vec![],
+        model_mapping: serde_json::Value::Object(Default::default()),
+        balance: None,
+        balance_updated_at: None,
+        last_error: None,
+        last_error_at: None,
+        created_at: now,
+        updated_at: now,
+    };
+    channel_repo.seed_channel(make_channel(draining_id, "draining-candidate"));
+    channel_repo.seed_channel(make_channel(active_id, "active-survivor"));
+    channel_repo.seed_binding(group_id, draining_id, 1, 1);
+    channel_repo.seed_binding(group_id, active_id, 2, 1);
+
+    let provider_router = Arc::new(ProviderRouter::new(
+        channel_repo.clone(),
+        group_repo.clone(),
+    ));
+    provider_router.inflight_tracker().acquire(draining_id);
+
+    let mut repos = build_repos(
+        f.org_a,
+        f.org_b,
+        f.proj_a,
+        f.user_dev,
+        &f.api_key_plain,
+        &f.api_key_revoked,
+    );
+    repos.channels = channel_repo;
+    repos.channel_groups = group_repo;
+
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_user(
+        f.user_super,
+        UserRecord {
+            orgs: HashMap::new(),
+            projects: HashMap::new(),
+            platform: Some(PlatformRole::SuperAdmin),
+        },
+    );
+    let state = AppState::new((*f.jwt).clone(), loader, repos)
+        .with_provider_router_arc(provider_router.clone());
+    let router = build_router(state);
+
+    let (status, body) = call(
+        &router,
+        "POST",
+        &format!("/v1/admin/channels/{}/drain", draining_id.as_uuid()),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["channel"]["status"], "draining");
+    assert_eq!(body["inflight"], 1);
+    assert_eq!(body["safe_to_disable"], false);
+
+    let routed = provider_router
+        .route(project_id, "any")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        routed.channel_id, active_id,
+        "new route must skip draining channel"
+    );
+
+    let (status, body) = call(
+        &router,
+        "POST",
+        &format!(
+            "/v1/admin/channels/{}/disable-when-idle",
+            draining_id.as_uuid()
+        ),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body={body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("inflight")
+    );
+
+    provider_router.release_channel(draining_id);
+    let (status, body) = call(
+        &router,
+        "POST",
+        &format!(
+            "/v1/admin/channels/{}/disable-when-idle",
+            draining_id.as_uuid()
+        ),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["channel"]["status"], "disabled");
+    assert_eq!(body["inflight"], 0);
+    assert_eq!(body["safe_to_disable"], true);
+}
+
+#[tokio::test]
+async fn admin_channel_drain_rejects_api_key_subject() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+    let (status, body) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/channels",
+        Some(&tok),
+        Some(serde_json::json!({
+            "code": "drain-api-key-subject",
+            "provider_type": "openai",
+            "base_url": "https://api.openai.com/v1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    let channel_id = body["id"].as_str().unwrap();
+
+    let (status, body) = call(
+        &f.router,
+        "POST",
+        &format!("/v1/admin/channels/{channel_id}/drain"),
+        Some(&f.api_key_plain),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "body={body}");
+    assert_eq!(body["error"]["code"], "forbidden");
 }
 
 #[tokio::test]

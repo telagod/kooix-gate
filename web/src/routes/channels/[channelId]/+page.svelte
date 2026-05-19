@@ -13,6 +13,9 @@
 		testChannel,
 		probeChannel,
 		updateChannel,
+		drainChannel,
+		getChannelDrainStatus,
+		disableChannelWhenIdle,
 		listAuditLogs
 	} from '$lib/api.js';
 	import type { ChannelKeySummary, ChannelStats, TestResponse, ProbeResponse, AuditLog } from '$lib/api.js';
@@ -24,7 +27,7 @@
 	import SectionCard from '$lib/components/templates/SectionCard.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { cn, dataTemplate } from '$lib/design';
-	import { Cable, ListChecks, Plus, RotateCw, Server, XCircle, Zap } from 'lucide-svelte';
+	import { Cable, CirclePause, ListChecks, Plus, RotateCw, Server, ShieldCheck, XCircle, Zap } from 'lucide-svelte';
 
 	let channelId = $derived($page.params.channelId ?? '');
 
@@ -47,6 +50,9 @@
 	// Test
 	let testResult = $state<TestResponse | null>(null);
 	let testing = $state(false);
+	let drainInfo = $state<{ inflight: number; safe_to_disable: boolean } | null>(null);
+	let draining = $state(false);
+	let disablingWhenIdle = $state(false);
 
 	// Logs
 	let logs = $state<AuditLog[]>([]);
@@ -161,6 +167,46 @@
 			await loadStats();
 		} catch (err: any) {
 			showToast(err?.message ?? '同步失败', 'err');
+		}
+	}
+
+	async function handleDrain() {
+		draining = true;
+		try {
+			const result = await drainChannel(channelId);
+			channelStats = { ...(channelStats as ChannelStats), channel: result.channel };
+			drainInfo = { inflight: result.inflight, safe_to_disable: result.safe_to_disable };
+			showToast(result.safe_to_disable ? '已进入 Draining，可安全禁用' : `已进入 Draining，等待 ${result.inflight} 个 inflight`);
+		} catch (err: any) {
+			showToast(err?.message ?? 'Drain 失败', 'err');
+		} finally {
+			draining = false;
+		}
+	}
+
+	async function refreshDrainStatus() {
+		try {
+			const result = await getChannelDrainStatus(channelId);
+			channelStats = { ...(channelStats as ChannelStats), channel: result.channel };
+			drainInfo = { inflight: result.inflight, safe_to_disable: result.safe_to_disable };
+			showToast(result.safe_to_disable ? 'Inflight 已清空' : `仍有 ${result.inflight} 个 inflight`);
+		} catch (err: any) {
+			showToast(err?.message ?? '刷新 drain 状态失败', 'err');
+		}
+	}
+
+	async function handleDisableWhenIdle() {
+		disablingWhenIdle = true;
+		try {
+			const result = await disableChannelWhenIdle(channelId);
+			channelStats = { ...(channelStats as ChannelStats), channel: result.channel };
+			drainInfo = { inflight: result.inflight, safe_to_disable: result.safe_to_disable };
+			showToast('Inflight 已清空，Channel 已禁用');
+		} catch (err: any) {
+			showToast(err?.message ?? '仍有 inflight，暂不能禁用', 'err');
+			await refreshDrainStatus();
+		} finally {
+			disablingWhenIdle = false;
 		}
 	}
 
@@ -329,6 +375,16 @@
 >
 	{#snippet actions()}
 		{#if channelStats && isPlatformAdmin}
+			<Button variant="outline" size="sm" onclick={handleDrain} disabled={draining || channelStats.channel.status === 'draining' || channelStats.channel.status === 'disabled'}>
+				<CirclePause size={14} />
+				{draining ? 'Draining...' : 'Drain'}
+			</Button>
+			{#if channelStats.channel.status === 'draining'}
+				<Button variant="outline" size="sm" onclick={handleDisableWhenIdle} disabled={disablingWhenIdle}>
+					<ShieldCheck size={14} />
+					{disablingWhenIdle ? '检查中...' : '空闲禁用'}
+				</Button>
+			{/if}
 			<Button variant="outline" size="sm" onclick={handleTest} disabled={testing}>
 				<Zap size={14} />
 				{testing ? '测试中...' : '测试连通'}
@@ -350,6 +406,28 @@
 				{:else}
 					{testResult.error ?? '连接失败'}
 				{/if}
+			</Alert>
+		{/if}
+
+		{#if channelStats.channel.status === 'draining'}
+			<Alert variant="warning" class="mb-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div class="flex items-start gap-2">
+						<CirclePause size={16} class="mt-0.5" />
+						<div>
+							<p class="font-medium">Draining：新请求已停止进入该 Channel</p>
+							<p class="mt-1 text-xs">
+								{drainInfo ? `inflight=${drainInfo.inflight} · ${drainInfo.safe_to_disable ? '可安全禁用' : '等待现有请求完成'}` : '点击刷新读取当前 inflight。'}
+							</p>
+						</div>
+					</div>
+					<div class="flex gap-2">
+						<Button variant="outline" size="sm" onclick={refreshDrainStatus}>刷新</Button>
+						<Button size="sm" onclick={handleDisableWhenIdle} disabled={disablingWhenIdle}>
+							{disablingWhenIdle ? '检查中...' : '空闲后禁用'}
+						</Button>
+					</div>
+				</div>
 			</Alert>
 		{/if}
 

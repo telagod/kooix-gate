@@ -115,6 +115,24 @@ pub struct UpdateChannel {
     pub model_mapping: Option<serde_json::Value>,
 }
 
+/// Channel control-plane status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelStatus {
+    Active,
+    Draining,
+    Disabled,
+}
+
+impl ChannelStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Draining => "draining",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
 #[async_trait]
 pub trait ChannelRepo: Send + Sync + 'static {
     /// 按 ID 查渠道。
@@ -138,6 +156,9 @@ pub trait ChannelRepo: Send + Sync + 'static {
 
     /// 更新 channel 字段（admin 操作）。
     async fn update(&self, id: ChannelId, input: UpdateChannel) -> DbResult<ChannelRecord>;
+
+    /// 更新 channel control-plane status（admin/draining 操作）。
+    async fn set_status(&self, id: ChannelId, status: ChannelStatus) -> DbResult<ChannelRecord>;
 
     /// 软删除（设 deleted_at + status='disabled'）。
     async fn soft_delete(&self, id: ChannelId) -> DbResult<()>;
@@ -445,6 +466,23 @@ impl ChannelRepo for PgChannelRepo {
         .bind(input.max_retries)
         .bind(input.tags.as_deref())
         .bind(input.model_mapping.as_ref())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        row_to_channel(&row)
+    }
+
+    async fn set_status(&self, id: ChannelId, status: ChannelStatus) -> DbResult<ChannelRecord> {
+        let row = sqlx::query(
+            "UPDATE channels SET status = $2, updated_at = now() \
+             WHERE id = $1 AND deleted_at IS NULL \
+             RETURNING id, code, name, provider_type, base_url, supported_models, \
+                       status, health, timeout_ms, max_retries, rpm_limit, tpm_limit, \
+                       tags, model_mapping, balance, balance_updated_at, \
+                       last_error, last_error_at, created_at, updated_at",
+        )
+        .bind(id.as_uuid())
+        .bind(status.as_str())
         .fetch_optional(&self.pool)
         .await?
         .ok_or(DbError::NotFound)?;
@@ -1101,6 +1139,14 @@ impl ChannelRepo for InMemoryChannelRepo {
         if let Some(mapping) = input.model_mapping {
             record.model_mapping = mapping;
         }
+        record.updated_at = Utc::now();
+        Ok(record.clone())
+    }
+
+    async fn set_status(&self, id: ChannelId, status: ChannelStatus) -> DbResult<ChannelRecord> {
+        let mut inner = self.inner.write();
+        let record = inner.channels.get_mut(&id).ok_or(DbError::NotFound)?;
+        record.status = status.as_str().to_string();
         record.updated_at = Utc::now();
         Ok(record.clone())
     }

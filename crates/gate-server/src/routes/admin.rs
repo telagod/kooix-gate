@@ -26,7 +26,7 @@ use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, UserId};
 use gate_core::rbac::{Permission, Scope};
 use gate_providers::ProviderCapabilities;
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
-use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
+use gate_storage::{ChannelStatus, CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -162,6 +162,13 @@ pub struct BatchResult {
     pub affected: u64,
 }
 
+#[derive(Serialize)]
+pub struct ChannelDrainResponse {
+    pub channel: ChannelSummary,
+    pub inflight: i64,
+    pub safe_to_disable: bool,
+}
+
 #[derive(Deserialize)]
 pub struct PluginReplayRequest {
     pub manifest: serde_json::Value,
@@ -188,6 +195,12 @@ pub fn router() -> Router<AppState> {
         .route(
             "/channels/:id",
             axum::routing::put(update_channel).delete(delete_channel),
+        )
+        .route("/channels/:id/drain", axum::routing::post(drain_channel))
+        .route("/channels/:id/drain-status", get(get_channel_drain_status))
+        .route(
+            "/channels/:id/disable-when-idle",
+            axum::routing::post(disable_channel_when_idle),
         )
         .route(
             "/channels/batch-enable",
@@ -440,6 +453,101 @@ async fn create_channel(
     );
 
     Ok(Json(record_to_summary(record)))
+}
+
+fn channel_inflight(app: &AppState, channel_id: ChannelId) -> i64 {
+    app.provider_router
+        .as_ref()
+        .map(|router| router.inflight_tracker().current(channel_id))
+        .unwrap_or(0)
+}
+
+async fn drain_channel(
+    State(app): State<AppState>,
+    Path(id): Path<FlexUuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<ChannelDrainResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelUpdate, Scope::Platform);
+
+    let channel_id = ChannelId::from(id.0);
+    let record = app
+        .repos
+        .channels
+        .set_status(channel_id, ChannelStatus::Draining)
+        .await?;
+    let inflight = channel_inflight(&app, channel_id);
+
+    app.audit.emit(
+        &ctx,
+        "channel.drain",
+        "channel",
+        Some(*id),
+        Some(serde_json::json!({"inflight": inflight})),
+    );
+
+    Ok(Json(ChannelDrainResponse {
+        channel: record_to_summary(record),
+        inflight,
+        safe_to_disable: inflight <= 0,
+    }))
+}
+
+async fn get_channel_drain_status(
+    State(app): State<AppState>,
+    Path(id): Path<FlexUuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<ChannelDrainResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelRead, Scope::Platform);
+
+    let channel_id = ChannelId::from(id.0);
+    let record = app.repos.channels.find_by_id(channel_id).await?;
+    let inflight = channel_inflight(&app, channel_id);
+
+    Ok(Json(ChannelDrainResponse {
+        channel: record_to_summary(record),
+        inflight,
+        safe_to_disable: inflight <= 0,
+    }))
+}
+
+async fn disable_channel_when_idle(
+    State(app): State<AppState>,
+    Path(id): Path<FlexUuid>,
+    Authed(ctx): Authed,
+) -> AppResult<Json<ChannelDrainResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelUpdate, Scope::Platform);
+
+    let channel_id = ChannelId::from(id.0);
+    let current = app.repos.channels.find_by_id(channel_id).await?;
+    let inflight = channel_inflight(&app, channel_id);
+    if inflight > 0 {
+        return Err(AppError::BadRequest(format!(
+            "channel still has {inflight} inflight request(s)"
+        )));
+    }
+
+    let record = app
+        .repos
+        .channels
+        .set_status(channel_id, ChannelStatus::Disabled)
+        .await?;
+
+    app.audit.emit(
+        &ctx,
+        "channel.disable_when_idle",
+        "channel",
+        Some(*id),
+        Some(serde_json::json!({"previous_status": current.status, "inflight": inflight})),
+    );
+
+    Ok(Json(ChannelDrainResponse {
+        channel: record_to_summary(record),
+        inflight,
+        safe_to_disable: true,
+    }))
 }
 
 async fn update_channel(

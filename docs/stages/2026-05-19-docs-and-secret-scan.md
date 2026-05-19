@@ -25,6 +25,33 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.4 Channel draining
+
+本轮把 P1.4 的 Channel draining 从路线项落成可操作的运维闭环：
+
+- `channels.status` 新增 `draining`，migration 保持旧 `active|disabled|deleted` 兼容并扩展 check constraint。
+- `ChannelRepo::set_status` 统一 control-plane 状态切换；`ChannelRecord::is_healthy()` 仍只接受 `active + healthy`，因此 `draining + healthy` 会自然被新请求路由跳过。
+- Admin API 增加：
+  - `POST /v1/admin/channels/:id/drain`：进入 draining，返回 channel + 当前 inflight。
+  - `GET /v1/admin/channels/:id/drain-status`：刷新当前 inflight 与 `safe_to_disable`。
+  - `POST /v1/admin/channels/:id/disable-when-idle`：仅在 inflight 清空后改为 disabled，否则返回 400。
+- `ProviderRouter::InflightTracker` 作为本阶段 draining 的等待依据；least_conn 请求生命周期已有 acquire/release，非 least_conn 当前返回 0。
+- Channel 列表与详情页新增 Drain、空闲禁用、inflight 刷新与 Draining badge；`/admin/channels` 仪表盘新增 Draining 统计。
+- API subject 仍强制 `require_user!`，API key 不能调用管理 drain endpoint。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-storage -p gate-providers -p gate-server --all-targets
+cargo test -p gate-storage --test channel_repo draining_channel_is_persisted_and_excluded_from_healthy_group -- --nocapture
+cargo test -p gate-providers route_skips_draining_channel -- --nocapture
+cargo test -p gate-server --test auth_flow admin_channel_draining_stops_new_requests_and_waits_for_inflight -- --nocapture
+cargo test -p gate-server --test auth_flow admin_channel_drain_rejects_api_key_subject -- --nocapture
+npm --prefix web run check
+npm --prefix web test -- api
+```
+
 ## P1.4 `least_latency` 持久化滑窗
 
 本轮把 `least_latency` 从单进程 `ChannelMetrics` 升级为可跨实例复用的持久化滑窗：

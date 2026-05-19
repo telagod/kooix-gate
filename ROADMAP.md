@@ -432,10 +432,10 @@ cargo test -p gate-providers --all-targets
   - [x] group chain 图
   - [x] 循环检测
   - [x] fallback 命中率
-- [ ] Channel draining：
-  - 禁止新请求
-  - 等待 inflight 清空
-  - 可安全下线 key/channel
+- [x] Channel draining：
+  - [x] 禁止新请求
+  - [x] 等待 inflight 清空
+  - [x] 可安全下线 key/channel
 - [ ] Canary routing：
   - 某 channel 只吃 1%-5% 流量
   - 自动比较错误率 / 延迟 / 单价

@@ -3431,6 +3431,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn route_skips_draining_channel() {
+        let (pid, _router, ch_ids) =
+            setup_strategy_fixtures("priority", &[("ch-draining", 1, 1), ("ch-active", 2, 1)]);
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        let now = Utc::now();
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "drain-skip".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        });
+        group_repo.seed_default(pid, group_id);
+
+        let mut draining = make_channel_with_models("ch-draining", "openai", vec![]);
+        draining.channel_id = ch_ids[0];
+        draining.status = "draining".to_string();
+        channel_repo.seed_channel(draining);
+        channel_repo.seed_binding(group_id, ch_ids[0], 1, 1);
+
+        let mut active = make_channel_with_models("ch-active", "openai", vec![]);
+        active.channel_id = ch_ids[1];
+        channel_repo.seed_channel(active);
+        channel_repo.seed_binding(group_id, ch_ids[1], 2, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let routed = router.route(pid, "any").await.unwrap().unwrap();
+        assert_eq!(
+            routed.channel_id, ch_ids[1],
+            "draining channel must not receive new routes"
+        );
+    }
+
+    #[tokio::test]
     async fn least_latency_prefers_persistent_sliding_window() {
         let (pid, router, ch_ids) =
             setup_strategy_fixtures("least_latency", &[("ch-a", 1, 1), ("ch-b", 2, 1)]);

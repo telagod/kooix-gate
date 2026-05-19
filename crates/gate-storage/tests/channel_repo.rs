@@ -2,8 +2,8 @@
 
 use gate_core::id::{ChannelGroupId, ChannelId};
 use gate_storage::{
-    ChannelGroupRepo, ChannelRepo, OrgRepo, PgChannelGroupRepo, PgChannelRepo, PgOrgRepo,
-    PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
+    ChannelGroupRepo, ChannelRepo, ChannelStatus, OrgRepo, PgChannelGroupRepo, PgChannelRepo,
+    PgOrgRepo, PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
 };
 use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
@@ -79,6 +79,67 @@ async fn list_healthy_in_group_filters_disabled() {
     assert_eq!(
         bindings[0].channel.channel_id,
         ChannelId::from(ch_enabled_id)
+    );
+}
+
+/// draining 渠道应可持久化，但不能再被新请求路由选中。
+#[tokio::test]
+async fn draining_channel_is_persisted_and_excluded_from_healthy_group() {
+    let (_c, pool) = start_pg().await;
+
+    let ch_draining_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO channels (code, name, provider_type, base_url, config_enc, status, health) \
+         VALUES ('ch-draining', 'Draining Ch', 'openai', 'https://api.openai.com/v1', '\\x'::bytea, 'active', 'healthy') \
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let ch_active_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO channels (code, name, provider_type, base_url, config_enc, status, health) \
+         VALUES ('ch-active-after-drain', 'Active Ch', 'openai', 'https://api.openai.com/v1', '\\x'::bytea, 'active', 'healthy') \
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let group_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO channel_groups (name, strategy) VALUES ('drain-group', 'priority') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO channel_group_bindings (group_id, channel_id, priority, weight, enabled) \
+         VALUES ($1, $2, 10, 1, TRUE), ($1, $3, 20, 1, TRUE)",
+    )
+    .bind(group_id)
+    .bind(ch_draining_id)
+    .bind(ch_active_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = PgChannelRepo::new(pool.clone());
+    let draining = repo
+        .set_status(ChannelId::from(ch_draining_id), ChannelStatus::Draining)
+        .await
+        .unwrap();
+    assert_eq!(draining.status, "draining");
+    assert_eq!(draining.health, "healthy");
+    assert!(!draining.is_healthy(), "draining must reject new routing");
+
+    let bindings = repo
+        .list_healthy_in_group(ChannelGroupId::from(group_id))
+        .await
+        .unwrap();
+    assert_eq!(bindings.len(), 1, "draining channel must be skipped");
+    assert_eq!(
+        bindings[0].channel.channel_id,
+        ChannelId::from(ch_active_id)
     );
 }
 

@@ -215,4 +215,69 @@ describe('api module', () => {
 		expect(opts.method).toBe('PUT');
 		expect(JSON.parse(opts.body)).toEqual({ password: 'new-password-456' });
 	});
+
+	it('admin channel drain APIs use raw typed id paths', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		const channel = {
+			id: 'ch_019e2c1ba7d17162842207e4b24f5f98',
+			code: 'openai-prod',
+			name: 'OpenAI Prod',
+			provider_type: 'openai',
+			base_url: 'https://api.openai.com/v1',
+			status: 'draining',
+			health: 'healthy',
+			supported_models: [],
+			rpm_limit: null,
+			tpm_limit: null,
+			timeout_ms: 60000,
+			max_retries: 2,
+			tags: [],
+			capabilities: {
+				chat: true,
+				streaming: true,
+				tools: true,
+				embeddings: true,
+				image: false,
+				audio: false,
+				vision: false,
+				json_mode: true,
+				batch: false
+			},
+			model_mapping: {},
+			balance: null,
+			balance_updated_at: null,
+			last_error: null,
+			last_error_at: null,
+			created_at: '2026-01-01T00:00:00Z',
+			updated_at: '2026-01-01T00:00:00Z'
+		};
+		mockFetch
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ channel, inflight: 2, safe_to_disable: false })
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ channel, inflight: 0, safe_to_disable: true })
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ channel: { ...channel, status: 'disabled' }, inflight: 0, safe_to_disable: true })
+			});
+
+		const { drainChannel, getChannelDrainStatus, disableChannelWhenIdle } = await loadApi();
+		await drainChannel(channel.id);
+		await getChannelDrainStatus(channel.id);
+		await disableChannelWhenIdle(channel.id);
+
+		expect(mockFetch).toHaveBeenCalledTimes(3);
+		expect(mockFetch.mock.calls[0][0]).toContain('/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f98/drain');
+		expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+		expect(mockFetch.mock.calls[1][0]).toContain('/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f98/drain-status');
+		expect(mockFetch.mock.calls[2][0]).toContain('/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f98/disable-when-idle');
+		expect(mockFetch.mock.calls[2][1].method).toBe('POST');
+	});
 });
