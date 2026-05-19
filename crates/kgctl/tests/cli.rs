@@ -7,14 +7,18 @@
 //! - migrate --dry-run  （已迁移库上 → "no pending"）
 //! - admin create       （新建用户能查到；同 email 二次报错）
 //! - doctor             （全 env + migration + Redis Lua 正确 → exit 0；缺 DB → exit 1）
+//! - smoke              （mock gate-server HTTP API：login → channel → api key → chat → usage）
 //! - seed-pricing       （首次插入 + 二次幂等不报错）
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::json;
 use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use testcontainers_modules::redis::Redis as RedisImage;
+use wiremock::matchers::{body_json, header, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// 启动一个 PG 容器，返回 (container guard, postgres URL)
 async fn start_pg() -> (testcontainers::ContainerAsync<PgImage>, String) {
@@ -243,6 +247,60 @@ async fn doctor_passes_when_all_env_correct() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn doctor_json_passes_and_reports_all_checks() {
+    let (_pg, db_url) = start_pg().await;
+    let (_redis, redis_url) = start_redis().await;
+
+    {
+        let db_url = db_url.clone();
+        tokio::task::spawn_blocking(move || {
+            kg().arg("migrate")
+                .env("KOOIX_DATABASE_URL", &db_url)
+                .assert()
+                .success();
+        })
+        .await
+        .unwrap();
+    }
+
+    let output = tokio::task::spawn_blocking(move || {
+        kg().args(["doctor", "--json"])
+            .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
+            .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
+            .env("KOOIX_DATABASE_URL", &db_url)
+            .env("KOOIX_REDIS_URL", &redis_url)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone()
+    })
+    .await
+    .unwrap();
+
+    let value: serde_json::Value =
+        serde_json::from_slice(&output).expect("doctor --json stdout must be valid JSON");
+    assert_eq!(value["ok"], true);
+    let checks = value["checks"].as_array().expect("checks array");
+    assert_eq!(checks.len(), 5);
+    for name in [
+        "KOOIX_MASTER_KEY",
+        "KOOIX_JWT_SECRET",
+        "KOOIX_PUBLIC_URL",
+        "KOOIX_DATABASE_URL",
+        "KOOIX_REDIS_URL",
+    ] {
+        let check = checks
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap_or_else(|| panic!("missing check {name}"));
+        assert_eq!(check["ok"], true);
+        assert!(check["detail"].as_str().unwrap_or_default().len() > 2);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn doctor_fails_without_database_url() {
     // 即使其他 env 都对，缺 DB 必须 exit 1
     tokio::task::spawn_blocking(|| {
@@ -258,6 +316,33 @@ async fn doctor_fails_without_database_url() {
     })
     .await
     .unwrap();
+}
+
+#[test]
+fn doctor_json_failure_is_machine_readable() {
+    let output = kg()
+        .args(["doctor", "--json"])
+        .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
+        .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+        .env_remove("KOOIX_PUBLIC_URL")
+        .env_remove("KOOIX_DATABASE_URL")
+        .env_remove("KOOIX_REDIS_URL")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: serde_json::Value =
+        serde_json::from_slice(&output).expect("doctor --json failure stdout must be valid JSON");
+    assert_eq!(value["ok"], false);
+    let checks = value["checks"].as_array().expect("checks array");
+    let public_url = checks
+        .iter()
+        .find(|c| c["name"] == "KOOIX_PUBLIC_URL")
+        .expect("public url check");
+    assert_eq!(public_url["ok"], false);
+    assert_eq!(public_url["detail"], "未设置");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -362,4 +447,229 @@ fn env_lists_all_required_vars_including_oidc_redirect() {
         .stdout(predicate::str::contains("KOOIX_DATABASE_URL"))
         .stdout(predicate::str::contains("KOOIX_REDIS_URL"))
         .stdout(predicate::str::contains("KOOIX_OIDC_DEFAULT_REDIRECT"));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 6. smoke
+// ────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smoke_walks_login_channel_apikey_chat_usage_flow() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/auth/login"))
+        .and(body_json(json!({
+            "email": "root@example.com",
+            "password": "supersecret-12345"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "user-token",
+            "refresh_token": "refresh-token",
+            "expires_at": "2026-05-19T00:00:00Z",
+            "user": { "id": "usr_019e2c1ba7d17162842207e4b24f5f98", "email": "root@example.com", "display_name": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/me"))
+        .and(header("authorization", "Bearer user-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "subject": { "kind": "user", "user_id": "usr_019e2c1ba7d17162842207e4b24f5f98", "session_id": "019e2c1b-a7d1-7162-8422-07e4b24f5f98" },
+            "current_org": "org_019e2c1ba7d17162842207e4b24f5f98",
+            "is_platform_admin": true,
+            "orgs": ["org_019e2c1ba7d17162842207e4b24f5f98"]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path(
+            "/v1/orgs/019e2c1b-a7d1-7162-8422-07e4b24f5f98/projects",
+        ))
+        .and(header("authorization", "Bearer user-token"))
+        .and(header(
+            "x-kooix-org",
+            "org_019e2c1ba7d17162842207e4b24f5f98",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "proj_019e2c1ba7d17162842207e4b24f5f99",
+            "name": "Smoke",
+            "slug": "smoke",
+            "status": "active"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/admin/channels"))
+        .and(header("authorization", "Bearer user-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "ch_019e2c1ba7d17162842207e4b24f5f90",
+            "code": "smoke",
+            "name": "Smoke",
+            "provider_type": "openai",
+            "base_url": "http://upstream.test/v1",
+            "status": "active",
+            "health": "healthy",
+            "supported_models": ["gpt-4o-mini"],
+            "rpm_limit": null,
+            "tpm_limit": null,
+            "timeout_ms": 10000,
+            "max_retries": 0,
+            "tags": ["kgctl-smoke"],
+            "model_mapping": null,
+            "balance": null,
+            "balance_updated_at": null,
+            "last_error": null,
+            "last_error_at": null,
+            "created_at": "2026-05-19T00:00:00Z",
+            "updated_at": "2026-05-19T00:00:00Z"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path(
+            "/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f90/keys",
+        ))
+        .and(header("authorization", "Bearer user-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chk_019e2c1ba7d17162842207e4b24f5f91",
+            "channel_id": "ch_019e2c1ba7d17162842207e4b24f5f90",
+            "label": "kgctl-smoke",
+            "fingerprint": "abc123",
+            "weight": 1,
+            "health": "healthy",
+            "total_requests": 0,
+            "total_errors": 0,
+            "consecutive_errors": 0,
+            "last_error_code": null,
+            "last_error_at": null,
+            "cooldown_until": null,
+            "created_at": "2026-05-19T00:00:00Z"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/admin/groups"))
+        .and(header("authorization", "Bearer user-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "grp_019e2c1ba7d17162842207e4b24f5f92",
+            "name": "Smoke",
+            "description": "",
+            "strategy": "priority",
+            "enabled": true,
+            "fallback_group_id": null,
+            "channel_count": 0,
+            "created_at": "2026-05-19T00:00:00Z",
+            "updated_at": "2026-05-19T00:00:00Z"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path(
+            "/v1/admin/groups/019e2c1b-a7d1-7162-8422-07e4b24f5f92/bindings",
+        ))
+        .and(header("authorization", "Bearer user-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(
+            "/v1/admin/projects/019e2c1b-a7d1-7162-8422-07e4b24f5f99/default-group",
+        ))
+        .and(header("authorization", "Bearer user-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/orgs/019e2c1b-a7d1-7162-8422-07e4b24f5f98/projects/019e2c1b-a7d1-7162-8422-07e4b24f5f99/api-keys"))
+        .and(header("authorization", "Bearer user-token"))
+        .and(header("x-kooix-org", "org_019e2c1ba7d17162842207e4b24f5f98"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "key_019e2c1ba7d17162842207e4b24f5f93",
+            "name": "kgctl-smoke",
+            "plaintext": "sk-kg-smoke-plaintext",
+            "prefix": "sk-kg",
+            "last4": "text"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("authorization", "Bearer sk-kg-smoke-plaintext"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-smoke",
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3 }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/usage"))
+        .and(header("authorization", "Bearer user-token"))
+        .and(header(
+            "x-kooix-org",
+            "org_019e2c1ba7d17162842207e4b24f5f98",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "range": "7d",
+            "group_by": "day",
+            "from": "2026-05-12T00:00:00Z",
+            "to": "2026-05-19T00:00:00Z",
+            "total_cost_usd": 0.0,
+            "total_tokens_in": 0,
+            "total_tokens_out": 0,
+            "series": []
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let base = server.uri();
+    tokio::task::spawn_blocking(move || {
+        kg().args([
+            "smoke",
+            "--base-url",
+            &base,
+            "--email",
+            "root@example.com",
+            "--password",
+            "supersecret-12345",
+            "--upstream-base-url",
+            "http://upstream.test/v1",
+            "--upstream-api-key",
+            "sk-upstream",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("smoke ok"))
+        .stdout(predicate::str::contains("create channel/group binding"))
+        .stdout(predicate::str::contains("chat completions"));
+    })
+    .await
+    .unwrap();
 }

@@ -1,0 +1,23 @@
+image:
+  repository: ghcr.io/telagod/kooix-gate
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8000
+
+env:
+  KOOIX_LISTEN_ADDR: 0.0.0.0:8000
+  KOOIX_PUBLIC_URL: http://kooix-gate.local
+  KOOIX_DATABASE_URL: postgres://gate:gate_dev@postgres:5432/gate
+  KOOIX_REDIS_URL: redis://redis:6379/0
+
+secretEnv:
+  # Fill with `kgctl key master` and `kgctl key jwt` in real deployments.
+  KOOIX_MASTER_KEY: ""
+  KOOIX_JWT_SECRET: ""
+
+resources: {}

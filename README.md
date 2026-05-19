@@ -44,7 +44,7 @@
 - 🌊 HTTP Plugin SSE normalizer + Provider preset，覆盖私有 SSE 帧、Anthropic Messages、Azure deployment URL 与 OpenAI-compatible usage 末帧。
 - 🛡️ HTTP Plugin manifest 作为不可信配置处理：模板变量分域白名单、绝对 URL 默认禁用、内网/metadata host 拒绝、request/response/SSE size limit。
 - 🧱 前端模板化：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等集中到 `web/src/lib/components/templates/`。
-- 📜 发布收口：`ROADMAP.md`、`RELEASE.md`、`docs/plugin-manifest.md`、`docs/security-runbook.md`。
+- 📜 发布收口：`ROADMAP.md`、`RELEASE.md`、`docs/README.md`、`docs/plugin-manifest.md`、`docs/security-runbook.md`、`examples/`。
 
 ## 技术栈
 
@@ -67,7 +67,7 @@ kooix-gate/
 ├── LICENSE                     # AGPL-3.0
 ├── ROADMAP.md
 ├── RELEASE.md
-├── docs/                       # plugin manifest / security runbook
+├── docs/                       # 文档索引 / runbooks / waivers / stages
 ├── crates/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）
 │   ├── gate-crypto/            # Envelope encryption + KMS 抽象
@@ -174,7 +174,7 @@ curl http://localhost:8080/v1/chat/completions \
 - **多维度计费**：按 dimension × conditions 精准匹配，支持缓存折扣、批量折扣、分层定价
 - **crash-safe pre-debit**：budget quota 先 Redis 预扣，再把 `quota_keys` / `estimated_micros` 写入 `inflight_requests`；正常 settle 多退少补，异常 drop 全退，进程崩溃由 sweeper 兜底
 
-详细架构见 [DESIGN.md](./DESIGN.md)，HTTP Plugin manifest 示例见 [docs/plugin-manifest.md](./docs/plugin-manifest.md)。
+详细架构见 [DESIGN.md](./DESIGN.md)，HTTP Plugin manifest 示例见 [docs/plugin-manifest.md](./docs/plugin-manifest.md)。文档总入口见 [docs/README.md](./docs/README.md)，已完成的阶段性审计与收口记录统一放在 [docs/stages/](./docs/stages/)。SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm 示例见 [examples/](./examples/)。
 
 ## 测试
 

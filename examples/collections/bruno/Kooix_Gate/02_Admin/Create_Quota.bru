@@ -1,0 +1,31 @@
+meta {
+  name: Create Quota
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/orgs/{{orgId}}/quotas
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+headers {
+  X-Kooix-Org: {{orgId}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "scope_kind": "project",
+    "scope_id": "{{projectId}}",
+    "dimension": "rpm",
+    "model_filter": "{{model}}",
+    "limit_value": "60",
+    "window_seconds": 60
+  }
+}

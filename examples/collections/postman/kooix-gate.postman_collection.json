@@ -1,0 +1,302 @@
+{
+  "info": {
+    "name": "Kooix Gate Quickstart",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "orgId",
+      "value": "org_..."
+    },
+    {
+      "key": "projectId",
+      "value": "proj_..."
+    },
+    {
+      "key": "apiKey",
+      "value": "<project-api-key>"
+    },
+    {
+      "key": "model",
+      "value": "gpt-4o-mini"
+    },
+    {
+      "key": "upstreamBaseUrl",
+      "value": "https://api.openai.com/v1"
+    },
+    {
+      "key": "upstreamApiKey",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"root@example.com\",\n  \"password\": \"change-me\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Create provider preset channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/channels",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "channels"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"openai-compatible-main\",\n  \"name\": \"OpenAI Compatible Main\",\n  \"provider_type\": \"plugin\",\n  \"base_url\": \"{{upstreamBaseUrl}}\",\n  \"enabled\": true,\n  \"supported_models\": [\n    \"{{model}}\"\n  ],\n  \"tags\": [\n    \"example\"\n  ],\n  \"model_mapping\": {\n    \"plugin\": {\n      \"preset\": {\n        \"provider\": \"openai_compatible\"\n      }\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Create pricing rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/pricing-rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "pricing-rules"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model}}\",\n  \"dimension\": \"input_tokens\",\n  \"unit\": \"per_million_tokens\",\n  \"rate\": 0.15,\n  \"conditions\": {},\n  \"priority\": 100,\n  \"description\": \"example input pricing\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create quota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "X-Kooix-Org",
+                "value": "{{orgId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/quotas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orgs",
+                "{{orgId}}",
+                "quotas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scope_kind\": \"project\",\n  \"scope_id\": \"{{projectId}}\",\n  \"dimension\": \"rpm\",\n  \"model_filter\": \"{{model}}\",\n  \"limit_value\": \"60\",\n  \"window_seconds\": 60\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Data Plane",
+      "item": [
+        {
+          "name": "Chat completions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/chat/completions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model}}\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"hello\"\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Streaming chat completions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/chat/completions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model}}\",\n  \"stream\": true,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"stream hello\"\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Usage summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "X-Kooix-Org",
+                "value": "{{orgId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/usage?range=7d&group_by=day",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "usage"
+              ],
+              "query": [
+                {
+                  "key": "range",
+                  "value": "7d"
+                },
+                {
+                  "key": "group_by",
+                  "value": "day"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

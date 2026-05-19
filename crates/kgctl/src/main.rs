@@ -8,7 +8,8 @@
 //!   kgctl env                打印部署必需的环境变量清单（含说明）
 //!   kgctl migrate            连 DB 跑 migrations（--dry-run 仅列出 pending）
 //!   kgctl admin create       创建 platform super_admin 账号
-//!   kgctl doctor             一键体检：env / DB / Redis 可达性
+//!   kgctl doctor             一键体检：env / DB / Redis 可达性（支持 --json）
+//!   kgctl smoke              对已运行 gate-server 做最小 HTTP 冒烟
 //!   kgctl seed-pricing       写入主流模型默认定价（幂等）
 //!   kgctl usage-storage plan 输出 usage 热表分区 / Timescale dry-run DDL
 
@@ -19,6 +20,7 @@ mod doctor;
 mod migrate;
 mod pricing;
 mod setup;
+mod smoke;
 mod usage_storage;
 
 #[derive(Parser)]
@@ -53,7 +55,36 @@ enum Cmd {
         sub: AdminCmd,
     },
     /// 部署体检：env 完整性 + DB / Redis 可达性
-    Doctor,
+    Doctor {
+        /// 输出机器可读 JSON，适合 CI / deploy pipeline 消费
+        #[arg(long)]
+        json: bool,
+    },
+    /// 发布后 HTTP 冒烟：登录、建 channel/API key、发 chat、查 usage
+    Smoke {
+        /// gate-server 根 URL；默认读 KOOIX_PUBLIC_URL
+        #[arg(long, env = "KOOIX_PUBLIC_URL")]
+        base_url: String,
+        /// 登录邮箱；默认读 KOOIX_SMOKE_EMAIL
+        #[arg(long, env = "KOOIX_SMOKE_EMAIL")]
+        email: String,
+        /// 登录密码；默认读 KOOIX_SMOKE_PASSWORD
+        #[arg(long, env = "KOOIX_SMOKE_PASSWORD")]
+        password: String,
+        /// 可选 OpenAI-compatible 上游 base URL；提供后 smoke 会创建 channel/group/default route
+        #[arg(long, env = "KOOIX_SMOKE_UPSTREAM_BASE_URL")]
+        upstream_base_url: Option<String>,
+        /// 上游 API key；创建 channel key 时使用，不会打印完整值
+        #[arg(
+            long,
+            env = "KOOIX_SMOKE_UPSTREAM_API_KEY",
+            default_value = "sk-kgctl-smoke"
+        )]
+        upstream_api_key: String,
+        /// smoke 使用的模型名
+        #[arg(long, env = "KOOIX_SMOKE_MODEL", default_value = "gpt-4o-mini")]
+        model: String,
+    },
     /// 写入主流模型的默认计费定价（幂等，legacy model_pricing 表）
     SeedPricing,
     /// 定价规则管理（pricing_rules 表）
@@ -167,7 +198,22 @@ fn main() {
         Cmd::Admin {
             sub: AdminCmd::Create { email, password },
         } => run_async(admin::create(email, password)),
-        Cmd::Doctor => run_async(doctor::run()),
+        Cmd::Doctor { json } => run_async(doctor::run(doctor::DoctorOutput::from_json_flag(json))),
+        Cmd::Smoke {
+            base_url,
+            email,
+            password,
+            upstream_base_url,
+            upstream_api_key,
+            model,
+        } => run_async(smoke::run(smoke::SmokeOpts {
+            base_url,
+            email,
+            password,
+            upstream_base_url,
+            upstream_api_key,
+            model,
+        })),
         Cmd::SeedPricing => run_async(pricing::seed()),
         Cmd::Pricing {
             sub: PricingCmd::List { model, channel_id },

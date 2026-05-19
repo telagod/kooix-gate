@@ -1,0 +1,36 @@
+meta {
+  name: Create Provider Preset Channel
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/admin/channels
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "code": "openai-compatible-main",
+    "name": "OpenAI Compatible Main",
+    "provider_type": "plugin",
+    "base_url": "{{upstreamBaseUrl}}",
+    "enabled": true,
+    "supported_models": ["{{model}}"],
+    "tags": ["example"],
+    "model_mapping": {
+      "plugin": {
+        "preset": { "provider": "openai_compatible" }
+      }
+    }
+  }
+}

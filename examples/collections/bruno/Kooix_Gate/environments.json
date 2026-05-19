@@ -1,0 +1,16 @@
+{
+  "environments": [
+    {
+      "name": "local",
+      "variables": {
+        "baseUrl": "http://localhost:8000",
+        "adminToken": "",
+        "orgId": "org_...",
+        "projectId": "proj_...",
+        "apiKey": "<project-api-key>",
+        "model": "gpt-4o-mini",
+        "upstreamBaseUrl": "https://api.openai.com/v1"
+      }
+    }
+  ]
+}

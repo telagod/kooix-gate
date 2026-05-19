@@ -1,7 +1,7 @@
 # Kooix Gate 架构 / 性能 / 数据库重构 TODO 审计
 
 Status: implementation pass applied
-Scope: 当前 `kooix-gate` 仓库对照 `/home/telagod/project/k2i/foxnio/docs/REFACTOR_TODO_AUDIT_2026-05-19.md` 的坑位巡检。
+Scope: 当前 `kooix-gate` 仓库对照 foxnio 同日重构审计坑位的巡检。
 Last verified against code: 2026-05-19
 Source of truth: 本文基于当前工作区源码、SQL migration、CI workflow、README/DESIGN/ROADMAP 实证盘点；参考文档只作风险维度，不照搬结论。
 
@@ -383,7 +383,7 @@ cargo run -q -p kgctl -- usage-storage plan --timescale
 
 | Objective requirement | Artifact / evidence | Status |
 |---|---|---|
-| 读取参考文档 | 已读取 `/home/telagod/project/k2i/foxnio/docs/REFACTOR_TODO_AUDIT_2026-05-19.md` 全文 | done |
+| 读取参考文档 | 已读取 foxnio 同日重构审计文档全文 | done |
 | 检查当前项目是否有同类问题 | 第 1 节逐坑位判定，存在/不存在/弱风险均给证据 | done |
 | 架构问题 | P0-1/P0-2/P0-4/P1-3 覆盖 runtime、pipeline、worker、snapshot | done |
 | 性能问题 | P1-1/P1-2/P1-4 覆盖 usage 热表、rollup、partition、perf gate | done |
@@ -421,7 +421,7 @@ node scripts/check-route-manifest.mjs
 node scripts/generate-route-types.mjs --check
 node scripts/quality-gate.mjs
 node scripts/perf-smoke.mjs --check-script-only
-rg -n "<stale-status-marker-regex>" docs/REFACTOR_TODO_AUDIT_2026-05-19.md
+rg -n "<stale-status-marker-regex>" docs/stages/2026-05-19-refactor-todo-audit.md
 ```
 
 Result：route manifest / generated types / quality gate / perf smoke script 全部通过；文档无未收口残留标记。

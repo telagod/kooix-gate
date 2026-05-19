@@ -24,6 +24,8 @@ chrono.workspace = true
 base64.workspace = true
 rand.workspace = true
 rust_decimal.workspace = true
+reqwest.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 url.workspace = true
 
@@ -35,3 +37,4 @@ testcontainers-modules = { version = "0.15", features = ["postgres", "redis"] }
 tokio = { version = "1", features = ["full", "macros"] }
 sqlx = { workspace = true }
 gate-storage = { path = "../gate-storage" }
+wiremock = "0.6"

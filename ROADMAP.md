@@ -635,7 +635,7 @@ cargo test -p gate-providers --all-targets
 
 **目标**：让用户 10 分钟内接入，维护者 10 分钟内定位问题。
 
-- [ ] `examples/`：
+- [x] `examples/`：
   - OpenAI SDK 直连
   - curl streaming
   - Provider preset channel create
@@ -643,11 +643,11 @@ cargo test -p gate-providers --all-targets
   - 私有 auth + 字段映射 + SSE normalizer 示例
   - pricing rule create
   - quota create
-- [ ] OpenAPI spec 导出。
-- [ ] Postman / Bruno collection。
-- [ ] Terraform / Helm 示例。
-- [ ] `kgctl doctor --json` 给 CI / deploy pipeline 使用。
-- [ ] `kgctl smoke`：
+- [x] OpenAPI spec 导出。
+- [x] Postman / Bruno collection。
+- [x] Terraform / Helm 示例。
+- [x] `kgctl doctor --json` 给 CI / deploy pipeline 使用。
+- [x] `kgctl smoke`：
   - 登录
   - 创建 channel
   - 创建 API key

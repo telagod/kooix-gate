@@ -1,0 +1,29 @@
+meta {
+  name: Streaming Chat
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "model": "{{model}}",
+    "stream": true,
+    "messages": [
+      { "role": "user", "content": "stream hello" }
+    ]
+  }
+}

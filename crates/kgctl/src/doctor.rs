@@ -7,11 +7,13 @@
 //! 4. KOOIX_DATABASE_URL 存在 + 实际能 SELECT 1 + migration 已到最新
 //! 5. KOOIX_REDIS_URL    存在 + 实际能 PING + Lua 脚本可执行
 //!
-//! 任一失败 → exit 1（main 把 anyhow::Err 着红色打印）
+//! 任一失败 → exit 1（main 把 anyhow::Err 着红色打印）。
+//! `--json` 输出机器可读报告，stderr 仍保留失败摘要，方便 CI / deploy pipeline 同时解析 stdout。
 
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use gate_cache::{QuotaCounter, RateLimiter};
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use uuid::Uuid;
@@ -19,33 +21,81 @@ use uuid::Uuid;
 const OK: &str = "\x1b[32m✓\x1b[0m";
 const FAIL: &str = "\x1b[31m✗\x1b[0m";
 
-pub async fn run() -> Result<()> {
-    let mut all_ok = true;
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DoctorOutput {
+    Human,
+    Json,
+}
 
-    all_ok &= report("KOOIX_MASTER_KEY", check_master_key());
-    all_ok &= report("KOOIX_JWT_SECRET", check_jwt_secret());
-    all_ok &= report("KOOIX_PUBLIC_URL", check_public_url());
+impl DoctorOutput {
+    pub fn from_json_flag(json: bool) -> Self {
+        if json { Self::Json } else { Self::Human }
+    }
+}
 
-    all_ok &= report("KOOIX_DATABASE_URL", check_database().await);
-    all_ok &= report("KOOIX_REDIS_URL", check_redis().await);
+#[derive(Debug, Serialize)]
+struct DoctorReport {
+    ok: bool,
+    checks: Vec<DoctorCheck>,
+}
 
-    if !all_ok {
+#[derive(Debug, Serialize)]
+struct DoctorCheck {
+    name: &'static str,
+    ok: bool,
+    detail: String,
+}
+
+pub async fn run(output: DoctorOutput) -> Result<()> {
+    let report = collect_report().await;
+    match output {
+        DoctorOutput::Human => print_human(&report),
+        DoctorOutput::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+    }
+
+    if !report.ok {
         anyhow::bail!("doctor 发现 1 项以上失败");
     }
-    println!("\n所有检查通过。");
     Ok(())
 }
 
-fn report(label: &str, result: Result<String, String>) -> bool {
+async fn collect_report() -> DoctorReport {
+    let checks = vec![
+        check("KOOIX_MASTER_KEY", check_master_key()),
+        check("KOOIX_JWT_SECRET", check_jwt_secret()),
+        check("KOOIX_PUBLIC_URL", check_public_url()),
+        check("KOOIX_DATABASE_URL", check_database().await),
+        check("KOOIX_REDIS_URL", check_redis().await),
+    ];
+    let ok = checks.iter().all(|c| c.ok);
+    DoctorReport { ok, checks }
+}
+
+fn check(name: &'static str, result: Result<String, String>) -> DoctorCheck {
     match result {
-        Ok(detail) => {
-            println!("{OK} {label:<28} {detail}");
-            true
+        Ok(detail) => DoctorCheck {
+            name,
+            ok: true,
+            detail,
+        },
+        Err(detail) => DoctorCheck {
+            name,
+            ok: false,
+            detail,
+        },
+    }
+}
+
+fn print_human(report: &DoctorReport) {
+    for check in &report.checks {
+        if check.ok {
+            println!("{OK} {:<28} {}", check.name, check.detail);
+        } else {
+            println!("{FAIL} {:<28} {}", check.name, check.detail);
         }
-        Err(reason) => {
-            println!("{FAIL} {label:<28} {reason}");
-            false
-        }
+    }
+    if report.ok {
+        println!("\n所有检查通过。");
     }
 }
 

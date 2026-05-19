@@ -20,6 +20,8 @@ kgctl migrate
 
 # 4. 准备好环境后体检（会校验 env / migration / Redis Lua）
 kgctl doctor
+# CI / deploy pipeline 可用机器可读输出
+kgctl doctor --json
 
 # 5. 写入默认模型定价（幂等）
 kgctl seed-pricing
@@ -29,6 +31,14 @@ kgctl admin create --email root@example.com
 # 输出会一次性显示自动生成的 24B 随机初始密码；立即换地方保存
 
 # 7. （之后部署 gate-server 走 K8s / systemd / Docker）
+
+# 8. 服务启动后跑 HTTP 冒烟（登录、建 channel/API key、发 chat、查 usage）
+kgctl smoke \
+  --base-url https://gate.example.com \
+  --email root@example.com \
+  --password '<admin-password>' \
+  --upstream-base-url https://api.openai.com/v1 \
+  --upstream-api-key '<provider-key>'
 ```
 
 ## 子命令一览
@@ -43,6 +53,8 @@ kgctl admin create --email root@example.com
 | `migrate --dry-run` | 只列出待执行 migration，不写库 | `kgctl migrate --dry-run` |
 | `admin create` | 创建 platform `super_admin` 账号 | `kgctl admin create --email a@b.com` |
 | `doctor` | env 完整性 + DB `SELECT 1` + migration 最新 + Redis `PING` / Lua 一键体检 | `kgctl doctor` |
+| `doctor --json` | 同样体检，但 stdout 输出 `{ ok, checks[] }` JSON；失败仍 exit 1 | `kgctl doctor --json` |
+| `smoke` | 已运行服务的 HTTP E2E：登录、创建 smoke project/channel/API key、发 chat、查 usage | `kgctl smoke --base-url ... --email ... --password ...` |
 | `seed-pricing` | 写入 OpenAI / Anthropic 主流模型默认定价（全局 channel_id NULL） | `kgctl seed-pricing` |
 | `pricing list` | 列出 `pricing_rules`，可按 model / channel 过滤 | `kgctl pricing list --model gpt-4o-mini` |
 | `pricing set` | 新建一条 global 或 channel-specific 定价规则 | `kgctl pricing set --model gpt-4o-mini --dimension input_tokens --unit per_million --rate 0.15` |
@@ -51,6 +63,29 @@ kgctl admin create --email root@example.com
 | `usage-storage plan --timescale` | 输出 Timescale hypertable/compression/retention dry-run SQL | `kgctl usage-storage plan --timescale` |
 
 退出码：成功 0；任何步骤失败 1，标准错误用 ANSI 红色高亮原因。
+
+## HTTP 冒烟测试
+
+`kgctl smoke` 只走公开 HTTP API，不直连数据库。推荐在 `kgctl doctor`、服务启动和上游 mock / 真实 Provider 准备好之后执行：
+
+```bash
+export KOOIX_SMOKE_EMAIL=root@example.com
+export KOOIX_SMOKE_PASSWORD='<admin-password>'
+export KOOIX_SMOKE_UPSTREAM_BASE_URL=https://api.openai.com/v1
+export KOOIX_SMOKE_UPSTREAM_API_KEY='<provider-key>'
+kgctl smoke --base-url "$KOOIX_PUBLIC_URL"
+```
+
+执行链：
+
+1. `POST /v1/auth/login`
+2. 若当前用户无 Org 且是 platform admin，则创建 smoke Org；随后创建 smoke Project
+3. 若提供 `--upstream-base-url`，创建 OpenAI-compatible channel、channel key、channel group，并设为 Project 默认 group
+4. 创建 Project API key
+5. 使用新 API key 调 `/v1/chat/completions`
+6. 用登录态查 `/v1/usage?range=7d&group_by=day`
+
+不提供 `--upstream-base-url` 时，命令仍会创建 Project/API key，但 chat 会依赖已有默认路由或 `KOOIX_OPENAI_BASE_URL` fallback provider。
 
 ## 定价规则 CLI
 
@@ -114,5 +149,7 @@ KOOIX_TEST_PG_TAG=17.4-alpine KOOIX_TEST_REDIS_TAG=7.4 cargo test -p kgctl
 - migrate 空库 / dry-run 已迁移库
 - admin create 写入 + 同 email 二次报错 + 自动生成密码
 - doctor 全 env + migration 最新 + Redis Lua / 缺 DB / 缺 public URL / migration pending
+- doctor JSON 成功 / 失败机器可读输出
+- smoke mock HTTP E2E：login → channel/group/default route → API key → chat → usage
 - seed-pricing 首次插入 5 条 + 二次幂等 0 插入 5 跳过
 - `env` 输出包含 `KOOIX_OIDC_DEFAULT_REDIRECT`（SSO 配置回归）

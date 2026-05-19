@@ -1,0 +1,31 @@
+meta {
+  name: Create Pricing Rule
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/admin/pricing-rules
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "model": "{{model}}",
+    "dimension": "input_tokens",
+    "unit": "per_million_tokens",
+    "rate": 0.15,
+    "conditions": {},
+    "priority": 100,
+    "description": "example input pricing"
+  }
+}

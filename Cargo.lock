@@ -2465,7 +2465,9 @@ dependencies = [
  "gate-storage",
  "predicates",
  "rand 0.8.6",
+ "reqwest",
  "rust_decimal",
+ "serde",
  "serde_json",
  "sqlx",
  "testcontainers",
@@ -2473,6 +2475,7 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]
