@@ -17,7 +17,10 @@ env:
 
 secretEnv:
   # Fill with `kgctl key master` and `kgctl key jwt` in real deployments.
+  # During planned JWT rotation, put old JWT secrets in KOOIX_JWT_PREVIOUS_SECRETS
+  # as comma-separated base64 values. Leave empty otherwise.
   KOOIX_MASTER_KEY: ""
   KOOIX_JWT_SECRET: ""
+  KOOIX_JWT_PREVIOUS_SECRETS: ""
 
 resources: {}

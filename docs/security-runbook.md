@@ -12,12 +12,22 @@
 
 ## JWT secret 轮换
 
-`KOOIX_JWT_SECRET` 泄露或弱密钥时：
+`KOOIX_JWT_SECRET` 是 primary signing key；`KOOIX_JWT_PREVIOUS_SECRETS` 是逗号分隔旧 key 验签窗口，只验签、不签发新 token。
+
+正常计划轮换：
 
 1. 使用 `kgctl key jwt` 生成新 secret。
-2. 更新部署环境并重启所有 `gate-server` 实例。
-3. 通知用户重新登录；旧 access/refresh token 全部失效。
-4. 后续按 roadmap 实现 `JwtRing` 双密钥窗口，降低正常轮换冲击。
+2. 把新 secret 写入 `KOOIX_JWT_SECRET`，把当前旧 secret 追加 / 移入 `KOOIX_JWT_PREVIOUS_SECRETS`。
+3. 更新部署环境并重启所有 `gate-server` 实例；用 `kgctl doctor --json` 确认 `KOOIX_JWT_SECRET` 与 `KOOIX_JWT_PREVIOUS_SECRETS` 均通过。
+4. 观察最长 refresh TTL 或指定运营窗口。窗口期内旧 token 可继续 refresh，但服务端签发的新 access / refresh token 都使用 primary secret。
+5. 窗口结束后从 `KOOIX_JWT_PREVIOUS_SECRETS` 移除旧 secret，再次重启并运行 `kgctl doctor`。
+
+泄露或疑似泄露：
+
+1. 不要把泄露 key 放入 `KOOIX_JWT_PREVIOUS_SECRETS`。
+2. 立即替换 `KOOIX_JWT_SECRET`，清空 `KOOIX_JWT_PREVIOUS_SECRETS`，重启所有实例。
+3. 撤销受影响用户 session；必要时全局撤销 `user_sessions`，强制重新登录。
+4. 复查 access log / audit log，确认泄露窗口内的异常请求。
 
 ## Channel key 泄露
 

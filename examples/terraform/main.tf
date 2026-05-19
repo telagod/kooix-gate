@@ -42,7 +42,8 @@ resource "docker_container" "gate" {
     "KOOIX_DATABASE_URL=postgres://gate:gate_dev@kooix-postgres:5432/gate",
     "KOOIX_REDIS_URL=redis://kooix-redis:6379/0",
     "KOOIX_MASTER_KEY=${var.master_key_base64}",
-    "KOOIX_JWT_SECRET=${var.jwt_secret_base64}"
+    "KOOIX_JWT_SECRET=${var.jwt_secret_base64}",
+    "KOOIX_JWT_PREVIOUS_SECRETS=${var.jwt_previous_secrets_base64}"
   ]
   ports {
     internal = 8000

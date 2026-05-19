@@ -500,8 +500,8 @@ cargo test -p gate-providers --all-targets
 - [ ] Session 管理：
   - [x] 查看活跃 refresh token
   - [x] 单用户踢下线
-  - 全局 JWT rotation。
-- [ ] `JwtRing`：支持新旧两把 JWT secret 窗口期验证。
+  - [x] 全局 JWT rotation。
+- [x] `JwtRing`：支持新旧两把 JWT secret 窗口期验证。
 
 ### P1.8 Plugin Ecosystem / WASM 补全
 
@@ -732,7 +732,7 @@ cargo test -p gate-providers --all-targets
 
 1. Invite flow + SSO UI 完整化。
 2. Ledger / invoice 状态机。
-3. JwtRing + master key rotation。
+3. Master key rotation。
 4. OpenAPI spec + examples + Helm/Terraform。
 
 ### 第五轮：插件生态（2-4 周）

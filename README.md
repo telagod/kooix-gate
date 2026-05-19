@@ -98,6 +98,7 @@ cargo run -p gate-server
 
 > **生产部署**：务必替换 `docker-compose.yml` 中的 `KOOIX_JWT_SECRET`、`KOOIX_MASTER_KEY` 和 `POSTGRES_PASSWORD`。
 > 可用 `kgctl init` 生成安全密钥。
+> 计划轮换 JWT 时，新 key 放 `KOOIX_JWT_SECRET`，旧 key 临时放 `KOOIX_JWT_PREVIOUS_SECRETS`（逗号分隔，仅验签窗口）。
 
 ## 快速开始（手动）
 
@@ -123,7 +124,7 @@ export KOOIX_REDIS_URL=redis://localhost:6379/0
 export KOOIX_PUBLIC_URL=http://localhost:8080
 
 kgctl migrate
-kgctl doctor    # 校验 env / migration / Redis Lua 全绿
+kgctl doctor    # 校验 env / JWT rotation window / migration / Redis Lua 全绿
 kgctl seed-pricing
 kgctl admin create --email you@example.com
 ```

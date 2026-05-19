@@ -44,6 +44,7 @@ kgctl doctor
 
 - `KOOIX_MASTER_KEY` base64 32B。
 - `KOOIX_JWT_SECRET` base64 至少 32B。
+- `KOOIX_JWT_PREVIOUS_SECRETS` 未配置或逗号分隔 base64 ≥32B（JWT rotation 旧 key 验签窗口）。
 - `KOOIX_PUBLIC_URL` 是 http/https 根 URL。
 - PostgreSQL 可达且 `_sqlx_migrations` 已到最新版本。
 - Redis 可达，且 rate limit / quota Lua 脚本可执行。
@@ -103,7 +104,8 @@ Release notes 至少包含：
 ### 密钥与安全事故
 
 - Master key 丢失：无法解密既有 channel key / OIDC secret；恢复备份或重建密钥并重新录入所有 secret。
-- JWT secret 泄露：立即更换 `KOOIX_JWT_SECRET`，重启服务，强制用户重新登录。
+- JWT secret 计划轮换：新 key 放 `KOOIX_JWT_SECRET`，旧 key 临时放 `KOOIX_JWT_PREVIOUS_SECRETS`，窗口结束后移除旧 key。
+- JWT secret 泄露：立即更换 `KOOIX_JWT_SECRET`，清空 `KOOIX_JWT_PREVIOUS_SECRETS`，重启服务并撤销 session，强制用户重新登录。
 - Channel key 泄露：在上游 Provider 轮换 key，Kooix Gate 内撤销旧 `channel_keys` 并录入新 key。
 - Redis quota 异常：暂停相关 quota policy，导出 Redis key 与 PG usage 对账，再恢复策略。
 
@@ -121,6 +123,7 @@ export KOOIX_REDIS_URL=redis://localhost:6379/0
 export KOOIX_PUBLIC_URL=http://localhost:8000
 export KOOIX_MASTER_KEY=$(kgctl key master)
 export KOOIX_JWT_SECRET=$(kgctl key jwt)
+# export KOOIX_JWT_PREVIOUS_SECRETS=<old kgctl key jwt output>  # planned JWT rotation only
 kgctl migrate
 kgctl doctor
 

@@ -540,3 +540,22 @@ cargo test -p gate-server --test sso_flow
 npm --prefix web run check
 npm --prefix web test -- api
 ```
+
+## P1.7 Identity / JwtRing
+
+本轮把 P1.7 剩余的全局 JWT rotation / `JwtRing` 从路线图落成部署可用能力：
+
+- `gate-auth::jwt::JwtRing` 成为 `JwtIssuer` 兼容实现：新 access / refresh token 只用 primary secret 签发，验签按 primary → previous secrets 顺序尝试。
+- `gate-server` 启动读取 `KOOIX_JWT_SECRET` + 可选 `KOOIX_JWT_PREVIOUS_SECRETS`；配置旧 secret 时会记录 rotation verification window active。
+- `kgctl env` 与 `kgctl doctor` 增加 `KOOIX_JWT_PREVIOUS_SECRETS`：未配置为 OK；配置时必须是逗号分隔 base64 secret，且每项解码后至少 32B。
+- Security runbook 区分计划轮换与泄露处置：计划轮换保留旧 key 验签窗口；泄露时清空 previous、撤销 session 并强制重新登录。
+- 部署示例同步 Helm / Terraform / docker-compose；关键文档同步 `README.md`、`DESIGN.md`、`CHANGELOG.md`、`ROADMAP.md`、`RELEASE.md`、`crates/kgctl/README.md`。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo test -p gate-auth jwt
+cargo test -p gate-server --test auth_flow me_
+cargo test -p kgctl --test cli doctor
+```

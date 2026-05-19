@@ -113,7 +113,7 @@
 - `RefreshClaims.sid` 对应 `user_sessions.id`；`jti` 每次轮转生成新值，避免旧 refresh token 重放。
 - `/v1/auth/refresh` 必须同时满足 JWT 有效、用户仍为 `active`、session 未撤销/未过期、hash 匹配；成功后原子更新 refresh hash 与 `last_used_at`。
 - `/v1/auth/logout` 撤销当前 session，平台管理员可通过 `/v1/admin/users/:id/sessions` 查看用户活跃 session，并用 DELETE 撤销单个或全部 session。
-- 撤销 session 只阻断后续 refresh；已签发 access token 继续自然过期。需要立即作废 access token 时，应在 P1.7 的 `JwtRing` / 全局 JWT rotation 或后续 access-token denylist 中处理。
+- 撤销 session 只阻断后续 refresh；已签发 access token 继续自然过期。正常 JWT secret 轮换走 `JwtRing` 窗口；需要立即作废 access token 时，应 emergency 切换 primary secret、清空 previous secrets，并撤销相关 session，或后续引入 access-token denylist。
 
 ### 2.5 权限检查门面
 
@@ -358,9 +358,13 @@ cargo run -p kgctl -- init > deploy/secrets.env
 
 ### 7.3 JWT Secret 纪律
 
-- `JwtIssuer::new` 编译期强制 secret >= 32B（短了直接 `AuthError::Invalid`）
+- `JwtIssuer` 是 `JwtRing` 的兼容别名：只用 primary secret 签发，按 primary → previous 顺序验签 access / refresh。
+- `JwtIssuer::new` / `with_previous_secret` 强制 secret >= 32B（短了直接 `AuthError::Invalid`）
 - 生产用 64B：`cargo run -p kgctl -- key jwt`
-- 轮换 = 所有现有会话立即失效（用户被踢下线）。窗口期可同时验证新旧两把：在 `JwtIssuer` 之上叠一个 `JwtRing`（未实现，路线图）
+- `KOOIX_JWT_SECRET` 是 primary signing key；新 access / refresh token 永远只用它签发。
+- `KOOIX_JWT_PREVIOUS_SECRETS` 是可选旧 key 窗口，逗号分隔 base64 secret；只用于验签，不签发新 token。
+- 正常轮换：新 key 写入 `KOOIX_JWT_SECRET`，旧 key 临时移入 `KOOIX_JWT_PREVIOUS_SECRETS`，等待最长 access / refresh TTL 或运营窗口后移除旧 key。
+- 泄露处置：不要把泄露 key 放入 previous；直接替换 primary、清空 previous 并撤销 session，让旧 token 全部失效。
 
 ### 7.4 require! 纪律
 
@@ -382,6 +386,7 @@ rg 'fn.*\(.*AuthContext' --type rust -A 5 | rg -v 'require!|can!|require_user!|r
 ```
 KOOIX_MASTER_KEY    # base64 32B (kgctl key master)
 KOOIX_JWT_SECRET    # base64 64B (kgctl key jwt)
+KOOIX_JWT_PREVIOUS_SECRETS # optional comma-separated old JWT secrets for rotation verify window
 KOOIX_DATABASE_URL  # postgres://...
 KOOIX_REDIS_URL     # redis://...
 KOOIX_PUBLIC_URL    # https://gate.example.com — OIDC redirect_uri 基底
@@ -404,4 +409,5 @@ KOOIX_PUBLIC_URL    # https://gate.example.com — OIDC redirect_uri 基底
 - [x] web: SvelteKit 控制台
 - [ ] HTTP Plugin manifest v1 schema / builder / replay debugger
 - [ ] WASM 插件 ABI 与 sandbox runtime
-- [ ] master key 轮换工具 / `JwtRing` 双密钥轮换窗口
+- [ ] master key 轮换工具
+- [x] `JwtRing` 双密钥轮换窗口

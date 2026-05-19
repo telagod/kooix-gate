@@ -389,6 +389,63 @@ async fn me_returns_user_summary() {
 }
 
 #[tokio::test]
+async fn me_accepts_access_token_signed_by_previous_jwt_secret() {
+    let previous = JwtIssuer::new(
+        b"previous-secret-32-bytes-minimum!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+    let ring = JwtIssuer::new(
+        b"primary-secret-32-bytes-minimum-ok",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap()
+    .with_previous_secret(b"previous-secret-32-bytes-minimum!")
+    .unwrap();
+
+    let org_a = OrgId::new();
+    let proj_a = ProjectId::new();
+    let user_dev = UserId::new();
+
+    let loader = Arc::new(InMemoryLoader::new());
+    let mut orgs = HashMap::new();
+    orgs.insert(org_a, OrgRole::Member);
+    let mut projects = HashMap::new();
+    projects.insert((org_a, proj_a), ProjectRole::Developer);
+    loader.add_user(
+        user_dev,
+        UserRecord {
+            orgs,
+            projects,
+            platform: None,
+        },
+    );
+
+    let state = AppState::new(ring.clone(), loader, Repos::in_memory());
+    let router = build_router(state);
+
+    let old_token = jwt_for(&previous, user_dev, Some(org_a), false);
+    let (status, body) = call(&router, "GET", "/v1/me", Some(&old_token), None).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["current_org"], org_a.to_string());
+
+    let new_token = jwt_for(&ring, user_dev, Some(org_a), false);
+    assert!(previous.parse_access(&new_token).is_err());
+    let (status, body) = call(&router, "GET", "/v1/me", Some(&new_token), None).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+}
+
+#[tokio::test]
 async fn list_projects_allowed_for_org_member() {
     let f = fixture();
     let tok = jwt_for(&f.jwt, f.user_dev, Some(f.org_a), false);

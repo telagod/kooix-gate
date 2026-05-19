@@ -3,7 +3,7 @@
 //! 启动流程：
 //! 1. 加载配置 (KOOIX_* env + kooix-gate.toml 可选)
 //! 2. 连接 PostgreSQL + 跑迁移
-//! 3. 初始化 JwtIssuer (from KOOIX_JWT_SECRET base64)
+//! 3. 初始化 JwtIssuer / JwtRing (from KOOIX_JWT_SECRET + optional KOOIX_JWT_PREVIOUS_SECRETS)
 //! 4. 装配 PgLoader（生产）/ InMemoryLoader（仅当 KOOIX_DEV_INMEMORY=1）
 //! 5. 初始化 Prometheus metrics + 可选 OpenTelemetry OTLP
 //! 6. 启动 Axum
@@ -33,8 +33,9 @@ async fn main() -> anyhow::Result<()> {
     let mode = RuntimeMode::from_env().map_err(anyhow::Error::msg)?;
     tracing::info!(addr = %cfg.listen_addr, mode = ?mode, "starting");
 
-    let jwt = JwtIssuer::from_env(
+    let jwt = JwtIssuer::from_env_with_previous(
         "KOOIX_JWT_SECRET",
+        "KOOIX_JWT_PREVIOUS_SECRETS",
         cfg.jwt_issuer.clone(),
         cfg.jwt_audience.clone(),
         TokenLifetimes {
@@ -42,6 +43,12 @@ async fn main() -> anyhow::Result<()> {
             refresh: Duration::days(cfg.token_refresh_ttl_day),
         },
     )?;
+    if jwt.previous_secret_count() > 0 {
+        tracing::info!(
+            previous_secrets = jwt.previous_secret_count(),
+            "jwt rotation verification window active"
+        );
+    }
 
     let (loader, repos): (Arc<dyn AuthContextLoader>, Repos) =
         if std::env::var("KOOIX_DEV_INMEMORY").as_deref() == Ok("1") {

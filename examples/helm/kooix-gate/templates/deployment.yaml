@@ -34,6 +34,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "kooix-gate.fullname" . }}
                   key: KOOIX_JWT_SECRET
+            {{ with .Values.secretEnv.KOOIX_JWT_PREVIOUS_SECRETS }}
+            - name: KOOIX_JWT_PREVIOUS_SECRETS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kooix-gate.fullname" $ }}
+                  key: KOOIX_JWT_PREVIOUS_SECRETS
+            {{ end }}
           readinessProbe:
             httpGet:
               path: /health

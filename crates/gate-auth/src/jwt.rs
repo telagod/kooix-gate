@@ -9,7 +9,10 @@
 use crate::error::{AuthError, Result};
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use chrono::{DateTime, Duration, Utc};
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{
+    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode,
+    errors::ErrorKind as JwtErrorKind,
+};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -47,14 +50,18 @@ pub struct RefreshClaims {
 }
 
 #[derive(Clone)]
-pub struct JwtIssuer {
+pub struct JwtRing {
     encoding: EncodingKey,
-    decoding: DecodingKey,
+    decodings: Vec<DecodingKey>,
     issuer: String,
     audience: String,
     access_ttl: Duration,
     refresh_ttl: Duration,
 }
+
+/// Backward-compatible name used by the server: issues with the primary key and
+/// verifies with the full ring.
+pub type JwtIssuer = JwtRing;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TokenLifetimes {
@@ -71,8 +78,8 @@ impl Default for TokenLifetimes {
     }
 }
 
-impl JwtIssuer {
-    /// 构造 issuer。`secret` 必须 >= 32 字节，否则返回 `AuthError::Invalid`。
+impl JwtRing {
+    /// 构造 JWT ring。`secret` 是 primary signing key，必须 >= 32 字节。
     pub fn new(
         secret: &[u8],
         issuer: impl Into<String>,
@@ -88,7 +95,7 @@ impl JwtIssuer {
         }
         Ok(Self {
             encoding: EncodingKey::from_secret(secret),
-            decoding: DecodingKey::from_secret(secret),
+            decodings: vec![DecodingKey::from_secret(secret)],
             issuer: issuer.into(),
             audience: audience.into(),
             access_ttl: ttl.access,
@@ -96,7 +103,7 @@ impl JwtIssuer {
         })
     }
 
-    /// 从环境变量读 base64 编码的 secret 构造。
+    /// 从环境变量读 base64 编码的 primary secret 构造。
     pub fn from_env(
         var: &str,
         issuer: impl Into<String>,
@@ -109,6 +116,54 @@ impl JwtIssuer {
             .decode(raw.trim())
             .map_err(|e| AuthError::Invalid(format!("env {var} not base64: {e}")))?;
         Self::new(&bytes, issuer, audience, ttl)
+    }
+
+    /// 从 primary env + optional previous env 构造双密钥窗口。
+    ///
+    /// `previous_var` 支持逗号分隔多个 base64 secret。新 token 只用 primary
+    /// 签发；解析 access/refresh 时会按 primary → previous 顺序验证。
+    pub fn from_env_with_previous(
+        primary_var: &str,
+        previous_var: &str,
+        issuer: impl Into<String>,
+        audience: impl Into<String>,
+        ttl: TokenLifetimes,
+    ) -> Result<Self> {
+        let issuer = issuer.into();
+        let audience = audience.into();
+        let mut ring = Self::from_env(primary_var, issuer, audience, ttl)?;
+        let Ok(raw_previous) = std::env::var(previous_var) else {
+            return Ok(ring);
+        };
+        for (idx, raw) in raw_previous
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .enumerate()
+        {
+            let bytes = B64.decode(raw).map_err(|e| {
+                AuthError::Invalid(format!("env {previous_var}[{idx}] not base64: {e}"))
+            })?;
+            ring = ring.with_previous_secret(&bytes)?;
+        }
+        Ok(ring)
+    }
+
+    /// 追加旧 secret 到验证窗口。只用于 verify，不用于签发。
+    pub fn with_previous_secret(mut self, secret: &[u8]) -> Result<Self> {
+        if secret.len() < MIN_SECRET_BYTES {
+            return Err(AuthError::Invalid(format!(
+                "JWT previous secret too short: {} bytes (minimum {})",
+                secret.len(),
+                MIN_SECRET_BYTES
+            )));
+        }
+        self.decodings.push(DecodingKey::from_secret(secret));
+        Ok(self)
+    }
+
+    pub fn previous_secret_count(&self) -> usize {
+        self.decodings.len().saturating_sub(1)
     }
 
     pub fn issue_access(
@@ -160,12 +215,7 @@ impl JwtIssuer {
         v.set_issuer(&[&self.issuer]);
         v.set_audience(&[&self.audience]);
         v.leeway = 5;
-        let data =
-            decode::<AccessClaims>(token, &self.decoding, &v).map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-                _ => AuthError::TokenInvalid(e.to_string()),
-            })?;
-        Ok(data.claims)
+        decode_with_ring(token, &self.decodings, &v)
     }
 
     pub fn parse_refresh(&self, token: &str) -> Result<RefreshClaims> {
@@ -173,19 +223,41 @@ impl JwtIssuer {
         v.set_issuer(&[&self.issuer]);
         v.set_audience(&[&format!("{}#refresh", self.audience)]);
         v.leeway = 5;
-        let data =
-            decode::<RefreshClaims>(token, &self.decoding, &v).map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-                _ => AuthError::TokenInvalid(e.to_string()),
-            })?;
-        Ok(data.claims)
+        decode_with_ring(token, &self.decodings, &v)
+    }
+}
+
+fn decode_with_ring<T>(token: &str, decodings: &[DecodingKey], validation: &Validation) -> Result<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let mut expired_seen = false;
+    let mut last_error = None;
+    for decoding in decodings {
+        match decode::<T>(token, decoding, validation) {
+            Ok(data) => return Ok(data.claims),
+            Err(e) => match e.kind() {
+                JwtErrorKind::ExpiredSignature => {
+                    expired_seen = true;
+                    last_error = Some(e.to_string());
+                }
+                _ => last_error = Some(e.to_string()),
+            },
+        }
+    }
+    if expired_seen {
+        Err(AuthError::TokenExpired)
+    } else {
+        Err(AuthError::TokenInvalid(
+            last_error.unwrap_or_else(|| "no JWT verifier configured".into()),
+        ))
     }
 }
 
 /// 生成 64 字节随机 secret，base64 编码返回。
 ///
-/// 部署时把这个值写到 `KOOIX_JWT_SECRET` 环境变量，永久保存。
-/// 轮换会让所有现有会话失效。
+/// 部署时把这个值写到 `KOOIX_JWT_SECRET` 环境变量。
+/// 正常轮换：新值放 `KOOIX_JWT_SECRET`，旧值临时放 `KOOIX_JWT_PREVIOUS_SECRETS`。
 pub fn generate_secret_b64() -> String {
     let mut buf = [0u8; RECOMMENDED_SECRET_BYTES];
     rand::thread_rng().fill_bytes(&mut buf);
@@ -195,6 +267,51 @@ pub fn generate_secret_b64() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    const PRIMARY_SECRET: &[u8] = b"primary-secret-32-bytes-minimum-ok";
+    const PREVIOUS_SECRET: &[u8] = b"previous-secret-32-bytes-minimum!";
+    const SECOND_PREVIOUS_SECRET: &[u8] = b"second-previous-secret-32-bytes!!";
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn set_env(key: &str, value: &str) {
+        // SAFETY: env-mutating tests hold `env_lock`, so this crate does not
+        // concurrently mutate/read the tested keys.
+        unsafe { std::env::set_var(key, value) };
+    }
+
+    fn remove_env(key: &str) {
+        // SAFETY: env-mutating tests hold `env_lock`, so this crate does not
+        // concurrently mutate/read the tested keys.
+        unsafe { std::env::remove_var(key) };
+    }
+
+    struct EnvGuard {
+        values: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvGuard {
+        fn new(keys: &[&'static str]) -> Self {
+            Self {
+                values: keys.iter().map(|&k| (k, std::env::var(k).ok())).collect(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in &self.values {
+                match value {
+                    Some(v) => set_env(key, v),
+                    None => remove_env(key),
+                }
+            }
+        }
+    }
 
     fn issuer() -> JwtIssuer {
         // 32 字节 ASCII 测试用 secret
@@ -240,5 +357,121 @@ mod tests {
         let bytes = B64.decode(b64).unwrap();
         assert_eq!(bytes.len(), RECOMMENDED_SECRET_BYTES);
         assert!(JwtIssuer::new(&bytes, "kg", "c", Default::default()).is_ok());
+    }
+
+    #[test]
+    fn ring_accepts_previous_secret_for_access_and_refresh() {
+        let old = JwtIssuer::new(PREVIOUS_SECRET, "kg", "console", Default::default()).unwrap();
+        let ring = JwtIssuer::new(PRIMARY_SECRET, "kg", "console", Default::default())
+            .unwrap()
+            .with_previous_secret(PREVIOUS_SECRET)
+            .unwrap();
+
+        assert_eq!(ring.previous_secret_count(), 1);
+
+        let uid = Uuid::now_v7();
+        let sid = Uuid::now_v7();
+        let jti = Uuid::now_v7();
+
+        let (old_access, _) = old.issue_access(uid, sid, None, false).unwrap();
+        let (old_refresh, _) = old.issue_refresh(uid, sid, jti).unwrap();
+
+        assert_eq!(ring.parse_access(&old_access).unwrap().sub, uid);
+        assert_eq!(ring.parse_refresh(&old_refresh).unwrap().jti, jti);
+
+        let (new_access, _) = ring.issue_access(uid, sid, None, false).unwrap();
+        let (new_refresh, _) = ring.issue_refresh(uid, sid, Uuid::now_v7()).unwrap();
+
+        assert!(old.parse_access(&new_access).is_err());
+        assert!(old.parse_refresh(&new_refresh).is_err());
+        assert_eq!(ring.parse_access(&new_access).unwrap().sub, uid);
+        assert_eq!(ring.parse_refresh(&new_refresh).unwrap().sub, uid);
+    }
+
+    #[test]
+    fn from_env_with_previous_accepts_comma_separated_previous() {
+        let _lock = env_lock().lock().unwrap();
+        let _guard = EnvGuard::new(&["KOOIX_TEST_JWT_PRIMARY", "KOOIX_TEST_JWT_PREVIOUS"]);
+
+        set_env("KOOIX_TEST_JWT_PRIMARY", &B64.encode(PRIMARY_SECRET));
+        set_env(
+            "KOOIX_TEST_JWT_PREVIOUS",
+            &format!(
+                " {}, {} ",
+                B64.encode(PREVIOUS_SECRET),
+                B64.encode(SECOND_PREVIOUS_SECRET)
+            ),
+        );
+
+        let ring = JwtIssuer::from_env_with_previous(
+            "KOOIX_TEST_JWT_PRIMARY",
+            "KOOIX_TEST_JWT_PREVIOUS",
+            "kg",
+            "console",
+            Default::default(),
+        )
+        .unwrap();
+
+        assert_eq!(ring.previous_secret_count(), 2);
+
+        let old =
+            JwtIssuer::new(SECOND_PREVIOUS_SECRET, "kg", "console", Default::default()).unwrap();
+        let uid = Uuid::now_v7();
+        let sid = Uuid::now_v7();
+        let (token, _) = old.issue_access(uid, sid, None, false).unwrap();
+        assert_eq!(ring.parse_access(&token).unwrap().sid, sid);
+    }
+
+    #[test]
+    fn short_previous_secret_rejected() {
+        let result = JwtIssuer::new(PRIMARY_SECRET, "kg", "console", Default::default())
+            .unwrap()
+            .with_previous_secret(b"too-short");
+        let Err(err) = result else {
+            panic!("short previous secret must be rejected");
+        };
+        assert!(matches!(err, AuthError::Invalid(_)));
+    }
+
+    #[test]
+    fn invalid_previous_base64_rejected() {
+        let _lock = env_lock().lock().unwrap();
+        let _guard = EnvGuard::new(&["KOOIX_TEST_JWT_PRIMARY", "KOOIX_TEST_JWT_PREVIOUS"]);
+
+        set_env("KOOIX_TEST_JWT_PRIMARY", &B64.encode(PRIMARY_SECRET));
+        set_env("KOOIX_TEST_JWT_PREVIOUS", "not base64");
+
+        let result = JwtIssuer::from_env_with_previous(
+            "KOOIX_TEST_JWT_PRIMARY",
+            "KOOIX_TEST_JWT_PREVIOUS",
+            "kg",
+            "console",
+            Default::default(),
+        );
+        let Err(err) = result else {
+            panic!("invalid previous secret base64 must be rejected");
+        };
+        assert!(matches!(err, AuthError::Invalid(_)));
+    }
+
+    #[test]
+    fn short_previous_secret_from_env_rejected() {
+        let _lock = env_lock().lock().unwrap();
+        let _guard = EnvGuard::new(&["KOOIX_TEST_JWT_PRIMARY", "KOOIX_TEST_JWT_PREVIOUS"]);
+
+        set_env("KOOIX_TEST_JWT_PRIMARY", &B64.encode(PRIMARY_SECRET));
+        set_env("KOOIX_TEST_JWT_PREVIOUS", &B64.encode(b"too-short"));
+
+        let result = JwtIssuer::from_env_with_previous(
+            "KOOIX_TEST_JWT_PRIMARY",
+            "KOOIX_TEST_JWT_PREVIOUS",
+            "kg",
+            "console",
+            Default::default(),
+        );
+        let Err(err) = result else {
+            panic!("short previous secret from env must be rejected");
+        };
+        assert!(matches!(err, AuthError::Invalid(_)));
     }
 }

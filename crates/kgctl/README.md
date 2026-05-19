@@ -147,6 +147,7 @@ kgctl pricing delete --id 019e2c1b-a7d1-7162-8422-07e4b24f5f98
 - `KOOIX_REDIS_URL` — `doctor` 必填
 - `KOOIX_PUBLIC_URL` — `doctor` 必填，必须是 http/https 根 URL
 - `KOOIX_MASTER_KEY` / `KOOIX_JWT_SECRET` — `doctor` 必填
+- `KOOIX_JWT_PREVIOUS_SECRETS` — `doctor` 可选；JWT rotation 旧 secret 验签窗口，逗号分隔 base64 ≥32B
 
 完整清单及说明：`kgctl env`。
 

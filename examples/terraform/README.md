@@ -11,6 +11,14 @@ terraform apply \
   -var='jwt_secret_base64=<kgctl key jwt output>'
 ```
 
+计划轮换 JWT 时追加：
+
+```bash
+terraform apply \
+  -var='jwt_secret_base64=<new kgctl key jwt output>' \
+  -var='jwt_previous_secrets_base64=<old kgctl key jwt output>'
+```
+
 部署后：
 
 ```bash

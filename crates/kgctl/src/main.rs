@@ -435,7 +435,12 @@ fn print_env() {
         (
             "KOOIX_JWT_SECRET",
             "必填",
-            "JWT HS256 secret，base64 ≥32B。kgctl key jwt 生成。",
+            "JWT HS256 primary signing secret，base64 ≥32B。kgctl key jwt 生成。",
+        ),
+        (
+            "KOOIX_JWT_PREVIOUS_SECRETS",
+            "可选",
+            "JWT rotation 验签窗口旧 secret，逗号分隔 base64 ≥32B；只验签不签发。",
         ),
         (
             "KOOIX_DATABASE_URL",

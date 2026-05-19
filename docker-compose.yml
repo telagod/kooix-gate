@@ -42,6 +42,7 @@ services:
       KOOIX_DATABASE_URL: postgres://gate:gate_dev@postgres:5432/gate
       KOOIX_REDIS_URL: redis://redis:6379/0
       KOOIX_JWT_SECRET: ZGV2LWp3dC1zZWNyZXQtY2hhbmdlLWluLXByb2QhISE=
+      KOOIX_JWT_PREVIOUS_SECRETS: ""
       KOOIX_MASTER_KEY: ZGV2LW1hc3Rlci1rZXktMzItYnl0ZXMtcGFkZGluZyE=
       KOOIX_LISTEN_ADDR: "0.0.0.0:8000"
       KOOIX_PUBLIC_URL: http://localhost:8000

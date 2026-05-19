@@ -56,6 +56,9 @@ const TEST_MASTER_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 // 64B base64 jwt secret
 const TEST_JWT_SECRET: &str =
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+// 64B base64 previous jwt secret（确定性，仅供测试）
+const TEST_PREVIOUS_JWT_SECRET: &str =
+    "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 1. migrate
@@ -233,6 +236,7 @@ async fn doctor_passes_when_all_env_correct() {
         kg().arg("doctor")
             .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
             .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env_remove("KOOIX_JWT_PREVIOUS_SECRETS")
             .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
             .env("KOOIX_DATABASE_URL", &db_url)
             .env("KOOIX_REDIS_URL", &redis_url)
@@ -267,6 +271,7 @@ async fn doctor_json_passes_and_reports_all_checks() {
         kg().args(["doctor", "--json"])
             .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
             .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env("KOOIX_JWT_PREVIOUS_SECRETS", TEST_PREVIOUS_JWT_SECRET)
             .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
             .env("KOOIX_DATABASE_URL", &db_url)
             .env("KOOIX_REDIS_URL", &redis_url)
@@ -283,10 +288,11 @@ async fn doctor_json_passes_and_reports_all_checks() {
         serde_json::from_slice(&output).expect("doctor --json stdout must be valid JSON");
     assert_eq!(value["ok"], true);
     let checks = value["checks"].as_array().expect("checks array");
-    assert_eq!(checks.len(), 5);
+    assert_eq!(checks.len(), 6);
     for name in [
         "KOOIX_MASTER_KEY",
         "KOOIX_JWT_SECRET",
+        "KOOIX_JWT_PREVIOUS_SECRETS",
         "KOOIX_PUBLIC_URL",
         "KOOIX_DATABASE_URL",
         "KOOIX_REDIS_URL",
@@ -298,6 +304,16 @@ async fn doctor_json_passes_and_reports_all_checks() {
         assert_eq!(check["ok"], true);
         assert!(check["detail"].as_str().unwrap_or_default().len() > 2);
     }
+    let previous = checks
+        .iter()
+        .find(|c| c["name"] == "KOOIX_JWT_PREVIOUS_SECRETS")
+        .expect("previous jwt secret check");
+    assert!(
+        previous["detail"]
+            .as_str()
+            .unwrap()
+            .contains("1 个旧 secret")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -307,6 +323,7 @@ async fn doctor_fails_without_database_url() {
         kg().arg("doctor")
             .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
             .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env_remove("KOOIX_JWT_PREVIOUS_SECRETS")
             .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
             .env_remove("KOOIX_DATABASE_URL")
             .env_remove("KOOIX_REDIS_URL")
@@ -324,6 +341,7 @@ fn doctor_json_failure_is_machine_readable() {
         .args(["doctor", "--json"])
         .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
         .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+        .env("KOOIX_JWT_PREVIOUS_SECRETS", "not-base64")
         .env_remove("KOOIX_PUBLIC_URL")
         .env_remove("KOOIX_DATABASE_URL")
         .env_remove("KOOIX_REDIS_URL")
@@ -337,6 +355,11 @@ fn doctor_json_failure_is_machine_readable() {
         serde_json::from_slice(&output).expect("doctor --json failure stdout must be valid JSON");
     assert_eq!(value["ok"], false);
     let checks = value["checks"].as_array().expect("checks array");
+    let previous = checks
+        .iter()
+        .find(|c| c["name"] == "KOOIX_JWT_PREVIOUS_SECRETS")
+        .expect("previous jwt secret check");
+    assert_eq!(previous["ok"], false);
     let public_url = checks
         .iter()
         .find(|c| c["name"] == "KOOIX_PUBLIC_URL")
@@ -354,6 +377,7 @@ async fn doctor_fails_when_migrations_are_pending() {
         kg().arg("doctor")
             .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
             .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+            .env_remove("KOOIX_JWT_PREVIOUS_SECRETS")
             .env("KOOIX_PUBLIC_URL", "http://localhost:8000")
             .env("KOOIX_DATABASE_URL", &db_url)
             .env("KOOIX_REDIS_URL", &redis_url)
@@ -370,6 +394,7 @@ fn doctor_fails_without_public_url() {
     kg().arg("doctor")
         .env("KOOIX_MASTER_KEY", TEST_MASTER_KEY)
         .env("KOOIX_JWT_SECRET", TEST_JWT_SECRET)
+        .env_remove("KOOIX_JWT_PREVIOUS_SECRETS")
         .env_remove("KOOIX_PUBLIC_URL")
         .env_remove("KOOIX_DATABASE_URL")
         .env_remove("KOOIX_REDIS_URL")

@@ -3,9 +3,10 @@
 //! 检查项：
 //! 1. KOOIX_MASTER_KEY 存在 + base64 解码后正好 32B
 //! 2. KOOIX_JWT_SECRET 存在 + base64 解码后 ≥ 32B
-//! 3. KOOIX_PUBLIC_URL 存在 + URL 形态正确
-//! 4. KOOIX_DATABASE_URL 存在 + 实际能 SELECT 1 + migration 已到最新
-//! 5. KOOIX_REDIS_URL    存在 + 实际能 PING + Lua 脚本可执行
+//! 3. KOOIX_JWT_PREVIOUS_SECRETS 可选；设置时逗号分隔 base64，每项 ≥ 32B
+//! 4. KOOIX_PUBLIC_URL 存在 + URL 形态正确
+//! 5. KOOIX_DATABASE_URL 存在 + 实际能 SELECT 1 + migration 已到最新
+//! 6. KOOIX_REDIS_URL    存在 + 实际能 PING + Lua 脚本可执行
 //!
 //! 任一失败 → exit 1（main 把 anyhow::Err 着红色打印）。
 //! `--json` 输出机器可读报告，stderr 仍保留失败摘要，方便 CI / deploy pipeline 同时解析 stdout。
@@ -63,6 +64,7 @@ async fn collect_report() -> DoctorReport {
     let checks = vec![
         check("KOOIX_MASTER_KEY", check_master_key()),
         check("KOOIX_JWT_SECRET", check_jwt_secret()),
+        check("KOOIX_JWT_PREVIOUS_SECRETS", check_jwt_previous_secrets()),
         check("KOOIX_PUBLIC_URL", check_public_url()),
         check("KOOIX_DATABASE_URL", check_database().await),
         check("KOOIX_REDIS_URL", check_redis().await),
@@ -112,13 +114,43 @@ fn check_master_key() -> Result<String, String> {
 
 fn check_jwt_secret() -> Result<String, String> {
     let v = std::env::var("KOOIX_JWT_SECRET").map_err(|_| "未设置".to_string())?;
-    let raw = B64
-        .decode(v.trim())
-        .map_err(|e| format!("不是合法 base64: {e}"))?;
-    if raw.len() < 32 {
-        return Err(format!("解码后 {} 字节 < 32（HS256 安全下限）", raw.len()));
-    }
+    let raw = decode_jwt_secret(v.trim()).map_err(|e| format!("不是合法 base64: {e}"))?;
+    ensure_jwt_secret_len(raw.len())?;
     Ok(format!("{}B 已就绪", raw.len()))
+}
+
+fn check_jwt_previous_secrets() -> Result<String, String> {
+    let Ok(v) = std::env::var("KOOIX_JWT_PREVIOUS_SECRETS") else {
+        return Ok("未配置（正常）".into());
+    };
+    let mut count = 0usize;
+    for (idx, raw) in v
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .enumerate()
+    {
+        let bytes =
+            decode_jwt_secret(raw).map_err(|e| format!("第 {idx} 项不是合法 base64: {e}"))?;
+        ensure_jwt_secret_len(bytes.len()).map_err(|e| format!("第 {idx} 项 {e}"))?;
+        count += 1;
+    }
+    if count == 0 {
+        Ok("未配置（正常）".into())
+    } else {
+        Ok(format!("{count} 个旧 secret 已就绪（仅验签窗口）"))
+    }
+}
+
+fn decode_jwt_secret(raw: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    B64.decode(raw)
+}
+
+fn ensure_jwt_secret_len(len: usize) -> Result<(), String> {
+    if len < 32 {
+        return Err(format!("解码后 {len} 字节 < 32（HS256 安全下限）"));
+    }
+    Ok(())
 }
 
 fn check_public_url() -> Result<String, String> {
