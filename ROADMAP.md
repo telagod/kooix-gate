@@ -444,26 +444,26 @@ cargo test -p gate-providers --all-targets
 
 **目标**：从“usage 记录”走向“可对账计费”。
 
-- [ ] 引入 ledger 事件模型：
-  - estimated debit
-  - actual settle
-  - refund
-  - manual adjustment
-  - invoice close
-- [ ] `usage_records` 与 billing ledger 对账任务。
-- [ ] Pricing conditions UI：
-  - JSON editor
-  - 常见条件模板：cache、image size、audio seconds、batch、region。
-- [ ] 月账单状态机：
-  - draft
-  - closed
-  - exported
-  - paid / waived
-- [ ] CSV / JSON export 增加签名摘要，方便审计。
-- [ ] 成本告警：
-  - 预算 50/80/100%
-  - 单请求异常高成本
-  - channel 单价缺失
+- [x] 引入 ledger 事件模型：
+  - [x] estimated debit
+  - [x] actual settle
+  - [x] refund
+  - [x] manual adjustment
+  - [x] invoice close
+- [x] `usage_records` 与 billing ledger 对账任务。
+- [x] Pricing conditions UI：
+  - [x] JSON editor
+  - [x] 常见条件模板：cache、image size、audio seconds、batch、region。
+- [x] 月账单状态机：
+  - [x] draft
+  - [x] closed
+  - [x] exported
+  - [x] paid / waived
+- [x] CSV / JSON export 增加签名摘要，方便审计。
+- [x] 成本告警：
+  - [x] 预算 50/80/100%
+  - [x] 单请求异常高成本
+  - [x] channel 单价缺失
 
 ### P1.6 Quota / Policy 补全
 

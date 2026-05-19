@@ -642,6 +642,7 @@ export async function deleteQuota(orgId: string, quotaId: string): Promise<void>
 export interface MonthlyBill {
 	org_id: string;
 	month: string;
+	invoice: BillingInvoice;
 	total_cost_usd: string;
 	total_tokens_in: number;
 	total_tokens_out: number;
@@ -656,20 +657,53 @@ export interface MonthlyBill {
 	}[];
 }
 
+export type BillingInvoiceStatus = 'draft' | 'closed' | 'exported' | 'paid' | 'waived';
+
+export interface BillingInvoice {
+	org_id: string;
+	month: string;
+	status: BillingInvoiceStatus;
+	total_cost_usd: string;
+	total_cost_micros: number;
+	export_digest: string | null;
+	closed_at: string | null;
+	exported_at: string | null;
+	paid_at: string | null;
+	waived_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
 export interface QuotaAlert {
-	quota_id: string;
 	dimension: string;
 	scope_kind: string;
 	scope_id: string;
-	limit_value: number;
-	current_value: number;
+	limit_value: string;
+	current_used: string;
 	percent: number;
-	level: 'approaching' | 'exceeded';
+	threshold_pct: number;
+	level: 'watch' | 'approaching' | 'exceeded';
+	status: 'watch' | 'approaching' | 'exceeded';
+	reason: 'budget_threshold' | 'high_request_cost' | 'missing_channel_price';
+	message: string;
 }
 
 export async function getMonthlyBill(orgId: string, month: string): Promise<MonthlyBill> {
 	return apiFetch<MonthlyBill>(`/v1/orgs/${rawId(orgId)}/billing/${month}`, {
 		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function transitionBillingInvoice(
+	orgId: string,
+	month: string,
+	status: Exclude<BillingInvoiceStatus, 'draft'>,
+	exportDigest?: string
+): Promise<BillingInvoice> {
+	return apiFetch<BillingInvoice>(`/v1/orgs/${rawId(orgId)}/billing/${month}/state`, {
+		method: 'POST',
+		headers: { 'X-Kooix-Org': orgId },
+		body: JSON.stringify({ status, export_digest: exportDigest ?? null })
 	});
 }
 
@@ -687,6 +721,35 @@ export async function exportBillingCsv(orgId: string, from: string, to: string):
 		throw new ApiError(resp.status, body?.error?.code ?? 'error', body?.error?.message ?? 'Export failed');
 	}
 	return resp.blob();
+}
+
+export interface BillingExportJson {
+	org_id: string;
+	from: string;
+	to: string;
+	rows: {
+		ts: string;
+		org_id: string;
+		project_id: string;
+		api_key_id: string;
+		channel_id: string | null;
+		model: string;
+		tokens_in: number;
+		tokens_out: number;
+		cost_usd: string;
+	}[];
+	digest: {
+		alg: 'sha256';
+		value: string;
+		rows: number;
+	};
+}
+
+export async function exportBillingJson(orgId: string, from: string, to: string): Promise<BillingExportJson> {
+	const params = new URLSearchParams({ from, to });
+	return apiFetch<BillingExportJson>(`/v1/orgs/${rawId(orgId)}/billing/export.json?${params}`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
 }
 
 export async function getQuotaAlerts(orgId: string): Promise<QuotaAlert[]> {

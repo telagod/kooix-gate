@@ -158,6 +158,53 @@ max(usage_rollup_lag_seconds)
 - `billing_settle_failures_total{reason="pricing_miss"}`：定价规则缺口，不阻断请求但会漏账。
 - `usage_rollup_lag_seconds` 持续升高：read model 延迟，会影响 dashboard 新鲜度。
 
+### Ledger reconciliation
+
+P1.5 后 `billing_ledger_events` 是计费审计源，`usage_records` 是控制台 / analytics projection。`actual_settle` 必须能与同一窗口内的 `usage_records` 对齐。
+
+Ledger event types：
+
+- `estimated_debit`：预算 / quota pre-debit 预扣。
+- `actual_settle`：请求完成后的实际扣费；`commit_usage` 默认写这个事件。
+- `refund`：退款或预扣差额返还。
+- `manual_adjustment`：人工调账。
+- `invoice_close`：月账单关闭快照。
+
+快速对账 SQL：
+
+```sql
+WITH usage_rows AS (
+  SELECT request_id, SUM(ROUND(cost_usd * 1000000)::BIGINT)::BIGINT AS usage_micros
+  FROM usage_records
+  WHERE org_id = $1::uuid AND ts >= $2 AND ts < $3
+  GROUP BY request_id
+),
+ledger_rows AS (
+  SELECT request_id, SUM(amount_micros)::BIGINT AS ledger_micros
+  FROM billing_ledger_events
+  WHERE org_id = $1::uuid
+    AND occurred_at >= $2 AND occurred_at < $3
+    AND event_type = 'actual_settle'
+    AND status = 'posted'
+    AND request_id IS NOT NULL
+  GROUP BY request_id
+)
+SELECT COALESCE(u.request_id, l.request_id) AS request_id,
+       u.usage_micros,
+       l.ledger_micros
+FROM usage_rows u
+FULL OUTER JOIN ledger_rows l USING (request_id)
+WHERE u.request_id IS NULL
+   OR l.request_id IS NULL
+   OR u.usage_micros <> l.ledger_micros;
+```
+
+- `missing ledger`：usage projection 有行但 ledger 无 `actual_settle`，优先查 outbox consumer 与 `billing_settle_failures_total`。
+- `orphan ledger`：ledger 有行但 usage projection 缺失，优先查 `commit_usage` transaction 是否中途失败或历史手工写入。
+- 月账单状态机在 `billing_invoices`：`draft -> closed -> exported -> paid/waived`；导出归档后用 `POST /v1/orgs/:org_id/billing/:month/state` 推进状态，`exported` 必须携带 `sha256:<hex>` digest。
+- CSV 导出响应头 `x-kooix-export-digest=sha256:<hex>`；JSON 导出 `/v1/orgs/:org_id/billing/export.json` 内嵌 `digest`，便于审计留存。
+- 成本告警覆盖预算 50/80/100% 阈值；`billing_settle_failures_total{reason="pricing_miss"}` 是 channel/model 单价缺失信号；单请求异常成本先按 24h org spend 粗告警，后续可升级为 request_events P99 / max。
+
 ## Worker ownership
 
 ```promql

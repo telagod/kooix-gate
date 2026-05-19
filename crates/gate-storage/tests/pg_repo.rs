@@ -8,8 +8,8 @@
 use chrono::Utc;
 use gate_core::identity::{OrgRole, ProjectRole};
 use gate_storage::{
-    ApiKeyRepo, MembershipRepo, OrgRepo, PgApiKeyRepo, PgMembershipRepo, PgOrgRepo, PgProjectRepo,
-    PgUserRepo, ProjectRepo, UserRepo,
+    ApiKeyRepo, BillingRepo, InvoiceStatus, MembershipRepo, OrgRepo, PgApiKeyRepo, PgBillingRepo,
+    PgMembershipRepo, PgOrgRepo, PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
 };
 use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
@@ -191,4 +191,93 @@ async fn api_key_touch_used_updates_counter() {
     keys.touch_used(id, Utc::now(), None).await.unwrap();
     // Repo 不暴露 use_count，间接验证：能写不报错就行
     let _ = keys.find_by_hash(&hash).await.unwrap();
+}
+
+#[tokio::test]
+async fn billing_invoice_state_machine_persists_forward_transitions() {
+    let (_c, pool) = start_pg().await;
+    let users = PgUserRepo::new(pool.clone());
+    let orgs = PgOrgRepo::new(pool.clone());
+    let projects = PgProjectRepo::new(pool.clone());
+    let keys = PgApiKeyRepo::new(pool.clone());
+    let billing = PgBillingRepo::new(pool.clone());
+
+    let owner = users
+        .create("billing-owner@x.com", None, None, None)
+        .await
+        .unwrap();
+    let org = orgs.create("Billing", "billing", owner.id).await.unwrap();
+    let proj = projects.create(org.id, "invoice", "invoice").await.unwrap();
+    let key = gate_auth::api_key::generate();
+    let hash = gate_auth::api_key::hash(&key.plaintext);
+    let api_key_id = keys
+        .create(
+            proj.id,
+            "billing",
+            &hash,
+            &key.prefix,
+            &key.last4,
+            owner.id,
+            &[],
+        )
+        .await
+        .unwrap();
+    let request_id = uuid::Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO billing_ledger_events \
+         (id, idempotency_key, request_id, occurred_at, org_id, project_id, api_key_id, channel_id, \
+          event_type, direction, amount_micros, source_type, source_id, status, invoice_month, metadata) \
+         VALUES (gen_random_uuid(), 'invoice-test', $1, '2026-05-20T00:00:00Z', $2, $3, $4, NULL, \
+                 'actual_settle', 'debit', 123456, 'test', $1::text, 'posted', NULL, '{}'::jsonb)",
+    )
+    .bind(request_id)
+    .bind(org.id.as_uuid())
+    .bind(proj.id.as_uuid())
+    .bind(api_key_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let draft = billing
+        .get_or_create_invoice(org.id, "2026-05")
+        .await
+        .unwrap();
+    assert_eq!(draft.status, InvoiceStatus::Draft);
+    assert_eq!(draft.total_cost_micros, 123_456);
+
+    let closed = billing
+        .transition_invoice(org.id, "2026-05", InvoiceStatus::Closed, None)
+        .await
+        .unwrap();
+    assert_eq!(closed.status, InvoiceStatus::Closed);
+    assert!(closed.closed_at.is_some());
+
+    let exported = billing
+        .transition_invoice(
+            org.id,
+            "2026-05",
+            InvoiceStatus::Exported,
+            Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exported.status, InvoiceStatus::Exported);
+    assert_eq!(
+        exported.export_digest.as_deref(),
+        Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    );
+    assert!(exported.exported_at.is_some());
+
+    let paid = billing
+        .transition_invoice(org.id, "2026-05", InvoiceStatus::Paid, None)
+        .await
+        .unwrap();
+    assert_eq!(paid.status, InvoiceStatus::Paid);
+    assert!(paid.paid_at.is_some());
+
+    let invalid = billing
+        .transition_invoice(org.id, "2026-05", InvoiceStatus::Waived, None)
+        .await;
+    assert!(invalid.is_err(), "paid invoice must be terminal");
 }

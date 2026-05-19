@@ -3,7 +3,7 @@
 	import { listPricingRules, upsertPricingRule, deletePricingRule, listAdminChannels } from '$lib/api.js';
 	import type { PricingRule, Channel } from '$lib/api.js';
 	import { shortId } from '$lib/id.js';
-	import { Alert, Button, Card, Field, Input, Select } from '$lib/components/ui';
+	import { Alert, Button, Card, Field, Input, Select, Textarea } from '$lib/components/ui';
 	import { DollarSign, Plus, Trash2, Filter } from 'lucide-svelte';
 	import DataTable from '$lib/components/templates/DataTable.svelte';
 	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
@@ -26,6 +26,7 @@
 	let formChannelId = $state('');
 	let formPriority = $state('0');
 	let formDescription = $state('');
+	let formConditions = $state('{}');
 	let formSaving = $state(false);
 
 	let deletingId = $state('');
@@ -63,6 +64,14 @@
 	];
 	const dimensionOptions = dimensions.map((value) => ({ value, label: value }));
 	const unitOptions = units.map((value) => ({ value, label: value }));
+	const conditionTemplates = [
+		{ label: '空条件', value: '{}' },
+		{ label: 'Cache TTL', value: '{\\n  \"cache_ttl\": \"ephemeral\"\\n}' },
+		{ label: 'Image size', value: '{\\n  \"quality\": \"hd\",\\n  \"size\": \"1024x1024\"\\n}' },
+		{ label: 'Audio seconds', value: '{\\n  \"deployment_type\": \"realtime\"\\n}' },
+		{ label: 'Batch', value: '{\\n  \"batch\": true\\n}' },
+		{ label: 'Region', value: '{\\n  \"region\": \"us-east-1\"\\n}' }
+	];
 
 	onMount(async () => {
 		try {
@@ -89,17 +98,28 @@
 	async function handleSave() {
 		formSaving = true;
 		try {
+			let conditions: Record<string, any>;
+			try {
+				conditions = JSON.parse(formConditions || '{}');
+				if (!conditions || Array.isArray(conditions) || typeof conditions !== 'object') {
+					throw new Error('conditions must be a JSON object');
+				}
+			} catch (err: any) {
+				error = `Conditions JSON 无效：${err?.message ?? err}`;
+				return;
+			}
 			await upsertPricingRule({
 				model: formModel,
 				dimension: formDimension,
 				unit: formUnit,
 				rate: parseFloat(formRate),
 				channel_id: formChannelId || null,
+				conditions,
 				priority: Number(formPriority || 0),
 				description: formDescription || null
 			});
 			showForm = false;
-			formModel = ''; formRate = ''; formChannelId = ''; formDescription = '';
+			formModel = ''; formRate = ''; formChannelId = ''; formDescription = ''; formConditions = '{}';
 			await reload();
 		} catch (err: any) {
 			error = err?.message ?? '保存失败';
@@ -185,6 +205,25 @@
 				<Field label="描述" for="pricing-form-description" class="col-span-2">
 					<Input id="pricing-form-description" placeholder="可选描述" bind:value={formDescription} />
 				</Field>
+			</div>
+			<div class="mt-4 grid gap-3 lg:grid-cols-[1fr_220px]">
+				<Field label="Conditions JSON" for="pricing-form-conditions" hint="支持 cache_ttl / quality / size / deployment_type / batch / region / context_above。">
+					<Textarea id="pricing-form-conditions" bind:value={formConditions} rows={7} class="font-mono text-xs" />
+				</Field>
+				<div>
+					<p class="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">常见条件模板</p>
+					<div class="grid gap-2">
+						{#each conditionTemplates as tpl}
+							<button
+								type="button"
+								class="rounded-md border border-zinc-200 px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+								onclick={() => { formConditions = tpl.value; }}
+							>
+								{tpl.label}
+							</button>
+						{/each}
+					</div>
+				</div>
 			</div>
 			<div class="flex gap-2 mt-4">
 				<Button onclick={handleSave} disabled={formSaving || !formModel || !formRate}>

@@ -30,7 +30,7 @@
 - ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
 - ✅ typed ID API response（`org_...` / `proj_...` / `usr_...`），路径参数仍兼容裸 UUID
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
-- ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价）
+- ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价，ledger 对账 + invoice 状态机）
 - ✅ Quota 拦截（rpm / tpm / budget，Redis Lua 原子）
 - ✅ 可视化编排 Playground（@xyflow/svelte 节点式流程编辑器）
 - ✅ SvelteKit 控制台（channel 管理 / 请求日志 / usage 仪表盘 / 月度账单 / SSO）
@@ -163,8 +163,9 @@ curl http://localhost:8080/v1/chat/completions \
 - **多 Org 三层租户**：Org → Project → ApiKey，永不耦合
 - **project_memberships 用 `(OrgId, ProjectId)` 复合 key**：防止跨 Org 重放
 - **RLS 兜底**：应用层漏 filter 也泄露不了租户数据
-- **流式计费正确性**：`stream_options.include_usage` 强制注入，末帧捕获 usage 后 spawn 推 outbox
+- **流式计费正确性**：`stream_options.include_usage` 强制注入，末帧捕获 usage 后写 outbox；worker 落 `usage_records` projection + `billing_ledger_events.actual_settle`
 - **Outbox pattern**：业务事务和计费写入解耦，幂等 `ON CONFLICT DO NOTHING`
+- **Billing ledger / invoice**：`billing_ledger_events` 是审计源；月账单状态机 `draft -> closed -> exported -> paid/waived`，导出 digest 绑定审计留存
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
 - **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`；manifest 按不可信配置处理，默认不允许绝对 URL，模板变量与 body/response/SSE size 均有限制
 - **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面

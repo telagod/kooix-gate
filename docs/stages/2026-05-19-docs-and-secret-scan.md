@@ -25,6 +25,31 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.5 Billing ledger / reconciliation / invoice state / export digest
+
+本轮把 P1.5 billing 全部推进成可对账闭环：
+
+- `billing_ledger_events` 新增显式 `event_type`：`estimated_debit` / `actual_settle` / `refund` / `manual_adjustment` / `invoice_close`，并补 `invoice_month` 与 org-level adjustment / invoice close 可空 project/api_key。
+- `gate-billing::ledger` 提供 typed constructors 与幂等 `insert_ledger_event`；`commit_usage` 默认写 `actual_settle`，不再只靠 `direction=debit` 表达语义。
+- `gate-billing::reconciliation::reconcile_usage_ledger` 按窗口对比 `usage_records` 与 posted `actual_settle` ledger，输出 missing ledger / orphan ledger / amount mismatch。
+- `PgBillingRepo::monthly_bill` 费用优先从 ledger 重建，tokens/model/project 仍读 `usage_records` analytics projection。
+- `billing_invoices` 新增月账单状态机：`draft -> closed -> exported -> paid/waived`；`exported` 要求 `sha256:<hex>` digest，状态推进写 audit。
+- Billing CSV 导出增加 `x-kooix-export-digest=sha256:<hex>`；新增 JSON 导出 `/v1/orgs/:org_id/billing/export.json`，响应内嵌 `digest`。
+- Pricing 控制台新增 Conditions JSON editor 与 cache / image size / audio seconds / batch / region 模板。
+- 成本告警扩展预算 50/80/100% 阈值，并保留 pricing miss 与高成本异常观测入口；具体判读写入 `docs/observability-runbook.md`。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo test -p gate-billing --test outbox_consumer ledger_event_model_accepts_p1_5_event_types -- --nocapture
+cargo test -p gate-billing --test outbox_consumer reconcile_usage_records_with_actual_settle_ledger -- --nocapture
+cargo test -p gate-storage --test pg_repo billing_invoice_state_machine_persists_forward_transitions -- --nocapture
+cargo test -p gate-server routes::billing::tests -- --nocapture
+cargo test -p gate-server alerts::tests -- --nocapture
+npm --prefix web run check
+```
+
 ## P1.4 Canary routing
 
 本轮把 P1.4 最后一项 Canary routing 落成小流量 + 自动对比闭环：

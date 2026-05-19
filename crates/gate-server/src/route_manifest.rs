@@ -142,7 +142,19 @@ pub const ROUTES: &[RouteMeta] = &[
     ),
     route!(
         "GET",
+        "/v1/orgs/:org_id/billing/export.json",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
         "/v1/orgs/:org_id/billing/:month",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/orgs/:org_id/billing/:month/state",
         User,
         CONTROL_PLANE
     ),
@@ -372,6 +384,10 @@ pub fn routes_for_mode(mode: RuntimeMode) -> impl Iterator<Item = &'static Route
 
 pub fn gateway_paths() -> impl Iterator<Item = &'static str> {
     routes_for_mode(RuntimeMode::Gateway).map(|route| route.path)
+}
+
+pub fn all_routes() -> &'static [RouteMeta] {
+    ROUTES
 }
 
 pub fn manifest_json() -> serde_json::Value {

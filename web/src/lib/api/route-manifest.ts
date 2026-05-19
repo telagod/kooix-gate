@@ -66,7 +66,9 @@ export const routeManifest = {
 	{"method":"PUT","path":"/v1/me/password","auth":"user","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/models","auth":"user_or_api_key","modes":["all","gateway"]},
 	{"method":"GET","path":"/v1/orgs/:org_id/billing/:month","auth":"user","modes":["all","controlplane"]},
+	{"method":"POST","path":"/v1/orgs/:org_id/billing/:month/state","auth":"user","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/orgs/:org_id/billing/export","auth":"user","modes":["all","controlplane"]},
+	{"method":"GET","path":"/v1/orgs/:org_id/billing/export.json","auth":"user","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/orgs/:org_id/channels","auth":"user","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/orgs/:org_id/projects","auth":"user","modes":["all","controlplane"]},
 	{"method":"POST","path":"/v1/orgs/:org_id/projects","auth":"user","modes":["all","controlplane"]},
@@ -85,6 +87,7 @@ export const routeManifest = {
 	{"method":"GET","path":"/v1/orgs/:org_id/requests","auth":"user","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/orgs/:org_id/requests/:request_id","auth":"user","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/orgs/:org_id/requests/filters","auth":"user","modes":["all","controlplane"]},
+	{"method":"POST","path":"/v1/responses","auth":"user_or_api_key","modes":["all","gateway"]},
 	{"method":"POST","path":"/v1/setup","auth":"public","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/usage","auth":"user","modes":["all","controlplane"]}
 	]

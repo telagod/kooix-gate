@@ -2,7 +2,8 @@
 
 use chrono::Utc;
 use gate_billing::{
-    Consumer, OutboxRepo, UsageEvent, consumer::commit_usage, outbox::PgOutboxRepo,
+    BillingLedgerEvent, Consumer, LedgerDirection, OutboxRepo, UsageEvent, consumer::commit_usage,
+    insert_ledger_event, outbox::PgOutboxRepo, reconcile_usage_ledger,
 };
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -273,4 +274,149 @@ async fn commit_usage_writes_read_models_rollups_and_ledger_once() {
         .await
         .unwrap();
     assert_eq!(ledger_count, 1);
+
+    let event_type: String =
+        sqlx::query_scalar("SELECT event_type FROM billing_ledger_events LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(event_type, "actual_settle");
+}
+
+#[tokio::test]
+async fn ledger_event_model_accepts_p1_5_event_types() {
+    let (_c, pool, fix) = start_pg().await;
+    let request_id = Uuid::now_v7();
+    let now = Utc::now();
+
+    let events = [
+        BillingLedgerEvent::estimated_debit(
+            "ledger-estimated".to_string(),
+            request_id,
+            now,
+            fix.org_id,
+            fix.project_id,
+            fix.api_key_id,
+            None,
+            900,
+            serde_json::json!({"phase":"predebit"}),
+        ),
+        BillingLedgerEvent::actual_settle(
+            &UsageEvent {
+                request_id,
+                idempotency_key: Some("ledger-settle".to_string()),
+                api_key_id: fix.api_key_id,
+                project_id: fix.project_id,
+                org_id: fix.org_id,
+                channel_id: None,
+                group_id: None,
+                model: "gpt-4o-mini".to_string(),
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                cached_tokens: 0,
+                reasoning_tokens: 0,
+                image_units: 0,
+                audio_seconds: 0.0,
+                raw_usage: None,
+                cost_micros: 150,
+                occurred_at: now,
+                status: 200,
+            },
+            "ledger-settle".to_string(),
+        ),
+        BillingLedgerEvent::refund(
+            "ledger-refund".to_string(),
+            Some(request_id),
+            now,
+            fix.org_id,
+            Some(fix.project_id),
+            Some(fix.api_key_id),
+            750,
+            request_id.to_string(),
+            serde_json::json!({"reason":"estimate_overrun"}),
+        ),
+        BillingLedgerEvent::manual_adjustment(
+            "ledger-adjustment".to_string(),
+            now,
+            fix.org_id,
+            Some(fix.project_id),
+            42,
+            LedgerDirection::Credit,
+            "support-ticket-1".to_string(),
+            serde_json::json!({"actor":"billing-admin"}),
+        ),
+        BillingLedgerEvent::invoice_close(
+            "ledger-invoice-close".to_string(),
+            now,
+            fix.org_id,
+            "2026-05".to_string(),
+            150,
+            serde_json::json!({"closed_by":"system"}),
+        ),
+    ];
+
+    for event in events {
+        assert!(
+            insert_ledger_event(&pool, &event).await.unwrap(),
+            "first insert must be effective"
+        );
+        assert!(
+            !insert_ledger_event(&pool, &event).await.unwrap(),
+            "idempotency key must dedupe ledger events"
+        );
+    }
+
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT event_type, direction FROM billing_ledger_events ORDER BY event_type",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(rows.len(), 5);
+    assert!(rows.contains(&("estimated_debit".to_string(), "debit".to_string())));
+    assert!(rows.contains(&("actual_settle".to_string(), "debit".to_string())));
+    assert!(rows.contains(&("refund".to_string(), "credit".to_string())));
+    assert!(rows.contains(&("manual_adjustment".to_string(), "credit".to_string())));
+    assert!(rows.contains(&("invoice_close".to_string(), "none".to_string())));
+}
+
+#[tokio::test]
+async fn reconcile_usage_records_with_actual_settle_ledger() {
+    let (_c, pool, fix) = start_pg().await;
+    let mut event = make_event(&fix);
+    event.idempotency_key = Some("ledger-reconcile-balanced".to_string());
+
+    commit_usage(&pool, &event).await.unwrap();
+    let from = event.occurred_at - chrono::Duration::minutes(1);
+    let to = event.occurred_at + chrono::Duration::minutes(1);
+    let balanced = reconcile_usage_ledger(&pool, Some(fix.org_id), from, to)
+        .await
+        .unwrap();
+
+    assert!(balanced.is_balanced(), "balanced report: {balanced:?}");
+    assert_eq!(balanced.usage_total_micros, event.cost_micros);
+    assert_eq!(balanced.ledger_total_micros, event.cost_micros);
+
+    sqlx::query(
+        "UPDATE billing_ledger_events SET amount_micros = amount_micros + 1 WHERE request_id = $1",
+    )
+    .bind(event.request_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mismatched = reconcile_usage_ledger(&pool, Some(fix.org_id), from, to)
+        .await
+        .unwrap();
+    assert!(!mismatched.is_balanced());
+    assert_eq!(mismatched.amount_mismatches.len(), 1);
+    assert_eq!(
+        mismatched.amount_mismatches[0].usage_micros,
+        Some(event.cost_micros)
+    );
+    assert_eq!(
+        mismatched.amount_mismatches[0].ledger_micros,
+        Some(event.cost_micros + 1)
+    );
 }

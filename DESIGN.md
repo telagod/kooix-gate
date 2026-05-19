@@ -154,7 +154,7 @@ POST (流结束 / 错误):
   enqueue outbox_events('usage', record)
 ```
 
-后台 worker 消费 outbox → 落 `usage_records`、触发告警、对账。
+后台 worker 消费 outbox → 落 `usage_records` projection、写 `billing_ledger_events.actual_settle`、触发告警、对账。
 
 **关键：超时回滚**。`inflight_requests.expires_at` 设 `max_tokens / 10 tps` 的预估时间，cleaner 定时跑回滚。
 
@@ -164,6 +164,17 @@ POST (流结束 / 错误):
 - `inflight_requests.quota_keys` / `estimated_micros` 记录本请求所有成功预扣项。
 - 正常路径由 `InflightGuard::settle(actual_micros)` 多退少补并删除 inflight 行。
 - handler panic / 取消时 `Drop` 全额退还；进程崩溃时后台 sweeper 每 60s 删除过期 inflight 行并按 `quota_keys × estimated_micros` 退还 Redis。
+
+### 3.4 Billing ledger 与 invoice 状态机
+
+P1.5 后 `billing_ledger_events` 是计费审计源，`usage_records` 只作为控制台 / analytics projection：
+
+- `estimated_debit`：预算 / quota pre-debit 预扣。
+- `actual_settle`：请求完成后的实际扣费；月账单费用优先从此事件重建。
+- `refund` / `manual_adjustment`：退款与人工调账。
+- `invoice_close`：月账单关闭快照 marker。
+
+月账单 operational state 存在 `billing_invoices`，严格前进：`draft -> closed -> exported -> paid/waived`。`exported` 必须绑定导出 digest（CSV 响应头或 JSON payload 的 `sha256:<hex>`），状态推进写 `billing.invoice.transition` audit。
 
 ---
 

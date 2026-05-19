@@ -3,7 +3,14 @@
 	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getMonthlyBill, exportBillingCsv, getQuotaAlerts, getMe } from '$lib/api.js';
+	import {
+		getMonthlyBill,
+		exportBillingCsv,
+		exportBillingJson,
+		getQuotaAlerts,
+		getMe,
+		transitionBillingInvoice
+	} from '$lib/api.js';
 	import type { MonthlyBill, QuotaAlert } from '$lib/api.js';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -33,7 +40,10 @@
 	let loading = $state(true);
 	let error = $state('');
 	let exporting = $state(false);
+	let exportingJson = $state(false);
+	let transitioning = $state('');
 	let exportError = $state('');
+	let lastDigest = $state('');
 
 	// ── 挂载：并行加载账单 + 告警 ─────────────
 	onMount(async () => {
@@ -84,10 +94,54 @@
 			a.download = `billing-${shortId(orgId)}-${selectedMonth}.csv`;
 			a.click();
 			URL.revokeObjectURL(url);
+			lastDigest = 'CSV 已导出；digest 见响应头 x-kooix-export-digest';
 		} catch (err: any) {
 			exportError = err?.message ?? '导出失败';
 		} finally {
 			exporting = false;
+		}
+	}
+
+	async function handleExportJson() {
+		exportingJson = true;
+		exportError = '';
+		try {
+			const [y, m] = selectedMonth.split('-').map(Number);
+			const from = `${selectedMonth}-01`;
+			const lastDay = new Date(y, m, 0).getDate();
+			const to = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+
+			const payload = await exportBillingJson(orgId, from, to);
+			lastDigest = `${payload.digest.alg}:${payload.digest.value}`;
+			const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `billing-${shortId(orgId)}-${selectedMonth}.json`;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (err: any) {
+			exportError = err?.message ?? '导出失败';
+		} finally {
+			exportingJson = false;
+		}
+	}
+
+	async function handleInvoiceTransition(status: 'closed' | 'exported' | 'paid' | 'waived') {
+		if (!bill) return;
+		transitioning = status;
+		exportError = '';
+		try {
+			const digest = status === 'exported' ? bill.invoice.export_digest || lastDigest : undefined;
+			if (status === 'exported' && !digest) {
+				throw new Error('先导出 JSON，拿到 digest 后再标记 exported。');
+			}
+			const invoice = await transitionBillingInvoice(orgId, selectedMonth, status, digest);
+			bill = { ...bill, invoice };
+		} catch (err: any) {
+			exportError = err?.message ?? '状态更新失败';
+		} finally {
+			transitioning = '';
 		}
 	}
 
@@ -102,12 +156,36 @@
 	}
 
 	// ── 告警分组 ──────────────────────────────────────────
+	let watch = $derived(alerts.filter((a) => a.level === 'watch'));
 	let approaching = $derived(alerts.filter((a) => a.level === 'approaching'));
 	let exceeded = $derived(alerts.filter((a) => a.level === 'exceeded'));
 
 	function scopeLabel(kind: string): string {
 		const m: Record<string, string> = { org: '组织', project: '项目', api_key: 'API Key' };
 		return m[kind] ?? kind;
+	}
+
+	function invoiceStatusLabel(status: string): string {
+		const m: Record<string, string> = {
+			draft: 'Draft',
+			closed: 'Closed',
+			exported: 'Exported',
+			paid: 'Paid',
+			waived: 'Waived'
+		};
+		return m[status] ?? status;
+	}
+
+	function canClose(): boolean {
+		return bill?.invoice.status === 'draft';
+	}
+
+	function canExport(): boolean {
+		return bill?.invoice.status === 'closed';
+	}
+
+	function canSettle(): boolean {
+		return bill?.invoice.status === 'closed' || bill?.invoice.status === 'exported';
 	}
 </script>
 
@@ -119,7 +197,7 @@
 		<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
 			<div>
 				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">月账单</h1>
-				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">按月查看费用明细，支持导出 CSV。</p>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">按月查看费用明细，支持 CSV / JSON digest 与 invoice 状态机。</p>
 			</div>
 
 			<div class="flex items-center gap-3 flex-wrap">
@@ -139,11 +217,19 @@
 				<Button onclick={handleExport} disabled={exporting || loading} variant="outline">
 					{exporting ? '导出中...' : '导出 CSV'}
 				</Button>
+				<Button onclick={handleExportJson} disabled={exportingJson || loading} variant="outline">
+					{exportingJson ? '导出中...' : '导出 JSON'}
+				</Button>
 			</div>
 		</div>
 
 		{#if exportError}
 			<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2 mb-4">{exportError}</p>
+		{/if}
+		{#if lastDigest}
+			<p class="text-xs font-mono text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 rounded-md px-3 py-2 mb-4 break-all">
+				导出摘要：{lastDigest}
+			</p>
 		{/if}
 
 		{#if loading}
@@ -153,6 +239,43 @@
 				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
 			</Card>
 		{:else if bill}
+			<Card class="p-4 mb-6">
+				<div class="flex items-start justify-between gap-4 flex-wrap">
+					<div>
+						<p class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
+							Invoice State
+						</p>
+						<div class="flex items-center gap-3 flex-wrap">
+							<span class="inline-flex items-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+								{invoiceStatusLabel(bill.invoice.status)}
+							</span>
+							<span class="text-xs text-zinc-500 dark:text-zinc-400">
+								{bill.invoice.month} · {fmtCost(bill.invoice.total_cost_usd)} · {fmtNum(bill.invoice.total_cost_micros)} micros
+							</span>
+						</div>
+						{#if bill.invoice.export_digest}
+							<p class="mt-2 text-xs font-mono text-zinc-600 dark:text-zinc-400 break-all">
+								export_digest: {bill.invoice.export_digest}
+							</p>
+						{/if}
+					</div>
+					<div class="flex items-center gap-2 flex-wrap">
+						<Button onclick={() => handleInvoiceTransition('closed')} disabled={!canClose() || !!transitioning} variant="outline" size="sm">
+							{transitioning === 'closed' ? 'Closing...' : 'Close'}
+						</Button>
+						<Button onclick={() => handleInvoiceTransition('exported')} disabled={!canExport() || !!transitioning} variant="outline" size="sm">
+							{transitioning === 'exported' ? 'Exporting...' : 'Mark Exported'}
+						</Button>
+						<Button onclick={() => handleInvoiceTransition('paid')} disabled={!canSettle() || !!transitioning} size="sm">
+							{transitioning === 'paid' ? 'Paying...' : 'Paid'}
+						</Button>
+						<Button onclick={() => handleInvoiceTransition('waived')} disabled={!canSettle() || !!transitioning} variant="outline" size="sm">
+							{transitioning === 'waived' ? 'Waiving...' : 'Waive'}
+						</Button>
+					</div>
+				</div>
+			</Card>
+
 			<!-- ── 统计卡片 ── -->
 			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
 				<Stat
@@ -272,8 +395,8 @@
 										<span class="text-xs font-mono text-red-500 dark:text-red-400">{shortId(alert.scope_id)}…</span>
 									</div>
 									<div class="flex items-center gap-4 text-xs text-red-700 dark:text-red-400 tabular-nums">
-										<span>当前：<strong>{fmtNum(alert.current_value)}</strong></span>
-										<span>限额：<strong>{fmtNum(alert.limit_value)}</strong></span>
+										<span>当前：<strong>{alert.current_used}</strong></span>
+										<span>限额：<strong>{alert.limit_value}</strong></span>
 										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
 									</div>
 								</div>
@@ -299,8 +422,35 @@
 										<span class="text-xs font-mono text-yellow-500 dark:text-amber-400">{shortId(alert.scope_id)}…</span>
 									</div>
 									<div class="flex items-center gap-4 text-xs text-yellow-700 dark:text-amber-400 tabular-nums">
-										<span>当前：<strong>{fmtNum(alert.current_value)}</strong></span>
-										<span>限额：<strong>{fmtNum(alert.limit_value)}</strong></span>
+										<span>当前：<strong>{alert.current_used}</strong></span>
+										<span>限额：<strong>{alert.limit_value}</strong></span>
+										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				{#if watch.length > 0}
+					<div class="mt-4">
+						<p class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2">
+							预算观察 ({watch.length})
+						</p>
+						<div class="space-y-2">
+							{#each watch as alert}
+								<div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+									<div class="flex items-center gap-3">
+										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+											50%
+										</span>
+										<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{alert.dimension}</span>
+										<span class="text-xs text-zinc-600 dark:text-zinc-400">{scopeLabel(alert.scope_kind)}</span>
+										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{shortId(alert.scope_id)}…</span>
+									</div>
+									<div class="flex items-center gap-4 text-xs text-zinc-700 dark:text-zinc-300 tabular-nums">
+										<span>当前：<strong>{alert.current_used}</strong></span>
+										<span>限额：<strong>{alert.limit_value}</strong></span>
 										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
 									</div>
 								</div>

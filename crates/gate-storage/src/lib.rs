@@ -12,8 +12,8 @@ pub use error::{DbError, DbResult};
 pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord, PgApiKeyRepo};
 pub use repo::audit::{AuditRecord, AuditRepo, InMemoryAuditRepo, PgAuditRepo};
 pub use repo::billing::{
-    BillingRepo, BillingSeed, InMemoryBillingRepo, ModelBillLine, MonthlyBill, PgBillingRepo,
-    ProjectBillLine, UsageExportRow,
+    BillingInvoice, BillingRepo, BillingSeed, InMemoryBillingRepo, InvoiceStatus, ModelBillLine,
+    MonthlyBill, PgBillingRepo, ProjectBillLine, UsageExportRow,
 };
 pub use repo::channel::{
     ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelRecord, ChannelRepo,

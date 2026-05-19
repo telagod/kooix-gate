@@ -6,6 +6,7 @@
 //! - commit_usage 走幂等写（ON CONFLICT DO NOTHING on (ts, request_id)）
 
 use crate::BillingResult;
+use crate::ledger::{BillingLedgerEvent, insert_ledger_event_tx};
 use crate::outbox::{OutboxId, OutboxRepo};
 use crate::types::UsageEvent;
 use chrono::Utc;
@@ -247,37 +248,8 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     let lag_seconds = (Utc::now() - event.occurred_at).num_milliseconds().max(0) as f64 / 1000.0;
     metrics::gauge!("usage_rollup_lag_seconds").set(lag_seconds);
 
-    sqlx::query(
-        "INSERT INTO billing_ledger_events \
-         (id, idempotency_key, request_id, occurred_at, org_id, project_id, api_key_id, channel_id, \
-          direction, amount_micros, source_type, source_id, status, metadata) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'debit', $9, 'llm_request', $10, 'posted', $11) \
-         ON CONFLICT (idempotency_key) DO NOTHING",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .bind(&idem)
-    .bind(event.request_id)
-    .bind(event.occurred_at)
-    .bind(event.org_id)
-    .bind(event.project_id)
-    .bind(event.api_key_id)
-    .bind(event.channel_id)
-    .bind(event.cost_micros)
-    .bind(event.request_id.to_string())
-    .bind(serde_json::json!({
-        "model": event.model,
-        "tokens_in": event.prompt_tokens,
-        "tokens_out": event.completion_tokens,
-        "tokens_cached": event.cached_tokens,
-        "reasoning_tokens": event.reasoning_tokens,
-        "image_units": event.image_units,
-        "audio_seconds": event.audio_seconds,
-        "raw_usage": event.raw_usage,
-        "status": event.status,
-        "group_id": event.group_id,
-    }))
-    .execute(&mut *tx)
-    .await?;
+    let ledger_event = BillingLedgerEvent::actual_settle(event, idem);
+    insert_ledger_event_tx(&mut tx, &ledger_event).await?;
 
     tx.commit().await?;
     Ok(())

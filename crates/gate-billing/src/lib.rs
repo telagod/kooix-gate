@@ -12,16 +12,24 @@
 //! - [`Consumer`] — 消费循环
 
 pub mod consumer;
+pub mod ledger;
 pub mod outbox;
 pub mod pricing;
 pub mod pricing_sync;
+pub mod reconciliation;
 pub mod types;
 
 pub use consumer::Consumer;
+pub use ledger::{
+    BillingLedgerEvent, LedgerDirection, LedgerEventType, LedgerStatus, insert_ledger_event,
+};
 pub use outbox::{InMemoryOutboxRepo, OutboxRepo, PgOutboxRepo};
 pub use pricing::{
     CostContext, InMemoryPricingRepo, ModelPricing, PgPricingRepo, PricingRepo, PricingRule,
     compute_cost, compute_cost_micros,
+};
+pub use reconciliation::{
+    LedgerReconciliationDiff, LedgerReconciliationReport, reconcile_usage_ledger,
 };
 pub use types::UsageEvent;
 

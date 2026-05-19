@@ -68,6 +68,7 @@ pnpm build
 | `/login` | 邮箱密码登录，成功后跳 `/orgs` |
 | `/orgs` | 组织列表，支持切换激活 Org（X-Kooix-Org header）|
 | `/orgs/[orgId]/projects` | 列出指定 Org 下的 Project，支持创建 |
+| `/orgs/[orgId]/billing` | 月账单、quota alerts、CSV/JSON digest 导出与 invoice 状态机 |
 | `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设与自定义 manifest |
 | `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
 | `/admin/pricing` | Platform admin 定价规则管理，支持 global / channel-specific rules |

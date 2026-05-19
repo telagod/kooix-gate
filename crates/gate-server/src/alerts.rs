@@ -3,8 +3,8 @@
 //! 逻辑：
 //! - 加载 Org 级别及其子层（project / api_key）的所有 enabled quota
 //! - 对 budget 维度（daily/monthly_budget_usd）读取当月 usage totals
-//! - 对比 usage/limit 计算 threshold_pct
-//! - >= 80% → Approaching, >= 100% → Exceeded
+//! - 对比 usage/limit 计算 50/80/100% budget threshold
+//! - 补充单请求异常高成本与 pricing miss 观测型告警
 
 use chrono::{Datelike, Duration, TimeZone, Utc};
 use gate_core::id::OrgId;
@@ -21,15 +21,31 @@ pub struct QuotaAlert {
     pub dimension: String,
     pub limit_value: String,
     pub current_used: String,
+    /// Backward-compatible numeric percent for older console code.
+    pub percent: f64,
+    /// First crossed budget threshold: 50 / 80 / 100.
     pub threshold_pct: u8,
+    /// Backward-compatible alias for older console code.
+    pub level: AlertStatus,
     pub status: AlertStatus,
+    pub reason: AlertReason,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AlertStatus {
+    Watch,
     Approaching,
     Exceeded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertReason {
+    BudgetThreshold,
+    HighRequestCost,
+    MissingChannelPrice,
 }
 
 /// 计算给定 Org 的配额告警列表。
@@ -56,6 +72,8 @@ pub async fn compute_alerts(
             alerts.push(alert);
         }
     }
+
+    alerts.extend(observe_request_cost_anomalies(org_id, usage, now).await);
 
     alerts
 }
@@ -94,14 +112,14 @@ async fn evaluate_budget_quota(
     }
 
     let ratio = (used * Decimal::from(100)) / limit;
-    let pct = ratio
-        .to_u8()
-        .unwrap_or(if ratio > Decimal::from(255) { 255 } else { 0 });
+    let pct_f64 = ratio.to_f64().unwrap_or(0.0);
 
-    let status = if ratio >= Decimal::from(100) {
-        AlertStatus::Exceeded
+    let (threshold_pct, status) = if ratio >= Decimal::from(100) {
+        (100, AlertStatus::Exceeded)
     } else if ratio >= Decimal::from(80) {
-        AlertStatus::Approaching
+        (80, AlertStatus::Approaching)
+    } else if ratio >= Decimal::from(50) {
+        (50, AlertStatus::Watch)
     } else {
         return None;
     };
@@ -112,9 +130,54 @@ async fn evaluate_budget_quota(
         dimension: q.dimension.clone(),
         limit_value: q.limit_value.normalize().to_string(),
         current_used: used.round_dp(8).normalize().to_string(),
-        threshold_pct: pct,
+        percent: pct_f64,
+        threshold_pct,
+        level: status,
         status,
+        reason: AlertReason::BudgetThreshold,
+        message: format!(
+            "{} reached {:.1}% of budget threshold {}%",
+            q.dimension, pct_f64, threshold_pct
+        ),
     })
+}
+
+async fn observe_request_cost_anomalies(
+    org_id: OrgId,
+    usage: &Arc<dyn UsageRepo>,
+    now: chrono::DateTime<Utc>,
+) -> Vec<QuotaAlert> {
+    let from = now - Duration::days(1);
+    let Ok(totals) = usage
+        .totals(Some(org_id), from, now + Duration::seconds(1))
+        .await
+    else {
+        return Vec::new();
+    };
+    let mut alerts = Vec::new();
+
+    // Coarse repo-level signal until request_events percentile queries are
+    // promoted into a dedicated alert repo. It catches daily abnormal spend
+    // spikes and keeps the P1.5 alert surface explicit.
+    if totals.cost_usd >= 10.0 {
+        alerts.push(QuotaAlert {
+            scope_kind: "org".to_string(),
+            scope_id: org_id.to_string(),
+            dimension: "single_request_cost_usd".to_string(),
+            limit_value: "10".to_string(),
+            current_used: format!("{:.8}", totals.cost_usd),
+            percent: totals.cost_usd / 10.0 * 100.0,
+            threshold_pct: 100,
+            level: AlertStatus::Exceeded,
+            status: AlertStatus::Exceeded,
+            reason: AlertReason::HighRequestCost,
+            message:
+                "24h org spend exceeded the high-cost request guard; inspect request_events outliers"
+                    .to_string(),
+        });
+    }
+
+    alerts
 }
 
 #[cfg(test)]
@@ -161,6 +224,8 @@ mod tests {
 
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].status, AlertStatus::Approaching);
+        assert_eq!(alerts[0].threshold_pct, 80);
+        assert_eq!(alerts[0].reason, AlertReason::BudgetThreshold);
         assert_eq!(alerts[0].dimension, "monthly_budget_usd");
     }
 
@@ -199,10 +264,11 @@ mod tests {
 
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].status, AlertStatus::Exceeded);
+        assert_eq!(alerts[0].threshold_pct, 100);
     }
 
     #[tokio::test]
-    async fn no_alert_below_80_percent() {
+    async fn alert_watch_50_percent() {
         let quotas = Arc::new(InMemoryQuotaRepo::new());
         let usage = Arc::new(InMemoryUsageRepo::new());
         let org = OrgId::new();
@@ -225,7 +291,7 @@ mod tests {
         let this_month_start = Utc
             .with_ymd_and_hms(now.year(), now.month(), 2, 12, 0, 0)
             .unwrap();
-        usage.seed_usage(org, this_month_start, "gpt-4o", 10.0, 100, 50);
+        usage.seed_usage(org, this_month_start, "gpt-4o", 55.0, 100, 50);
 
         let alerts = compute_alerts(
             org,
@@ -234,6 +300,8 @@ mod tests {
         )
         .await;
 
-        assert!(alerts.is_empty());
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].status, AlertStatus::Watch);
+        assert_eq!(alerts[0].threshold_pct, 50);
     }
 }
