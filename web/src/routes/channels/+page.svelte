@@ -15,7 +15,8 @@
 		batchDeleteChannels,
 		probeChannel,
 		testChannel,
-		getChannelBalance
+		getChannelBalance,
+		replayPluginSse
 	} from '$lib/api.js';
 	import type {
 		Channel,
@@ -147,6 +148,10 @@
 	let pluginPreset = $state('');
 	let createAuthForm = $state<PluginAuthForm>(defaultPluginAuthForPreset(''));
 	let lastCreatePluginPreset = $state('');
+	let createReplayInput = $state('');
+	let createReplayOutput = $state('');
+	let createReplayError = $state('');
+	let createReplaying = $state(false);
 
 	let editingChannel = $state<Channel | null>(null);
 	let editForm = $state<UpdateChannelRequest>({});
@@ -158,6 +163,10 @@
 	let editPluginPreset = $state('');
 	let editAuthForm = $state<PluginAuthForm>(defaultPluginAuthForPreset(''));
 	let lastEditPluginPreset = $state('');
+	let editReplayInput = $state('');
+	let editReplayOutput = $state('');
+	let editReplayError = $state('');
+	let editReplaying = $state(false);
 
 	let deletingId = $state<string | null>(null);
 	let deleting = $state(false);
@@ -459,9 +468,14 @@
     "stream": {
       "openai_compatible": false,
       "event_path": "payload",
+      "ignore_events": ["ping"],
+      "done_events": ["close"],
       "content_path": "token",
+      "tool_calls_path": "tool_calls",
       "finish_reason_path": "finish",
       "done": ["[DONE]", "EOF"],
+      "done_path": "type",
+      "done_values": ["message_stop"],
       "usage": {
         "prompt_tokens_path": "usage.input",
         "completion_tokens_path": "usage.output"
@@ -469,6 +483,18 @@
     }
   }
 }`;
+
+	const PLUGIN_REPLAY_SAMPLE = `event: token
+data: {"payload":{"rid":"r1","model_name":"native","speaker":"assistant"}}
+
+data: {"payload":{"token":"he"}}
+
+data: {"payload":{"token":"llo"}}
+
+data: {"payload":{"finish":"done","usage":{"input":3,"output":2}}}
+
+data: {"payload":{"type":"message_stop"}}
+`;
 
 	function isPluginProvider(providerType: string | undefined): boolean {
 		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
@@ -520,6 +546,57 @@
 		}
 	}
 
+	async function replayCreatePluginManifest() {
+		if (!createReplayInput.trim()) {
+			createReplayInput = PLUGIN_REPLAY_SAMPLE;
+		}
+		createReplaying = true;
+		createReplayError = '';
+		createReplayOutput = '';
+		try {
+			syncCreateAuthPreset();
+			const manifest = selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm);
+			const result = await replayPluginSse({
+				manifest,
+				raw_sse: createReplayInput,
+				base_url: createForm.base_url || 'https://example.com',
+				model: createForm.supported_models?.[0] ?? modelsInput.split(',').map(s => s.trim()).find(Boolean) ?? 'replay-model'
+			});
+			createReplayOutput = JSON.stringify(result.chunks, null, 2);
+			showToast(`SSE replay 完成：${result.chunks.length} chunks`);
+		} catch (err: any) {
+			createReplayError = err?.message ?? 'SSE replay 失败';
+		} finally {
+			createReplaying = false;
+		}
+	}
+
+	async function replayEditPluginManifest() {
+		if (!editReplayInput.trim()) {
+			editReplayInput = PLUGIN_REPLAY_SAMPLE;
+		}
+		editReplaying = true;
+		editReplayError = '';
+		editReplayOutput = '';
+		try {
+			if (!editingChannel) return;
+			syncEditAuthPreset();
+			const manifest = selectedPluginMapping(editPluginPreset, editPluginManifestInput, editAuthForm);
+			const result = await replayPluginSse({
+				manifest,
+				raw_sse: editReplayInput,
+				base_url: editForm.base_url || editingChannel.base_url || 'https://example.com',
+				model: editForm.supported_models?.[0] ?? editModelsInput.split(',').map(s => s.trim()).find(Boolean) ?? 'replay-model'
+			});
+			editReplayOutput = JSON.stringify(result.chunks, null, 2);
+			showToast(`SSE replay 完成：${result.chunks.length} chunks`);
+		} catch (err: any) {
+			editReplayError = err?.message ?? 'SSE replay 失败';
+		} finally {
+			editReplaying = false;
+		}
+	}
+
 	function resetCreateForm() {
 		createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
 		modelsInput = '';
@@ -528,6 +605,9 @@
 		pluginPreset = '';
 		createAuthForm = defaultPluginAuthForPreset('');
 		lastCreatePluginPreset = '';
+		createReplayInput = '';
+		createReplayOutput = '';
+		createReplayError = '';
 	}
 
 	// ── Create ───────────────────────────────────────
@@ -573,6 +653,9 @@
 		lastEditPluginPreset = editPluginPreset;
 		editAuthForm = isPluginProvider(ch.provider_type) ? authFormFromManifest(ch.model_mapping) : defaultPluginAuthForPreset('');
 		editPluginManifestInput = isPluginProvider(ch.provider_type) ? JSON.stringify(ch.model_mapping ?? {}, null, 2) : '';
+		editReplayInput = '';
+		editReplayOutput = '';
+		editReplayError = '';
 		editError = '';
 	}
 
@@ -802,6 +885,22 @@
 									</div>
 									<textarea id="ch-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={pluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating || !!pluginPreset}></textarea>
 									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">保存前会把 Auth Strategy 合并进 manifest 并本地 lint；manifest 只引用 secret slot，不写明文 secret。</p>
+									<div class="mt-4 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+										<div class="mb-2 flex items-center justify-between gap-2">
+											<div>
+												<p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">SSE replay preview</p>
+												<p class="text-xs text-zinc-500 dark:text-zinc-400">粘贴 raw SSE，预览归一后的 OpenAI-compatible chunks。</p>
+											</div>
+											<Button size="sm" variant="outline" type="button" onclick={replayCreatePluginManifest} disabled={creating || createReplaying}>{createReplaying ? '回放中...' : 'Replay'}</Button>
+										</div>
+										<textarea class="min-h-36 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_REPLAY_SAMPLE} bind:value={createReplayInput} disabled={creating || createReplaying}></textarea>
+										{#if createReplayError}
+											<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{createReplayError}</p>
+										{/if}
+										{#if createReplayOutput}
+											<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{createReplayOutput}</pre>
+										{/if}
+									</div>
 								</div>
 							{/if}
 						</div>
@@ -893,6 +992,22 @@
 										</div>
 										<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={editPluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing || !!editPluginPreset}></textarea>
 										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">保存前会把 Auth Strategy 合并进 manifest 并本地 lint；manifest 只引用 secret slot，不写明文 secret。</p>
+										<div class="mt-4 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+											<div class="mb-2 flex items-center justify-between gap-2">
+												<div>
+													<p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">SSE replay preview</p>
+													<p class="text-xs text-zinc-500 dark:text-zinc-400">粘贴 raw SSE，预览归一后的 OpenAI-compatible chunks。</p>
+												</div>
+												<Button size="sm" variant="outline" type="button" onclick={replayEditPluginManifest} disabled={editing || editReplaying}>{editReplaying ? '回放中...' : 'Replay'}</Button>
+											</div>
+											<textarea class="min-h-36 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_REPLAY_SAMPLE} bind:value={editReplayInput} disabled={editing || editReplaying}></textarea>
+											{#if editReplayError}
+												<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{editReplayError}</p>
+											{/if}
+											{#if editReplayOutput}
+												<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{editReplayOutput}</pre>
+											{/if}
+										</div>
 									</div>
 								{/if}
 							<div class="flex items-center gap-2">

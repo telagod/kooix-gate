@@ -258,6 +258,97 @@ async fn plugin_normalizes_private_sse_stream() {
 }
 
 #[tokio::test]
+async fn plugin_normalizes_event_split_tool_delta_usage_and_vendor_done() {
+    let upstream = MockServer::start().await;
+    let sse = concat!(
+        "event: ping\n",
+        "data: {\"payload\":{\"token\":\"ignored\"}}\n\n",
+        "event: meta\n",
+        "data: {\"payload\":{\"rid\":\"s2\",\"model_name\":\"native-v2\",\"speaker\":\"assistant\"}}\n\n",
+        "event: token\n",
+        "data: {\"payload\":{\"token\":\"use \"}}\n\n",
+        "event: tool_delta\n",
+        "data: {\"payload\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"x\\\"}\"}}]}}\n\n",
+        "event: usage\n",
+        "data: {\"payload\":{\"usage\":{\"input\":8,\"cached\":3,\"reasoning\":2,\"raw_vendor\":\"meter\"}}}\n\n",
+        "event: done\n",
+        "data: {\"payload\":{\"finish\":\"tool_use\",\"type\":\"message_stop\"}}\n\n"
+    );
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&upstream)
+        .await;
+
+    let manifest = json!({
+        "plugin": {
+            "request": { "chat_path": "/private/chat" },
+            "stream": {
+                "openai_compatible": false,
+                "event_path": "payload",
+                "ignore_events": ["ping"],
+                "done_path": "type",
+                "done_values": ["message_stop"],
+                "id_path": "rid",
+                "model_path": "model_name",
+                "role_path": "speaker",
+                "content_path": "token",
+                "tool_calls_path": "tool_calls",
+                "finish_reason_path": "finish",
+                "usage": {
+                    "prompt_tokens_path": "usage.input",
+                    "cached_tokens_path": "usage.cached",
+                    "reasoning_tokens_path": "usage.reasoning",
+                    "raw_path": "usage"
+                }
+            }
+        }
+    });
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "secret-key",
+        manifest,
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let mut stream = provider.chat_stream(make_req(true)).await.unwrap();
+    let mut chunks = Vec::new();
+    while let Some(item) = stream.next().await {
+        chunks.push(item.unwrap());
+    }
+
+    assert_eq!(chunks.len(), 5);
+    assert_eq!(chunks[0].id, "s2");
+    assert_eq!(chunks[0].model, "native-v2");
+    assert_eq!(
+        chunks[0].choices[0].delta.role,
+        Some(gate_providers::Role::Assistant)
+    );
+    assert_eq!(chunks[1].choices[0].delta.content.as_deref(), Some("use "));
+    assert_eq!(
+        chunks[2].choices[0].delta.tool_calls.as_ref().unwrap()[0]
+            .id
+            .as_deref(),
+        Some("call_1")
+    );
+    let usage = chunks[3].usage.as_ref().unwrap();
+    assert_eq!(usage.prompt_tokens, 8);
+    assert_eq!(usage.cached_tokens, 3);
+    assert_eq!(usage.reasoning_tokens, Some(2));
+    assert_eq!(usage.raw.as_ref().unwrap()["raw_vendor"], "meter");
+    assert_eq!(
+        chunks[4].choices[0].finish_reason,
+        Some(gate_providers::FinishReason::ToolCalls)
+    );
+}
+
+#[tokio::test]
 async fn preset_openai_compatible_posts_normalized_request_and_streams_usage() {
     let upstream = MockServer::start().await;
     let sse = concat!(

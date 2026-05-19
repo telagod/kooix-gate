@@ -339,6 +339,61 @@ async fn stream_apikey_emits_one_usage_event_from_final_frame() {
 }
 
 #[tokio::test]
+async fn stream_without_usage_frame_emits_estimated_usage_event() {
+    let upstream = MockServer::start().await;
+    let sse = concat!(
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: [DONE]\n\n",
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&upstream)
+        .await;
+
+    let h = setup_with_billing(&upstream, true).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", h.api_key_plain))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Hello world!"}],
+                "max_tokens": 100,
+                "stream": true
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = h.router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let _bytes = resp.into_body().collect().await.unwrap().to_bytes();
+
+    yield_for_emit().await;
+
+    let events = h.outbox.snapshot();
+    assert_eq!(
+        events.len(),
+        1,
+        "stream without usage must not silently skip billing"
+    );
+    let ev = &events[0];
+    assert_eq!(ev.prompt_tokens, 3);
+    assert_eq!(ev.completion_tokens, 100);
+    assert_eq!(ev.raw_usage.as_ref().unwrap()["estimated"], true);
+    // 3 input tokens @ $0.15/M = 0.45µ -> rounded 0; 100 output @ $0.60/M = 60µ.
+    assert_eq!(ev.cost_micros, 60);
+}
+
+#[tokio::test]
 async fn empty_pricing_rules_mean_no_billing_but_request_succeeds() {
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))

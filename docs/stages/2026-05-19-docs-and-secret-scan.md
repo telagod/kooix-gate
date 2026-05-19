@@ -116,3 +116,27 @@ cargo test -p gate-providers plugin_maps_response_paths_fallback_tool_calls_meta
 cargo test -p gate-server --test billing_e2e non_stream_usage_event_keeps_raw_and_multimodal_cost_dimensions -- --nocapture
 cargo check -p gate-server
 ```
+
+## Plugin SSE Normalizer / Replay Harness
+
+本轮把 P1.1.5 的 SSE normalizer 从共享 decoder 推进到 manifest-driven 产品能力：
+
+- `stream.ignore_events` / `stream.done_events`：按 SSE `event:` 名称跳过 heartbeat / ping 或结束分流。
+- `stream.done_path` / `stream.done_values`：支持 vendor done object，例如 `{"type":"message_stop"}`，不再只识别 `[DONE]` / `EOF` raw token。
+- `stream.tool_calls_path`：私有 tool call delta array 直接映射到 `ChatDelta.tool_calls`。
+- `UsageManifest::should_emit_stream_usage`：usage-only 末帧即使只有 prompt / cached / reasoning / raw usage 也可输出；Anthropic output-only streaming 仍避免 message_start prompt-only 帧提前对外暴露。
+- `gate_providers::replay_plugin_sse`：后端 / CLI / UI 共用同一回放核心。
+- `POST /v1/admin/plugin-manifest/replay`：平台管理员可上传 manifest + raw SSE，返回 OpenAI-compatible chunks。
+- `kgctl plugin replay manifest.json --sse sample.sse`：本地 fixture 回放，不需要启动 gate-server。
+- Channel 创建 / 编辑抽屉新增 `SSE replay preview`，可直接粘贴 raw SSE 预览归一 chunks。
+- `/v1/chat/completions` 流式 billing guard 改为缺 usage 末帧时生成 estimated usage 并写 outbox，`raw_usage.estimated=true`，避免静默漏扣。
+
+验证命令：
+
+```bash
+cargo test -p gate-providers replays_manifest_driven_sse_events_tool_calls_usage_and_done_object -- --nocapture
+cargo test -p gate-providers plugin_normalizes_event_split_tool_delta_usage_and_vendor_done -- --nocapture
+cargo test -p gate-server --test billing_e2e stream_without_usage_frame_emits_estimated_usage_event -- --nocapture
+cargo run -q -p kgctl -- plugin replay /tmp/kgctl-plugin-replay/manifest.json --sse /tmp/kgctl-plugin-replay/sample.sse
+npm --prefix web test -- plugin-presets
+```

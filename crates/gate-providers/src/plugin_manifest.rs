@@ -377,6 +377,7 @@ impl PluginManifest {
             )?;
         }
         validate_response_paths(&self.response, &json_pointer(pointer_base, "/response"))?;
+        validate_stream_paths(&self.stream, &json_pointer(pointer_base, "/stream"))?;
         self.security.validate(pointer_base)
     }
 }
@@ -843,6 +844,53 @@ fn validate_response_paths(response: &ResponseManifest, pointer: &str) -> Provid
             response.usage.audio_seconds_path.as_deref(),
         ),
         ("/usage/raw_path", response.usage.raw_path.as_deref()),
+    ] {
+        if let Some(path) = path {
+            validate_mapping_path(path, &json_pointer(pointer, suffix))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_stream_paths(stream: &StreamManifest, pointer: &str) -> ProviderResult<()> {
+    for (suffix, path) in [
+        ("/event_path", stream.event_path.as_deref()),
+        ("/done_path", stream.done_path.as_deref()),
+        ("/id_path", stream.id_path.as_deref()),
+        ("/model_path", stream.model_path.as_deref()),
+        ("/role_path", stream.role_path.as_deref()),
+        ("/content_path", stream.content_path.as_deref()),
+        ("/tool_calls_path", stream.tool_calls_path.as_deref()),
+        ("/finish_reason_path", stream.finish_reason_path.as_deref()),
+        (
+            "/usage/prompt_tokens_path",
+            stream.usage.prompt_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/completion_tokens_path",
+            stream.usage.completion_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/total_tokens_path",
+            stream.usage.total_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/cached_tokens_path",
+            stream.usage.cached_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/reasoning_tokens_path",
+            stream.usage.reasoning_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/image_units_path",
+            stream.usage.image_units_path.as_deref(),
+        ),
+        (
+            "/usage/audio_seconds_path",
+            stream.usage.audio_seconds_path.as_deref(),
+        ),
+        ("/usage/raw_path", stream.usage.raw_path.as_deref()),
     ] {
         if let Some(path) = path {
             validate_mapping_path(path, &json_pointer(pointer, suffix))?;

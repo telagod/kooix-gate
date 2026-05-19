@@ -190,6 +190,20 @@ enum PluginCmd {
         #[arg(long, default_value = "https://example.com")]
         base_url: String,
     },
+    /// 回放一段 raw SSE，输出归一后的 OpenAI-compatible chunks
+    Replay {
+        /// manifest 文件路径；不传或传 - 时读 stdin
+        manifest: Option<String>,
+        /// raw SSE 文件路径
+        #[arg(long)]
+        sse: String,
+        /// 用于 preset 展开与绝对路径校验的上游 base URL
+        #[arg(long, default_value = "https://example.com")]
+        base_url: String,
+        /// replay fallback model
+        #[arg(long, default_value = "replay-model")]
+        model: String,
+    },
 }
 
 fn main() {
@@ -280,6 +294,12 @@ fn main() {
         Cmd::Plugin { sub } => match sub {
             PluginCmd::Schema => plugin::schema(),
             PluginCmd::Lint { path, base_url } => plugin::lint(path, base_url),
+            PluginCmd::Replay {
+                manifest,
+                sse,
+                base_url,
+                model,
+            } => plugin::replay(manifest, sse, base_url, model),
         },
     };
 

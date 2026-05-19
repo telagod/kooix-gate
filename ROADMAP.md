@@ -294,21 +294,21 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
 
 #### P1.1.5 SSE normalizer 产品化
 
-- [ ] 将现有共享 SSE decoder 上升为 manifest-driven normalizer：
+- [x] 将现有共享 SSE decoder 上升为 manifest-driven normalizer：
   - CRLF / LF
   - comment / heartbeat
   - 多行 `data:`
   - chunked UTF-8
   - `event:` 分流
   - `[DONE]` / `EOF` / vendor done object
-- [ ] 支持私有 token 帧映射：
+- [x] 支持私有 token 帧映射：
   - token path
   - role path
   - finish reason path
   - tool call delta path
   - usage 末帧 path
-- [ ] SSE replay harness：上传一段原始 SSE，UI 直接预览归一后的 OpenAI-compatible chunks。
-- [ ] 流式计费门禁：没有 usage 末帧时进入估算或标记不可计费，不允许静默漏扣。
+- [x] SSE replay harness：上传一段原始 SSE，UI 直接预览归一后的 OpenAI-compatible chunks。
+- [x] 流式计费门禁：没有 usage 末帧时进入估算或标记不可计费，不允许静默漏扣。
 
 #### P1.1.6 Error / Retry / Health 映射
 

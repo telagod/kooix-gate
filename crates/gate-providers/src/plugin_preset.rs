@@ -94,11 +94,16 @@ impl ResponseManifest {
 pub(crate) struct StreamManifest {
     pub(crate) openai_compatible: Option<bool>,
     pub(crate) event_path: Option<String>,
+    pub(crate) ignore_events: Vec<String>,
+    pub(crate) done_events: Vec<String>,
     pub(crate) done: Vec<String>,
+    pub(crate) done_path: Option<String>,
+    pub(crate) done_values: Vec<Value>,
     pub(crate) id_path: Option<String>,
     pub(crate) model_path: Option<String>,
     pub(crate) role_path: Option<String>,
     pub(crate) content_path: Option<String>,
+    pub(crate) tool_calls_path: Option<String>,
     pub(crate) finish_reason_path: Option<String>,
     pub(crate) usage: UsageManifest,
 }
@@ -107,13 +112,24 @@ impl StreamManifest {
     pub(crate) fn apply_defaults(&mut self, defaults: Self) {
         self.openai_compatible = self.openai_compatible.or(defaults.openai_compatible);
         self.event_path = self.event_path.take().or(defaults.event_path);
+        if self.ignore_events.is_empty() {
+            self.ignore_events = defaults.ignore_events;
+        }
+        if self.done_events.is_empty() {
+            self.done_events = defaults.done_events;
+        }
         if self.done.is_empty() {
             self.done = defaults.done;
+        }
+        self.done_path = self.done_path.take().or(defaults.done_path);
+        if self.done_values.is_empty() {
+            self.done_values = defaults.done_values;
         }
         self.id_path = self.id_path.take().or(defaults.id_path);
         self.model_path = self.model_path.take().or(defaults.model_path);
         self.role_path = self.role_path.take().or(defaults.role_path);
         self.content_path = self.content_path.take().or(defaults.content_path);
+        self.tool_calls_path = self.tool_calls_path.take().or(defaults.tool_calls_path);
         self.finish_reason_path = self
             .finish_reason_path
             .take()
@@ -248,6 +264,28 @@ impl UsageManifest {
             || usage.usage.raw.is_some())
         .then_some(usage))
     }
+
+    pub(crate) fn should_emit_stream_usage(
+        &self,
+        usage: &ExtractedUsage,
+        finish_reason: Option<FinishReason>,
+    ) -> bool {
+        if finish_reason.is_some() || usage.completion_present || usage.total_present {
+            return true;
+        }
+        // Anthropic-style streams often send a prompt-only message_start frame and
+        // an output-only final delta. Keep the prompt-only frame internal unless a
+        // later completion/finish frame proves it is terminal.
+        if self.output_only_completion_tokens {
+            return false;
+        }
+        usage.usage.prompt_tokens > 0
+            || usage.usage.cached_tokens > 0
+            || usage.usage.reasoning_tokens.unwrap_or_default() > 0
+            || usage.usage.image_units.unwrap_or_default() > 0
+            || usage.usage.audio_seconds.unwrap_or_default() > 0.0
+            || usage.usage.raw.is_some()
+    }
 }
 
 #[derive(Debug)]
@@ -340,7 +378,6 @@ impl ProviderPresetSpec {
             stream: StreamManifest {
                 openai_compatible: Some(false),
                 event_path: None,
-                done: Vec::new(),
                 id_path: None,
                 model_path: None,
                 role_path: None,
@@ -355,6 +392,7 @@ impl ProviderPresetSpec {
                     output_only_completion_tokens: false,
                     ..Default::default()
                 },
+                ..Default::default()
             },
             adapter: Some(PresetAdapter::BedrockConverse),
         }
@@ -390,7 +428,6 @@ impl ProviderPresetSpec {
             stream: StreamManifest {
                 openai_compatible: Some(false),
                 event_path: None,
-                done: Vec::new(),
                 id_path: Some("message.id".to_string()),
                 model_path: Some("message.model".to_string()),
                 role_path: Some("message.role".to_string()),
@@ -405,6 +442,7 @@ impl ProviderPresetSpec {
                     output_only_completion_tokens: true,
                     ..Default::default()
                 },
+                ..Default::default()
             },
             adapter: Some(PresetAdapter::AnthropicMessages),
         }

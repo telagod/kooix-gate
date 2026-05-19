@@ -75,6 +75,31 @@ describe('plugin provider presets', () => {
 		expect(parsePluginManifest(JSON.stringify(parsed))).toEqual(parsed);
 	});
 
+	it('accepts advanced stream normalizer fields in custom manifests', () => {
+		const parsed = selectedPluginMapping(
+			'',
+			JSON.stringify({
+				plugin: {
+					stream: {
+						openai_compatible: false,
+						event_path: 'payload',
+						ignore_events: ['ping'],
+						done_events: ['close'],
+						done: ['EOF'],
+						done_path: 'type',
+						done_values: ['message_stop'],
+						tool_calls_path: 'tool_calls',
+						usage: { raw_path: 'usage' }
+					}
+				}
+			})
+		);
+		const stream = (parsed.plugin as Record<string, unknown>).stream as Record<string, unknown>;
+		expect(stream.done_path).toBe('type');
+		expect(stream.tool_calls_path).toBe('tool_calls');
+		expect(stream.ignore_events).toEqual(['ping']);
+	});
+
 	it('builds oauth client credentials auth and validates token url', () => {
 		const form = {
 			...defaultPluginAuthForm('oauth_client_credentials'),

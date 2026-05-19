@@ -122,6 +122,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_replay_base_url() -> String {
+    "https://example.com".to_string()
+}
+
+fn default_replay_model() -> String {
+    "replay-model".to_string()
+}
+
 #[derive(Deserialize)]
 pub struct UpdateChannelRequest {
     pub name: Option<String>,
@@ -152,9 +160,28 @@ pub struct BatchResult {
     pub affected: u64,
 }
 
+#[derive(Deserialize)]
+pub struct PluginReplayRequest {
+    pub manifest: serde_json::Value,
+    pub raw_sse: String,
+    #[serde(default = "default_replay_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_replay_model")]
+    pub model: String,
+}
+
+#[derive(Serialize)]
+pub struct PluginReplayResponse {
+    pub chunks: Vec<gate_providers::ChatStreamChunk>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/plugin-manifest/schema", get(plugin_manifest_schema))
+        .route(
+            "/plugin-manifest/replay",
+            axum::routing::post(plugin_manifest_replay),
+        )
         .route("/channels", get(list_channels).post(create_channel))
         .route(
             "/channels/:id",
@@ -240,6 +267,21 @@ async fn plugin_manifest_schema(Authed(ctx): Authed) -> AppResult<Json<serde_jso
     require_user!(ctx);
     require!(ctx, Permission::ChannelRead, Scope::Platform);
     Ok(Json(gate_providers::plugin_manifest_schema_json()))
+}
+
+async fn plugin_manifest_replay(
+    Authed(ctx): Authed,
+    Json(req): Json<PluginReplayRequest>,
+) -> AppResult<Json<PluginReplayResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::ChannelRead, Scope::Platform);
+    if req.raw_sse.trim().is_empty() {
+        return Err(AppError::BadRequest("raw_sse is required".into()));
+    }
+    let chunks =
+        gate_providers::replay_plugin_sse(req.manifest, &req.base_url, req.raw_sse, &req.model)
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    Ok(Json(PluginReplayResponse { chunks }))
 }
 
 async fn list_channels(

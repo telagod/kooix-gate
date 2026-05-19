@@ -26,7 +26,7 @@
 
 use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
-use crate::cost_estimate::DEFAULT_RATE_PER_TOKEN_MICROS;
+use crate::cost_estimate::{DEFAULT_RATE_PER_TOKEN_MICROS, estimate_cost_micros};
 use crate::error::{AppError, AppResult};
 use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::InflightGuards;
@@ -59,6 +59,27 @@ pub fn router() -> Router<AppState> {
 fn actual_cost_from_usage(usage: &Usage) -> i64 {
     let total = usage.prompt_tokens as i64 + usage.completion_tokens as i64;
     total * DEFAULT_RATE_PER_TOKEN_MICROS
+}
+
+fn estimated_usage_from_request(req: &ChatRequest) -> Usage {
+    let prompt_tokens: u32 = req
+        .messages
+        .iter()
+        .map(|m| (m.content_text().len() / 4) as u32)
+        .sum();
+    let completion_tokens = req.max_tokens.unwrap_or(1024);
+    let total_tokens = prompt_tokens.saturating_add(completion_tokens);
+    Usage {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        raw: Some(serde_json::json!({
+            "estimated": true,
+            "reason": "stream_missing_usage_frame",
+            "estimated_cost_micros": estimate_cost_micros(req, DEFAULT_RATE_PER_TOKEN_MICROS)
+        })),
+        ..Default::default()
+    }
 }
 
 /// 结算所有 inflight guards。
@@ -115,6 +136,7 @@ async fn chat_completions(
         .unwrap_or_else(uuid::Uuid::now_v7);
     let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
     let model = req.model.clone();
+    let estimated_stream_usage = estimated_usage_from_request(&req);
 
     if req.stream {
         let execute_start = std::time::Instant::now();
@@ -171,6 +193,7 @@ async fn chat_completions(
         // TPM record: stream 结束后记录 token 消耗
         let rate_limiter_for_tpm = app.provider_router.as_ref().map(|r| r.rate_limiter());
         let tpm_channel_id = channel_id.map(ChannelId::from);
+        let estimated_stream_usage = estimated_stream_usage.clone();
 
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
         let wrapped = upstream.inspect(move |item| {
@@ -184,7 +207,16 @@ async fn chat_completions(
         // 用 StreamExt::chain 在 upstream 流尾巴接一段 trigger emit 的「副作用」流。
         // 副作用流自身不吐 chunk，只在被 poll 时 spawn emit 任务后返回 None。
         let trigger = futures::stream::once(async move {
-            let usage = captured_usage.lock().take();
+            let captured = captured_usage.lock().take();
+            let usage = captured.unwrap_or_else(|| {
+                tracing::warn!(
+                    model = %model,
+                    estimated_prompt_tokens = estimated_stream_usage.prompt_tokens,
+                    estimated_completion_tokens = estimated_stream_usage.completion_tokens,
+                    "stream finished without usage frame; using estimated usage for billing and quota settlement"
+                );
+                estimated_stream_usage
+            });
 
             // 释放 inflight 计数（least_conn 策略）
             if let (Some(router), Some(ch_id)) = (&router_for_release, release_channel_id) {
@@ -193,37 +225,28 @@ async fn chat_completions(
 
             // 记录 token 消耗到 per-channel TPM 计数器
             if let (Some(rl), Some(ch_id)) = (&rate_limiter_for_tpm, tpm_channel_id)
-                && let Some(ref u) = usage
             {
-                let total_tokens = metered_tokens(u);
+                let total_tokens = metered_tokens(&usage);
                 rl.record_tokens(ch_id, total_tokens).await;
                 crate::metrics::record_tokens(
                     &model,
-                    u.prompt_tokens as u64,
-                    u.completion_tokens as u64,
+                    usage.prompt_tokens as u64,
+                    usage.completion_tokens as u64,
                 );
             }
 
             // 结算 inflight guards（F3）
-            if let Some(ref u) = usage
-                && let Some(Extension(ref g)) = guards
+            if let Some(Extension(ref g)) = guards
             {
-                settle_guards(g, u).await;
+                settle_guards(g, &usage).await;
             }
-            // 没有 usage 帧 + 有 guard → Drop 会自动全额退还（guards 移入此闭包，
-            // 闭包结束时 Drop）
 
-            if let (Some(usage), Some(bctx)) = (usage, billing_ctx_clone) {
+            if let Some(bctx) = billing_ctx_clone {
                 let outbox = app_for_billing.outbox.clone();
                 let pricing = app_for_billing.pricing.clone();
                 tokio::spawn(async move {
                     emit_usage(outbox, pricing, bctx, usage, 200).await;
                 });
-            } else {
-                tracing::debug!(
-                    model = %model,
-                    "stream finished without usage frame; skipping billing"
-                );
             }
             // 占位返回值，会被 filter_map 过滤掉
             None::<gate_providers::ProviderResult<gate_providers::ChatStreamChunk>>

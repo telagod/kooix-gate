@@ -39,6 +39,8 @@ export const routeManifest = {
 	{"method":"GET","path":"/v1/admin/orgs/:org_id/members","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"POST","path":"/v1/admin/orgs/:org_id/members","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"DELETE","path":"/v1/admin/orgs/:org_id/members/:user_id","auth":"platform_admin","modes":["all","controlplane"]},
+	{"method":"POST","path":"/v1/admin/plugin-manifest/replay","auth":"platform_admin","modes":["all","controlplane"]},
+	{"method":"GET","path":"/v1/admin/plugin-manifest/schema","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/admin/pricing-rules","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"POST","path":"/v1/admin/pricing-rules","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"DELETE","path":"/v1/admin/pricing-rules/:id","auth":"platform_admin","modes":["all","controlplane"]},

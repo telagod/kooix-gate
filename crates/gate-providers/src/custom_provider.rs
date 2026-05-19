@@ -10,6 +10,7 @@ use crate::openai::check_status;
 use crate::plugin_manifest::{
     AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest, RequestMethod, SignatureEncoding,
 };
+use crate::plugin_manifest::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SSE_EVENT_BYTES};
 use crate::plugin_preset::{StreamManifest, adapt_chat_request, eval_path_value};
 use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
@@ -880,6 +881,53 @@ where
     })
 }
 
+pub fn replay_plugin_sse(
+    manifest: Value,
+    base_url: &str,
+    raw_sse: impl AsRef<[u8]>,
+    fallback_model: &str,
+) -> ProviderResult<Vec<ChatStreamChunk>> {
+    let manifest = PluginManifest::from_value(manifest, base_url)?;
+    replay_plugin_sse_with_manifest(manifest.stream, raw_sse, fallback_model)
+}
+
+fn replay_plugin_sse_with_manifest(
+    stream: StreamManifest,
+    raw_sse: impl AsRef<[u8]>,
+    fallback_model: &str,
+) -> ProviderResult<Vec<ChatStreamChunk>> {
+    let mut buf = raw_sse.as_ref().to_vec();
+    let events = crate::sse::drain_sse_events(&mut buf);
+    if !buf.is_empty() {
+        return Err(ProviderError::Decode(
+            "raw SSE sample ended with an incomplete event; add a blank line terminator".into(),
+        ));
+    }
+    let mapper = StreamMapper {
+        stream,
+        fallback_id: format!("chatcmpl-{}", uuid::Uuid::now_v7()),
+        fallback_model: fallback_model.to_string(),
+        max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        max_sse_event_bytes: DEFAULT_MAX_SSE_EVENT_BYTES,
+    };
+    let state = parking_lot::Mutex::new(StreamState {
+        id: mapper.fallback_id.clone(),
+        model: mapper.fallback_model.clone(),
+        response_bytes: raw_sse.as_ref().len(),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cached_tokens: 0,
+    });
+
+    let mut chunks = Vec::new();
+    for event in events {
+        if let Some(mapped) = map_plugin_event(event, &mapper, &state) {
+            chunks.push(mapped?);
+        }
+    }
+    Ok(chunks)
+}
+
 #[derive(Debug)]
 struct StreamState {
     id: String,
@@ -895,6 +943,12 @@ fn map_plugin_event(
     mapper: &StreamMapper,
     state: &parking_lot::Mutex<StreamState>,
 ) -> Option<ProviderResult<ChatStreamChunk>> {
+    if event_name_matches(event.event.as_deref(), &mapper.stream.ignore_events) {
+        return None;
+    }
+    if event_name_matches(event.event.as_deref(), &mapper.stream.done_events) {
+        return None;
+    }
     let raw = event.data.trim();
     if raw.is_empty() || raw == ":" {
         return None;
@@ -928,15 +982,18 @@ fn map_plugin_event(
         .stream
         .event_path
         .as_deref()
-        .and_then(|p| get_path(&value, p))
-        .unwrap_or(&value);
+        .and_then(|p| eval_path_value(&value, p).ok().flatten())
+        .unwrap_or_else(|| value.clone());
+
+    let is_vendor_done = vendor_done_object(&event_value, &mapper.stream);
 
     let mut st = state.lock();
     if let Some(id) = mapper
         .stream
         .id_path
         .as_deref()
-        .and_then(|p| get_path(event_value, p))
+        .and_then(|p| eval_path_value(&event_value, p).ok().flatten())
+        .as_ref()
         .and_then(value_to_string)
     {
         st.id = id;
@@ -945,7 +1002,8 @@ fn map_plugin_event(
         .stream
         .model_path
         .as_deref()
-        .and_then(|p| get_path(event_value, p))
+        .and_then(|p| eval_path_value(&event_value, p).ok().flatten())
+        .as_ref()
         .and_then(value_to_string)
     {
         st.model = model;
@@ -954,25 +1012,47 @@ fn map_plugin_event(
         .stream
         .content_path
         .as_deref()
-        .and_then(|p| get_path(event_value, p))
+        .and_then(|p| eval_path_value(&event_value, p).ok().flatten())
+        .as_ref()
         .and_then(value_to_string);
     let role = mapper
         .stream
         .role_path
         .as_deref()
-        .and_then(|p| get_path(event_value, p))
+        .and_then(|p| eval_path_value(&event_value, p).ok().flatten())
+        .as_ref()
         .and_then(value_to_string)
         .and_then(|s| map_role(&s));
+    let tool_calls = match mapper
+        .stream
+        .tool_calls_path
+        .as_deref()
+        .and_then(|p| eval_path_value(&event_value, p).ok().flatten())
+    {
+        Some(value) => match serde_json::from_value::<Vec<ToolCallDelta>>(value) {
+            Ok(tool_calls) => Some(tool_calls),
+            Err(e) => {
+                return Some(Err(ProviderError::Decode(format!(
+                    "plugin stream tool_calls_path is not a valid tool call delta array: {e}"
+                ))));
+            }
+        },
+        None => None,
+    };
     let finish_reason = mapper
         .stream
         .finish_reason_path
         .as_deref()
-        .and_then(|p| get_path(event_value, p))
+        .and_then(|p| eval_path_value(&event_value, p).ok().flatten())
+        .as_ref()
         .and_then(value_to_string)
         .and_then(|s| map_finish_reason(&s));
-    let usage = match mapper.stream.usage.extract_optional(event_value) {
+    let usage = match mapper.stream.usage.extract_optional(&event_value) {
         Ok(Some(usage)) => {
-            let emit = usage.completion_present || usage.total_present || finish_reason.is_some();
+            let emit = mapper
+                .stream
+                .usage
+                .should_emit_stream_usage(&usage, finish_reason);
             let merged = merge_usage_state(usage.usage, &mut st);
             emit.then_some(merged)
         }
@@ -980,7 +1060,22 @@ fn map_plugin_event(
         Err(e) => return Some(Err(e)),
     };
 
-    if role.is_none() && content.is_none() && finish_reason.is_none() && usage.is_none() {
+    if is_vendor_done
+        && role.is_none()
+        && content.is_none()
+        && tool_calls.is_none()
+        && finish_reason.is_none()
+        && usage.is_none()
+    {
+        return None;
+    }
+
+    if role.is_none()
+        && content.is_none()
+        && tool_calls.is_none()
+        && finish_reason.is_none()
+        && usage.is_none()
+    {
         return None;
     }
 
@@ -992,12 +1087,44 @@ fn map_plugin_event(
             delta: ChatDelta {
                 role,
                 content,
-                tool_calls: None,
+                tool_calls,
             },
             finish_reason,
         }],
         usage,
     }))
+}
+
+fn event_name_matches(event: Option<&str>, patterns: &[String]) -> bool {
+    let Some(event) = event.map(str::trim).filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    patterns.iter().any(|p| p.trim() == event)
+}
+
+fn vendor_done_object(event_value: &Value, stream: &StreamManifest) -> bool {
+    let Some(path) = stream.done_path.as_deref() else {
+        return false;
+    };
+    let Some(value) = eval_path_value(event_value, path).ok().flatten() else {
+        return false;
+    };
+    stream
+        .done_values
+        .iter()
+        .any(|done| json_values_equal(&value, done))
+}
+
+fn json_values_equal(left: &Value, right: &Value) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left, right) {
+        (Value::String(a), Value::String(b)) => a == b,
+        (Value::String(a), other) => value_to_string(other).is_some_and(|b| a == &b),
+        (other, Value::String(b)) => value_to_string(other).is_some_and(|a| &a == b),
+        _ => false,
+    }
 }
 
 fn merge_usage_state(usage: Usage, state: &mut StreamState) -> Usage {
@@ -2414,5 +2541,77 @@ mod tests {
         assert_eq!(chunks[2].choices[0].delta.content.as_deref(), Some("llo"));
         assert_eq!(chunks[3].choices[0].finish_reason, Some(FinishReason::Stop));
         assert_eq!(chunks[3].usage.as_ref().unwrap().total_tokens, 5);
+    }
+
+    #[test]
+    fn replays_manifest_driven_sse_events_tool_calls_usage_and_done_object() {
+        let manifest = json!({
+            "plugin": {
+                "stream": {
+                    "openai_compatible": false,
+                    "event_path": "payload",
+                    "ignore_events": ["ping"],
+                    "done_events": ["close"],
+                    "done": ["EOF"],
+                    "done_path": "type",
+                    "done_values": ["message_stop", { "kind": "done" }],
+                    "id_path": "rid",
+                    "model_path": "model_name",
+                    "role_path": "speaker",
+                    "content_path": "token",
+                    "tool_calls_path": "tool_calls",
+                    "finish_reason_path": "finish",
+                    "usage": {
+                        "prompt_tokens_path": "usage.input",
+                        "cached_tokens_path": "usage.cached",
+                        "reasoning_tokens_path": "usage.reasoning",
+                        "raw_path": "usage"
+                    }
+                }
+            }
+        });
+        let sse = concat!(
+            "event: ping\n",
+            "data: {\"payload\":{\"token\":\"ignored\"}}\n\n",
+            "event: token\n",
+            "data: {\"payload\":{\"rid\":\"r1\",\"model_name\":\"native\",\"speaker\":\"assistant\"}}\n\n",
+            "event: token\n",
+            "data: {\"payload\":{\"token\":\"he\"}}\n\n",
+            "event: tool_delta\n",
+            "data: {\"payload\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\"}}]}}\n\n",
+            "event: usage\n",
+            "data: {\"payload\":{\"usage\":{\"input\":5,\"cached\":2,\"reasoning\":3}}}\n\n",
+            "event: token\n",
+            "data: {\"payload\":{\"finish\":\"tool_use\"}}\n\n",
+            "event: vendor\n",
+            "data: {\"payload\":{\"type\":\"message_stop\"}}\n\n",
+            "event: close\n",
+            "data: {\"payload\":{\"token\":\"ignored-too\"}}\n\n"
+        );
+
+        let chunks = replay_plugin_sse(manifest, "http://x", sse, "fallback").unwrap();
+        assert_eq!(chunks.len(), 5);
+        assert_eq!(chunks[0].id, "r1");
+        assert_eq!(chunks[0].model, "native");
+        assert_eq!(chunks[0].choices[0].delta.role, Some(Role::Assistant));
+        assert_eq!(chunks[1].choices[0].delta.content.as_deref(), Some("he"));
+        assert_eq!(
+            chunks[2].choices[0].delta.tool_calls.as_ref().unwrap()[0]
+                .function
+                .as_ref()
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("lookup")
+        );
+        let usage = chunks[3].usage.as_ref().unwrap();
+        assert_eq!(usage.prompt_tokens, 5);
+        assert_eq!(usage.cached_tokens, 2);
+        assert_eq!(usage.reasoning_tokens, Some(3));
+        assert_eq!(usage.raw.as_ref().unwrap()["input"], 5);
+        assert_eq!(
+            chunks[4].choices[0].finish_reason,
+            Some(FinishReason::ToolCalls)
+        );
     }
 }

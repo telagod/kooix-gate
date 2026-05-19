@@ -27,7 +27,7 @@ pub mod router;
 pub mod sse;
 pub mod types;
 
-pub use custom_provider::CustomHttpProvider;
+pub use custom_provider::{CustomHttpProvider, replay_plugin_sse};
 pub use error::{ProviderError, ProviderResult};
 pub use plugin_manifest::{plugin_manifest_schema_json, validate_plugin_manifest};
 pub use router::{

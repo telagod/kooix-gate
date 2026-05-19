@@ -152,6 +152,12 @@ pub const ROUTES: &[RouteMeta] = &[
         PlatformAdmin,
         CONTROL_PLANE
     ),
+    route!(
+        "POST",
+        "/v1/admin/plugin-manifest/replay",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
     route!("GET", "/v1/admin/channels", PlatformAdmin, CONTROL_PLANE),
     route!("POST", "/v1/admin/channels", PlatformAdmin, CONTROL_PLANE),
     route!(

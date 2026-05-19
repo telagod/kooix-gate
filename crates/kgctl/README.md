@@ -61,6 +61,9 @@ kgctl smoke \
 | `pricing delete` | 删除指定定价规则 | `kgctl pricing delete --id <uuid>` |
 | `usage-storage plan` | 输出普通 PG 月分区 dry-run SQL | `kgctl usage-storage plan --partition` |
 | `usage-storage plan --timescale` | 输出 Timescale hypertable/compression/retention dry-run SQL | `kgctl usage-storage plan --timescale` |
+| `plugin schema` | 输出 HTTP Plugin manifest v1 JSON Schema | `kgctl plugin schema` |
+| `plugin lint` | 校验 manifest JSON | `kgctl plugin lint manifest.json --base-url https://api.example.com` |
+| `plugin replay` | 回放 raw SSE 并输出归一 chunks | `kgctl plugin replay manifest.json --sse sample.sse --model replay-model` |
 
 退出码：成功 0；任何步骤失败 1，标准错误用 ANSI 红色高亮原因。
 
@@ -86,6 +89,16 @@ kgctl smoke --base-url "$KOOIX_PUBLIC_URL"
 6. 用登录态查 `/v1/usage?range=7d&group_by=day`
 
 不提供 `--upstream-base-url` 时，命令仍会创建 Project/API key，但 chat 会依赖已有默认路由或 `KOOIX_OPENAI_BASE_URL` fallback provider。
+
+## HTTP Plugin 工具
+
+```bash
+kgctl plugin schema > plugin-manifest.schema.json
+kgctl plugin lint manifest.json --base-url https://api.example.com/v1
+kgctl plugin replay manifest.json --sse sample.sse --base-url https://api.example.com/v1 --model replay-model
+```
+
+`plugin replay` 只做本地归一化：读取 manifest 与 raw SSE fixture，输出 OpenAI-compatible `ChatStreamChunk[]`，用于调试私有 `event:` 分流、`done_path`、tool call delta 与 usage 末帧映射。
 
 ## 定价规则 CLI
 

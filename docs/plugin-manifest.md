@@ -384,7 +384,10 @@ Path 规则：
 - 注释与 heartbeat。
 - 多行 `data:`。
 - 分片帧。
+- `event:` 分流：`ignore_events` 跳过 heartbeat / ping，`done_events` 把指定事件名视为结束。
 - 默认 `[DONE]`，也可用 `done` 自定义结束 token。
+- vendor done object：`done_path` + `done_values` 可把 `{"type":"message_stop"}` 一类私有结束对象吞掉。
+- 私有 token 帧可映射 `role_path` / `content_path` / `finish_reason_path` / `tool_calls_path` / `usage.*_path`。
 
 私有 SSE 示例：
 
@@ -404,12 +407,17 @@ Path 规则：
     "stream": {
       "openai_compatible": false,
       "event_path": "payload",
+      "ignore_events": ["ping"],
+      "done_events": ["close"],
       "id_path": "rid",
       "model_path": "model_name",
       "role_path": "speaker",
       "content_path": "token",
+      "tool_calls_path": "tool_calls",
       "finish_reason_path": "reason",
       "done": ["[DONE]", "EOF"],
+      "done_path": "type",
+      "done_values": ["message_stop"],
       "usage": {
         "prompt_tokens_path": "usage.in",
         "completion_tokens_path": "usage.out"
@@ -431,10 +439,18 @@ data: {"payload":{"token":"llo"}}
 
 data: {"payload":{"reason":"done","usage":{"in":3,"out":2}}}
 
-data: EOF
+data: {"payload":{"type":"message_stop"}}
 ```
 
 会归一为 OpenAI-compatible `ChatStreamChunk`，末帧携带 `usage.total_tokens=5`。
+
+Replay harness：
+
+- API：`POST /v1/admin/plugin-manifest/replay`
+- CLI：`kgctl plugin replay manifest.json --sse sample.sse --base-url https://api.example.com --model replay-model`
+- UI：Channel 创建 / 编辑抽屉的 `SSE replay preview` 可粘贴 raw SSE 并直接预览归一 chunks。
+
+流式计费门禁：若 upstream 未返回 usage 末帧，gateway 会按请求消息长度与 `max_tokens` 生成 estimated usage，写入 outbox 并用 `raw.estimated=true` 标记，不再静默漏扣。
 
 ## Security options
 

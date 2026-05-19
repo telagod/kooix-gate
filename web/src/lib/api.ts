@@ -422,6 +422,25 @@ export async function getChannelBalance(channelId: string): Promise<BalanceRespo
 	return apiFetch<BalanceResponse>(`/v1/admin/channels/${rawId(channelId)}/balance`);
 }
 
+// HTTP Plugin manifest replay
+export interface PluginReplayRequest {
+	manifest: Record<string, unknown>;
+	raw_sse: string;
+	base_url?: string;
+	model?: string;
+}
+
+export interface PluginReplayResponse {
+	chunks: unknown[];
+}
+
+export async function replayPluginSse(data: PluginReplayRequest): Promise<PluginReplayResponse> {
+	return apiFetch<PluginReplayResponse>('/v1/admin/plugin-manifest/replay', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
 // ── Admin Channel Keys ────────────────────────────
 
 export interface ChannelKeySummary {
