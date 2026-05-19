@@ -46,6 +46,32 @@ export interface PluginAuthForm {
 	oauth_expiry_skew_seconds: number;
 }
 
+export interface PluginBuilderDraft {
+	preset: string;
+	auth: PluginAuthForm;
+	request_path: string;
+	request_body: string;
+	response_sample: string;
+	response_content_path: string;
+	response_finish_reason_path: string;
+	response_prompt_tokens_path: string;
+	response_completion_tokens_path: string;
+	response_total_tokens_path: string;
+	raw_sse: string;
+	probe_path: string;
+	probe_model: string;
+	probe_body: string;
+	probe_success_status: string;
+	probe_max_cost_micros: string;
+	target_group_id: string;
+}
+
+export interface PluginResponsePathSuggestion {
+	label: string;
+	path: string;
+	value: string;
+}
+
 export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] = [
 	{ value: '', label: '自定义 manifest' },
 	{ value: 'openai_compatible', label: 'OpenAI-compatible' },
@@ -216,6 +242,73 @@ export function selectedPluginMapping(
 	return pluginManifestFromPreset(preset, authForm);
 }
 
+export function defaultPluginBuilderDraft(preset = ''): PluginBuilderDraft {
+	return {
+		preset,
+		auth: defaultPluginAuthForPreset(preset),
+		request_path: preset ? '' : '/private/chat',
+		request_body: preset
+			? ''
+			: JSON.stringify(
+					{
+						modelName: '{{model}}',
+						prompt: '{{last_user_message}}',
+						stream: '{{stream}}',
+						limit: '{{max_tokens}}'
+					},
+					null,
+					2
+				),
+		response_sample: '',
+		response_content_path: '',
+		response_finish_reason_path: '',
+		response_prompt_tokens_path: '',
+		response_completion_tokens_path: '',
+		response_total_tokens_path: '',
+		raw_sse: '',
+		probe_path: '',
+		probe_model: '',
+		probe_body: '',
+		probe_success_status: '200',
+		probe_max_cost_micros: '',
+		target_group_id: ''
+	};
+}
+
+export function buildPluginBuilderManifest(draft: PluginBuilderDraft): Record<string, unknown> {
+	const plugin: Record<string, unknown> = {
+		version: 1,
+		capabilities: { chat: true, streaming: true },
+		auth: buildPluginAuthManifest(draft.auth)
+	};
+	if (draft.preset) {
+		plugin.preset = { provider: draft.preset };
+	} else {
+		const request: Record<string, unknown> = {};
+		if (draft.request_path.trim()) request.path = draft.request_path.trim();
+		const body = parseOptionalJson(draft.request_body, 'Request body');
+		if (body != null) request.body = body;
+		if (Object.keys(request).length > 0) plugin.request = request;
+	}
+
+	const response = responseMappingFromSample(draft);
+	if (Object.keys(response).length > 0) plugin.response = response;
+
+	const probe = probeManifestFromDraft(draft);
+	if (Object.keys(probe).length > 0) plugin.probe = probe;
+
+	return { plugin };
+}
+
+export function suggestResponsePaths(sampleInput: string): PluginResponsePathSuggestion[] {
+	const sample = parseOptionalJson(sampleInput, 'Response sample');
+	if (!isPlainObject(sample)) return [];
+	const suggestions: PluginResponsePathSuggestion[] = [];
+	collectLeafPaths(sample, '', suggestions);
+	const ranked = suggestions.sort((a, b) => responsePathScore(b.path) - responsePathScore(a.path));
+	return ranked.slice(0, 24);
+}
+
 export function buildPluginAuthManifest(form: PluginAuthForm): Record<string, unknown> {
 	switch (form.strategy) {
 		case 'bearer':
@@ -321,6 +414,87 @@ function parseCustomHeaders(input: string): Record<string, unknown> {
 		throw new Error('Custom headers 至少需要一个 header');
 	}
 	return parsed;
+}
+
+function responseMappingFromSample(draft: PluginBuilderDraft): Record<string, unknown> {
+	const suggestions = suggestResponsePaths(draft.response_sample);
+	const pick = (patterns: RegExp[]) => suggestions.find(s => patterns.some(pattern => pattern.test(s.path)))?.path;
+	const response: Record<string, unknown> = { openai_compatible: false };
+	const contentPath = draft.response_content_path.trim() || pick([
+		/^choices\.0\.message\.content$/,
+		/^(result|data|output|message|response)\.(text|content|answer)$/,
+		/(^|\.)(text|content|answer)$/
+	]);
+	if (contentPath) response.content_path = contentPath;
+	const finishPath = draft.response_finish_reason_path.trim() || pick([/(^|\.)finish(_reason)?$/, /(^|\.)stop_reason$/]);
+	if (finishPath) response.finish_reason_path = finishPath;
+	const usage: Record<string, unknown> = {};
+	const prompt = draft.response_prompt_tokens_path.trim() || pick([/^usage\.(prompt_tokens|input_tokens|input)$/]);
+	const completion =
+		draft.response_completion_tokens_path.trim() || pick([/^usage\.(completion_tokens|output_tokens|output)$/]);
+	const total = draft.response_total_tokens_path.trim() || pick([/^usage\.total_tokens$/]);
+	if (prompt) usage.prompt_tokens_path = prompt;
+	if (completion) usage.completion_tokens_path = completion;
+	if (total) usage.total_tokens_path = total;
+	if (Object.keys(usage).length > 0) response.usage = usage;
+	if (Object.keys(response).length === 1) return {};
+	return response;
+}
+
+function probeManifestFromDraft(draft: PluginBuilderDraft): Record<string, unknown> {
+	const probe: Record<string, unknown> = {};
+	if (draft.probe_path.trim()) probe.path = draft.probe_path.trim();
+	if (draft.probe_model.trim()) probe.model = draft.probe_model.trim();
+	const probeBody = parseOptionalJson(draft.probe_body, 'Probe body');
+	if (probeBody != null) probe.body = probeBody;
+	const statuses = draft.probe_success_status
+		.split(',')
+		.map(s => Number.parseInt(s.trim(), 10))
+		.filter(n => Number.isInteger(n) && n >= 100 && n <= 599);
+	if (statuses.length > 0) probe.success_status = statuses;
+	if (draft.probe_max_cost_micros.trim()) {
+		const cost = Number.parseInt(draft.probe_max_cost_micros.trim(), 10);
+		if (!Number.isFinite(cost) || cost < 0) throw new Error('Probe max_cost_micros 必须是非负整数');
+		probe.max_cost_micros = cost;
+	}
+	return probe;
+}
+
+function parseOptionalJson(input: string, label: string): unknown {
+	if (!input.trim()) return null;
+	try {
+		return JSON.parse(input);
+	} catch (err: any) {
+		throw new Error(`${label} 必须是合法 JSON: ${err?.message ?? err}`);
+	}
+}
+
+function collectLeafPaths(value: unknown, prefix: string, out: PluginResponsePathSuggestion[]) {
+	if (Array.isArray(value)) {
+		value.slice(0, 3).forEach((item, index) => collectLeafPaths(item, joinPath(prefix, String(index)), out));
+		return;
+	}
+	if (isPlainObject(value)) {
+		for (const [key, child] of Object.entries(value)) {
+			collectLeafPaths(child, joinPath(prefix, key), out);
+		}
+		return;
+	}
+	if (value == null) return;
+	out.push({ label: prefix, path: prefix, value: String(value).slice(0, 80) });
+}
+
+function joinPath(prefix: string, key: string): string {
+	return prefix ? `${prefix}.${key}` : key;
+}
+
+function responsePathScore(path: string): number {
+	if (/^choices\.0\.message\.content$/.test(path)) return 100;
+	if (/^(result|data|output|message|response)\.(text|content|answer)$/.test(path)) return 95;
+	if (/(^|\.)(text|content|answer)$/.test(path)) return 80;
+	if (/^usage\.(prompt_tokens|completion_tokens|total_tokens|input|output)$/.test(path)) return 70;
+	if (/(^|\.)finish(_reason)?$/.test(path)) return 60;
+	return 10;
 }
 
 function requiredText(value: string, label: string): string {

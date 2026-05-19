@@ -140,3 +140,24 @@ cargo test -p gate-server --test billing_e2e stream_without_usage_frame_emits_es
 cargo run -q -p kgctl -- plugin replay /tmp/kgctl-plugin-replay/manifest.json --sse /tmp/kgctl-plugin-replay/sample.sse
 npm --prefix web test -- plugin-presets
 ```
+
+## P1.1.7 Manifest Builder / Debugger
+
+本轮把 Manifest Builder / Debugger 从分散的 textarea + replay 入口推进为可验收的 7 步创建流，并补齐 CLI golden fixture 回放：
+
+- `kgctl plugin test`：用 `CustomHttpProvider` 对真实 / mock 上游发一次 non-stream chat，输出归一后的 `ChatResponse`，默认 API key 可读 `KOOIX_PLUGIN_TEST_API_KEY`。
+- `kgctl plugin export`：把 manifest、可选 non-stream response sample、raw SSE 与 replay 后的 `expected_chunks` 导出为 v1 golden fixture。
+- `kgctl plugin import --verify`：校验 fixture manifest，并重放 raw SSE 与 `expected_chunks` 比对；生成型 `chatcmpl-*` id 会在比较时归一，避免非确定性破坏 golden。
+- Channel 创建抽屉新增 7 步 builder：preset/custom → auth → request mapping → response sample 点选字段 → raw SSE replay → probe/test 参数 → 保存并可自动 `addGroupBinding` 加入 group。
+- `web/src/lib/plugin-presets.ts` 新增 `PluginBuilderDraft`、`buildPluginBuilderManifest`、`suggestResponsePaths`，让 response sample 可自动建议 `content_path` / `finish_reason_path` / usage paths，也支持手动点选覆盖。
+- 前端 `ProbeResponse` 类型补齐 `probe_model` 与 `max_cost_micros`，与后端 P1.1.6 返回结构对齐。
+- 新增 `crates/gate-server/tests/channel_plugin_e2e.rs`，覆盖 replay → create plugin channel → group binding 的控制面闭环。
+
+验证命令：
+
+```bash
+cargo test -p kgctl plugin_ -- --nocapture
+cargo test -p gate-server --test channel_plugin_e2e -- --nocapture
+npm --prefix web test -- plugin-presets
+npm --prefix web run check
+```

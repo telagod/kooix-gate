@@ -204,6 +204,64 @@ enum PluginCmd {
         #[arg(long, default_value = "replay-model")]
         model: String,
     },
+    /// 对上游发一次 non-stream chat，验证 manifest request/response mapping
+    Test {
+        /// manifest 文件路径；不传或传 - 时读 stdin
+        manifest: Option<String>,
+        /// 上游 base URL
+        #[arg(long, default_value = "https://example.com")]
+        base_url: String,
+        /// 测试用 API key；默认可读 KOOIX_PLUGIN_TEST_API_KEY
+        #[arg(
+            long,
+            env = "KOOIX_PLUGIN_TEST_API_KEY",
+            default_value = "sk-kgctl-plugin-test"
+        )]
+        api_key: String,
+        /// 测试模型
+        #[arg(long, default_value = "replay-model")]
+        model: String,
+        /// 测试 prompt
+        #[arg(long, default_value = "Hi")]
+        prompt: String,
+        /// max_tokens
+        #[arg(long, default_value = "1")]
+        max_tokens: u32,
+        /// 请求超时
+        #[arg(long, default_value = "15000")]
+        timeout_ms: u64,
+    },
+    /// 导出 manifest golden fixture（可包含 response sample 与 raw SSE 期望 chunks）
+    Export {
+        /// manifest 文件路径；不传或传 - 时读 stdin
+        manifest: Option<String>,
+        /// raw SSE 文件路径；提供后会生成 expected_chunks
+        #[arg(long)]
+        sse: Option<String>,
+        /// non-stream response sample JSON 文件路径
+        #[arg(long)]
+        response_sample: Option<String>,
+        /// 输出 fixture 文件；不传或传 - 时写 stdout
+        #[arg(short, long)]
+        output: Option<String>,
+        /// 用于 preset 展开与绝对路径校验的上游 base URL
+        #[arg(long, default_value = "https://example.com")]
+        base_url: String,
+        /// replay fallback model
+        #[arg(long, default_value = "replay-model")]
+        model: String,
+    },
+    /// 导入/校验 manifest golden fixture，并可导出其中的 manifest
+    Import {
+        /// fixture 文件路径；不传或传 - 时读 stdin
+        fixture: Option<String>,
+        /// 回放 raw SSE 并与 expected_chunks 做 golden 比对
+        #[arg(long)]
+        verify: bool,
+        /// 输出 manifest 文件；传 - 写 stdout
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 fn main() {
@@ -300,6 +358,30 @@ fn main() {
                 base_url,
                 model,
             } => plugin::replay(manifest, sse, base_url, model),
+            PluginCmd::Test {
+                manifest,
+                base_url,
+                api_key,
+                model,
+                prompt,
+                max_tokens,
+                timeout_ms,
+            } => run_async(plugin::test_connection(
+                manifest, base_url, api_key, model, prompt, max_tokens, timeout_ms,
+            )),
+            PluginCmd::Export {
+                manifest,
+                sse,
+                response_sample,
+                output,
+                base_url,
+                model,
+            } => plugin::export_fixture(manifest, sse, response_sample, output, base_url, model),
+            PluginCmd::Import {
+                fixture,
+                verify,
+                output,
+            } => plugin::import_fixture(fixture, verify, output),
         },
     };
 

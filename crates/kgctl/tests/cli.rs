@@ -489,6 +489,206 @@ fn plugin_schema_and_lint_work_without_services() {
         .stderr(predicate::str::contains("/plugin/auth/header_name"));
 }
 
+#[test]
+fn plugin_replay_export_import_fixture_roundtrip() {
+    let dir = std::env::temp_dir().join(format!("kgctl-plugin-fixture-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest_path = dir.join("manifest.json");
+    let sse_path = dir.join("sample.sse");
+    let fixture_path = dir.join("fixture.json");
+
+    std::fs::write(
+        &manifest_path,
+        r#"{
+          "plugin": {
+            "version": 1,
+            "capabilities": { "chat": true, "streaming": true },
+            "auth": { "strategy": "bearer", "secret_slot": "primary" },
+            "request": {
+              "path": "/private/chat",
+              "body": {
+                "modelName": "{{model}}",
+                "prompt": "{{last_user_message}}",
+                "stream": "{{stream}}"
+              }
+            },
+            "response": {
+              "openai_compatible": false,
+              "content_path": "result.text",
+              "usage": {
+                "prompt_tokens_path": "usage.input",
+                "completion_tokens_path": "usage.output"
+              }
+            },
+            "stream": {
+              "openai_compatible": false,
+              "event_path": "payload",
+              "content_path": "token",
+              "finish_reason_path": "finish",
+              "done_path": "type",
+              "done_values": ["message_stop"],
+              "usage": {
+                "prompt_tokens_path": "usage.input",
+                "completion_tokens_path": "usage.output"
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &sse_path,
+        r#"event: token
+data: {"payload":{"rid":"r1","model_name":"native","speaker":"assistant"}}
+
+data: {"payload":{"token":"he"}}
+
+data: {"payload":{"token":"llo"}}
+
+data: {"payload":{"finish":"done","usage":{"input":3,"output":2}}}
+
+data: {"payload":{"type":"message_stop"}}
+
+"#,
+    )
+    .unwrap();
+
+    kg().args([
+        "plugin",
+        "lint",
+        manifest_path.to_str().unwrap(),
+        "--base-url",
+        "https://api.example.com/v1",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("plugin manifest ok"));
+
+    kg().args([
+        "plugin",
+        "replay",
+        manifest_path.to_str().unwrap(),
+        "--sse",
+        sse_path.to_str().unwrap(),
+        "--base-url",
+        "https://api.example.com/v1",
+        "--model",
+        "native",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"content\": \"he\""))
+    .stdout(predicate::str::contains("\"content\": \"llo\""))
+    .stdout(predicate::str::contains("total_tokens"));
+
+    kg().args([
+        "plugin",
+        "export",
+        manifest_path.to_str().unwrap(),
+        "--sse",
+        sse_path.to_str().unwrap(),
+        "--output",
+        fixture_path.to_str().unwrap(),
+        "--base-url",
+        "https://api.example.com/v1",
+        "--model",
+        "native",
+    ])
+    .assert()
+    .success();
+
+    kg().args([
+        "plugin",
+        "import",
+        fixture_path.to_str().unwrap(),
+        "--verify",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("plugin fixture ok"));
+
+    let fixture = std::fs::read_to_string(&fixture_path).unwrap();
+    assert!(fixture.contains("expected_chunks"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plugin_test_posts_to_mock_upstream() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .and(header("authorization", "Bearer test-key"))
+        .and(body_json(json!({
+            "modelName": "odd-model",
+            "prompt": "ping",
+            "stream": false,
+            "limit": 1
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "result": { "text": "mapped ok", "finish": "stop" },
+            "usage": { "input": 2, "output": 3 }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let dir = std::env::temp_dir().join(format!("kgctl-plugin-test-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest_path = dir.join("manifest.json");
+    std::fs::write(
+        &manifest_path,
+        r#"{
+          "plugin": {
+            "version": 1,
+            "capabilities": { "chat": true },
+            "auth": { "strategy": "bearer", "secret_slot": "primary" },
+            "request": {
+              "path": "/private/chat",
+              "body": {
+                "modelName": "{{model}}",
+                "prompt": "{{last_user_message}}",
+                "stream": "{{stream}}",
+                "limit": "{{max_tokens}}"
+              }
+            },
+            "response": {
+              "openai_compatible": false,
+              "content_path": "result.text",
+              "finish_reason_path": "result.finish",
+              "usage": {
+                "prompt_tokens_path": "usage.input",
+                "completion_tokens_path": "usage.output"
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+
+    kg().args([
+        "plugin",
+        "test",
+        manifest_path.to_str().unwrap(),
+        "--base-url",
+        &server.uri(),
+        "--api-key",
+        "test-key",
+        "--model",
+        "odd-model",
+        "--prompt",
+        "ping",
+        "--max-tokens",
+        "1",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("mapped ok"))
+    .stdout(predicate::str::contains("total_tokens"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 6. smoke
 // ────────────────────────────────────────────────────────────────────────────

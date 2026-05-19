@@ -324,7 +324,7 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
 
 #### P1.1.7 Manifest Builder / Debugger
 
-- [ ] UI builder 分步创建：
+- [x] UI builder 分步创建：
   1. 选择 preset 或自定义。
   2. 配置 auth。
   3. 配置 request mapping。
@@ -332,8 +332,8 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   5. 粘贴 raw SSE sample，预览 chunks。
   6. Test connection。
   7. 保存 channel 并加入 group。
-- [ ] CLI：`kgctl plugin lint|test|replay|export|import`。
-- [ ] 每个 manifest 自动生成 golden fixture，后续升级 schema 时回放验证。
+- [x] CLI：`kgctl plugin lint|test|replay|export|import`。
+- [x] 每个 manifest 自动生成 golden fixture，后续升级 schema 时回放验证。
 
 **验收门禁**
 

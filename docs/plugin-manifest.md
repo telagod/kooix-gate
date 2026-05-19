@@ -527,7 +527,9 @@ Replay harness：
 
 - API：`POST /v1/admin/plugin-manifest/replay`
 - CLI：`kgctl plugin replay manifest.json --sse sample.sse --base-url https://api.example.com --model replay-model`
-- UI：Channel 创建 / 编辑抽屉的 `SSE replay preview` 可粘贴 raw SSE 并直接预览归一 chunks。
+- CLI fixture：`kgctl plugin export manifest.json --sse sample.sse -o fixture.json` 生成 golden；`kgctl plugin import fixture.json --verify` 回放比对 `expected_chunks`。
+- CLI test：`kgctl plugin test manifest.json --base-url https://api.example.com --model replay-model` 发一次 non-stream chat，验证 request / response mapping。
+- UI：Channel 创建抽屉提供 7 步 builder：preset/custom → auth → request mapping → response sample 点选字段 → raw SSE replay → probe/test 参数 → 保存并可自动加入 group。编辑抽屉保留 manifest + auth + SSE replay preview。
 
 流式计费门禁：若 upstream 未返回 usage 末帧，gateway 会按请求消息长度与 `max_tokens` 生成 estimated usage，写入 outbox 并用 `raw.estimated=true` 标记，不再静默漏扣。
 
@@ -557,17 +559,19 @@ Replay harness：
 
 v0.2.0 必须遵守：
 
-- Manifest 不保存明文密钥，只能引用运行时注入变量。
+- Manifest 不保存明文密钥，只能引用 `channel_keys.label` / env fallback 注入的 secret slot。
 - Header / path / body 模板只使用白名单变量，未知变量直接拒绝加载。
 - `request.chat_path` 默认不接受绝对 URL；显式打开时仍拒绝内网与 metadata host。
 - request body、response body 与单个 SSE event 都有大小上限。
 - 私有 URL / header / body 都视为不可信配置，发布前需要人工 review；生产环境建议通过网络层限制出站访问，避免 DNS rebinding 或代理绕过。
 - 不在日志、request log、audit 中写出 `api_key`、secret header 或 Bearer token。
 
-v1 计划补齐：JSON Schema、auth strategy、出站 allowlist、manifest builder、SSE replay harness 与 signed manifest package。
+后续计划补齐：signed manifest package、跨版本 fixture 批量回放与更细粒度出站 allowlist。
 
 ## 当前测试覆盖
 
 - `cargo test -p gate-providers plugin`：request template、preset、Azure path、Anthropic adapter、自定义 SSE mapper、绝对 URL/内网 host 拒绝、header 模板白名单、request body size limit。
 - `cargo test -p gate-providers sse`：共享 SSE decoder 的分片、多行 data、CRLF/LF 行为。
-- `cd web && npm test -- plugin-presets`：前端 preset 选择与 manifest 生成。
+- `cargo test -p kgctl plugin_`：CLI schema/lint/test/replay/export/import golden fixture。
+- `cargo test -p gate-server --test channel_plugin_e2e`：manifest replay → channel create → group binding 控制面闭环。
+- `cd web && npm test -- plugin-presets`：前端 preset、auth、builder draft、response path suggestion 与 manifest 生成。

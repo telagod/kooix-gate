@@ -16,10 +16,13 @@
 		probeChannel,
 		testChannel,
 		getChannelBalance,
-		replayPluginSse
+		replayPluginSse,
+		listGroups,
+		addGroupBinding
 	} from '$lib/api.js';
 	import type {
 		Channel,
+		ChannelGroup,
 		CreateChannelRequest,
 		UpdateChannelRequest,
 		TestResponse,
@@ -38,11 +41,14 @@
 	import {
 		PLUGIN_PRESET_OPTIONS,
 		authFormFromManifest,
+		buildPluginBuilderManifest,
+		defaultPluginBuilderDraft,
 		defaultPluginAuthForPreset,
 		manifestPreset,
-		selectedPluginMapping
+		selectedPluginMapping,
+		suggestResponsePaths
 	} from '$lib/plugin-presets';
-	import type { PluginAuthForm } from '$lib/plugin-presets';
+	import type { PluginAuthForm, PluginBuilderDraft, PluginResponsePathSuggestion } from '$lib/plugin-presets';
 	import {
 		Search,
 		Plus,
@@ -152,6 +158,11 @@
 	let createReplayOutput = $state('');
 	let createReplayError = $state('');
 	let createReplaying = $state(false);
+	let pluginBuilderStep = $state(1);
+	let pluginBuilderDraft = $state<PluginBuilderDraft>(defaultPluginBuilderDraft(''));
+	let pluginBuilderSuggestions = $state<PluginResponsePathSuggestion[]>([]);
+	let createGroups = $state<ChannelGroup[]>([]);
+	let loadingCreateGroups = $state(false);
 
 	let editingChannel = $state<Channel | null>(null);
 	let editForm = $state<UpdateChannelRequest>({});
@@ -496,8 +507,94 @@ data: {"payload":{"finish":"done","usage":{"input":3,"output":2}}}
 data: {"payload":{"type":"message_stop"}}
 `;
 
+	const RESPONSE_SAMPLE_PLACEHOLDER = `{"result":{"text":"hello"},"usage":{"input":1,"output":2}}`;
+	const PROBE_BODY_PLACEHOLDER = `{"model":"{{model}}","messages":[{"role":"user","content":"Hi"}]}`;
+
+	const PLUGIN_BUILDER_STEPS = [
+		'Preset',
+		'Auth',
+		'Request',
+		'Response',
+		'SSE',
+		'Test',
+		'Save'
+	];
+
 	function isPluginProvider(providerType: string | undefined): boolean {
 		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
+	}
+
+	function syncBuilderToCreateForm() {
+		pluginPreset = pluginBuilderDraft.preset;
+		createAuthForm = pluginBuilderDraft.auth;
+		lastCreatePluginPreset = pluginPreset;
+		pluginManifestInput = JSON.stringify(buildPluginBuilderManifest(pluginBuilderDraft), null, 2);
+		createReplayInput = pluginBuilderDraft.raw_sse;
+	}
+
+	function syncCreateFormToBuilder() {
+		pluginPreset = pluginBuilderDraft.preset;
+		createAuthForm = pluginBuilderDraft.auth;
+		lastCreatePluginPreset = pluginPreset;
+		pluginBuilderDraft = {
+			...pluginBuilderDraft,
+			raw_sse: createReplayInput
+		};
+	}
+
+	function handleBuilderPresetChange(event: Event) {
+		const preset = (event.currentTarget as HTMLSelectElement).value;
+		pluginBuilderDraft = {
+			...defaultPluginBuilderDraft(preset),
+			target_group_id: pluginBuilderDraft.target_group_id
+		};
+		pluginBuilderStep = 2;
+		syncBuilderToCreateForm();
+	}
+
+	function updateBuilderManifestPreview() {
+		try {
+			syncBuilderToCreateForm();
+			createError = '';
+		} catch (err: any) {
+			createError = err?.message ?? 'Builder manifest 生成失败';
+		}
+	}
+
+	function refreshBuilderSuggestions() {
+		try {
+			pluginBuilderSuggestions = suggestResponsePaths(pluginBuilderDraft.response_sample);
+			updateBuilderManifestPreview();
+		} catch (err: any) {
+			pluginBuilderSuggestions = [];
+			createError = err?.message ?? 'Response sample 解析失败';
+		}
+	}
+
+	function chooseBuilderPath(kind: 'content' | 'finish' | 'prompt' | 'completion' | 'total', path: string) {
+		if (kind === 'content') pluginBuilderDraft.response_content_path = path;
+		if (kind === 'finish') pluginBuilderDraft.response_finish_reason_path = path;
+		if (kind === 'prompt') pluginBuilderDraft.response_prompt_tokens_path = path;
+		if (kind === 'completion') pluginBuilderDraft.response_completion_tokens_path = path;
+		if (kind === 'total') pluginBuilderDraft.response_total_tokens_path = path;
+		updateBuilderManifestPreview();
+	}
+
+	async function loadCreateGroups() {
+		if (!isPlatformAdmin || createGroups.length > 0 || loadingCreateGroups) return;
+		loadingCreateGroups = true;
+		try {
+			createGroups = await listGroups();
+		} catch (err: any) {
+			showToast(err?.message ?? '加载 Group 失败', 'err');
+		} finally {
+			loadingCreateGroups = false;
+		}
+	}
+
+	function openCreateDrawer() {
+		showCreate = true;
+		loadCreateGroups();
 	}
 
 	function syncCreateAuthPreset() {
@@ -516,6 +613,7 @@ data: {"payload":{"type":"message_stop"}}
 		pluginPreset = (event.currentTarget as HTMLSelectElement).value;
 		createAuthForm = defaultPluginAuthForPreset(pluginPreset);
 		lastCreatePluginPreset = pluginPreset;
+		pluginBuilderDraft = { ...pluginBuilderDraft, preset: pluginPreset, auth: createAuthForm };
 	}
 
 	function handleEditPresetChange(event: Event) {
@@ -554,8 +652,10 @@ data: {"payload":{"type":"message_stop"}}
 		createReplayError = '';
 		createReplayOutput = '';
 		try {
-			syncCreateAuthPreset();
-			const manifest = selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm);
+			syncCreateFormToBuilder();
+			const manifest = pluginManifestInput.trim()
+				? selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm)
+				: buildPluginBuilderManifest(pluginBuilderDraft);
 			const result = await replayPluginSse({
 				manifest,
 				raw_sse: createReplayInput,
@@ -563,6 +663,8 @@ data: {"payload":{"type":"message_stop"}}
 				model: createForm.supported_models?.[0] ?? modelsInput.split(',').map(s => s.trim()).find(Boolean) ?? 'replay-model'
 			});
 			createReplayOutput = JSON.stringify(result.chunks, null, 2);
+			pluginBuilderDraft.raw_sse = createReplayInput;
+			pluginBuilderStep = Math.max(pluginBuilderStep, 6);
 			showToast(`SSE replay 完成：${result.chunks.length} chunks`);
 		} catch (err: any) {
 			createReplayError = err?.message ?? 'SSE replay 失败';
@@ -608,6 +710,9 @@ data: {"payload":{"type":"message_stop"}}
 		createReplayInput = '';
 		createReplayOutput = '';
 		createReplayError = '';
+		pluginBuilderStep = 1;
+		pluginBuilderDraft = defaultPluginBuilderDraft('');
+		pluginBuilderSuggestions = [];
 	}
 
 	// ── Create ───────────────────────────────────────
@@ -617,14 +722,28 @@ data: {"payload":{"type":"message_stop"}}
 		creating = true;
 		createError = '';
 		try {
-			syncCreateAuthPreset();
+			if (isPluginProvider(createForm.provider_type)) {
+				syncCreateFormToBuilder();
+				pluginManifestInput = JSON.stringify(buildPluginBuilderManifest(pluginBuilderDraft), null, 2);
+				pluginPreset = pluginBuilderDraft.preset;
+				createAuthForm = pluginBuilderDraft.auth;
+				lastCreatePluginPreset = pluginPreset;
+			} else {
+				syncCreateAuthPreset();
+			}
 			const models = modelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const model_mapping = isPluginProvider(createForm.provider_type) ? selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm) : createForm.model_mapping;
-			await createChannel({ ...createForm, supported_models: models, tags, model_mapping });
+			const model_mapping = isPluginProvider(createForm.provider_type)
+				? selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm)
+				: createForm.model_mapping;
+			const created = await createChannel({ ...createForm, supported_models: models, tags, model_mapping });
+			const joinedGroup = isPluginProvider(createForm.provider_type) && !!pluginBuilderDraft.target_group_id;
+			if (isPluginProvider(createForm.provider_type) && pluginBuilderDraft.target_group_id) {
+				await addGroupBinding(pluginBuilderDraft.target_group_id, created.id, 1, 1);
+			}
 			showCreate = false;
 			resetCreateForm();
-			showToast('Channel 创建成功');
+			showToast(joinedGroup ? 'Channel 创建成功并已加入 Group' : 'Channel 创建成功');
 			await loadChannels();
 		} catch (err: any) {
 			createError = err?.message ?? '创建失败';
@@ -871,35 +990,89 @@ data: {"payload":{"type":"message_stop"}}
 								<Input id="ch-url" placeholder="https://api.openai.com/v1" bind:value={createForm.base_url} disabled={creating} />
 							</div>
 							{#if isPluginProvider(createForm.provider_type)}
-								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-									<label for="ch-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
-									<select id="ch-plugin-preset" bind:value={pluginPreset} onchange={handleCreatePresetChange} disabled={creating} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
-										{#each PLUGIN_PRESET_OPTIONS as opt}
-											<option value={opt.value}>{opt.label}</option>
+								<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+									<div class="mb-4 flex flex-wrap gap-1.5">
+										{#each PLUGIN_BUILDER_STEPS as label, index}
+											<button type="button" onclick={() => (pluginBuilderStep = index + 1)} class="rounded-full px-2.5 py-1 text-xs font-medium transition-colors {pluginBuilderStep === index + 1 ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' : 'bg-white text-zinc-600 ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800'}">
+												{index + 1}. {label}
+											</button>
 										{/each}
-									</select>
-									<PluginAuthEditor bind:form={createAuthForm} disabled={creating} idPrefix="ch-auth" />
-									<div class="mb-1 flex items-center justify-between gap-2">
-										<label for="ch-plugin" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
-										<Button size="sm" variant="outline" type="button" onclick={lintCreatePluginManifest} disabled={creating}>本地 lint</Button>
 									</div>
-									<textarea id="ch-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={pluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating || !!pluginPreset}></textarea>
-									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">保存前会把 Auth Strategy 合并进 manifest 并本地 lint；manifest 只引用 secret slot，不写明文 secret。</p>
-									<div class="mt-4 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+
+									{#if pluginBuilderStep === 1}
+										<label for="ch-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">1. 选择 preset 或自定义</label>
+										<select id="ch-plugin-preset" bind:value={pluginBuilderDraft.preset} onchange={handleBuilderPresetChange} disabled={creating} class="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
+											{#each PLUGIN_PRESET_OPTIONS as opt}
+												<option value={opt.value}>{opt.label}</option>
+											{/each}
+										</select>
+									{:else if pluginBuilderStep === 2}
+										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">2. 配置 auth</p>
+										<PluginAuthEditor bind:form={pluginBuilderDraft.auth} disabled={creating} idPrefix="ch-builder-auth" />
+										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); pluginBuilderStep = 3; }} disabled={creating}>写入 manifest</Button>
+									{:else if pluginBuilderStep === 3}
+										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">3. 配置 request mapping</p>
+										<Input placeholder="/private/chat" bind:value={pluginBuilderDraft.request_path} disabled={creating || !!pluginBuilderDraft.preset} />
+										<textarea class="mt-2 min-h-36 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" bind:value={pluginBuilderDraft.request_body} disabled={creating || !!pluginBuilderDraft.preset}></textarea>
+										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); pluginBuilderStep = 4; }} disabled={creating}>生成 request</Button>
+									{:else if pluginBuilderStep === 4}
+										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">4. 粘贴 non-stream response sample，点选字段映射</p>
+										<textarea class="min-h-32 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={RESPONSE_SAMPLE_PLACEHOLDER} bind:value={pluginBuilderDraft.response_sample} oninput={refreshBuilderSuggestions} disabled={creating}></textarea>
+										<div class="mt-2 grid grid-cols-2 gap-2">
+											{#each pluginBuilderSuggestions.slice(0, 8) as s}
+												<div class="rounded-md border border-zinc-200 bg-white p-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+													<p class="mb-1 truncate font-mono text-zinc-700 dark:text-zinc-300">{s.path}</p>
+													<div class="flex flex-wrap gap-1">
+														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('content', s.path)}>content</button>
+														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('finish', s.path)}>finish</button>
+														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('prompt', s.path)}>prompt</button>
+														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('completion', s.path)}>completion</button>
+														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('total', s.path)}>total</button>
+													</div>
+												</div>
+											{/each}
+										</div>
+										<p class="mt-2 text-xs text-zinc-500">已选：content={pluginBuilderDraft.response_content_path || 'auto'} · prompt={pluginBuilderDraft.response_prompt_tokens_path || 'auto'} · completion={pluginBuilderDraft.response_completion_tokens_path || 'auto'}</p>
+										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); pluginBuilderStep = 5; }} disabled={creating}>生成 response mapping</Button>
+									{:else if pluginBuilderStep === 5}
 										<div class="mb-2 flex items-center justify-between gap-2">
 											<div>
-												<p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">SSE replay preview</p>
-												<p class="text-xs text-zinc-500 dark:text-zinc-400">粘贴 raw SSE，预览归一后的 OpenAI-compatible chunks。</p>
+												<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">5. 粘贴 raw SSE sample，预览 chunks</p>
+												<p class="text-xs text-zinc-500 dark:text-zinc-400">未填时使用内置 private SSE 样例。</p>
 											</div>
 											<Button size="sm" variant="outline" type="button" onclick={replayCreatePluginManifest} disabled={creating || createReplaying}>{createReplaying ? '回放中...' : 'Replay'}</Button>
 										</div>
-										<textarea class="min-h-36 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_REPLAY_SAMPLE} bind:value={createReplayInput} disabled={creating || createReplaying}></textarea>
-										{#if createReplayError}
-											<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{createReplayError}</p>
-										{/if}
-										{#if createReplayOutput}
-											<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{createReplayOutput}</pre>
-										{/if}
+										<textarea class="min-h-36 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_REPLAY_SAMPLE} bind:value={createReplayInput} disabled={creating || createReplaying}></textarea>
+										{#if createReplayError}<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{createReplayError}</p>{/if}
+										{#if createReplayOutput}<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{createReplayOutput}</pre>{/if}
+									{:else if pluginBuilderStep === 6}
+										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">6. Test connection 参数</p>
+										<Input placeholder="/models 或 /health/chat" bind:value={pluginBuilderDraft.probe_path} disabled={creating} />
+										<div class="mt-2 grid grid-cols-2 gap-2">
+											<Input placeholder="probe model" bind:value={pluginBuilderDraft.probe_model} disabled={creating} />
+											<Input placeholder="200,204" bind:value={pluginBuilderDraft.probe_success_status} disabled={creating} />
+										</div>
+										<Input class="mt-2" placeholder="max_cost_micros，空为不声明成本" bind:value={pluginBuilderDraft.probe_max_cost_micros} disabled={creating} />
+										<textarea class="mt-2 min-h-24 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PROBE_BODY_PLACEHOLDER} bind:value={pluginBuilderDraft.probe_body} disabled={creating}></textarea>
+										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); lintCreatePluginManifest(); pluginBuilderStep = 7; }} disabled={creating}>生成并 lint</Button>
+									{:else}
+										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">7. 保存 channel 并加入 group</p>
+										<select bind:value={pluginBuilderDraft.target_group_id} disabled={creating || loadingCreateGroups} class="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
+											<option value="">不自动加入 Group</option>
+											{#each createGroups as group}
+												<option value={group.id}>{group.name} · {group.strategy}</option>
+											{/each}
+										</select>
+										<p class="mt-2 text-xs text-zinc-500">保存成功后会调用 addGroupBinding(group, channel, priority=1, weight=1)。</p>
+									{/if}
+
+									<div class="mt-4">
+										<div class="mb-1 flex items-center justify-between gap-2">
+											<label for="ch-plugin" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest Preview</label>
+											<Button size="sm" variant="outline" type="button" onclick={lintCreatePluginManifest} disabled={creating}>本地 lint</Button>
+										</div>
+										<textarea id="ch-plugin" class="min-h-48 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={pluginBuilderDraft.preset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating}></textarea>
+										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Builder 会把 Auth / Request / Response / Probe 合并进 manifest；manifest 只引用 secret slot，不写明文 secret。</p>
 									</div>
 								</div>
 							{/if}
@@ -1083,7 +1256,7 @@ data: {"payload":{"type":"message_stop"}}
 				<Zap size={14} />
 				{batchTesting ? batchProgress : '批量测试'}
 			</Button>
-			<Button size="sm" onclick={() => (showCreate = true)}>
+			<Button size="sm" onclick={openCreateDrawer}>
 				<Plus size={14} /> 新建
 			</Button>
 		{/if}
@@ -1146,7 +1319,7 @@ data: {"payload":{"type":"message_stop"}}
 				渠道是连接上游 LLM 服务商的桥梁。创建一个渠道开始路由 API 请求。
 			</p>
 			{#if isPlatformAdmin}
-				<Button onclick={() => (showCreate = true)}>
+				<Button onclick={openCreateDrawer}>
 					<Plus size={14} /> 创建第一个 Channel
 				</Button>
 			{/if}

@@ -388,6 +388,8 @@ export interface ProbeResponse {
 	channel_id: string | null;
 	provider_type: string;
 	models: string[];
+	probe_model?: string | null;
+	max_cost_micros?: number | null;
 }
 
 export async function probeChannel(channelId: string): Promise<ProbeResponse> {
@@ -833,7 +835,7 @@ export async function listGroupBindings(groupId: string): Promise<GroupBinding[]
 export async function addGroupBinding(groupId: string, channelId: string, priority?: number, weight?: number): Promise<void> {
 	return apiFetch(`/v1/admin/groups/${rawId(groupId)}/bindings`, {
 		method: 'POST',
-		body: JSON.stringify({ channel_id: channelId, priority, weight })
+		body: JSON.stringify({ channel_id: rawId(channelId), priority, weight })
 	});
 }
 

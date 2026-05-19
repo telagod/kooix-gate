@@ -6,10 +6,13 @@ import {
 	PLUGIN_PRESET_OPTIONS,
 	PLUGIN_AUTH_STRATEGY_OPTIONS,
 	authFormFromManifest,
+	buildPluginBuilderManifest,
+	defaultPluginBuilderDraft,
 	manifestPreset,
 	parsePluginManifest,
 	pluginManifestFromPreset,
-	selectedPluginMapping
+	selectedPluginMapping,
+	suggestResponsePaths
 } from '$lib/plugin-presets';
 
 describe('plugin provider presets', () => {
@@ -145,5 +148,71 @@ describe('plugin provider presets', () => {
 		expect(form.secret_slot).toBe('signing');
 		expect(form.hmac_signature_header).toBe('X-Sig');
 		expect(form.hmac_signature_encoding).toBe('base64');
+	});
+
+	it('builds manifest from wizard draft with response sample hints and probe', () => {
+		const draft = defaultPluginBuilderDraft('');
+		draft.auth = { ...draft.auth, strategy: 'api_key_header', header_name: 'X-Api-Key' };
+		draft.request_path = '/private/chat';
+		draft.response_sample = JSON.stringify({
+			result: { text: 'mapped ok', finish: 'stop' },
+			usage: { input: 2, output: 3 }
+		});
+		draft.probe_path = '/health/chat';
+		draft.probe_model = 'tiny-model';
+		draft.probe_success_status = '200,204';
+		draft.probe_max_cost_micros = '100';
+
+		const manifest = buildPluginBuilderManifest(draft);
+		expect(manifest).toMatchObject({
+			plugin: {
+				version: 1,
+				auth: { strategy: 'api_key_header', header_name: 'X-Api-Key' },
+				request: { path: '/private/chat' },
+				response: {
+					openai_compatible: false,
+					content_path: 'result.text',
+					finish_reason_path: 'result.finish',
+					usage: {
+						prompt_tokens_path: 'usage.input',
+						completion_tokens_path: 'usage.output'
+					}
+				},
+				probe: {
+					path: '/health/chat',
+					model: 'tiny-model',
+					success_status: [200, 204],
+					max_cost_micros: 100
+				}
+			}
+		});
+	});
+
+	it('suggests response paths from non-stream samples', () => {
+		const suggestions = suggestResponsePaths(
+			JSON.stringify({
+				result: { text: 'hello' },
+				usage: { input: 1, output: 2, total_tokens: 3 }
+			})
+		);
+		expect(suggestions.map(s => s.path)).toContain('result.text');
+		expect(suggestions.map(s => s.path)).toContain('usage.total_tokens');
+	});
+
+	it('lets builder path clicks override automatic response suggestions', () => {
+		const draft = defaultPluginBuilderDraft('openai_compatible');
+		draft.response_content_path = 'data.answer';
+		draft.response_total_tokens_path = 'metrics.tokens';
+		const manifest = buildPluginBuilderManifest(draft);
+		expect(manifest).toMatchObject({
+			plugin: {
+				preset: { provider: 'openai_compatible' },
+				response: {
+					openai_compatible: false,
+					content_path: 'data.answer',
+					usage: { total_tokens_path: 'metrics.tokens' }
+				}
+			}
+		});
 	});
 });

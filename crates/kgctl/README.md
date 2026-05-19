@@ -63,7 +63,10 @@ kgctl smoke \
 | `usage-storage plan --timescale` | 输出 Timescale hypertable/compression/retention dry-run SQL | `kgctl usage-storage plan --timescale` |
 | `plugin schema` | 输出 HTTP Plugin manifest v1 JSON Schema | `kgctl plugin schema` |
 | `plugin lint` | 校验 manifest JSON | `kgctl plugin lint manifest.json --base-url https://api.example.com` |
+| `plugin test` | 用 manifest 发一次 non-stream chat，验证 request / response mapping | `kgctl plugin test manifest.json --base-url https://api.example.com --model replay-model` |
 | `plugin replay` | 回放 raw SSE 并输出归一 chunks | `kgctl plugin replay manifest.json --sse sample.sse --model replay-model` |
+| `plugin export` | 导出 manifest golden fixture，可包含 raw SSE expected chunks | `kgctl plugin export manifest.json --sse sample.sse -o fixture.json` |
+| `plugin import` | 导入 / 校验 fixture，`--verify` 会重放 raw SSE 比对 expected chunks | `kgctl plugin import fixture.json --verify` |
 
 退出码：成功 0；任何步骤失败 1，标准错误用 ANSI 红色高亮原因。
 
@@ -95,10 +98,16 @@ kgctl smoke --base-url "$KOOIX_PUBLIC_URL"
 ```bash
 kgctl plugin schema > plugin-manifest.schema.json
 kgctl plugin lint manifest.json --base-url https://api.example.com/v1
+KOOIX_PLUGIN_TEST_API_KEY='<provider-key>' \
+  kgctl plugin test manifest.json --base-url https://api.example.com/v1 --model replay-model
 kgctl plugin replay manifest.json --sse sample.sse --base-url https://api.example.com/v1 --model replay-model
+kgctl plugin export manifest.json --sse sample.sse -o fixture.json --base-url https://api.example.com/v1 --model replay-model
+kgctl plugin import fixture.json --verify
 ```
 
 `plugin replay` 只做本地归一化：读取 manifest 与 raw SSE fixture，输出 OpenAI-compatible `ChatStreamChunk[]`，用于调试私有 `event:` 分流、`done_path`、tool call delta 与 usage 末帧映射。
+
+`plugin export/import` 是 golden fixture 链路：`export` 会把 manifest、可选 non-stream response sample、raw SSE 与 replay 后的 `expected_chunks` 固化到 JSON；后续升级 schema 或 normalizer 时用 `plugin import --verify` 回放比对，避免私有协议映射漂移。
 
 ## 定价规则 CLI
 
@@ -165,4 +174,5 @@ KOOIX_TEST_PG_TAG=17.4-alpine KOOIX_TEST_REDIS_TAG=7.4 cargo test -p kgctl
 - doctor JSON 成功 / 失败机器可读输出
 - smoke mock HTTP E2E：login → channel/group/default route → API key → chat → usage
 - seed-pricing 首次插入 5 条 + 二次幂等 0 插入 5 跳过
+- plugin schema/lint/test/replay/export/import fixture 回归
 - `env` 输出包含 `KOOIX_OIDC_DEFAULT_REDIRECT`（SSO 配置回归）
