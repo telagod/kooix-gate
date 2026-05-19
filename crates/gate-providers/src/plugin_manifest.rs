@@ -80,6 +80,7 @@ pub(crate) enum AuthStrategy {
     CustomHeaders,
     Hmac,
     AwsSigv4,
+    OauthClientCredentials,
     None,
 }
 
@@ -95,6 +96,7 @@ pub(crate) struct AuthManifest {
     pub headers: Map<String, Value>,
     pub hmac: HmacAuthManifest,
     pub aws_sigv4: AwsSigv4AuthManifest,
+    pub oauth: OauthClientCredentialsManifest,
 }
 
 impl AuthManifest {
@@ -165,6 +167,18 @@ pub(crate) struct AwsSigv4AuthManifest {
     pub access_key_slot: String,
     pub secret_key_slot: String,
     pub session_token_slot: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(default)]
+pub(crate) struct OauthClientCredentialsManifest {
+    pub token_url: String,
+    pub client_id_slot: String,
+    pub client_secret_slot: String,
+    pub scope: Option<String>,
+    pub audience: Option<String>,
+    pub token_type: String,
+    pub expiry_skew_seconds: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
@@ -401,6 +415,7 @@ impl Default for AuthManifest {
             headers: Map::new(),
             hmac: HmacAuthManifest::default(),
             aws_sigv4: AwsSigv4AuthManifest::default(),
+            oauth: OauthClientCredentialsManifest::default(),
         }
     }
 }
@@ -427,6 +442,20 @@ impl Default for AwsSigv4AuthManifest {
             access_key_slot: "primary".to_string(),
             secret_key_slot: "aws_secret_key".to_string(),
             session_token_slot: Some("aws_session_token".to_string()),
+        }
+    }
+}
+
+impl Default for OauthClientCredentialsManifest {
+    fn default() -> Self {
+        Self {
+            token_url: String::new(),
+            client_id_slot: "client_id".to_string(),
+            client_secret_slot: "client_secret".to_string(),
+            scope: None,
+            audience: None,
+            token_type: "Bearer".to_string(),
+            expiry_skew_seconds: 60,
         }
     }
 }
@@ -710,6 +739,56 @@ fn validate_auth(auth: &AuthManifest, pointer_base: &str) -> ProviderResult<()> 
                 validate_secret_slot(pointer_base, "/auth/aws_sigv4/session_token_slot", slot)?;
             }
         }
+        AuthStrategy::OauthClientCredentials => {
+            let token_url = auth.oauth.token_url.trim();
+            if token_url.is_empty() {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/oauth/token_url",
+                    "oauth_client_credentials auth requires token_url",
+                ));
+            }
+            let parsed = reqwest::Url::parse(token_url).map_err(|e| {
+                ProviderError::Config(format!(
+                    "invalid plugin manifest at {}: invalid oauth token_url: {e}",
+                    json_pointer(pointer_base, "/auth/oauth/token_url")
+                ))
+            })?;
+            let is_test_http_local = cfg!(test)
+                && parsed.scheme() == "http"
+                && parsed.host_str().is_some_and(is_local_test_host);
+            if parsed.scheme() != "https" && !is_test_http_local {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/oauth/token_url",
+                    "oauth token_url must use https",
+                ));
+            }
+            validate_secret_slot(
+                pointer_base,
+                "/auth/oauth/client_id_slot",
+                &auth.oauth.client_id_slot,
+            )?;
+            validate_secret_slot(
+                pointer_base,
+                "/auth/oauth/client_secret_slot",
+                &auth.oauth.client_secret_slot,
+            )?;
+            if auth.oauth.token_type.trim().is_empty() {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/oauth/token_type",
+                    "oauth token_type must not be empty",
+                ));
+            }
+            if auth.oauth.expiry_skew_seconds > 3600 {
+                return Err(config_at(
+                    pointer_base,
+                    "/auth/oauth/expiry_skew_seconds",
+                    "oauth expiry_skew_seconds must be <= 3600",
+                ));
+            }
+        }
         AuthStrategy::Bearer | AuthStrategy::None => {}
     }
     if let Some(secret_slot) = auth.secret_slot.as_deref() {
@@ -763,7 +842,14 @@ fn walk_plain_secret_strings(
                 || pointer.ends_with("/secret_slot")
                 || pointer.ends_with("/header_name")
                 || pointer.ends_with("/query_name");
-            if looks_secret && !is_reference && !is_slot_field {
+            let is_oauth_metadata = matches!(
+                pointer,
+                "/auth/oauth/token_url"
+                    | "/auth/oauth/token_type"
+                    | "/auth/oauth/scope"
+                    | "/auth/oauth/audience"
+            );
+            if looks_secret && !is_reference && !is_slot_field && !is_oauth_metadata {
                 return Err(config_at(
                     pointer_base,
                     pointer,
@@ -788,6 +874,10 @@ fn walk_plain_secret_strings(
         _ => {}
     }
     Ok(())
+}
+
+fn is_local_test_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]")
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1058,6 +1148,61 @@ mod tests {
         assert_eq!(
             manifest.auth.aws_sigv4.session_token_slot.as_deref(),
             Some("aws_session_token")
+        );
+    }
+
+    #[test]
+    fn parses_oauth_client_credentials_manifest_defaults() {
+        let manifest = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "oauth_client_credentials",
+                        "oauth": {
+                            "token_url": "https://idp.example.com/oauth/token",
+                            "scope": "chat:write"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.auth.strategy, AuthStrategy::OauthClientCredentials);
+        assert_eq!(
+            manifest.auth.oauth.token_url,
+            "https://idp.example.com/oauth/token"
+        );
+        assert_eq!(manifest.auth.oauth.client_id_slot, "client_id");
+        assert_eq!(manifest.auth.oauth.client_secret_slot, "client_secret");
+        assert_eq!(manifest.auth.oauth.scope.as_deref(), Some("chat:write"));
+        assert_eq!(manifest.auth.oauth.token_type, "Bearer");
+        assert_eq!(manifest.auth.oauth.expiry_skew_seconds, 60);
+    }
+
+    #[test]
+    fn oauth_rejects_plain_http_token_url() {
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "oauth_client_credentials",
+                        "oauth": {
+                            "token_url": "http://idp.example.com/oauth/token"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("oauth token_url must use https"),
+            "err={err}"
         );
     }
 

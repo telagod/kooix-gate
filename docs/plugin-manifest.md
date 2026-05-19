@@ -185,6 +185,7 @@ v1 固定以下分区：
 - `auth.strategy = "custom_headers"`：按 `auth.headers` 模板注入 header。
 - `auth.strategy = "hmac"`：按 `auth.hmac.signed_payload` 渲染签名串，使用 `secret_slot` 计算 HMAC-SHA256，并注入 `timestamp_header`、`nonce_header`、`signature_header`。
 - `auth.strategy = "aws_sigv4"`：按 AWS Signature Version 4 生成 canonical request、string-to-sign 与 signing key，并注入 `Authorization`、`x-amz-date`、`x-amz-content-sha256`，若 `session_token_slot` 有值则注入 `x-amz-security-token`。
+- `auth.strategy = "oauth_client_credentials"`：用 `auth.oauth` 中的 token endpoint 与 client credential slots 换取 access token，缓存到过期前并注入 `Authorization: Bearer <token>`。
 - `auth.strategy = "none"`：不注入认证。
 
 若私有渠道不用 Bearer，推荐走 `auth` 分区，而不是把认证塞进 `request.headers`：
@@ -269,6 +270,37 @@ v1 固定以下分区：
 - `session_token_slot` 默认 `aws_session_token`，回退 env `AWS_SESSION_TOKEN`；为空则不发 `x-amz-security-token`。
 - `region` 可显式配置；未配置时会从 `bedrock-runtime.<region>.amazonaws.com` 形式的 host 推断，最后兜底 `us-east-1`。
 - 签名头仅包含 `host;x-amz-content-sha256;x-amz-date`，避免把用户可控业务 header 纳入不可预期签名面；出站仍建议用网络 egress 策略限制 AWS 目标。
+
+### OAuth client credentials auth
+
+`oauth_client_credentials` 用于需要先向 IdP 换取 Bearer token 的私有网关。manifest 只声明 slot 名，不保存明文：
+
+```json
+{
+  "plugin": {
+    "version": 1,
+    "auth": {
+      "strategy": "oauth_client_credentials",
+      "oauth": {
+        "token_url": "https://idp.example.com/oauth/token",
+        "client_id_slot": "client_id",
+        "client_secret_slot": "client_secret",
+        "scope": "chat:write",
+        "audience": "https://api.example.com",
+        "expiry_skew_seconds": 60
+      }
+    }
+  }
+}
+```
+
+说明：
+
+- `token_url` 必须使用 HTTPS；测试环境只允许本地 loopback HTTP。
+- `client_id_slot` / `client_secret_slot` 默认分别为 `client_id` / `client_secret`，来源同样是 encrypted `channel_keys.label` 或 env fallback（如 `KOOIX_PLUGIN_SECRET_CLIENT_ID`）。
+- token 请求使用 `application/x-www-form-urlencoded`：`grant_type=client_credentials`、`client_id`、`client_secret`，并可选追加 `scope` / `audience`。
+- token response 必须含 `access_token`；`token_type` 为空时默认 `Bearer`；`expires_in` 为空时按 3600 秒处理。
+- 运行时会缓存 access token，并在 `expires_in - expiry_skew_seconds` 后刷新；`expiry_skew_seconds` 最大 3600。
 
 ## Non-stream response mapping
 

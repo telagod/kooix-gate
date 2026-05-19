@@ -27,6 +27,7 @@ use gate_core::rbac::{Permission, Scope};
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
 use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -549,6 +550,22 @@ fn key_fingerprint(secret: &str) -> String {
     hex::encode(&hash[..16])
 }
 
+fn validate_channel_key_alias(alias: &str) -> AppResult<()> {
+    let alias = alias.trim();
+    if alias.is_empty() {
+        return Ok(());
+    }
+    if !alias
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(AppError::BadRequest(
+            "key alias must use [a-zA-Z0-9_-]".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn list_channel_keys(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
@@ -592,6 +609,9 @@ async fn create_channel_key(
 
     if req.secret.is_empty() {
         return Err(AppError::BadRequest("secret is required".into()));
+    }
+    if let Some(alias) = req.alias.as_deref() {
+        validate_channel_key_alias(alias)?;
     }
 
     let crypto = app.crypto.as_ref().ok_or_else(|| {
@@ -654,6 +674,9 @@ async fn rotate_channel_key(
 
     if req.secret.is_empty() {
         return Err(AppError::BadRequest("secret is required".into()));
+    }
+    if let Some(alias) = req.alias.as_deref() {
+        validate_channel_key_alias(alias)?;
     }
 
     let crypto = app.crypto.as_ref().ok_or_else(|| {
@@ -1827,9 +1850,9 @@ async fn test_channel(
                 .map_err(|e| AppError::Internal(e.to_string()))?,
         ),
         "plugin" | "custom" | "http" | "http_plugin" => Arc::new(
-            gate_providers::CustomHttpProvider::new_with_opts(
+            gate_providers::CustomHttpProvider::new_with_secret_slots(
                 &ch.base_url,
-                &api_key,
+                resolve_probe_secrets(&app, ChannelId::from(channel_id.0), &ch.code).await,
                 ch.model_mapping.clone(),
                 opts,
             )
@@ -2036,7 +2059,87 @@ async fn resolve_probe_key(app: &AppState, channel_id: ChannelId, code: &str) ->
         .unwrap_or_default()
 }
 
+async fn resolve_probe_secrets(
+    app: &AppState,
+    channel_id: ChannelId,
+    code: &str,
+) -> HashMap<String, String> {
+    let mut secrets = gate_providers::CustomHttpProvider::env_secret_slots(code);
+    let Some(crypto) = app.crypto.as_ref() else {
+        return secrets;
+    };
+    let Ok(records) = app.repos.channel_keys.list_by_channel(channel_id).await else {
+        return secrets;
+    };
+
+    let mut active: Vec<_> = records
+        .into_iter()
+        .filter(|record| record.health == "healthy")
+        .filter(|record| {
+            record
+                .cooldown_until
+                .is_none_or(|until| until < chrono::Utc::now())
+        })
+        .collect();
+    active.sort_by_key(|record| (-record.weight, record.created_at));
+
+    let mut best_active: Option<String> = None;
+    let mut selected_primary: Option<String> = None;
+    for record in active {
+        let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+        let Ok(plaintext) = crypto.open(&record.key_enc, &aad).await else {
+            continue;
+        };
+        let Ok(secret) = String::from_utf8(plaintext.to_vec()) else {
+            continue;
+        };
+        best_active.get_or_insert_with(|| secret.clone());
+        let slot = record
+            .label
+            .as_deref()
+            .map(normalize_probe_secret_slot)
+            .unwrap_or_else(|| "primary".to_string());
+        secrets
+            .entry(slot.clone())
+            .or_insert_with(|| secret.clone());
+        if slot == "primary" && selected_primary.is_none() {
+            selected_primary = Some(secret);
+        }
+    }
+
+    if let Some(primary) = selected_primary.or(best_active)
+        && !primary.is_empty()
+    {
+        secrets.insert("primary".to_string(), primary);
+    }
+    secrets
+}
+
+pub(crate) fn normalize_probe_secret_slot(slot: &str) -> String {
+    let trimmed = slot.trim();
+    if trimmed.is_empty() || trimmed == "api_key" {
+        "primary".to_string()
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
 // ─── Pricing Rules CRUD ──────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_key_alias_validation_matches_plugin_secret_slots() {
+        assert!(validate_channel_key_alias("client_id").is_ok());
+        assert!(validate_channel_key_alias("aws-secret-key").is_ok());
+        assert_eq!(normalize_probe_secret_slot("api_key"), "primary");
+        assert_eq!(normalize_probe_secret_slot("Client_ID"), "client_id");
+        assert!(validate_channel_key_alias("client.id").is_err());
+        assert!(validate_channel_key_alias("client id").is_err());
+    }
+}
 
 #[derive(Deserialize)]
 struct PricingRulesQuery {

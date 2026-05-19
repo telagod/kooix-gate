@@ -20,12 +20,14 @@ use hmac::{Hmac, Mac};
 use reqwest::Method;
 use reqwest::Url;
 use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -44,6 +46,22 @@ pub struct CustomHttpProvider {
     base_url: String,
     secrets: Arc<HashMap<String, String>>,
     manifest: Arc<PluginManifest>,
+    oauth_token: Arc<Mutex<Option<CachedOauthToken>>>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedOauthToken {
+    access_token: String,
+    token_type: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OauthTokenResponse {
+    access_token: Option<String>,
+    #[serde(default)]
+    token_type: Option<String>,
+    expires_in: Option<i64>,
 }
 
 impl CustomHttpProvider {
@@ -79,7 +97,12 @@ impl CustomHttpProvider {
             base_url,
             secrets: Arc::new(normalize_secret_slots(secrets)),
             manifest: Arc::new(manifest),
+            oauth_token: Arc::new(Mutex::new(None)),
         })
+    }
+
+    pub fn env_secret_slots(channel_code: &str) -> HashMap<String, String> {
+        env_secret_slots(channel_code)
     }
 
     fn endpoint_url_for(&self, req: &ChatRequest) -> ProviderResult<String> {
@@ -147,6 +170,7 @@ impl CustomHttpProvider {
         self.request_headers_for_parts(req, &endpoint, &body, self.request_method().as_str())
     }
 
+    #[cfg(test)]
     fn request_headers_for_parts(
         &self,
         req: &ChatRequest,
@@ -156,6 +180,18 @@ impl CustomHttpProvider {
     ) -> ProviderResult<HeaderMap> {
         let ctx = self.request_context_for(req)?;
         self.request_headers_with_context(&ctx, endpoint, body, method)
+    }
+
+    async fn request_headers_for_parts_runtime(
+        &self,
+        req: &ChatRequest,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<HeaderMap> {
+        let ctx = self.request_context_for(req)?;
+        self.request_headers_with_context_runtime(&ctx, endpoint, body, method)
+            .await
     }
 
     fn request_headers_with_context(
@@ -180,6 +216,21 @@ impl CustomHttpProvider {
             headers.insert(name, value);
         }
 
+        Ok(headers)
+    }
+
+    async fn request_headers_with_context_runtime(
+        &self,
+        ctx: &Value,
+        endpoint: &str,
+        body: &[u8],
+        method: &str,
+    ) -> ProviderResult<HeaderMap> {
+        let mut headers = self.request_headers_with_context(ctx, endpoint, body, method)?;
+        if self.manifest.auth.strategy == AuthStrategy::OauthClientCredentials {
+            self.apply_oauth_client_credentials_auth_header(&mut headers)
+                .await?;
+        }
         Ok(headers)
     }
 
@@ -259,9 +310,113 @@ impl CustomHttpProvider {
             AuthStrategy::AwsSigv4 => {
                 self.apply_aws_sigv4_auth_headers(headers, endpoint, body, method)?;
             }
+            AuthStrategy::OauthClientCredentials => {}
             AuthStrategy::ApiKeyQuery | AuthStrategy::None => {}
         }
         Ok(())
+    }
+
+    async fn apply_oauth_client_credentials_auth_header(
+        &self,
+        headers: &mut HeaderMap,
+    ) -> ProviderResult<()> {
+        let token = self.oauth_access_token().await?;
+        insert_header(
+            headers,
+            reqwest::header::AUTHORIZATION,
+            format!("{} {}", token.token_type, token.access_token),
+        )
+    }
+
+    async fn oauth_access_token(&self) -> ProviderResult<CachedOauthToken> {
+        let mut guard = self.oauth_token.lock().await;
+        let now = chrono::Utc::now();
+        if let Some(token) = guard.as_ref()
+            && token.expires_at > now
+        {
+            return Ok(token.clone());
+        }
+
+        let token = self.fetch_oauth_access_token(now).await?;
+        *guard = Some(token.clone());
+        Ok(token)
+    }
+
+    async fn fetch_oauth_access_token(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> ProviderResult<CachedOauthToken> {
+        let oauth = &self.manifest.auth.oauth;
+        let client_id = self.secret_for_slot(&oauth.client_id_slot);
+        let client_secret = self.secret_for_slot(&oauth.client_secret_slot);
+        if client_id.is_empty() {
+            return Err(ProviderError::Config(format!(
+                "oauth_client_credentials client id slot '{}' is empty",
+                oauth.client_id_slot
+            )));
+        }
+        if client_secret.is_empty() {
+            return Err(ProviderError::Config(format!(
+                "oauth_client_credentials client secret slot '{}' is empty",
+                oauth.client_secret_slot
+            )));
+        }
+
+        let mut form = vec![
+            ("grant_type", "client_credentials".to_string()),
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+        ];
+        if let Some(scope) = oauth
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            form.push(("scope", scope.to_string()));
+        }
+        if let Some(audience) = oauth
+            .audience
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            form.push(("audience", audience.to_string()));
+        }
+
+        let resp = self
+            .client
+            .post(oauth.token_url.trim())
+            .form(&form)
+            .send()
+            .await?;
+        check_status(&resp)?;
+        enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        let parsed: OauthTokenResponse = resp.json().await.map_err(ProviderError::from)?;
+        let access_token = parsed.access_token.unwrap_or_default();
+        if access_token.trim().is_empty() {
+            return Err(ProviderError::Decode(
+                "oauth token response missing access_token".to_string(),
+            ));
+        }
+
+        let token_type = parsed
+            .token_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&oauth.token_type)
+            .to_string();
+        let expires_in = parsed.expires_in.unwrap_or(3600).max(1);
+        let effective_ttl = expires_in
+            .saturating_sub(oauth.expiry_skew_seconds as i64)
+            .max(1);
+        Ok(CachedOauthToken {
+            access_token,
+            token_type,
+            expires_at: now + chrono::Duration::seconds(effective_ttl),
+        })
     }
 
     fn apply_hmac_auth_headers(
@@ -580,8 +735,9 @@ impl Provider for CustomHttpProvider {
         let body = self.request_json_body(&req)?;
         let endpoint = self.endpoint_url_for(&req)?;
         let method = self.request_method();
-        let mut headers =
-            self.request_headers_for_parts(&req, &endpoint, &body, method.as_str())?;
+        let mut headers = self
+            .request_headers_for_parts_runtime(&req, &endpoint, &body, method.as_str())
+            .await?;
         headers
             .entry(reqwest::header::CONTENT_TYPE)
             .or_insert(HeaderValue::from_static("application/json"));
@@ -607,8 +763,9 @@ impl Provider for CustomHttpProvider {
         let body = self.request_json_body(&req)?;
         let endpoint = self.endpoint_url_for(&req)?;
         let method = self.request_method();
-        let mut headers =
-            self.request_headers_for_parts(&req, &endpoint, &body, method.as_str())?;
+        let mut headers = self
+            .request_headers_for_parts_runtime(&req, &endpoint, &body, method.as_str())
+            .await?;
         headers
             .entry(reqwest::header::CONTENT_TYPE)
             .or_insert(HeaderValue::from_static("application/json"));
@@ -1080,6 +1237,47 @@ fn env_key_for_secret_slot(slot: &str) -> String {
     }
 }
 
+fn env_secret_slots(channel_code: &str) -> HashMap<String, String> {
+    let mut secrets = HashMap::new();
+    if let Some(primary) = env_primary_secret(channel_code) {
+        secrets.insert("primary".to_string(), primary);
+    }
+    for (slot, env_key) in [
+        ("aws_secret_key", "AWS_SECRET_ACCESS_KEY"),
+        ("aws_session_token", "AWS_SESSION_TOKEN"),
+    ] {
+        if let Ok(value) = std::env::var(env_key) {
+            secrets.entry(slot.to_string()).or_insert(value);
+        }
+    }
+    for (key, value) in std::env::vars() {
+        let Some(slot) = key.strip_prefix("KOOIX_PLUGIN_SECRET_") else {
+            continue;
+        };
+        if slot.is_empty() {
+            continue;
+        }
+        let slot = normalize_secret_slot(slot);
+        secrets.entry(slot).or_insert(value);
+    }
+    secrets
+}
+
+fn env_primary_secret(channel_code: &str) -> Option<String> {
+    let env_key = format!(
+        "KOOIX_CH_{}_KEY",
+        channel_code
+            .to_uppercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>()
+    );
+    std::env::var(&env_key)
+        .or_else(|_| std::env::var("KOOIX_API_KEY"))
+        .or_else(|_| std::env::var("KOOIX_PLUGIN_SECRET_PRIMARY"))
+        .ok()
+}
+
 fn validate_http_endpoint(endpoint: &str, deny_internal_host: bool) -> ProviderResult<()> {
     let parsed = reqwest::Url::parse(endpoint)
         .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
@@ -1466,6 +1664,53 @@ mod tests {
     }
 
     #[test]
+    fn plugin_env_secret_slots_include_named_plugin_secrets() {
+        // SAFETY: unit test owns synthetic plugin env names.
+        unsafe {
+            std::env::set_var("KOOIX_PLUGIN_SECRET_CLIENT_ID", "env-client");
+            std::env::set_var("KOOIX_PLUGIN_SECRET_CLIENT_SECRET", "env-secret");
+            std::env::set_var("AWS_SECRET_ACCESS_KEY", "env-aws-secret");
+        }
+
+        let secrets = CustomHttpProvider::env_secret_slots("missing-env-channel");
+        assert_eq!(
+            secrets.get("client_id").map(String::as_str),
+            Some("env-client")
+        );
+        assert_eq!(
+            secrets.get("client_secret").map(String::as_str),
+            Some("env-secret")
+        );
+        assert_eq!(
+            secrets.get("aws_secret_key").map(String::as_str),
+            Some("env-aws-secret")
+        );
+
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            "https://api.example.com",
+            secrets,
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "basic",
+                        "username_slot": "client_id",
+                        "password_slot": "client_secret"
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let headers = provider.request_headers_for(&make_req(false)).unwrap();
+        assert_eq!(
+            headers.get("authorization").unwrap(),
+            "Basic ZW52LWNsaWVudDplbnYtc2VjcmV0"
+        );
+    }
+
+    #[test]
     fn plugin_auth_hmac_signs_method_path_body_timestamp_nonce() {
         let provider = CustomHttpProvider::new_with_secret_slots(
             "https://api.example.com",
@@ -1608,6 +1853,186 @@ mod tests {
         );
         assert!(headers.get("x-amz-access-key").is_none());
         assert!(headers.get("x-amz-secret-key").is_none());
+    }
+
+    #[tokio::test]
+    async fn plugin_auth_oauth_client_credentials_caches_until_expiry() {
+        let token_server = wiremock::MockServer::start().await;
+        let chat_server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/oauth/token"))
+            .and(wiremock::matchers::body_string_contains(
+                "grant_type=client_credentials",
+            ))
+            .and(wiremock::matchers::body_string_contains(
+                "client_id=client-1",
+            ))
+            .and(wiremock::matchers::body_string_contains(
+                "client_secret=secret-1",
+            ))
+            .and(wiremock::matchers::body_string_contains(
+                "scope=chat%3Awrite",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "oauth-token-1",
+                "token_type": "Bearer",
+                "expires_in": 120
+            })))
+            .expect(1)
+            .mount(&token_server)
+            .await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/private/chat"))
+            .and(wiremock::matchers::header(
+                "authorization",
+                "Bearer oauth-token-1",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chatcmpl-oauth",
+                "model": "odd-model",
+                "choices": [{
+                    "index": 0,
+                    "message": { "role": "assistant", "content": "ok" },
+                    "finish_reason": "stop"
+                }],
+                "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+            })))
+            .expect(2)
+            .mount(&chat_server)
+            .await;
+
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            chat_server.uri(),
+            HashMap::from([
+                ("client_id".to_string(), "client-1".to_string()),
+                ("client_secret".to_string(), "secret-1".to_string()),
+            ]),
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "oauth_client_credentials",
+                        "oauth": {
+                            "token_url": format!("{}/oauth/token", token_server.uri()),
+                            "scope": "chat:write"
+                        }
+                    },
+                    "request": { "path": "/private/chat" }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let first = provider.chat(make_req(false)).await.unwrap();
+        let second = provider.chat(make_req(false)).await.unwrap();
+        assert_eq!(first.choices[0].message.content_text(), "ok");
+        assert_eq!(second.usage.total_tokens, 2);
+    }
+
+    #[tokio::test]
+    async fn plugin_auth_oauth_client_credentials_refreshes_expired_token() {
+        let token_server = wiremock::MockServer::start().await;
+        let chat_server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/oauth/token"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "short-token",
+                "expires_in": 1
+            })))
+            .expect(2)
+            .mount(&token_server)
+            .await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/private/chat"))
+            .and(wiremock::matchers::header(
+                "authorization",
+                "Bearer short-token",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chatcmpl-oauth",
+                "model": "odd-model",
+                "choices": [{
+                    "index": 0,
+                    "message": { "role": "assistant", "content": "ok" },
+                    "finish_reason": "stop"
+                }],
+                "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+            })))
+            .expect(2)
+            .mount(&chat_server)
+            .await;
+
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            chat_server.uri(),
+            HashMap::from([
+                ("client_id".to_string(), "client-1".to_string()),
+                ("client_secret".to_string(), "secret-1".to_string()),
+            ]),
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "oauth_client_credentials",
+                        "oauth": {
+                            "token_url": format!("{}/oauth/token", token_server.uri()),
+                            "expiry_skew_seconds": 0
+                        }
+                    },
+                    "request": { "path": "/private/chat" }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        provider.chat(make_req(false)).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        provider.chat(make_req(false)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn plugin_auth_oauth_client_credentials_rejects_invalid_token_response() {
+        let token_server = wiremock::MockServer::start().await;
+        let chat_server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/oauth/token"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "expires_in": 3600
+            })))
+            .expect(1)
+            .mount(&token_server)
+            .await;
+
+        let provider = CustomHttpProvider::new_with_secret_slots(
+            chat_server.uri(),
+            HashMap::from([
+                ("client_id".to_string(), "client-1".to_string()),
+                ("client_secret".to_string(), "secret-1".to_string()),
+            ]),
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "oauth_client_credentials",
+                        "oauth": {
+                            "token_url": format!("{}/oauth/token", token_server.uri())
+                        }
+                    },
+                    "request": { "path": "/private/chat" }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let err = provider.chat(make_req(false)).await.unwrap_err();
+        assert!(err.to_string().contains("access_token"), "err={err}");
     }
 
     #[test]

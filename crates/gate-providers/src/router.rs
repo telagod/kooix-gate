@@ -775,7 +775,7 @@ fn build_embedding_provider(
 /// 优先级：
 /// 1. 环境变量 `KOOIX_CH_<CODE>_KEY`（code 大写，非字母替换为 _）
 /// 2. 环境变量 `KOOIX_API_KEY`（全局兜底）
-/// 3. 空字符串（上游自己决定是否拒绝）
+/// 3. 空字符串（plugin auth 可完全依赖 named secret slots；上游自己决定是否拒绝）
 fn resolve_api_key_for_channel(code: &str) -> ProviderResult<String> {
     let env_key = format!(
         "KOOIX_CH_{}_KEY",
@@ -784,13 +784,9 @@ fn resolve_api_key_for_channel(code: &str) -> ProviderResult<String> {
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect::<String>()
     );
-    std::env::var(&env_key)
+    Ok(std::env::var(&env_key)
         .or_else(|_| std::env::var("KOOIX_API_KEY"))
-        .map_err(|_| {
-            ProviderError::Config(format!(
-                "no API key found for channel '{code}' (tried {env_key} and KOOIX_API_KEY)"
-            ))
-        })
+        .unwrap_or_default())
 }
 
 /// 静态 fallback 链：model → 可尝试的替代模型列表。
@@ -1450,7 +1446,7 @@ impl ProviderRouter {
         // 如果 repo 未配置，直接走 env
         let Some(repo) = &self.channel_key_repo else {
             let primary = resolve_api_key_for_channel(channel_code)?;
-            return Ok((primary.clone(), None, primary_secret_map(primary)));
+            return Ok((primary.clone(), None, env_secret_map(channel_code, primary)));
         };
 
         let Some(crypto) = &self.crypto else {
@@ -1467,7 +1463,7 @@ impl ProviderRouter {
                 Err(_) => {}
             }
             let primary = resolve_api_key_for_channel(channel_code)?;
-            return Ok((primary.clone(), None, primary_secret_map(primary)));
+            return Ok((primary.clone(), None, env_secret_map(channel_code, primary)));
         };
 
         let records = match repo.list_by_channel(channel_id).await {
@@ -1480,7 +1476,7 @@ impl ProviderRouter {
                     "channel key lookup failed, falling back to env"
                 );
                 let primary = resolve_api_key_for_channel(channel_code)?;
-                return Ok((primary.clone(), None, primary_secret_map(primary)));
+                return Ok((primary.clone(), None, env_secret_map(channel_code, primary)));
             }
         };
 
@@ -1502,7 +1498,7 @@ impl ProviderRouter {
                 "no active channel key in DB, falling back to env"
             );
             let primary = resolve_api_key_for_channel(channel_code)?;
-            return Ok((primary.clone(), None, primary_secret_map(primary)));
+            return Ok((primary.clone(), None, env_secret_map(channel_code, primary)));
         }
 
         let mut selected: Option<(i32, chrono::DateTime<chrono::Utc>, ChannelKeyId, String)> = None;
@@ -1546,8 +1542,10 @@ fn is_plugin_provider(provider_type: &str) -> bool {
     matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
 }
 
-fn primary_secret_map(primary: String) -> HashMap<String, String> {
-    HashMap::from([("primary".to_string(), primary)])
+fn env_secret_map(channel_code: &str, primary: String) -> HashMap<String, String> {
+    let mut secrets = CustomHttpProvider::env_secret_slots(channel_code);
+    secrets.insert("primary".to_string(), primary);
+    secrets
 }
 
 fn normalize_secret_slot(slot: &str) -> String {

@@ -29,7 +29,7 @@ tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf
 
 ## Plugin secret slots
 
-本轮把 P1.1.2 的 “Secret 来源统一”、`hmac` 与 `aws_sigv4` 从 TODO 收口为代码路径：
+本轮把 P1.1.2 的 “Secret 来源统一”、`hmac`、`aws_sigv4` 与 `oauth_client_credentials` 从 TODO 收口为代码路径：
 
 - `CustomHttpProvider::new_with_secret_slots` 接收 slot map，`new_with_opts` 继续兼容旧 primary API key。
 - `ProviderRouter::resolve_secrets_for_channel` 读取同一 channel 的 active `channel_keys`，按 `label` 归一为 secret slot 并用 `EnvelopeKms` 解密。
@@ -38,6 +38,8 @@ tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf
 - `auth.strategy = "hmac"` 支持 method/path/query/body_sha256/timestamp/nonce 签名 payload，使用 `secret_slot` 做 HMAC-SHA256，并自动注入 timestamp / nonce / signature header。
 - `auth.strategy = "aws_sigv4"` 支持 AWS Signature Version 4 canonical request / string-to-sign / signing key，自动注入 `Authorization` / `x-amz-date` / `x-amz-content-sha256` / 可选 `x-amz-security-token`。
 - Bedrock Converse preset 默认切到 `aws_sigv4`，不再注入临时 `X-Amz-Access-Key` / `X-Amz-Secret-Key` header。
+- `auth.strategy = "oauth_client_credentials"` 支持向 HTTPS `token_url` 发送 client credentials form，用 `client_id_slot` / `client_secret_slot` 换取 access token，缓存到过期前并注入 `Authorization: Bearer <token>`。
+- Admin channel test 对 plugin provider 改为传完整 secret slot map；`channel_keys.alias` 新增 slot 字符集校验，避免 UI 写入运行期无法引用的 slot。
 
 验证命令：
 
@@ -51,8 +53,11 @@ cargo test -p gate-providers hmac_rejects_unknown_payload_template_variable -- -
 cargo test -p gate-providers plugin_auth_aws_sigv4_signs_bedrock_request -- --nocapture
 cargo test -p gate-providers parses_aws_sigv4_auth_manifest_defaults -- --nocapture
 cargo test -p gate-providers bedrock_preset_defaults_to_aws_sigv4_without_fake_secret_headers -- --nocapture
+cargo test -p gate-providers oauth -- --nocapture
+cargo test -p gate-providers plugin_env_secret_slots_include_named_plugin_secrets -- --nocapture
 cargo test -p gate-providers plugin -- --nocapture
 cargo clippy -p gate-providers --all-targets -- -D warnings
+cargo clippy -p gate-server --all-targets -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

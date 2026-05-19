@@ -245,7 +245,7 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
   - canonical request / string-to-sign / signing key 按 AWS Signature Version 4 生成。
   - 自动注入 `Authorization`、`x-amz-date`、`x-amz-content-sha256`，可选 `x-amz-security-token`。
   - Bedrock Converse preset 默认使用 `aws_sigv4`，不再注入临时 `X-Amz-Access-Key` / `X-Amz-Secret-Key` header。
-- [ ] 内置高级认证策略：
+- [x] 内置 `oauth_client_credentials` 高级认证策略：
   - `oauth_client_credentials`：token cache + expiry refresh。
 - [ ] 前端创建 channel 时按 auth strategy 展示最小字段，保存前做本地 lint。
 
