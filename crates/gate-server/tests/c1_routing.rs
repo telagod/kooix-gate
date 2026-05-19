@@ -9,19 +9,22 @@ use axum::http::{Request, StatusCode};
 use chrono::Duration as ChronoDuration;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_core::id::{ApiKeyId, ChannelGroupId, ChannelId, OrgId, ProjectId};
+use gate_crypto::{EnvelopeKms, aad};
 use gate_providers::ProviderRouter;
+use gate_server::health_check::HealthChecker;
 use gate_server::loader::InMemoryLoader;
 use gate_server::state::Repos;
 use gate_server::{AppState, build_router};
 use gate_storage::{
-    ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelKeyRepo,
-    InMemoryChannelRepo,
+    ChannelGroupRecord, ChannelKeyRepo, ChannelRecord, InMemoryChannelGroupRepo,
+    InMemoryChannelKeyRepo, InMemoryChannelRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
-use wiremock::matchers::{body_partial_json, method, path};
+use wiremock::matchers::{body_json, body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// 构造测试用 ChannelRecord（healthy + active）。
@@ -61,6 +64,102 @@ fn make_plugin_channel(
     ch.provider_type = "plugin".to_string();
     ch.model_mapping = manifest;
     ch
+}
+
+fn test_jwt() -> JwtIssuer {
+    JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap()
+}
+
+fn repos_with_channels(
+    ch_repo: Arc<InMemoryChannelRepo>,
+    grp_repo: Arc<InMemoryChannelGroupRepo>,
+    key_repo: Arc<InMemoryChannelKeyRepo>,
+) -> Repos {
+    Repos {
+        users: Arc::new(gate_storage::InMemoryUserRepo::new()),
+        orgs: Arc::new(gate_storage::InMemoryOrgRepo::new()),
+        projects: Arc::new(gate_storage::InMemoryProjectRepo::new()),
+        memberships: Arc::new(gate_storage::InMemoryMembershipRepo::new()),
+        api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
+        channels: ch_repo,
+        channel_groups: grp_repo,
+        channel_keys: key_repo,
+        identity_providers: Arc::new(gate_storage::InMemoryIdentityProviderRepo::new()),
+        user_identities: Arc::new(gate_storage::InMemoryUserIdentityRepo::new()),
+        oidc_states: Arc::new(gate_storage::InMemoryOidcStateRepo::new()),
+        usage: Arc::new(gate_storage::InMemoryUsageRepo::new()),
+        quotas: Arc::new(gate_storage::InMemoryQuotaRepo::new()),
+        model_aliases: Arc::new(gate_storage::InMemoryModelAliasRepo::new()),
+        audit: Arc::new(gate_storage::InMemoryAuditRepo::new()),
+        billing: Arc::new(gate_storage::InMemoryBillingRepo::new()),
+        request_logs: Arc::new(gate_storage::InMemoryRequestLogRepo::new()),
+        inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+        pg_pool: None,
+    }
+}
+
+fn test_kms() -> Arc<EnvelopeKms> {
+    Arc::new(EnvelopeKms::new(
+        gate_crypto::EnvKms::from_b64(&gate_crypto::kms::generate_master_key_b64(), "test")
+            .unwrap(),
+    ))
+}
+
+async fn start_pg() -> (
+    testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>,
+    sqlx::PgPool,
+) {
+    use testcontainers::ImageExt;
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::postgres::Postgres;
+
+    let tag = std::env::var("KOOIX_TEST_PG_TAG").unwrap_or_else(|_| "17-alpine".into());
+    let container = Postgres::default()
+        .with_tag(&tag)
+        .start()
+        .await
+        .expect("start postgres");
+    let host = container.get_host().await.unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+    let pool = gate_storage::connect(&url, 4).await.expect("connect");
+    gate_storage::run_migrations(&pool).await.expect("migrate");
+    (container, pool)
+}
+
+async fn seed_pg_plugin_channel(
+    pool: &sqlx::PgPool,
+    channel_id: ChannelId,
+    code: &str,
+    base_url: &str,
+    manifest: serde_json::Value,
+    status: &str,
+    health: &str,
+) {
+    sqlx::query(
+        "INSERT INTO channels \
+         (id, code, name, provider_type, base_url, config_enc, supported_models, status, health, model_mapping) \
+         VALUES ($1, $2, $3, 'plugin', $4, '\\x'::bytea, '{}'::text[], $5, $6, $7)",
+    )
+    .bind(channel_id.as_uuid())
+    .bind(code)
+    .bind(format!("channel-{code}"))
+    .bind(base_url)
+    .bind(status)
+    .bind(health)
+    .bind(manifest)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 /// ProviderRouter 按 priority 选中优先级最高（数字最小）的 channel。
@@ -694,4 +793,304 @@ async fn full_chain_plugin_channel_normalizes_private_sse() {
     assert!(body.contains("邪"), "body={body}");
     assert!(body.contains("修"), "body={body}");
     assert!(body.contains("\"total_tokens\":5"), "body={body}");
+}
+
+/// Plugin upstream error → normalized API error；连续失败进入 key cooldown，后续路由 fallback。
+#[tokio::test]
+async fn plugin_error_updates_key_health_and_falls_back_to_next_channel() {
+    unsafe {
+        std::env::set_var("KOOIX_API_KEY", "test-key");
+    }
+    let bad_upstream = MockServer::start().await;
+    let fallback_upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .respond_with(
+            ResponseTemplate::new(503)
+                .insert_header("retry-after", "1")
+                .set_body_json(json!({
+                    "vendor_error": {
+                        "status": 429,
+                        "code": "quota_busy",
+                        "message": "slow down"
+                    }
+                })),
+        )
+        .mount(&bad_upstream)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "fallback-ok",
+            "model": "odd-model",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "fallback", "tool_calls": null },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&fallback_upstream)
+        .await;
+
+    let org_id = OrgId::new();
+    let project_id = ProjectId::new();
+    let api_key_id = ApiKeyId::new();
+    let group_id = ChannelGroupId::new();
+    let bad_ch = ChannelId::new();
+    let fallback_ch = ChannelId::new();
+
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let key_repo = Arc::new(InMemoryChannelKeyRepo::new());
+
+    ch_repo.seed_channel(make_plugin_channel(
+        bad_ch,
+        "bad-plugin",
+        &bad_upstream.uri(),
+        json!({
+            "plugin": {
+                "request": {
+                    "chat_path": "/private/chat",
+                    "retry": { "max_retries": 0, "retryable_codes": ["quota_busy"], "cooldown_ms": 1000 }
+                },
+                "error": {
+                    "status_path": "vendor_error.status",
+                    "code_path": "vendor_error.code",
+                    "message_path": "vendor_error.message",
+                    "rate_limit_status": [429],
+                    "retryable_codes": ["quota_busy"],
+                    "cooldown_ms": 1000,
+                    "circuit_breaker_failures": 2
+                }
+            }
+        }),
+    ));
+    ch_repo.seed_channel(make_plugin_channel(
+        fallback_ch,
+        "fallback-plugin",
+        &fallback_upstream.uri(),
+        json!({
+            "plugin": {
+                "preset": { "provider": "openai_compatible" },
+                "request": { "chat_path": "/private/chat" }
+            }
+        }),
+    ));
+    ch_repo.seed_binding(group_id, bad_ch, 1, 1);
+    ch_repo.seed_binding(group_id, fallback_ch, 2, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "plugin-error-group".to_string(),
+        description: String::new(),
+        strategy: "priority".to_string(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let kms = test_kms();
+    let bad_secret = kms
+        .seal(b"bad-key", &aad::channel_key(*bad_ch.as_uuid()))
+        .await
+        .unwrap();
+    let fallback_secret = kms
+        .seal(b"fallback-key", &aad::channel_key(*fallback_ch.as_uuid()))
+        .await
+        .unwrap();
+    key_repo
+        .create(bad_ch, &bad_secret, "bad-fp", None)
+        .await
+        .unwrap();
+    key_repo
+        .create(fallback_ch, &fallback_secret, "fallback-fp", None)
+        .await
+        .unwrap();
+
+    let provider_router = ProviderRouter::new(ch_repo.clone(), grp_repo.clone())
+        .with_channel_key_repo(key_repo.clone())
+        .with_crypto(kms.clone());
+    let jwt = test_jwt();
+    let plaintext = "sk-kg-test-plugin-error-key-000000";
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        plaintext,
+        gate_server::loader::ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+    let state = AppState::new(
+        jwt,
+        loader,
+        repos_with_channels(ch_repo.clone(), grp_repo.clone(), key_repo.clone()),
+    )
+    .with_provider_router(provider_router)
+    .with_crypto_arc(kms.clone());
+    let router = build_router(state);
+
+    for attempt in 1..=2 {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("authorization", format!("Bearer {plaintext}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "model": "odd-model",
+                    "messages": [{"role": "user", "content": "route plugin error!"}]
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body["error"]["code"], "rate_limit_error",
+            "attempt={attempt}"
+        );
+    }
+
+    let keys = key_repo.list_by_channel(bad_ch).await.unwrap();
+    assert_eq!(keys[0].health, "cooling_down");
+    assert_eq!(keys[0].consecutive_errors, 2);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {plaintext}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "odd-model",
+                "messages": [{"role": "user", "content": "fallback now"}]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["id"], "fallback-ok");
+    assert_eq!(body["choices"][0]["message"]["content"], "fallback");
+}
+
+#[tokio::test]
+async fn health_checker_runs_manifest_plugin_probe_and_recovers_channel() {
+    let (_pg, pool) = start_pg().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/healthz/tiny-health"))
+        .and(body_json(json!({ "model": "tiny-health" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "models": ["tiny-health", "tiny-health"]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let channel_id = ChannelId::new();
+    seed_pg_plugin_channel(
+        &pool,
+        channel_id,
+        "probe-plugin",
+        &upstream.uri(),
+        json!({
+            "plugin": {
+                "auth": { "strategy": "none" },
+                "probe": {
+                    "model": "tiny-health",
+                    "path": "/healthz/{{model}}",
+                    "body": { "model": "{{model}}" },
+                    "success_status": [200],
+                    "max_cost_micros": 0
+                }
+            }
+        }),
+        "disabled",
+        "unhealthy",
+    )
+    .await;
+
+    let state = AppState::new(
+        test_jwt(),
+        Arc::new(InMemoryLoader::new()),
+        Repos::from_pg(pool.clone()),
+    );
+    let checker = HealthChecker::new(&state, std::time::Duration::from_millis(10)).unwrap();
+    let shutdown = CancellationToken::new();
+    let handle = checker.spawn_with_shutdown(shutdown.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    shutdown.cancel();
+    handle.await.unwrap();
+
+    let ch = state.repos.channels.find_by_id(channel_id).await.unwrap();
+    assert_eq!(ch.status, "active");
+    assert_eq!(ch.health, "healthy");
+    assert_eq!(ch.supported_models, vec!["tiny-health".to_string()]);
+}
+
+#[tokio::test]
+async fn health_checker_manifest_probe_failure_auto_disables_channel() {
+    let (_pg, pool) = start_pg().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/healthz/tiny-health"))
+        .respond_with(ResponseTemplate::new(503).set_body_json(json!({
+            "error": "not ready"
+        })))
+        .mount(&upstream)
+        .await;
+
+    let channel_id = ChannelId::new();
+    seed_pg_plugin_channel(
+        &pool,
+        channel_id,
+        "probe-plugin-down",
+        &upstream.uri(),
+        json!({
+            "plugin": {
+                "auth": { "strategy": "none" },
+                "probe": {
+                    "model": "tiny-health",
+                    "path": "/healthz/{{model}}",
+                    "body": { "model": "{{model}}" },
+                    "success_status": [200],
+                    "max_cost_micros": 0
+                }
+            }
+        }),
+        "active",
+        "healthy",
+    )
+    .await;
+
+    let state = AppState::new(
+        test_jwt(),
+        Arc::new(InMemoryLoader::new()),
+        Repos::from_pg(pool.clone()),
+    );
+    let checker = HealthChecker::new(&state, std::time::Duration::from_millis(10)).unwrap();
+    let shutdown = CancellationToken::new();
+    let handle = checker.spawn_with_shutdown(shutdown.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    shutdown.cancel();
+    handle.await.unwrap();
+
+    let ch = state.repos.channels.find_by_id(channel_id).await.unwrap();
+    assert_eq!(ch.status, "disabled");
+    assert_eq!(ch.health, "unhealthy");
+    assert!(
+        ch.last_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("plugin_probe_http: 503")
+    );
 }

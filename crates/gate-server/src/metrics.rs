@@ -15,6 +15,7 @@
 //! | `gate_active_requests`           | Gauge     | (none)                             |
 //! | `gateway_stage_duration_seconds` | Histogram | stage, outcome                     |
 //! | `provider_route_decisions_total` | Counter   | provider_type, outcome             |
+//! | `upstream_errors_total`          | Counter   | kind                               |
 //! | `provider_runtime_snapshot_version` | Gauge  | (none)                             |
 //! | `billing_outbox_lag_seconds`     | Gauge     | (none)                             |
 //! | `billing_settle_failures_total`  | Counter   | reason                             |
@@ -150,6 +151,11 @@ pub fn record_usage_rollup_lag_seconds(lag_seconds: f64) {
 /// Billing settlement failure signal.
 pub fn record_billing_settle_failure(reason: &'static str) {
     metrics::counter!("billing_settle_failures_total", "reason" => reason).increment(1);
+}
+
+/// Record normalized upstream/provider errors with bounded labels.
+pub fn record_upstream_error(kind: &'static str) {
+    metrics::counter!("upstream_errors_total", "kind" => kind).increment(1);
 }
 
 /// Normalize URL paths to avoid label cardinality explosion.

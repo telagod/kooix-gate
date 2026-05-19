@@ -28,6 +28,7 @@ use crate::gemini::GeminiProvider;
 use crate::mistral::MistralProvider;
 use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
+use crate::plugin_manifest::plugin_manifest_retry_config;
 use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
@@ -1347,6 +1348,22 @@ impl ProviderRouter {
 
         // Try each channel in order until one passes rate limits
         for candidate in &ordered {
+            if is_plugin_provider(&candidate.channel.provider_type)
+                && !self
+                    .has_available_plugin_secret(
+                        candidate.channel.channel_id,
+                        &candidate.channel.code,
+                    )
+                    .await
+            {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    "plugin channel has no active secret, trying next channel"
+                );
+                trace.record_skip(candidate, "no_active_secret");
+                continue;
+            }
+
             // RPM 检查
             if !self
                 .rate_limiter
@@ -1408,6 +1425,15 @@ impl ProviderRouter {
                 max_retries: candidate.channel.max_retries.max(0) as u32,
                 ..Default::default()
             };
+            let retry_config = if is_plugin_provider(&candidate.channel.provider_type) {
+                plugin_manifest_retry_config(
+                    &candidate.channel.model_mapping,
+                    &candidate.channel.base_url,
+                )
+                .unwrap_or(retry_config)
+            } else {
+                retry_config
+            };
 
             // model_mapping: 如果 channel 配置了映射，翻译模型名
             let resolved_model = resolve_model_mapping(&candidate.channel.model_mapping, model);
@@ -1447,6 +1473,26 @@ impl ProviderRouter {
             .resolve_secrets_for_channel(channel_id, channel_code)
             .await?;
         Ok((primary, key_id))
+    }
+
+    async fn has_available_plugin_secret(&self, channel_id: ChannelId, channel_code: &str) -> bool {
+        if let Some(repo) = &self.channel_key_repo {
+            return match repo.find_active_for_channel(channel_id).await {
+                Ok(_) => true,
+                Err(gate_storage::DbError::NotFound) => false,
+                Err(e) => {
+                    tracing::warn!(
+                        channel_id = %channel_id,
+                        error = %e,
+                        "channel key availability check failed"
+                    );
+                    false
+                }
+            };
+        }
+        resolve_api_key_for_channel(channel_code)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
     }
 
     /// P1: plugin secret slots 从 channel_keys.label 解密；primary 仍保持旧行为。

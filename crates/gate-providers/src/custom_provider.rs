@@ -5,10 +5,13 @@
 //! responses, and normalize arbitrary SSE frames back into OpenAI-compatible chunks.
 
 use crate::Provider;
-use crate::error::{ProviderError, ProviderResult};
+use crate::error::{
+    NormalizedProviderErrorKind, ProviderError, ProviderErrorMetadata, ProviderResult,
+};
 use crate::openai::check_status;
 use crate::plugin_manifest::{
-    AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest, RequestMethod, SignatureEncoding,
+    AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest, ProbeManifest, RequestMethod,
+    SignatureEncoding,
 };
 use crate::plugin_manifest::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SSE_EVENT_BYTES};
 use crate::plugin_preset::{StreamManifest, adapt_chat_request, eval_path_value};
@@ -65,6 +68,17 @@ struct OauthTokenResponse {
     expires_in: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PluginProbeRequest {
+    pub method: Method,
+    pub url: String,
+    pub headers: HeaderMap,
+    pub body: Option<Vec<u8>>,
+    pub model: String,
+    pub success_status: Vec<u16>,
+    pub max_cost_micros: Option<i64>,
+}
+
 impl CustomHttpProvider {
     pub fn new_with_opts(
         base_url: impl Into<String>,
@@ -106,6 +120,70 @@ impl CustomHttpProvider {
         env_secret_slots(channel_code)
     }
 
+    pub async fn build_probe_request(&self) -> ProviderResult<PluginProbeRequest> {
+        let probe = &self.manifest.probe;
+        let model = probe
+            .model
+            .clone()
+            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+        let req = ChatRequest {
+            model: model.clone(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: Some(MessageContent::Text("Hi".to_string())),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            max_tokens: Some(1),
+            temperature: Some(0.0),
+            stream: false,
+            ..Default::default()
+        };
+        let ctx = self.request_context_for(&req)?;
+        let method = if probe.body.is_some() {
+            Method::POST
+        } else {
+            Method::GET
+        };
+        let body = match &probe.body {
+            Some(template) => {
+                let value = render_value(template, &ctx);
+                let bytes = serde_json::to_vec(&value)?;
+                enforce_size(
+                    "plugin probe body",
+                    bytes.len(),
+                    self.manifest.security.max_request_bytes(),
+                )?;
+                Some(bytes)
+            }
+            None => None,
+        };
+        let url = self.probe_url_with_context(probe, &ctx)?;
+        let mut headers = self
+            .request_headers_with_context_runtime(
+                &ctx,
+                &url,
+                body.as_deref().unwrap_or_default(),
+                method.as_str(),
+            )
+            .await?;
+        if body.is_some() {
+            headers
+                .entry(reqwest::header::CONTENT_TYPE)
+                .or_insert(HeaderValue::from_static("application/json"));
+        }
+        Ok(PluginProbeRequest {
+            method,
+            url,
+            headers,
+            body,
+            model,
+            success_status: probe.success_status_or_default(),
+            max_cost_micros: probe.max_cost_micros,
+        })
+    }
+
     fn endpoint_url_for(&self, req: &ChatRequest) -> ProviderResult<String> {
         let ctx = self.request_context_for(req)?;
         self.endpoint_url_with_context(&ctx)
@@ -141,26 +219,51 @@ impl CustomHttpProvider {
         self.url_with_query(endpoint, ctx)
     }
 
+    fn probe_url_with_context(&self, probe: &ProbeManifest, ctx: &Value) -> ProviderResult<String> {
+        let path = probe.path.as_deref().unwrap_or("/models");
+        let rendered = render_template_str(path, ctx);
+        if rendered.starts_with("http://") || rendered.starts_with("https://") {
+            if !self.manifest.security.allow_absolute_chat_path {
+                return Err(ProviderError::Config(
+                    "plugin probe.path must be relative; absolute URLs are disabled by default"
+                        .into(),
+                ));
+            }
+            validate_http_endpoint(&rendered, true)?;
+            return self.url_with_query(rendered, ctx);
+        }
+        let endpoint = format!("{}{}", self.base_url, slash_path(&rendered));
+        validate_http_endpoint(&endpoint, false)?;
+        self.url_with_query(endpoint, ctx)
+    }
+
     fn url_with_query(&self, endpoint: String, ctx: &Value) -> ProviderResult<String> {
         let mut url = Url::parse(&endpoint)
             .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
+        let mut rendered_pairs = Vec::new();
+        for (name, value) in &self.manifest.request.query {
+            if value.is_null() {
+                continue;
+            }
+            if let Some(rendered) = render_template(value, ctx) {
+                rendered_pairs.push((name.clone(), rendered));
+            }
+        }
+        if self.manifest.auth.strategy == AuthStrategy::ApiKeyQuery
+            && let Some(name) = self.manifest.auth.query_name()
+        {
+            rendered_pairs.push((
+                name.to_string(),
+                self.secret_for_slot(self.manifest.auth.secret_slot()),
+            ));
+        }
+        if rendered_pairs.is_empty() {
+            return Ok(url.to_string());
+        }
         {
             let mut pairs = url.query_pairs_mut();
-            for (name, value) in &self.manifest.request.query {
-                if value.is_null() {
-                    continue;
-                }
-                if let Some(rendered) = render_template(value, ctx) {
-                    pairs.append_pair(name, &rendered);
-                }
-            }
-            if self.manifest.auth.strategy == AuthStrategy::ApiKeyQuery
-                && let Some(name) = self.manifest.auth.query_name()
-            {
-                pairs.append_pair(
-                    name,
-                    &self.secret_for_slot(self.manifest.auth.secret_slot()),
-                );
+            for (name, value) in rendered_pairs {
+                pairs.append_pair(&name, &value);
             }
         }
         Ok(url.to_string())
@@ -676,6 +779,200 @@ impl CustomHttpProvider {
         Ok(serde_json::from_slice(&body)?)
     }
 
+    async fn limited_error_body(&self, resp: reqwest::Response) -> ProviderResult<String> {
+        let limit = self.manifest.security.max_response_bytes().min(64 * 1024);
+        let mut body = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if body.len().saturating_add(chunk.len()) > limit {
+                return Err(ProviderError::Decode(format!(
+                    "plugin error body too large: more than {limit} bytes"
+                )));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(String::from_utf8_lossy(&body).into_owned())
+    }
+
+    async fn check_plugin_status(
+        &self,
+        resp: reqwest::Response,
+    ) -> ProviderResult<reqwest::Response> {
+        if resp.status().is_success() {
+            return Ok(resp);
+        }
+
+        let status = resp.status().as_u16();
+        let retry_after_ms = retry_after_ms(resp.headers());
+        let body = self.limited_error_body(resp).await?;
+        Err(self.map_error_response(status, retry_after_ms, &body))
+    }
+
+    fn map_error_response(
+        &self,
+        status: u16,
+        retry_after_ms: Option<u64>,
+        body: &str,
+    ) -> ProviderError {
+        let parsed = serde_json::from_str::<Value>(body).ok();
+        let status_from_body = parsed
+            .as_ref()
+            .and_then(|value| {
+                self.manifest
+                    .error
+                    .status_path
+                    .as_deref()
+                    .and_then(|path| eval_path_value(value, path).ok().flatten())
+            })
+            .and_then(|value| value_to_u16(&value));
+        let effective_status = status_from_body.unwrap_or(status);
+        let code = parsed
+            .as_ref()
+            .and_then(|value| {
+                self.manifest
+                    .error
+                    .code_path
+                    .as_deref()
+                    .and_then(|path| eval_path_value(value, path).ok().flatten())
+                    .or_else(|| eval_path_value(value, "error.code").ok().flatten())
+                    .or_else(|| eval_path_value(value, "code").ok().flatten())
+                    .or_else(|| eval_path_value(value, "type").ok().flatten())
+            })
+            .and_then(|value| value_to_string(&value));
+        let message = parsed
+            .as_ref()
+            .and_then(|value| {
+                self.manifest
+                    .error
+                    .message_path
+                    .as_deref()
+                    .and_then(|path| eval_path_value(value, path).ok().flatten())
+                    .or_else(|| eval_path_value(value, "error.message").ok().flatten())
+                    .or_else(|| eval_path_value(value, "message").ok().flatten())
+                    .or_else(|| eval_path_value(value, "error").ok().flatten())
+            })
+            .and_then(|value| value_to_string(&value))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                let trimmed = body.trim();
+                if trimmed.is_empty() {
+                    format!("upstream returned {status}")
+                } else {
+                    trimmed.chars().take(512).collect()
+                }
+            });
+
+        let kind = self.classify_error(effective_status, code.as_deref(), &message);
+        let retryable = self.error_retryable(effective_status, code.as_deref(), kind);
+        let cooldown_ms = self
+            .manifest
+            .error
+            .cooldown_ms
+            .or(self.manifest.request.retry.cooldown_ms)
+            .or_else(|| {
+                retry_after_ms.filter(|_| matches!(kind, NormalizedProviderErrorKind::RateLimit))
+            });
+        let circuit_breaker_failures = self.manifest.error.circuit_breaker_failures.or(self
+            .manifest
+            .request
+            .retry
+            .circuit_breaker_failures);
+        let metadata = ProviderErrorMetadata {
+            kind,
+            retryable,
+            cooldown_ms,
+            circuit_breaker_failures,
+            retry_after_ms,
+        };
+
+        ProviderError::Mapped {
+            status: Some(effective_status),
+            code,
+            message,
+            metadata,
+        }
+    }
+
+    fn classify_error(
+        &self,
+        status: u16,
+        code: Option<&str>,
+        message: &str,
+    ) -> NormalizedProviderErrorKind {
+        if status_in(status, &self.manifest.error.auth_status)
+            || matches!(status, 401 | 403)
+            || code_matches(
+                code,
+                &["authentication_error", "invalid_api_key", "unauthorized"],
+            )
+        {
+            return NormalizedProviderErrorKind::Authentication;
+        }
+        if status_in(status, &self.manifest.error.rate_limit_status)
+            || status == 429
+            || code_matches(
+                code,
+                &["rate_limit_error", "rate_limited", "too_many_requests"],
+            )
+        {
+            return NormalizedProviderErrorKind::RateLimit;
+        }
+        if status_in(status, &self.manifest.error.model_not_found_status)
+            || status == 404
+            || code_matches(
+                code,
+                &[
+                    "model_not_found",
+                    "model_not_found_error",
+                    "invalid_model",
+                    "invalid_request_error",
+                ],
+            )
+        {
+            return NormalizedProviderErrorKind::InvalidRequest;
+        }
+        if code.is_some_and(|code| {
+            self.manifest
+                .error
+                .safety_block_codes
+                .iter()
+                .any(|c| c == code)
+        }) || code_matches(
+            code,
+            &["content_filter", "policy_violation", "safety_block"],
+        ) || message_contains_any(message, &["content filter", "policy", "safety"])
+        {
+            return NormalizedProviderErrorKind::Policy;
+        }
+        NormalizedProviderErrorKind::Upstream
+    }
+
+    fn error_retryable(
+        &self,
+        status: u16,
+        code: Option<&str>,
+        kind: NormalizedProviderErrorKind,
+    ) -> bool {
+        matches!(kind, NormalizedProviderErrorKind::RateLimit)
+            || status >= 500
+            || self.manifest.error.retryable_status.contains(&status)
+            || self
+                .manifest
+                .request
+                .retry
+                .retryable_status
+                .contains(&status)
+            || code.is_some_and(|code| {
+                self.manifest
+                    .error
+                    .retryable_codes
+                    .iter()
+                    .chain(self.manifest.request.retry.retryable_codes.iter())
+                    .any(|c| c == code)
+            })
+    }
+
     fn parse_chat_response(
         &self,
         value: Value,
@@ -782,7 +1079,7 @@ impl Provider for CustomHttpProvider {
             .body(body)
             .send()
             .await?;
-        check_status(&resp)?;
+        let resp = self.check_plugin_status(resp).await?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
         let body = self.limited_json_response(resp).await?;
@@ -810,7 +1107,7 @@ impl Provider for CustomHttpProvider {
             .body(body)
             .send()
             .await?;
-        check_status(&resp)?;
+        let resp = self.check_plugin_status(resp).await?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
 
         let mapper = StreamMapper {
@@ -1652,6 +1949,38 @@ fn value_to_string(v: &Value) -> Option<String> {
         Value::Null => None,
         other => Some(other.to_string()),
     }
+}
+
+fn value_to_u16(v: &Value) -> Option<u16> {
+    match v {
+        Value::Number(n) => n.as_u64().and_then(|value| u16::try_from(value).ok()),
+        Value::String(s) => s.trim().parse::<u16>().ok(),
+        _ => None,
+    }
+}
+
+fn retry_after_ms(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|seconds| seconds.saturating_mul(1000))
+}
+
+fn status_in(status: u16, statuses: &[u16]) -> bool {
+    statuses.contains(&status)
+}
+
+fn code_matches(code: Option<&str>, values: &[&str]) -> bool {
+    let Some(code) = code else {
+        return false;
+    };
+    values.iter().any(|value| code.eq_ignore_ascii_case(value))
+}
+
+fn message_contains_any(message: &str, needles: &[&str]) -> bool {
+    let message = message.to_ascii_lowercase();
+    needles.iter().any(|needle| message.contains(needle))
 }
 
 fn map_role(s: &str) -> Option<Role> {

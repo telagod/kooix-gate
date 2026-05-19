@@ -80,6 +80,7 @@ pub trait ChannelKeyRepo: Send + Sync + 'static {
         key_id: ChannelKeyId,
         error_code: Option<i32>,
         cooldown_secs: i64,
+        circuit_breaker_failures: u32,
     ) -> DbResult<()>;
 }
 
@@ -264,7 +265,9 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         key_id: ChannelKeyId,
         error_code: Option<i32>,
         cooldown_secs: i64,
+        circuit_breaker_failures: u32,
     ) -> DbResult<()> {
+        let circuit_breaker_failures = circuit_breaker_failures.max(1) as i32;
         sqlx::query(
             "UPDATE channel_keys SET \
              consecutive_errors = consecutive_errors + 1, \
@@ -272,8 +275,8 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
              total_errors = total_errors + 1, \
              last_error_code = $2, \
              last_error_at = NOW(), \
-             health = CASE WHEN consecutive_errors + 1 >= 3 THEN 'cooling_down' ELSE health END, \
-             cooldown_until = CASE WHEN consecutive_errors + 1 >= 3 \
+             health = CASE WHEN consecutive_errors + 1 >= $4 THEN 'cooling_down' ELSE health END, \
+             cooldown_until = CASE WHEN consecutive_errors + 1 >= $4 \
                                    THEN NOW() + ($3 || ' seconds')::INTERVAL \
                                    ELSE cooldown_until END \
              WHERE id = $1",
@@ -281,6 +284,7 @@ impl ChannelKeyRepo for PgChannelKeyRepo {
         .bind(key_id.as_uuid())
         .bind(error_code)
         .bind(cooldown_secs.to_string())
+        .bind(circuit_breaker_failures)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -319,10 +323,12 @@ impl InMemoryChannelKeyRepo {
 impl ChannelKeyRepo for InMemoryChannelKeyRepo {
     async fn find_active_for_channel(&self, channel_id: ChannelId) -> DbResult<ChannelKeyRecord> {
         let inner = self.inner.read();
+        let now = Utc::now();
         inner
             .keys
             .values()
             .filter(|k| k.channel_id == channel_id && k.health == "healthy")
+            .filter(|k| k.cooldown_until.is_none_or(|until| until < now))
             .max_by_key(|k| (k.weight, std::cmp::Reverse(k.created_at)))
             .cloned()
             .ok_or(DbError::NotFound)
@@ -437,16 +443,36 @@ impl ChannelKeyRepo for InMemoryChannelKeyRepo {
         Ok(())
     }
 
-    async fn report_success(&self, _key_id: ChannelKeyId) -> DbResult<()> {
+    async fn report_success(&self, key_id: ChannelKeyId) -> DbResult<()> {
+        let mut inner = self.inner.write();
+        let rec = inner.keys.get_mut(&key_id).ok_or(DbError::NotFound)?;
+        rec.consecutive_errors = 0;
+        rec.health = "healthy".to_string();
+        rec.total_requests += 1;
+        rec.cooldown_until = None;
+        rec.updated_at = Utc::now();
         Ok(())
     }
 
     async fn report_failure(
         &self,
-        _key_id: ChannelKeyId,
-        _error_code: Option<i32>,
-        _cooldown_secs: i64,
+        key_id: ChannelKeyId,
+        error_code: Option<i32>,
+        cooldown_secs: i64,
+        circuit_breaker_failures: u32,
     ) -> DbResult<()> {
+        let mut inner = self.inner.write();
+        let rec = inner.keys.get_mut(&key_id).ok_or(DbError::NotFound)?;
+        rec.consecutive_errors += 1;
+        rec.total_requests += 1;
+        rec.total_errors += 1;
+        rec.last_error_code = error_code;
+        rec.last_error_at = Some(Utc::now());
+        if rec.consecutive_errors >= circuit_breaker_failures.max(1) as i32 {
+            rec.health = "cooling_down".to_string();
+            rec.cooldown_until = Some(Utc::now() + chrono::Duration::seconds(cooldown_secs));
+        }
+        rec.updated_at = Utc::now();
         Ok(())
     }
 }
@@ -537,5 +563,58 @@ mod tests {
         let ch = test_channel_id();
         let res = repo.find_active_for_channel(ch).await;
         assert!(matches!(res, Err(DbError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn inmemory_failure_enters_cooling_down_and_success_recovers() {
+        let repo = InMemoryChannelKeyRepo::new();
+        let ch = test_channel_id();
+        let id = repo.create(ch, b"k1", "fp-1", None).await.unwrap();
+
+        repo.report_failure(id, Some(503), 60, 3).await.unwrap();
+        repo.report_failure(id, Some(503), 60, 3).await.unwrap();
+        assert_eq!(
+            repo.find_active_for_channel(ch)
+                .await
+                .unwrap()
+                .consecutive_errors,
+            2
+        );
+
+        repo.report_failure(id, Some(503), 60, 3).await.unwrap();
+        let cooled = repo.list_by_channel(ch).await.unwrap().pop().unwrap();
+        assert_eq!(cooled.health, "cooling_down");
+        assert!(cooled.cooldown_until.is_some());
+        assert!(matches!(
+            repo.find_active_for_channel(ch).await,
+            Err(DbError::NotFound)
+        ));
+
+        repo.report_success(id).await.unwrap();
+        let active = repo.find_active_for_channel(ch).await.unwrap();
+        assert_eq!(active.health, "healthy");
+        assert_eq!(active.consecutive_errors, 0);
+        assert!(active.cooldown_until.is_none());
+    }
+
+    #[tokio::test]
+    async fn inmemory_failure_uses_manifest_threshold() {
+        let repo = InMemoryChannelKeyRepo::new();
+        let ch = test_channel_id();
+        let id = repo
+            .create(ch, b"encrypted-key", "fp-threshold", None)
+            .await
+            .unwrap();
+
+        repo.report_failure(id, Some(429), 30, 2).await.unwrap();
+        let keys = repo.list_by_channel(ch).await.unwrap();
+        assert_eq!(keys[0].health, "healthy");
+        assert_eq!(keys[0].consecutive_errors, 1);
+
+        repo.report_failure(id, Some(429), 30, 2).await.unwrap();
+        let keys = repo.list_by_channel(ch).await.unwrap();
+        assert_eq!(keys[0].health, "cooling_down");
+        assert_eq!(keys[0].consecutive_errors, 2);
+        assert!(keys[0].cooldown_until.is_some());
     }
 }

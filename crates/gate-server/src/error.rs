@@ -132,9 +132,42 @@ impl IntoResponse for AppError {
             ),
             AppError::Provider(gate_providers::ProviderError::RateLimited { .. }) => (
                 StatusCode::TOO_MANY_REQUESTS,
-                "upstream_rate_limited",
+                "rate_limit_error",
                 self.to_string(),
             ),
+            AppError::Provider(gate_providers::ProviderError::InvalidRequest(_)) => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                self.to_string(),
+            ),
+            AppError::Provider(gate_providers::ProviderError::Policy(_)) => {
+                (StatusCode::FORBIDDEN, "policy_error", self.to_string())
+            }
+            AppError::Provider(gate_providers::ProviderError::Mapped {
+                metadata, message, ..
+            }) => match metadata.kind {
+                gate_providers::error::NormalizedProviderErrorKind::Authentication => (
+                    StatusCode::BAD_GATEWAY,
+                    "authentication_error",
+                    "upstream auth failed".into(),
+                ),
+                gate_providers::error::NormalizedProviderErrorKind::RateLimit => (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "rate_limit_error",
+                    self.to_string(),
+                ),
+                gate_providers::error::NormalizedProviderErrorKind::InvalidRequest => (
+                    StatusCode::BAD_REQUEST,
+                    "invalid_request_error",
+                    message.clone(),
+                ),
+                gate_providers::error::NormalizedProviderErrorKind::Policy => {
+                    (StatusCode::FORBIDDEN, "policy_error", message.clone())
+                }
+                gate_providers::error::NormalizedProviderErrorKind::Upstream => {
+                    (StatusCode::BAD_GATEWAY, "upstream_error", self.to_string())
+                }
+            },
             AppError::Provider(gate_providers::ProviderError::Network(_)) => (
                 StatusCode::BAD_GATEWAY,
                 "upstream_unreachable",

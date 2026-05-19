@@ -7,6 +7,24 @@
 
 use thiserror::Error;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NormalizedProviderErrorKind {
+    Authentication,
+    RateLimit,
+    InvalidRequest,
+    Policy,
+    Upstream,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderErrorMetadata {
+    pub kind: NormalizedProviderErrorKind,
+    pub retryable: bool,
+    pub cooldown_ms: Option<u64>,
+    pub circuit_breaker_failures: Option<u32>,
+    pub retry_after_ms: Option<u64>,
+}
+
 #[derive(Debug, Error)]
 pub enum ProviderError {
     #[error("upstream {status}: {body}")]
@@ -17,6 +35,20 @@ pub enum ProviderError {
 
     #[error("upstream auth failed: {0}")]
     Auth(String),
+
+    #[error("upstream invalid request: {0}")]
+    InvalidRequest(String),
+
+    #[error("upstream policy blocked: {0}")]
+    Policy(String),
+
+    #[error("upstream mapped error: status={status:?} code={code:?} message={message}")]
+    Mapped {
+        status: Option<u16>,
+        code: Option<String>,
+        message: String,
+        metadata: ProviderErrorMetadata,
+    },
 
     #[error("network: {0}")]
     Network(String),

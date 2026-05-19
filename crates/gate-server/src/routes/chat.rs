@@ -42,9 +42,10 @@ use futures::stream::StreamExt;
 use gate_auth::AuthError;
 use gate_auth::context::Subject;
 use gate_core::id::ChannelId;
+use gate_core::id::ChannelKeyId;
 use gate_core::id::ProjectId;
 use gate_providers::retry::{RetryConfig, with_retry};
-use gate_providers::{ChannelMetrics, ChatRequest, ChatResponse, Provider, Usage};
+use gate_providers::{ChannelMetrics, ChatRequest, ChatResponse, Provider, ProviderError, Usage};
 use parking_lot::Mutex;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -107,6 +108,7 @@ async fn chat_completions(
         params_override,
         provider_type,
         routed_metrics,
+        routed_key_id,
         routed_model,
     ) = resolve_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
@@ -155,6 +157,7 @@ async fn chat_completions(
                     StageOutcome::Error,
                     execute_start.elapsed().as_secs_f64(),
                 );
+                report_channel_failure(&app, channel_id, routed_key_id, &e, &routed_metrics).await;
                 return Err(AppError::Provider(e));
             }
         };
@@ -178,6 +181,7 @@ async fn chat_completions(
                 });
             }
         }
+        report_channel_success(&app, routed_key_id).await;
 
         // 累积流式 usage：包装 stream，inspect 每个 chunk，记下最后含 usage 的那个
         let captured_usage: Arc<Mutex<Option<Usage>>> = Arc::new(Mutex::new(None));
@@ -272,7 +276,24 @@ async fn chat_completions(
         let resp: ChatResponse = match with_retry(&retry_config, || {
             let req_clone = req.clone();
             let provider = provider.clone();
-            async move { provider.chat(req_clone).await }
+            let app = app.clone();
+            let routed_metrics = routed_metrics.clone();
+            async move {
+                match provider.chat(req_clone).await {
+                    Ok(resp) => Ok(resp),
+                    Err(err) => {
+                        report_channel_failure(
+                            &app,
+                            channel_id,
+                            routed_key_id,
+                            &err,
+                            &routed_metrics,
+                        )
+                        .await;
+                        Err(err)
+                    }
+                }
+            }
         })
         .await
         {
@@ -303,6 +324,7 @@ async fn chat_completions(
                         });
                     }
                 }
+                report_channel_success(&app, routed_key_id).await;
                 r
             }
             Err(e) => {
@@ -311,25 +333,6 @@ async fn chat_completions(
                     StageOutcome::Error,
                     start.elapsed().as_secs_f64(),
                 );
-                // 上报失败
-                if let (Some(m), Some(ch_uuid)) = (&routed_metrics, channel_id) {
-                    let ch_id = ChannelId::from(ch_uuid);
-                    m.record(ch_id, false);
-                    if m.should_disable(ch_id) {
-                        let repos = app.repos.clone();
-                        tokio::spawn(async move {
-                            if let Err(de) = repos
-                                .channels
-                                .auto_disable(ch_id, "success rate below threshold")
-                                .await
-                            {
-                                tracing::warn!(channel_id = %ch_id.as_uuid(), error = %de, "auto_disable failed");
-                            } else {
-                                tracing::warn!(channel_id = %ch_id.as_uuid(), "auto-disabled channel due to low success rate");
-                            }
-                        });
-                    }
-                }
                 return Err(AppError::Provider(e));
             }
         };
@@ -394,6 +397,7 @@ async fn resolve_provider(
     serde_json::Value,
     String,
     Option<Arc<ChannelMetrics>>,
+    Option<ChannelKeyId>,
     Option<String>,
 )> {
     // 尝试从 ProviderRouter 获取
@@ -419,6 +423,7 @@ async fn resolve_provider(
                         routed.params_override,
                         provider_type,
                         metrics,
+                        routed.key_id,
                         Some(resolved_model),
                     ));
                 }
@@ -460,7 +465,141 @@ async fn resolve_provider(
         "openai".to_string(),
         None,
         None,
+        None,
     ))
+}
+
+async fn report_channel_success(app: &AppState, key_id: Option<ChannelKeyId>) {
+    let Some(key_id) = key_id else {
+        return;
+    };
+    if let Err(e) = app.repos.channel_keys.report_success(key_id).await {
+        tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "channel key success report failed");
+    }
+}
+
+async fn report_channel_failure(
+    app: &AppState,
+    channel_id: Option<uuid::Uuid>,
+    key_id: Option<ChannelKeyId>,
+    error: &ProviderError,
+    routed_metrics: &Option<Arc<ChannelMetrics>>,
+) {
+    let failure = provider_failure_policy(error);
+    if let Some(key_id) = key_id {
+        if let Err(e) = app
+            .repos
+            .channel_keys
+            .report_failure(
+                key_id,
+                failure.error_code,
+                failure.cooldown_secs,
+                failure.circuit_breaker_failures,
+            )
+            .await
+        {
+            tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "channel key failure report failed");
+        }
+    }
+    if let (Some(m), Some(ch_uuid)) = (routed_metrics, channel_id) {
+        let ch_id = ChannelId::from(ch_uuid);
+        m.record(ch_id, false);
+        if m.should_disable(ch_id) {
+            if let Err(e) = app
+                .repos
+                .channels
+                .auto_disable(ch_id, failure.reason.as_str())
+                .await
+            {
+                tracing::warn!(channel_id = %ch_id.as_uuid(), error = %e, "auto_disable failed");
+            } else {
+                tracing::warn!(channel_id = %ch_id.as_uuid(), reason = %failure.reason, "auto-disabled channel due to provider failures");
+            }
+        }
+    }
+    crate::metrics::record_upstream_error(&failure.kind_label);
+}
+
+struct ProviderFailurePolicy {
+    kind_label: &'static str,
+    reason: String,
+    error_code: Option<i32>,
+    cooldown_secs: i64,
+    circuit_breaker_failures: u32,
+}
+
+fn provider_failure_policy(error: &ProviderError) -> ProviderFailurePolicy {
+    let (kind_label, reason, error_code, cooldown_ms, circuit_breaker_failures) = match error {
+        ProviderError::Auth(message) => (
+            "authentication_error",
+            message.clone(),
+            Some(401),
+            None,
+            None,
+        ),
+        ProviderError::RateLimited { retry_after_ms } => (
+            "rate_limit_error",
+            error.to_string(),
+            Some(429),
+            *retry_after_ms,
+            None,
+        ),
+        ProviderError::InvalidRequest(message) => (
+            "invalid_request_error",
+            message.clone(),
+            Some(400),
+            None,
+            None,
+        ),
+        ProviderError::Policy(message) => ("policy_error", message.clone(), Some(403), None, None),
+        ProviderError::Upstream { status, body } => (
+            "upstream_error",
+            body.clone(),
+            Some((*status).into()),
+            status.ge(&500).then_some(60_000),
+            None,
+        ),
+        ProviderError::Mapped {
+            status,
+            message,
+            metadata,
+            ..
+        } => {
+            let label = match metadata.kind {
+                gate_providers::error::NormalizedProviderErrorKind::Authentication => {
+                    "authentication_error"
+                }
+                gate_providers::error::NormalizedProviderErrorKind::RateLimit => "rate_limit_error",
+                gate_providers::error::NormalizedProviderErrorKind::InvalidRequest => {
+                    "invalid_request_error"
+                }
+                gate_providers::error::NormalizedProviderErrorKind::Policy => "policy_error",
+                gate_providers::error::NormalizedProviderErrorKind::Upstream => "upstream_error",
+            };
+            (
+                label,
+                message.clone(),
+                status.map(i32::from),
+                metadata.cooldown_ms.or(metadata.retry_after_ms),
+                metadata.circuit_breaker_failures,
+            )
+        }
+        ProviderError::Network(message) => {
+            ("network_error", message.clone(), None, Some(60_000), None)
+        }
+        ProviderError::Decode(message) => ("decode_error", message.clone(), None, None, None),
+        ProviderError::Config(message) => ("config_error", message.clone(), None, None, None),
+    };
+
+    ProviderFailurePolicy {
+        kind_label,
+        reason: format!("{kind_label}: {reason}"),
+        error_code,
+        cooldown_secs: cooldown_ms
+            .map(|ms| ms.div_ceil(1000).max(1) as i64)
+            .unwrap_or(300),
+        circuit_breaker_failures: circuit_breaker_failures.unwrap_or(3).max(1),
+    }
 }
 
 /// 从 AuthContext + headers 提取 project_id（带越权校验）。

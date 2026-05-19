@@ -1748,7 +1748,7 @@ async fn remove_org_member_handler(
 // Channel Probe & Test (P2.1 + P2.2)
 // ============================================================================
 
-/// POST /v1/admin/channels/:id/probe — 调用上游 /v1/models 获取可用模型列表。
+/// POST /v1/admin/channels/:id/probe — 调用上游模型端点或 plugin manifest probe 获取可用模型列表。
 async fn probe_channel_models(
     State(app): State<AppState>,
     Authed(ctx): Authed,
@@ -1768,42 +1768,78 @@ async fn probe_channel_models(
         .build()
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let api_key = resolve_probe_key(&app, ChannelId::from(channel_id.0), &ch.code).await;
-
-    let base = ch.base_url.trim_end_matches('/');
-
-    let (url, headers) = match ch.provider_type.as_str() {
-        "anthropic" => {
-            let url = format!("{base}/v1/models");
-            let mut h = reqwest::header::HeaderMap::new();
-            if let Ok(v) = api_key.parse() {
-                h.insert("x-api-key", v);
-            }
-            if let Ok(v) = "2023-06-01".parse() {
-                h.insert("anthropic-version", v);
-            }
-            (url, h)
-        }
-        _ => {
-            let url = format!("{base}/models");
-            let mut h = reqwest::header::HeaderMap::new();
-            if !api_key.is_empty()
-                && let Ok(v) = format!("Bearer {api_key}").parse()
-            {
-                h.insert("authorization", v);
-            }
-            (url, h)
-        }
-    };
+    let channel_id_typed = ChannelId::from(channel_id.0);
+    let (url, method, headers, body, success_status, probe_model, max_cost_micros) =
+        if is_plugin_provider(&ch.provider_type) {
+            let provider = gate_providers::CustomHttpProvider::new_with_secret_slots(
+                &ch.base_url,
+                resolve_probe_secrets(&app, channel_id_typed, &ch.code).await,
+                ch.model_mapping.clone(),
+                gate_providers::ProviderOpts {
+                    timeout_ms: (ch.timeout_ms as u64).max(5_000),
+                },
+            )
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            let probe = provider
+                .build_probe_request()
+                .await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            (
+                probe.url,
+                probe.method,
+                probe.headers,
+                probe.body,
+                probe.success_status,
+                Some(probe.model),
+                probe.max_cost_micros,
+            )
+        } else {
+            let api_key = resolve_probe_key(&app, channel_id_typed, &ch.code).await;
+            let base = ch.base_url.trim_end_matches('/');
+            let (url, headers) = match ch.provider_type.as_str() {
+                "anthropic" => {
+                    let url = format!("{base}/v1/models");
+                    let mut h = reqwest::header::HeaderMap::new();
+                    if let Ok(v) = api_key.parse() {
+                        h.insert("x-api-key", v);
+                    }
+                    if let Ok(v) = "2023-06-01".parse() {
+                        h.insert("anthropic-version", v);
+                    }
+                    (url, h)
+                }
+                _ => {
+                    let url = format!("{base}/models");
+                    let mut h = reqwest::header::HeaderMap::new();
+                    if !api_key.is_empty()
+                        && let Ok(v) = format!("Bearer {api_key}").parse()
+                    {
+                        h.insert("authorization", v);
+                    }
+                    (url, h)
+                }
+            };
+            (
+                url,
+                reqwest::Method::GET,
+                headers,
+                None,
+                vec![200],
+                None,
+                None,
+            )
+        };
 
     let resp = client
-        .get(&url)
+        .request(method, &url)
         .headers(headers)
+        .body(body.unwrap_or_default())
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("probe failed: {e}")))?;
 
-    if !resp.status().is_success() {
+    let status = resp.status().as_u16();
+    if !success_status.contains(&status) {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         tracing::warn!(
@@ -1822,24 +1858,14 @@ async fn probe_channel_models(
         .await
         .map_err(|e| AppError::Internal(format!("probe parse error: {e}")))?;
 
-    let models: Vec<String> = body
-        .get("data")
-        .and_then(|d| d.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|m| {
-                    m.get("id")
-                        .and_then(|id| id.as_str())
-                        .map(|s| s.to_string())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let models = extract_probe_model_ids(&body);
 
     Ok(Json(ProbeResponse {
         channel_id: channel_id.to_string(),
         provider_type: ch.provider_type.clone(),
         models,
+        probe_model,
+        max_cost_micros,
     }))
 }
 
@@ -1848,6 +1874,42 @@ struct ProbeResponse {
     channel_id: String,
     provider_type: String,
     models: Vec<String>,
+    probe_model: Option<String>,
+    max_cost_micros: Option<i64>,
+}
+
+fn extract_probe_model_ids(body: &serde_json::Value) -> Vec<String> {
+    let mut models: Vec<String> = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            m.get("id")
+                .or_else(|| m.get("name"))
+                .and_then(|id| id.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    if models.is_empty() {
+        models = body
+            .get("models")
+            .and_then(|d| d.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                m.as_str().map(str::to_string).or_else(|| {
+                    m.get("id")
+                        .or_else(|| m.get("name"))
+                        .and_then(|id| id.as_str())
+                        .map(str::to_string)
+                })
+            })
+            .collect();
+    }
+    models.sort();
+    models.dedup();
+    models
 }
 
 /// GET /v1/admin/channels/:id/test — 发送最小 chat completion 验证渠道可用性。

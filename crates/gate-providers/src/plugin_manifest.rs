@@ -23,21 +23,21 @@ const HARD_MAX_SSE_EVENT_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct ChannelPluginMapping {
+pub struct ChannelPluginMapping {
     pub plugin: PluginManifest,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
-pub(crate) struct PluginManifest {
+pub struct PluginManifest {
     pub version: u8,
     pub metadata: MetadataManifest,
     pub capabilities: CapabilitiesManifest,
     pub auth: AuthManifest,
     pub request: RequestManifest,
-    pub response: ResponseManifest,
-    pub stream: StreamManifest,
-    pub usage: UsageManifest,
+    pub(crate) response: ResponseManifest,
+    pub(crate) stream: StreamManifest,
+    pub(crate) usage: UsageManifest,
     pub error: ErrorManifest,
     pub probe: ProbeManifest,
     pub security: SecurityManifest,
@@ -46,7 +46,7 @@ pub(crate) struct PluginManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct MetadataManifest {
+pub struct MetadataManifest {
     pub name: Option<String>,
     pub vendor: Option<String>,
     pub homepage: Option<String>,
@@ -57,7 +57,7 @@ pub(crate) struct MetadataManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct CapabilitiesManifest {
+pub struct CapabilitiesManifest {
     pub chat: bool,
     pub streaming: bool,
     pub tools: bool,
@@ -71,7 +71,7 @@ pub(crate) struct CapabilitiesManifest {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum AuthStrategy {
+pub enum AuthStrategy {
     #[default]
     Bearer,
     ApiKeyHeader,
@@ -86,7 +86,7 @@ pub(crate) enum AuthStrategy {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
-pub(crate) struct AuthManifest {
+pub struct AuthManifest {
     pub strategy: AuthStrategy,
     pub secret_slot: Option<String>,
     pub header_name: Option<String>,
@@ -133,16 +133,26 @@ impl AuthManifest {
     }
 }
 
+impl ProbeManifest {
+    pub fn success_status_or_default(&self) -> Vec<u16> {
+        if self.success_status.is_empty() {
+            vec![200]
+        } else {
+            self.success_status.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum HmacAlgorithm {
+pub enum HmacAlgorithm {
     #[default]
     Sha256,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
-pub(crate) struct HmacAuthManifest {
+pub struct HmacAuthManifest {
     pub algorithm: HmacAlgorithm,
     pub signature_header: String,
     pub timestamp_header: String,
@@ -153,7 +163,7 @@ pub(crate) struct HmacAuthManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SignatureEncoding {
+pub enum SignatureEncoding {
     Base64,
     #[default]
     Hex,
@@ -161,7 +171,7 @@ pub(crate) enum SignatureEncoding {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
-pub(crate) struct AwsSigv4AuthManifest {
+pub struct AwsSigv4AuthManifest {
     pub service: String,
     pub region: Option<String>,
     pub access_key_slot: String,
@@ -171,7 +181,7 @@ pub(crate) struct AwsSigv4AuthManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
-pub(crate) struct OauthClientCredentialsManifest {
+pub struct OauthClientCredentialsManifest {
     pub token_url: String,
     pub client_id_slot: String,
     pub client_secret_slot: String,
@@ -183,7 +193,7 @@ pub(crate) struct OauthClientCredentialsManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "UPPERCASE")]
-pub(crate) enum RequestMethod {
+pub enum RequestMethod {
     Get,
     #[default]
     Post,
@@ -191,7 +201,7 @@ pub(crate) enum RequestMethod {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
-pub(crate) struct RequestManifest {
+pub struct RequestManifest {
     pub method: RequestMethod,
     #[serde(alias = "chat_path")]
     pub path: Option<String>,
@@ -206,25 +216,33 @@ pub(crate) struct RequestManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct RetryManifest {
+pub struct RetryManifest {
     pub max_retries: Option<u8>,
     pub retryable_status: Vec<u16>,
+    pub retryable_codes: Vec<String>,
+    pub cooldown_ms: Option<u64>,
+    pub circuit_breaker_failures: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct ErrorManifest {
+pub struct ErrorManifest {
     pub status_path: Option<String>,
     pub code_path: Option<String>,
     pub message_path: Option<String>,
     pub retryable_status: Vec<u16>,
     pub retryable_codes: Vec<String>,
+    pub auth_status: Vec<u16>,
+    pub rate_limit_status: Vec<u16>,
+    pub model_not_found_status: Vec<u16>,
+    pub safety_block_codes: Vec<String>,
     pub cooldown_ms: Option<u64>,
+    pub circuit_breaker_failures: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct ProbeManifest {
+pub struct ProbeManifest {
     pub model: Option<String>,
     pub path: Option<String>,
     pub body: Option<Value>,
@@ -234,7 +252,7 @@ pub(crate) struct ProbeManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
-pub(crate) struct SecurityManifest {
+pub struct SecurityManifest {
     pub outbound_allowlist: Vec<String>,
     pub header_redaction: Vec<String>,
     pub max_request_bytes: Option<usize>,
@@ -250,6 +268,8 @@ struct LegacyPluginManifest {
     request: LegacyRequestManifest,
     response: ResponseManifest,
     stream: StreamManifest,
+    error: ErrorManifest,
+    probe: ProbeManifest,
     security: SecurityManifest,
 }
 
@@ -259,6 +279,7 @@ struct LegacyRequestManifest {
     chat_path: Option<String>,
     headers: Map<String, Value>,
     body: Option<Value>,
+    retry: RetryManifest,
     force_stream_field: bool,
     stream_path: String,
 }
@@ -376,6 +397,7 @@ impl PluginManifest {
                 &json_pointer(pointer_base, "/request/body"),
             )?;
         }
+        validate_probe(&self.probe, &json_pointer(pointer_base, "/probe"))?;
         validate_response_paths(&self.response, &json_pointer(pointer_base, "/response"))?;
         validate_stream_paths(&self.stream, &json_pointer(pointer_base, "/stream"))?;
         self.security.validate(pointer_base)
@@ -516,6 +538,56 @@ pub fn validate_plugin_manifest(value: Value, base_url: &str) -> ProviderResult<
     PluginManifest::from_value(value, base_url).map(|_| ())
 }
 
+pub fn plugin_manifest(value: Value, base_url: &str) -> ProviderResult<PluginManifest> {
+    PluginManifest::from_value(value, base_url)
+}
+
+pub fn plugin_manifest_retry_config(
+    value: &Value,
+    base_url: &str,
+) -> ProviderResult<crate::retry::RetryConfig> {
+    let manifest = PluginManifest::from_value(value.clone(), base_url)?;
+    let mut config = crate::retry::RetryConfig::default();
+    if let Some(max_retries) = manifest.request.retry.max_retries {
+        config.max_retries = max_retries as u32;
+    }
+    for status in manifest
+        .request
+        .retry
+        .retryable_status
+        .iter()
+        .chain(manifest.error.retryable_status.iter())
+    {
+        if !config.retryable_status_codes.contains(status) {
+            config.retryable_status_codes.push(*status);
+        }
+    }
+    for code in manifest
+        .request
+        .retry
+        .retryable_codes
+        .iter()
+        .chain(manifest.error.retryable_codes.iter())
+    {
+        if !config
+            .retryable_error_codes
+            .iter()
+            .any(|existing| existing == code)
+        {
+            config.retryable_error_codes.push(code.clone());
+        }
+    }
+    if let Some(cooldown_ms) = manifest
+        .request
+        .retry
+        .cooldown_ms
+        .or(manifest.error.cooldown_ms)
+    {
+        config.max_backoff_ms = config.max_backoff_ms.max(cooldown_ms);
+    }
+    Ok(config)
+}
+
 pub fn plugin_manifest_schema_json() -> Value {
     let mut schema = schema_for!(ChannelPluginMapping).to_value();
     if let Some(obj) = schema.as_object_mut() {
@@ -577,12 +649,15 @@ fn upgrade_v0(value: Value, pointer_base: &str) -> ProviderResult<PluginManifest
             path: legacy.request.chat_path,
             headers: legacy.request.headers,
             body: legacy.request.body,
+            retry: legacy.request.retry,
             force_stream_field: legacy.request.force_stream_field,
             stream_path: legacy.request.stream_path,
             ..Default::default()
         },
         response: legacy.response,
         stream: legacy.stream,
+        error: legacy.error,
+        probe: legacy.probe,
         security: legacy.security,
         ..Default::default()
     })
@@ -594,6 +669,7 @@ impl Default for LegacyRequestManifest {
             chat_path: None,
             headers: Map::new(),
             body: None,
+            retry: RetryManifest::default(),
             force_stream_field: true,
             stream_path: "stream".to_string(),
         }
@@ -895,6 +971,32 @@ fn validate_stream_paths(stream: &StreamManifest, pointer: &str) -> ProviderResu
         if let Some(path) = path {
             validate_mapping_path(path, &json_pointer(pointer, suffix))?;
         }
+    }
+    Ok(())
+}
+
+fn validate_probe(probe: &ProbeManifest, pointer: &str) -> ProviderResult<()> {
+    if let Some(path) = &probe.path {
+        validate_template_str(path, TemplateScope::Path, &json_pointer(pointer, "/path"))?;
+    }
+    if let Some(body) = &probe.body {
+        validate_template_value(body, TemplateScope::Body, &json_pointer(pointer, "/body"))?;
+    }
+    for status in &probe.success_status {
+        if !(100..=599).contains(status) {
+            return Err(ProviderError::Config(format!(
+                "invalid plugin manifest at {}: HTTP status must be 100..599",
+                json_pointer(pointer, "/success_status")
+            )));
+        }
+    }
+    if let Some(max_cost_micros) = probe.max_cost_micros
+        && max_cost_micros < 0
+    {
+        return Err(ProviderError::Config(format!(
+            "invalid plugin manifest at {}: must be >= 0",
+            json_pointer(pointer, "/max_cost_micros")
+        )));
     }
     Ok(())
 }
@@ -1567,6 +1669,62 @@ mod tests {
                 .contains("/plugin/security/max_request_bytes"),
             "err={err}"
         );
+    }
+
+    #[test]
+    fn validates_probe_manifest_path_body_status_and_cost() {
+        let manifest = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "probe": {
+                        "model": "tiny-health",
+                        "path": "/health/{{model}}",
+                        "body": {
+                            "model": "{{model}}",
+                            "messages": "{{messages}}",
+                            "max_tokens": "{{max_tokens}}"
+                        },
+                        "success_status": [200, 204],
+                        "max_cost_micros": 25
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.probe.model.as_deref(), Some("tiny-health"));
+        assert_eq!(manifest.probe.path.as_deref(), Some("/health/{{model}}"));
+        assert_eq!(manifest.probe.success_status_or_default(), vec![200, 204]);
+        assert_eq!(manifest.probe.max_cost_micros, Some(25));
+    }
+
+    #[test]
+    fn rejects_invalid_probe_success_status_and_negative_cost() {
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "probe": { "success_status": [99] }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("/plugin/probe/success_status"));
+
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "probe": { "max_cost_micros": -1 }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("/plugin/probe/max_cost_micros"));
     }
 
     #[test]

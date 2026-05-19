@@ -10,6 +10,7 @@ pub struct RetryConfig {
     pub initial_backoff_ms: u64,
     pub max_backoff_ms: u64,
     pub retryable_status_codes: Vec<u16>,
+    pub retryable_error_codes: Vec<String>,
 }
 
 impl Default for RetryConfig {
@@ -19,6 +20,7 @@ impl Default for RetryConfig {
             initial_backoff_ms: 500,
             max_backoff_ms: 10_000,
             retryable_status_codes: vec![429, 500, 502, 503, 504],
+            retryable_error_codes: Vec::new(),
         }
     }
 }
@@ -29,6 +31,18 @@ impl RetryConfig {
             ProviderError::RateLimited { .. } => true,
             ProviderError::Network(_) => true,
             ProviderError::Upstream { status, .. } => self.retryable_status_codes.contains(status),
+            ProviderError::Mapped {
+                status,
+                code,
+                metadata,
+                ..
+            } => {
+                metadata.retryable
+                    || status.is_some_and(|status| self.retryable_status_codes.contains(&status))
+                    || code
+                        .as_deref()
+                        .is_some_and(|code| self.retryable_error_codes.iter().any(|c| c == code))
+            }
             _ => false,
         }
     }
@@ -58,6 +72,18 @@ where
                     ProviderError::RateLimited {
                         retry_after_ms: Some(ms),
                     } => (*ms).min(config.max_backoff_ms),
+                    ProviderError::Mapped {
+                        metadata:
+                            crate::error::ProviderErrorMetadata {
+                                retry_after_ms,
+                                cooldown_ms,
+                                ..
+                            },
+                        ..
+                    } => retry_after_ms
+                        .or(*cooldown_ms)
+                        .map(|ms| ms.min(config.max_backoff_ms))
+                        .unwrap_or(backoff),
                     _ => backoff,
                 };
                 tracing::warn!(

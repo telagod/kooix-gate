@@ -1,8 +1,8 @@
 //! Custom HTTP provider plugin integration tests.
 
 use futures::StreamExt;
-use gate_providers::{ChatMessage, ChatRequest, CustomHttpProvider, Provider, Role};
-use serde_json::json;
+use gate_providers::{ChatMessage, ChatRequest, CustomHttpProvider, Provider, ProviderError, Role};
+use serde_json::{Value, json};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -443,4 +443,183 @@ async fn preset_anthropic_messages_posts_native_body_and_normalizes_response() {
     assert_eq!(resp.usage.completion_tokens, 2);
     assert_eq!(resp.usage.total_tokens, 7);
     assert_eq!(resp.usage.cached_tokens, 1);
+}
+
+#[tokio::test]
+async fn plugin_error_mapper_normalizes_rate_limit_and_retry_after() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/private/chat"))
+        .respond_with(
+            ResponseTemplate::new(503)
+                .insert_header("retry-after", "9")
+                .set_body_json(json!({
+                    "vendor_error": {
+                        "status": 429,
+                        "code": "quota_busy",
+                        "message": "vendor asked us to slow down"
+                    }
+                })),
+        )
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "secret-key",
+        json!({
+            "plugin": {
+                "request": { "chat_path": "/private/chat" },
+                "error": {
+                    "status_path": "vendor_error.status",
+                    "code_path": "vendor_error.code",
+                    "message_path": "vendor_error.message",
+                    "rate_limit_status": [429],
+                    "retryable_codes": ["quota_busy"],
+                    "cooldown_ms": 12000,
+                    "circuit_breaker_failures": 2
+                }
+            }
+        }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let err = provider.chat(make_req(false)).await.unwrap_err();
+    match err {
+        ProviderError::Mapped {
+            status,
+            code,
+            metadata,
+            ..
+        } => {
+            assert_eq!(status, Some(429));
+            assert_eq!(code.as_deref(), Some("quota_busy"));
+            assert_eq!(metadata.retry_after_ms, Some(9_000));
+            assert_eq!(metadata.cooldown_ms, Some(12_000));
+            assert_eq!(metadata.circuit_breaker_failures, Some(2));
+        }
+        other => panic!("expected mapped rate limit error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn plugin_error_mapper_normalizes_model_not_found_and_policy_block() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/missing-model"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "error": { "code": "model_missing", "message": "no such model" }
+        })))
+        .mount(&upstream)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/safety"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": { "code": "blocked_by_vendor_policy", "message": "safety policy block" }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let missing = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "secret-key",
+        json!({
+            "plugin": {
+                "request": { "chat_path": "/missing-model" },
+                "error": {
+                    "code_path": "error.code",
+                    "message_path": "error.message",
+                    "model_not_found_status": [404]
+                }
+            }
+        }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap()
+    .chat(make_req(false))
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        missing,
+        ProviderError::Mapped {
+            metadata: gate_providers::error::ProviderErrorMetadata {
+                kind: gate_providers::error::NormalizedProviderErrorKind::InvalidRequest,
+                ..
+            },
+            ..
+        }
+    ));
+
+    let safety = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "secret-key",
+        json!({
+            "plugin": {
+                "request": { "chat_path": "/safety" },
+                "error": {
+                    "code_path": "error.code",
+                    "message_path": "error.message",
+                    "safety_block_codes": ["blocked_by_vendor_policy"]
+                }
+            }
+        }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap()
+    .chat(make_req(false))
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        safety,
+        ProviderError::Mapped {
+            metadata: gate_providers::error::ProviderErrorMetadata {
+                kind: gate_providers::error::NormalizedProviderErrorKind::Policy,
+                ..
+            },
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn plugin_probe_request_uses_manifest_path_body_status_and_cost() {
+    let upstream = MockServer::start().await;
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "secret-key",
+        json!({
+            "plugin": {
+                "auth": { "strategy": "api_key_header", "header_name": "X-Api-Key" },
+                "probe": {
+                    "model": "tiny-health",
+                    "path": "/probe/{{model}}",
+                    "body": {
+                        "model": "{{model}}",
+                        "messages": "{{messages}}",
+                        "max_tokens": "{{max_tokens}}"
+                    },
+                    "success_status": [200, 204],
+                    "max_cost_micros": 25
+                }
+            }
+        }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let probe = provider.build_probe_request().await.unwrap();
+    assert_eq!(probe.method, reqwest::Method::POST);
+    assert_eq!(probe.url, format!("{}/probe/tiny-health", upstream.uri()));
+    assert_eq!(
+        probe.headers.get("authorization").unwrap(),
+        "Bearer secret-key"
+    );
+    assert_eq!(probe.model, "tiny-health");
+    assert_eq!(probe.success_status, vec![200, 204]);
+    assert_eq!(probe.max_cost_micros, Some(25));
+    let body: Value = serde_json::from_slice(probe.body.as_deref().unwrap()).unwrap();
+    assert_eq!(body["model"], "tiny-health");
+    assert_eq!(body["max_tokens"], 1);
+    assert_eq!(body["messages"][0]["role"], "user");
 }

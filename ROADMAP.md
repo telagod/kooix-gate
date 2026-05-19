@@ -312,15 +312,15 @@ rg 'plugin' README.md DESIGN.md CHANGELOG.md web/README.md ROADMAP.md
 
 #### P1.1.6 Error / Retry / Health 映射
 
-- [ ] Error mapper：
+- [x] Error mapper：
   - upstream auth → normalized `authentication_error`。
   - upstream rate limit → `rate_limit_error` + retry-after。
   - model not found → `invalid_request_error`。
   - vendor safety block → policy / content filter error。
   - unknown 5xx → retryable upstream error。
-- [ ] Manifest 可声明 retryable status/code、cooldown、circuit breaker 触发条件。
-- [ ] Probe 可声明轻量模型、请求体、成功条件、最大成本。
-- [ ] Health 结果进入 channel 状态、fallback、observability。
+- [x] Manifest 可声明 retryable status/code、cooldown、circuit breaker 触发条件。
+- [x] Probe 可声明轻量模型、请求体、成功条件、最大成本。
+- [x] Health 结果进入 channel 状态、fallback、observability。
 
 #### P1.1.7 Manifest Builder / Debugger
 

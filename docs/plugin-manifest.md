@@ -376,6 +376,85 @@ Path 规则：
 
 `finish_reason` 会归一：`stop` / `stopped` / `stop_sequence` / `end_turn` / `done` → `stop`；`max_tokens` → `length`；`tool_use` → `tool_calls`；`safety` → `content_filter`。
 
+## Error / retry / health mapping
+
+非 2xx 上游响应会先经过 manifest error mapper，再进入统一 API error shape 与 channel health 统计：
+
+```json
+{
+  "plugin": {
+    "request": {
+      "retry": {
+        "max_retries": 1,
+        "retryable_status": [429, 500, 502, 503, 504],
+        "retryable_codes": ["quota_busy"],
+        "cooldown_ms": 30000,
+        "circuit_breaker_failures": 3
+      }
+    },
+    "error": {
+      "status_path": "vendor_error.status",
+      "code_path": "vendor_error.code",
+      "message_path": "vendor_error.message",
+      "auth_status": [401, 403],
+      "rate_limit_status": [429],
+      "model_not_found_status": [404],
+      "safety_block_codes": ["content_filter", "blocked_by_vendor_policy"],
+      "retryable_status": [503],
+      "retryable_codes": ["quota_busy"],
+      "cooldown_ms": 30000,
+      "circuit_breaker_failures": 3
+    }
+  }
+}
+```
+
+归一规则：
+
+- auth / invalid key → `authentication_error`。
+- rate limit → `rate_limit_error`，保留 `Retry-After` 秒数为毫秒级 retry-after。
+- model missing / invalid model → `invalid_request_error`。
+- vendor safety / policy block → `policy_error`。
+- unknown 5xx / 显式 retryable status/code → retryable upstream error。
+
+运行时行为：
+
+- `request.retry.max_retries` 覆盖 channel `max_retries`；`retryable_status` / `retryable_codes` 会合并到 retry 配置。
+- 上游失败会写入 `channel_keys.total_errors` / `consecutive_errors` / `last_error_code`；连续失败达到阈值后 key 进入 `cooling_down` 并设置 `cooldown_until`。
+- 路由只选择 healthy 且不在 cooldown 的 key；当前 channel 没有可用 key 时会跳过并尝试同 group 的下一个 channel 或 fallback group。
+- gateway 记录 `upstream_errors_total{kind=...}`，便于按错误类型观测和告警。
+
+## Probe / health mapping
+
+Plugin 渠道不再只能走固定 `/models` 探测。`probe` 可声明低成本健康请求，后台 health checker 与 `POST /v1/admin/channels/:id/probe` 共用同一配置：
+
+```json
+{
+  "plugin": {
+    "auth": { "strategy": "bearer" },
+    "probe": {
+      "model": "tiny-health",
+      "path": "/healthz/{{model}}",
+      "body": {
+        "model": "{{model}}",
+        "messages": "{{messages}}",
+        "max_tokens": "{{max_tokens}}"
+      },
+      "success_status": [200, 204],
+      "max_cost_micros": 25
+    }
+  }
+}
+```
+
+运行时行为：
+
+- 未声明 `probe.path` 时默认 `GET /models`；声明 `probe.body` 后自动切 `POST` 并注入 `Content-Type: application/json`。
+- `probe.model` 会进入模板上下文，默认探测消息是单条 `user: Hi`、`max_tokens=1`、`temperature=0`，用于控制成本。
+- `success_status` 为空时默认 `[200]`；非成功状态会按现有 health 规则累计失败，`401/403` 直接 auto-disable，`429` 只记录限流。
+- `max_cost_micros` 是成本上限声明与 UI/审计提示，不承载密钥或扣费逻辑。
+- 成功响应若包含 OpenAI-compatible `data[].id` 或私有 `models[]`，会同步到 channel `supported_models`；恢复探活会把 channel 置回 `active/healthy` 并清理 router metrics。
+
 ## SSE stream mapping
 
 共享 SSE decoder 已处理：
