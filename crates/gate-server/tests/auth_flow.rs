@@ -667,6 +667,116 @@ async fn admin_group_detail_exposes_fallback_chain_and_validates_cycles() {
 }
 
 #[tokio::test]
+async fn admin_group_binding_canary_validates_and_returns_stats_shape() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+
+    let (status, group) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/groups",
+        Some(&tok),
+        Some(serde_json::json!({
+            "name": "Canary",
+            "strategy": "priority"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "group={group}");
+    let group_id = group["id"].as_str().unwrap().to_string();
+
+    let (status, channel) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/channels",
+        Some(&tok),
+        Some(serde_json::json!({
+            "code": "canary-control",
+            "provider_type": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "supported_models": ["gpt-canary"]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "channel={channel}");
+    let channel_uuid = channel["id"].as_str().unwrap().split_once('_').unwrap().1;
+
+    let (status, body) = call(
+        &f.router,
+        "POST",
+        &format!("/v1/admin/groups/{group_id}/bindings"),
+        Some(&tok),
+        Some(serde_json::json!({
+            "channel_id": channel_uuid,
+            "priority": 1,
+            "weight": 1,
+            "canary_percent_bps": 50
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body={body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("canary_percent_bps"),
+        "body={body}"
+    );
+
+    let (status, body) = call(
+        &f.router,
+        "POST",
+        &format!("/v1/admin/groups/{group_id}/bindings"),
+        Some(&tok),
+        Some(serde_json::json!({
+            "channel_id": channel_uuid,
+            "priority": 1,
+            "weight": 1,
+            "canary_percent_bps": 500
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+
+    let (status, detail) = call(
+        &f.router,
+        "GET",
+        &format!("/v1/admin/groups/{group_id}/detail"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "detail={detail}");
+    assert_eq!(detail["bindings"][0]["canary_percent_bps"], 500);
+    assert_eq!(detail["canary_stats"][0]["is_canary"], true);
+    assert_eq!(detail["canary_stats"][0]["requests"], 0);
+
+    let (status, body) = call(
+        &f.router,
+        "PUT",
+        &format!("/v1/admin/groups/{group_id}/bindings/{channel_uuid}"),
+        Some(&tok),
+        Some(serde_json::json!({ "canary_percent_bps": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+
+    let (status, bindings) = call(
+        &f.router,
+        "GET",
+        &format!("/v1/admin/groups/{group_id}/bindings"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "bindings={bindings}");
+    assert!(
+        bindings[0]["canary_percent_bps"].is_null(),
+        "bindings={bindings}"
+    );
+}
+
+#[tokio::test]
 async fn admin_channel_draining_stops_new_requests_and_waits_for_inflight() {
     let f = fixture();
     let tok = jwt_for(&f.jwt, f.user_super, None, true);

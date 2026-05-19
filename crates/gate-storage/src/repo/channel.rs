@@ -77,10 +77,23 @@ pub struct ChannelBinding {
     /// 数字越小优先级越高。
     pub priority: i32,
     pub weight: i32,
+    /// Canary traffic gate in basis points. `None` means normal binding.
+    pub canary_percent_bps: Option<i32>,
     /// Binding-level model filter. Empty = no restriction (use channel.supported_models).
     pub model_filter: Vec<String>,
     /// Whether this binding is enabled.
     pub enabled: bool,
+}
+
+/// Partial update for a channel-group binding.
+#[derive(Debug, Clone, Default)]
+pub struct UpdateChannelBinding {
+    pub priority: Option<i32>,
+    pub weight: Option<i32>,
+    /// Outer `None` means keep current; `Some(None)` clears canary.
+    pub canary_percent_bps: Option<Option<i32>>,
+    pub model_filter: Option<Vec<String>>,
+    pub enabled: Option<bool>,
 }
 
 /// 创建 Channel 的入参。
@@ -244,7 +257,7 @@ impl ChannelRepo for PgChannelRepo {
                     c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
                     c.tags, c.model_mapping, c.balance, c.balance_updated_at, \
                     c.last_error, c.last_error_at, c.created_at, c.updated_at, \
-                    b.priority, b.weight, b.model_filter \
+                    b.priority, b.weight, b.canary_percent_bps, b.model_filter \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
              WHERE b.group_id = $1 \
@@ -264,6 +277,7 @@ impl ChannelRepo for PgChannelRepo {
                     channel: row_to_channel(r)?,
                     priority: r.try_get("priority")?,
                     weight: r.try_get("weight")?,
+                    canary_percent_bps: r.try_get("canary_percent_bps").unwrap_or(None),
                     model_filter: r.try_get("model_filter").unwrap_or_default(),
                     enabled: true, // this query only fetches enabled bindings
                 })
@@ -623,6 +637,7 @@ pub trait ChannelGroupRepo: Send + Sync + 'static {
         channel_id: ChannelId,
         priority: i32,
         weight: i32,
+        canary_percent_bps: Option<i32>,
     ) -> DbResult<()>;
     async fn remove_binding(&self, group_id: ChannelGroupId, channel_id: ChannelId)
     -> DbResult<()>;
@@ -631,10 +646,7 @@ pub trait ChannelGroupRepo: Send + Sync + 'static {
         &self,
         group_id: ChannelGroupId,
         channel_id: ChannelId,
-        priority: Option<i32>,
-        weight: Option<i32>,
-        model_filter: Option<Vec<String>>,
-        enabled: Option<bool>,
+        update: UpdateChannelBinding,
     ) -> DbResult<()>;
     /// List projects whose `default_group_id` references this group.
     async fn list_projects_using_group(&self, group_id: ChannelGroupId)
@@ -783,7 +795,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
                     c.status, c.health, c.timeout_ms, c.max_retries, c.rpm_limit, c.tpm_limit, \
                     c.tags, c.model_mapping, c.balance, c.balance_updated_at, \
                     c.last_error, c.last_error_at, c.created_at, c.updated_at, \
-                    b.priority, b.weight, b.model_filter, b.enabled \
+                    b.priority, b.weight, b.canary_percent_bps, b.model_filter, b.enabled \
              FROM channel_group_bindings b \
              JOIN channels c ON c.id = b.channel_id \
              WHERE b.group_id = $1 AND c.deleted_at IS NULL \
@@ -798,6 +810,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
                     channel: row_to_channel(r)?,
                     priority: r.try_get("priority")?,
                     weight: r.try_get("weight")?,
+                    canary_percent_bps: r.try_get("canary_percent_bps").unwrap_or(None),
                     model_filter: r.try_get("model_filter").unwrap_or_default(),
                     enabled: r.try_get("enabled").unwrap_or(true),
                 })
@@ -811,16 +824,19 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         channel_id: ChannelId,
         priority: i32,
         weight: i32,
+        canary_percent_bps: Option<i32>,
     ) -> DbResult<()> {
         sqlx::query(
-            "INSERT INTO channel_group_bindings (group_id, channel_id, priority, weight) \
-             VALUES ($1, $2, $3, $4) \
-             ON CONFLICT (group_id, channel_id) DO UPDATE SET priority = $3, weight = $4",
+            "INSERT INTO channel_group_bindings (group_id, channel_id, priority, weight, canary_percent_bps) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (group_id, channel_id) DO UPDATE SET \
+                priority = $3, weight = $4, canary_percent_bps = $5",
         )
         .bind(group_id.as_uuid())
         .bind(channel_id.as_uuid())
         .bind(priority)
         .bind(weight)
+        .bind(canary_percent_bps)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -848,23 +864,32 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         &self,
         group_id: ChannelGroupId,
         channel_id: ChannelId,
-        priority: Option<i32>,
-        weight: Option<i32>,
-        model_filter: Option<Vec<String>>,
-        enabled: Option<bool>,
+        update: UpdateChannelBinding,
     ) -> DbResult<()> {
+        let UpdateChannelBinding {
+            priority,
+            weight,
+            canary_percent_bps,
+            model_filter,
+            enabled,
+        } = update;
+        let change_canary = canary_percent_bps.is_some();
+        let new_canary = canary_percent_bps.flatten();
         let res = sqlx::query(
             "UPDATE channel_group_bindings SET \
              priority = COALESCE($3, priority), \
              weight = COALESCE($4, weight), \
-             model_filter = COALESCE($5, model_filter), \
-             enabled = COALESCE($6, enabled) \
+             canary_percent_bps = CASE WHEN $5::boolean THEN $6 ELSE canary_percent_bps END, \
+             model_filter = COALESCE($7, model_filter), \
+             enabled = COALESCE($8, enabled) \
              WHERE group_id = $1 AND channel_id = $2",
         )
         .bind(group_id.as_uuid())
         .bind(channel_id.as_uuid())
         .bind(priority)
         .bind(weight)
+        .bind(change_canary)
+        .bind(new_canary)
         .bind(model_filter.as_deref())
         .bind(enabled)
         .execute(&self.pool)
@@ -928,8 +953,16 @@ pub struct InMemoryChannelRepo {
 #[derive(Default)]
 struct ChannelsInner {
     channels: HashMap<ChannelId, ChannelRecord>,
-    /// group_id → Vec<(ChannelId, priority, weight)>
-    bindings: HashMap<ChannelGroupId, Vec<(ChannelId, i32, i32)>>,
+    /// group_id → Vec<(ChannelId, priority, weight, canary_percent_bps)>
+    bindings: HashMap<ChannelGroupId, Vec<MemoryRouteBinding>>,
+}
+
+#[derive(Clone)]
+struct MemoryRouteBinding {
+    channel_id: ChannelId,
+    priority: i32,
+    weight: i32,
+    canary_percent_bps: Option<i32>,
 }
 
 impl InMemoryChannelRepo {
@@ -953,12 +986,29 @@ impl InMemoryChannelRepo {
         priority: i32,
         weight: i32,
     ) {
+        self.seed_binding_with_canary(group_id, channel_id, priority, weight, None);
+    }
+
+    /// 建立 group → channel 绑定，并可指定 canary gate。
+    pub fn seed_binding_with_canary(
+        &self,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        priority: i32,
+        weight: i32,
+        canary_percent_bps: Option<i32>,
+    ) {
         self.inner
             .write()
             .bindings
             .entry(group_id)
             .or_default()
-            .push((channel_id, priority, weight));
+            .push(MemoryRouteBinding {
+                channel_id,
+                priority,
+                weight,
+                canary_percent_bps,
+            });
     }
 }
 
@@ -985,13 +1035,14 @@ impl ChannelRepo for InMemoryChannelRepo {
 
         let mut result: Vec<ChannelBinding> = bindings
             .iter()
-            .filter_map(|(ch_id, priority, weight)| {
-                inner.channels.get(ch_id).and_then(|ch| {
+            .filter_map(|binding| {
+                inner.channels.get(&binding.channel_id).and_then(|ch| {
                     if ch.is_healthy() {
                         Some(ChannelBinding {
                             channel: ch.clone(),
-                            priority: *priority,
-                            weight: *weight,
+                            priority: binding.priority,
+                            weight: binding.weight,
+                            canary_percent_bps: binding.canary_percent_bps,
                             model_filter: vec![],
                             enabled: true,
                         })
@@ -1231,6 +1282,21 @@ struct GroupsInner {
     groups: HashMap<ChannelGroupId, ChannelGroupRecord>,
     /// project_id → default group_id
     defaults: HashMap<ProjectId, ChannelGroupId>,
+    /// Admin/control-plane in-memory bindings. The data-plane in-memory router
+    /// still reads `InMemoryChannelRepo::bindings`; this mirror keeps admin
+    /// endpoints usable in tests/dev where both repos are independent trait
+    /// objects.
+    bindings: HashMap<ChannelGroupId, Vec<MemoryGroupBinding>>,
+}
+
+#[derive(Clone)]
+struct MemoryGroupBinding {
+    channel_id: ChannelId,
+    priority: i32,
+    weight: i32,
+    canary_percent_bps: Option<i32>,
+    model_filter: Vec<String>,
+    enabled: bool,
 }
 
 impl InMemoryChannelGroupRepo {
@@ -1325,37 +1391,126 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         Ok(())
     }
 
-    async fn list_bindings(&self, _group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>> {
-        Ok(vec![])
+    async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>> {
+        let inner = self.inner.read();
+        let mut bindings = inner.bindings.get(&group_id).cloned().unwrap_or_default();
+        bindings.sort_by_key(|binding| binding.priority);
+        let now = Utc::now();
+        Ok(bindings
+            .into_iter()
+            .map(|binding| {
+                let code = binding.channel_id.to_string();
+                ChannelBinding {
+                    channel: ChannelRecord {
+                        channel_id: binding.channel_id,
+                        code: code.clone(),
+                        name: code,
+                        provider_type: "openai".to_string(),
+                        base_url: String::new(),
+                        supported_models: vec![],
+                        status: "active".to_string(),
+                        health: "healthy".to_string(),
+                        timeout_ms: 60000,
+                        max_retries: 2,
+                        rpm_limit: None,
+                        tpm_limit: None,
+                        tags: vec![],
+                        model_mapping: serde_json::Value::Object(Default::default()),
+                        balance: None,
+                        balance_updated_at: None,
+                        last_error: None,
+                        last_error_at: None,
+                        created_at: now,
+                        updated_at: now,
+                    },
+                    priority: binding.priority,
+                    weight: binding.weight,
+                    canary_percent_bps: binding.canary_percent_bps,
+                    model_filter: binding.model_filter,
+                    enabled: binding.enabled,
+                }
+            })
+            .collect())
     }
 
     async fn add_binding(
         &self,
-        _group_id: ChannelGroupId,
-        _channel_id: ChannelId,
-        _priority: i32,
-        _weight: i32,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        priority: i32,
+        weight: i32,
+        canary_percent_bps: Option<i32>,
     ) -> DbResult<()> {
+        let mut inner = self.inner.write();
+        let bindings = inner.bindings.entry(group_id).or_default();
+        if let Some(binding) = bindings.iter_mut().find(|b| b.channel_id == channel_id) {
+            binding.priority = priority;
+            binding.weight = weight;
+            binding.canary_percent_bps = canary_percent_bps;
+        } else {
+            bindings.push(MemoryGroupBinding {
+                channel_id,
+                priority,
+                weight,
+                canary_percent_bps,
+                model_filter: vec![],
+                enabled: true,
+            });
+        }
         Ok(())
     }
 
     async fn remove_binding(
         &self,
-        _group_id: ChannelGroupId,
-        _channel_id: ChannelId,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
     ) -> DbResult<()> {
+        let mut inner = self.inner.write();
+        let Some(bindings) = inner.bindings.get_mut(&group_id) else {
+            return Err(DbError::NotFound);
+        };
+        let before = bindings.len();
+        bindings.retain(|binding| binding.channel_id != channel_id);
+        if bindings.len() == before {
+            return Err(DbError::NotFound);
+        }
         Ok(())
     }
 
     async fn update_binding(
         &self,
-        _group_id: ChannelGroupId,
-        _channel_id: ChannelId,
-        _priority: Option<i32>,
-        _weight: Option<i32>,
-        _model_filter: Option<Vec<String>>,
-        _enabled: Option<bool>,
+        group_id: ChannelGroupId,
+        channel_id: ChannelId,
+        update: UpdateChannelBinding,
     ) -> DbResult<()> {
+        let UpdateChannelBinding {
+            priority,
+            weight,
+            canary_percent_bps,
+            model_filter,
+            enabled,
+        } = update;
+        let mut inner = self.inner.write();
+        let binding = inner
+            .bindings
+            .get_mut(&group_id)
+            .and_then(|bindings| bindings.iter_mut().find(|b| b.channel_id == channel_id))
+            .ok_or(DbError::NotFound)?;
+        if let Some(priority) = priority {
+            binding.priority = priority;
+        }
+        if let Some(weight) = weight {
+            binding.weight = weight;
+        }
+        if let Some(canary_percent_bps) = canary_percent_bps {
+            binding.canary_percent_bps = canary_percent_bps;
+        }
+        if let Some(model_filter) = model_filter {
+            binding.model_filter = model_filter;
+        }
+        if let Some(enabled) = enabled {
+            binding.enabled = enabled;
+        }
         Ok(())
     }
 

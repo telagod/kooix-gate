@@ -26,8 +26,11 @@ use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, UserId};
 use gate_core::rbac::{Permission, Scope};
 use gate_providers::ProviderCapabilities;
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
-use gate_storage::{ChannelStatus, CreateChannel, ListChannelsQuery, UpdateChannel};
-use serde::{Deserialize, Serialize};
+use gate_storage::{
+    ChannelStatus, CreateChannel, ListChannelsQuery, UpdateChannel, UpdateChannelBinding,
+};
+use serde::{Deserialize, Deserializer, Serialize};
+use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1369,10 +1372,25 @@ pub struct BindingView {
     pub capabilities: ProviderCapabilities,
     pub priority: i32,
     pub weight: i32,
+    pub canary_percent_bps: Option<i32>,
     pub model_filter: Vec<String>,
     pub enabled: bool,
     pub channel_status: String,
     pub channel_health: String,
+}
+
+#[derive(Serialize)]
+pub struct CanaryStatsView {
+    pub channel_id: String,
+    pub channel_code: String,
+    pub channel_name: String,
+    pub provider_type: String,
+    pub canary_percent_bps: Option<i32>,
+    pub is_canary: bool,
+    pub requests: i64,
+    pub error_rate: f64,
+    pub avg_latency_ms: Option<f64>,
+    pub avg_cost_micros: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -1413,6 +1431,8 @@ pub struct AddBindingRequest {
     pub channel_id: Uuid,
     pub priority: Option<i32>,
     pub weight: Option<i32>,
+    #[serde(default)]
+    pub canary_percent_bps: Option<i32>,
 }
 
 async fn list_groups(
@@ -1593,8 +1613,100 @@ async fn fallback_request_counts(
         .collect())
 }
 
+async fn canary_stats_for_bindings(
+    app: &AppState,
+    group_id: ChannelGroupId,
+    bindings: &[BindingView],
+    window_hours: i64,
+) -> AppResult<Vec<CanaryStatsView>> {
+    let mut metrics: HashMap<Uuid, (i64, i64, Option<f64>, Option<f64>)> = HashMap::new();
+    if let Some(pool) = app.repos.pool()
+        && !bindings.is_empty()
+    {
+        let channel_ids: Vec<Uuid> = bindings
+            .iter()
+            .filter_map(|binding| binding.channel_id.parse::<ChannelId>().ok())
+            .map(|id| *id.as_uuid())
+            .collect();
+        if !channel_ids.is_empty() {
+            let rows = sqlx::query(
+                "SELECT channel_id, \
+                        COUNT(*)::BIGINT AS requests, \
+                        COUNT(*) FILTER (WHERE status >= 400 OR error_code IS NOT NULL)::BIGINT AS errors, \
+                        AVG(latency_ms)::float8 AS avg_latency_ms, \
+                        AVG(cost_micros)::float8 AS avg_cost_micros \
+                 FROM request_events \
+                 WHERE group_id = $1 \
+                   AND channel_id = ANY($2) \
+                   AND ts >= NOW() - ($3::BIGINT * INTERVAL '1 hour') \
+                 GROUP BY channel_id",
+            )
+            .bind(group_id.as_uuid())
+            .bind(&channel_ids)
+            .bind(window_hours)
+            .fetch_all(pool)
+            .await
+            .map_err(gate_storage::DbError::from)?;
+
+            for row in rows {
+                let channel_id: Uuid = row
+                    .try_get("channel_id")
+                    .map_err(gate_storage::DbError::from)?;
+                let requests: i64 = row
+                    .try_get("requests")
+                    .map_err(gate_storage::DbError::from)?;
+                let errors: i64 = row.try_get("errors").map_err(gate_storage::DbError::from)?;
+                let avg_latency_ms: Option<f64> = row.try_get("avg_latency_ms").unwrap_or(None);
+                let avg_cost_micros: Option<f64> = row.try_get("avg_cost_micros").unwrap_or(None);
+                metrics.insert(
+                    channel_id,
+                    (requests, errors, avg_latency_ms, avg_cost_micros),
+                );
+            }
+        }
+    }
+
+    Ok(bindings
+        .iter()
+        .filter_map(|binding| {
+            let channel_id = binding.channel_id.parse::<ChannelId>().ok()?;
+            let (requests, errors, avg_latency_ms, avg_cost_micros) = metrics
+                .get(channel_id.as_uuid())
+                .copied()
+                .unwrap_or((0, 0, None, None));
+            Some(CanaryStatsView {
+                channel_id: binding.channel_id.clone(),
+                channel_code: binding.channel_code.clone(),
+                channel_name: binding.channel_name.clone(),
+                provider_type: binding.provider_type.clone(),
+                canary_percent_bps: binding.canary_percent_bps,
+                is_canary: binding.canary_percent_bps.is_some(),
+                requests,
+                error_rate: if requests > 0 {
+                    errors as f64 / requests as f64
+                } else {
+                    0.0
+                },
+                avg_latency_ms,
+                avg_cost_micros,
+            })
+        })
+        .collect())
+}
+
 async fn group_channel_count(app: &AppState, gid: ChannelGroupId) -> AppResult<i64> {
     Ok(app.repos.channel_groups.list_bindings(gid).await?.len() as i64)
+}
+
+fn validate_canary_percent_bps(canary: Option<i32>) -> AppResult<()> {
+    if let Some(bps) = canary
+        && !(100..=500).contains(&bps)
+    {
+        return Err(AppError::BadRequest(
+            "canary_percent_bps must be between 100 and 500 (1%-5%), or null".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn create_group(
@@ -1764,6 +1876,7 @@ fn binding_to_view(b: gate_storage::ChannelBinding) -> BindingView {
         capabilities,
         priority: b.priority,
         weight: b.weight,
+        canary_percent_bps: b.canary_percent_bps,
         model_filter: b.model_filter,
         enabled: b.enabled,
         channel_status: b.channel.status,
@@ -1782,6 +1895,7 @@ async fn add_group_binding(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let cid = gate_core::id::ChannelId::from(req.channel_id);
+    validate_canary_percent_bps(req.canary_percent_bps)?;
     app.repos
         .channel_groups
         .add_binding(
@@ -1789,6 +1903,7 @@ async fn add_group_binding(
             cid,
             req.priority.unwrap_or(100),
             req.weight.unwrap_or(1),
+            req.canary_percent_bps,
         )
         .await?;
 
@@ -1814,8 +1929,40 @@ async fn remove_group_binding(
 pub struct UpdateBindingRequest {
     pub priority: Option<i32>,
     pub weight: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_optional_json_patch")]
+    pub canary_percent_bps: Option<serde_json::Value>,
     pub model_filter: Option<Vec<String>>,
     pub enabled: Option<bool>,
+}
+
+fn deserialize_optional_json_patch<'de, D>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    serde_json::Value::deserialize(deserializer).map(Some)
+}
+
+fn parse_canary_percent_bps_patch(
+    value: Option<serde_json::Value>,
+) -> AppResult<Option<Option<i32>>> {
+    match value {
+        None => Ok(None),
+        Some(serde_json::Value::Null) => Ok(Some(None)),
+        Some(serde_json::Value::Number(n)) => {
+            let bps = n
+                .as_i64()
+                .and_then(|v| i32::try_from(v).ok())
+                .ok_or_else(|| {
+                    AppError::BadRequest("canary_percent_bps must be an integer".into())
+                })?;
+            Ok(Some(Some(bps)))
+        }
+        Some(_) => Err(AppError::BadRequest(
+            "canary_percent_bps must be an integer or null".into(),
+        )),
+    }
 }
 
 async fn update_group_binding(
@@ -1829,15 +1976,22 @@ async fn update_group_binding(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let cid = gate_core::id::ChannelId::from(channel_id.0);
+    let canary_percent_bps = parse_canary_percent_bps_patch(req.canary_percent_bps)?;
+    if let Some(canary) = canary_percent_bps {
+        validate_canary_percent_bps(canary)?;
+    }
     app.repos
         .channel_groups
         .update_binding(
             gid,
             cid,
-            req.priority,
-            req.weight,
-            req.model_filter,
-            req.enabled,
+            UpdateChannelBinding {
+                priority: req.priority,
+                weight: req.weight,
+                canary_percent_bps,
+                model_filter: req.model_filter,
+                enabled: req.enabled,
+            },
         )
         .await?;
 
@@ -1854,6 +2008,7 @@ pub struct GroupDetailView {
     pub project_ids: Vec<String>,
     pub fallback_chain: Vec<FallbackChainNodeView>,
     pub fallback_stats: FallbackStatsView,
+    pub canary_stats: Vec<CanaryStatsView>,
 }
 
 async fn get_group_detail(
@@ -1874,6 +2029,8 @@ async fn get_group_detail(
         .await?;
 
     let binding_views: Vec<BindingView> = bindings.into_iter().map(binding_to_view).collect();
+    let canary_stats =
+        canary_stats_for_bindings(&app, gid, &binding_views, FALLBACK_STATS_WINDOW_HOURS).await?;
     let group_view = GroupView {
         id: g.group_id.to_string(),
         name: g.name.clone(),
@@ -1949,6 +2106,7 @@ async fn get_group_detail(
             has_cycle,
             cycle_at: cycle_at.map(|id| id.to_string()),
         },
+        canary_stats,
     }))
 }
 

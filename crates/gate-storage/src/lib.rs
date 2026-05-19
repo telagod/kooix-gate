@@ -18,7 +18,7 @@ pub use repo::billing::{
 pub use repo::channel::{
     ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelRecord, ChannelRepo,
     ChannelStatus, CreateChannel, InMemoryChannelGroupRepo, InMemoryChannelRepo, ListChannelsQuery,
-    PaginatedChannels, PgChannelGroupRepo, PgChannelRepo, UpdateChannel,
+    PaginatedChannels, PgChannelGroupRepo, PgChannelRepo, UpdateChannel, UpdateChannelBinding,
 };
 pub use repo::channel_key::{
     ChannelKeyRecord, ChannelKeyRepo, InMemoryChannelKeyRepo, PgChannelKeyRepo,

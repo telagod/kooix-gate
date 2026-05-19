@@ -103,6 +103,48 @@ curl -X POST "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/disable-when-idle" \
 - `disable-when-idle` 在 `inflight > 0` 时返回 400；等 `safe_to_disable=true` 后再执行即可下线 key/channel。
 - 多实例部署时，当前 inflight 视图是进程内 router 计数；后续若要跨实例强一致 drain，需要补 channel-level distributed active request gauge。
 
+## Canary routing
+
+Canary routing 用于把单个 binding 限制在 1%-5% 小流量，并与同组 baseline 自动比较。
+
+控制面字段：
+
+- `channel_group_bindings.canary_percent_bps`
+  - `NULL`：普通 binding。
+  - `100`：1%。
+  - `500`：5%。
+- Admin API / UI 当前限制 `100..=500`，避免误把 canary 配成大流量；DB 约束允许 `0..=10000` 以便后续迁移 / 内部工具扩展。
+- 路由器使用 deterministic counter gate；未命中的 canary binding 记录 `canary_not_selected` skip trace，并继续走其它可用 channel。
+
+快速验尸 SQL：
+
+```sql
+SELECT
+  c.code,
+  b.canary_percent_bps,
+  COUNT(re.request_id)::BIGINT AS requests,
+  ROUND(
+    COUNT(*) FILTER (WHERE re.status >= 400 OR re.error_code IS NOT NULL)::NUMERIC
+    / NULLIF(COUNT(re.request_id), 0),
+    4
+  ) AS error_rate,
+  ROUND(AVG(re.latency_ms)) AS avg_latency_ms,
+  ROUND(AVG(re.cost_micros)) AS avg_cost_micros
+FROM channel_group_bindings b
+JOIN channels c ON c.id = b.channel_id
+LEFT JOIN request_events re
+  ON re.group_id = b.group_id
+ AND re.channel_id = b.channel_id
+ AND re.ts >= NOW() - INTERVAL '24 hours'
+WHERE b.group_id = $1::uuid
+GROUP BY c.code, b.canary_percent_bps
+ORDER BY b.canary_percent_bps NULLS FIRST, requests DESC;
+```
+
+- 控制台 `/admin/groups` 的 “Canary 对比” 表用同一 24h 窗口展示请求量、错误率、平均延迟、平均成本与 baseline 差值。
+- canary 样本量低时不要立即扩大流量；先看 `requests` 是否足够，再看错误率 / latency / cost 是否同时优于 baseline。
+- 若 canary 完全无请求，先确认 binding `enabled=true`、channel `active+healthy`、model_filter 命中，以及该 group 正在被 project 使用。
+
 ## Billing / usage settlement
 
 ```promql

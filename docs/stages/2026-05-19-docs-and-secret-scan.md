@@ -25,6 +25,28 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.4 Canary routing
+
+本轮把 P1.4 最后一项 Canary routing 落成小流量 + 自动对比闭环：
+
+- `channel_group_bindings` 新增 `canary_percent_bps`，`NULL` 表示普通 binding，`100..500` 表示 1%-5% canary 流量；migration 保留 DB 级 `0..10000` 约束以便后续扩展。
+- `ChannelBinding` / `ChannelGroupRepo::add_binding` / `update_binding` / `list_bindings` / `list_healthy_in_group` 全链路读写 canary 字段；内存 repo 也补齐 admin binding 行为，避免 dev/test 控制面空读。
+- `ProviderRouter` 增加 deterministic canary gate：未命中的 canary binding 记录 `canary_not_selected` skip trace，并继续让普通 binding 接流量；不再用 `weight` 冒充灰度百分比。
+- Admin API 校验 canary 只能配置为 1%-5% 或 `null` 关闭；Group detail 新增 `canary_stats`，按近 24h `request_events` 比较请求数、错误率、平均延迟、平均成本。
+- 控制台 `/admin/groups` 支持添加 / 编辑 binding 时设置 Canary 百分比，并新增 “Canary 对比” 面板，展示 canary 相对 baseline 的错误率 / 延迟 / 成本差值。
+- `docs/observability-runbook.md` 增加 Canary routing 运维 SQL 与判读规则。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-storage -p gate-providers -p gate-server --all-targets
+cargo test -p gate-storage --test channel_repo channel_binding_canary_percent_roundtrips -- --nocapture
+cargo test -p gate-providers canary -- --nocapture
+cargo test -p gate-server --test auth_flow admin_group_binding_canary_validates_and_returns_stats_shape -- --nocapture
+npm --prefix web run check
+```
+
 ## P1.4 Channel draining
 
 本轮把 P1.4 的 Channel draining 从路线项落成可操作的运维闭环：

@@ -3,7 +3,7 @@
 use gate_core::id::{ChannelGroupId, ChannelId};
 use gate_storage::{
     ChannelGroupRepo, ChannelRepo, ChannelStatus, OrgRepo, PgChannelGroupRepo, PgChannelRepo,
-    PgOrgRepo, PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
+    PgOrgRepo, PgProjectRepo, PgUserRepo, ProjectRepo, UpdateChannelBinding, UserRepo,
 };
 use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
@@ -230,4 +230,61 @@ async fn list_healthy_in_group_priority_order() {
     assert_eq!(bindings.len(), 3);
     let priorities: Vec<i32> = bindings.iter().map(|b| b.priority).collect();
     assert_eq!(priorities, vec![10, 20, 30], "should be sorted ASC");
+}
+
+#[tokio::test]
+async fn channel_binding_canary_percent_roundtrips() {
+    let (_c, pool) = start_pg().await;
+
+    let ch_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO channels (code, name, provider_type, base_url, config_enc, status, health) \
+         VALUES ('ch-canary-roundtrip', 'Canary Ch', 'openai', 'https://api.openai.com/v1', '\\x'::bytea, 'active', 'healthy') \
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let group_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO channel_groups (name, strategy) VALUES ('canary-roundtrip-group', 'priority') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let group_repo = PgChannelGroupRepo::new(pool.clone());
+    group_repo
+        .add_binding(
+            ChannelGroupId::from(group_id),
+            ChannelId::from(ch_id),
+            10,
+            1,
+            Some(500),
+        )
+        .await
+        .unwrap();
+
+    let bindings = group_repo
+        .list_bindings(ChannelGroupId::from(group_id))
+        .await
+        .unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0].canary_percent_bps, Some(500));
+
+    group_repo
+        .update_binding(
+            ChannelGroupId::from(group_id),
+            ChannelId::from(ch_id),
+            UpdateChannelBinding {
+                canary_percent_bps: Some(None),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let bindings = group_repo
+        .list_bindings(ChannelGroupId::from(group_id))
+        .await
+        .unwrap();
+    assert_eq!(bindings[0].canary_percent_bps, None);
 }

@@ -6,7 +6,7 @@
 		getGroupDetail, listGroupBindings, addGroupBinding,
 		updateGroupBinding, removeGroupBinding, listAdminChannels
 	} from '$lib/api.js';
-	import type { ChannelGroup, FallbackChainNode, GroupBinding, GroupDetail, Channel } from '$lib/api.js';
+	import type { CanaryStats, ChannelGroup, FallbackChainNode, GroupBinding, GroupDetail, Channel } from '$lib/api.js';
 	import { CAPABILITY_LABELS, capabilityList, providerCapabilities } from '$lib/plugin-presets';
 	import type { ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
 	import { addToast } from '$lib/stores/toast.js';
@@ -57,11 +57,13 @@
 	let selectedChannels = $state<Set<string>>(new Set());
 	let addPriority = $state(100);
 	let addWeight = $state(1);
+	let addCanaryPercent = $state<number | null>(null);
 
 	// inline editing binding
 	let editingBindingId = $state<string | null>(null);
 	let editBindingPriority = $state(0);
 	let editBindingWeight = $state(0);
+	let editBindingCanaryPercent = $state<number | null>(null);
 
 	// ── Helpers ──
 	function strategyMeta(s: string) { return STRATEGIES[s] ?? { label: s, color: 'gray', desc: '' }; }
@@ -96,6 +98,86 @@
 
 	function formatPercent(value: number | null | undefined): string {
 		return `${((value ?? 0) * 100).toFixed(1)}%`;
+	}
+
+	function formatCanaryPercent(bps: number | null | undefined): string {
+		if (bps === null || bps === undefined) return '关闭';
+		return `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+	}
+
+	function percentToBps(percent: number | string | null | undefined): number | null {
+		if (percent === null || percent === undefined) return null;
+		const value = Number(percent);
+		if (!Number.isFinite(value) || value <= 0) return null;
+		return Math.round(value * 100);
+	}
+
+	function bpsToPercent(bps: number | null | undefined): number | null {
+		if (bps === null || bps === undefined) return null;
+		return bps / 100;
+	}
+
+	function canaryRows(d: GroupDetail | null): CanaryStats[] {
+		return d?.canary_stats ?? [];
+	}
+
+	function baselineRows(d: GroupDetail | null): CanaryStats[] {
+		return canaryRows(d).filter((row) => !row.is_canary);
+	}
+
+	function metricDelta(row: CanaryStats, baseline: CanaryStats | null, field: 'error_rate' | 'avg_latency_ms' | 'avg_cost_micros'): number | null {
+		if (!baseline) return null;
+		const current = row[field];
+		const base = baseline[field];
+		if (current === null || current === undefined || base === null || base === undefined) return null;
+		return current - base;
+	}
+
+	function weightedBaseline(rows: CanaryStats[]): CanaryStats | null {
+		if (rows.length === 0) return null;
+		const totalRequests = rows.reduce((sum, row) => sum + row.requests, 0);
+		const weighted = (field: 'error_rate' | 'avg_latency_ms' | 'avg_cost_micros'): number | null => {
+			const values = rows.filter((row) => row[field] !== null && row[field] !== undefined);
+			if (values.length === 0) return null;
+			if (totalRequests > 0) {
+				const weightedRequests = values.reduce((sum, row) => sum + row.requests, 0);
+				if (weightedRequests > 0) {
+					return values.reduce((sum, row) => sum + (row[field] ?? 0) * row.requests, 0) / weightedRequests;
+				}
+			}
+			return values.reduce((sum, row) => sum + (row[field] ?? 0), 0) / values.length;
+		};
+		return {
+			channel_id: 'baseline',
+			channel_code: 'baseline',
+			channel_name: 'Baseline',
+			provider_type: 'baseline',
+			canary_percent_bps: null,
+			is_canary: false,
+			requests: totalRequests,
+			error_rate: weighted('error_rate') ?? 0,
+			avg_latency_ms: weighted('avg_latency_ms'),
+			avg_cost_micros: weighted('avg_cost_micros')
+		};
+	}
+
+	function formatMaybeMs(value: number | null | undefined): string {
+		return value === null || value === undefined ? '—' : `${Math.round(value)}ms`;
+	}
+
+	function formatMaybeMicros(value: number | null | undefined): string {
+		return value === null || value === undefined ? '—' : `${Math.round(value).toLocaleString('zh-CN')}µ`;
+	}
+
+	function formatSignedPercentDelta(delta: number | null): string {
+		if (delta === null) return '—';
+		const value = delta * 100;
+		return `${value >= 0 ? '+' : ''}${value.toFixed(1)}pp`;
+	}
+
+	function formatSignedNumberDelta(delta: number | null, suffix = ''): string {
+		if (delta === null) return '—';
+		return `${delta >= 0 ? '+' : ''}${Math.round(delta).toLocaleString('zh-CN')}${suffix}`;
 	}
 
 	// Fallback chain builder
@@ -209,7 +291,8 @@
 					fallback_hit_rate: 0,
 					has_cycle: false,
 					cycle_at: null
-				}
+				},
+				canary_stats: []
 			};
 		} finally {
 			detailLoading = false;
@@ -311,8 +394,9 @@
 	async function handleAddChannels() {
 		if (!selectedId || selectedChannels.size === 0) return;
 		try {
+			const canaryBps = percentToBps(addCanaryPercent);
 			for (const chId of selectedChannels) {
-				await addGroupBinding(selectedId, chId, addPriority, addWeight);
+				await addGroupBinding(selectedId, chId, addPriority, addWeight, canaryBps);
 			}
 			addToast(`已添加 ${selectedChannels.size} 个渠道`, 'success');
 			showAddChannel = false;
@@ -340,6 +424,7 @@
 		editingBindingId = b.channel_id;
 		editBindingPriority = b.priority;
 		editBindingWeight = b.weight;
+		editBindingCanaryPercent = bpsToPercent(b.canary_percent_bps);
 	}
 
 	async function saveBinding() {
@@ -348,6 +433,7 @@
 			await updateGroupBinding(selectedId, editingBindingId, {
 				priority: editBindingPriority,
 				weight: editBindingWeight,
+				canary_percent_bps: percentToBps(editBindingCanaryPercent),
 			});
 			editingBindingId = null;
 			addToast('已更新', 'success');
@@ -462,6 +548,9 @@
 		{@const chain = detail.fallback_chain?.length ? detail.fallback_chain : buildLocalFallbackChain(selectedId)}
 		{@const stats = detail.fallback_stats}
 		{@const refs = projectRefs(detail)}
+		{@const canary = canaryRows(detail)}
+		{@const canaryOnly = canary.filter((row) => row.is_canary)}
+		{@const baseline = weightedBaseline(baselineRows(detail))}
 
 		<div class="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700 divide-y divide-zinc-200 dark:divide-zinc-700">
 
@@ -542,6 +631,73 @@
 						</div>
 				{/if}
 			</div>
+
+			<!-- ═══ Canary Stats ═══ -->
+			{#if canary.length > 0}
+				<div class="p-5 border-t border-zinc-200 dark:border-zinc-700">
+					<div class="mb-4 flex items-start justify-between gap-4">
+						<div>
+							<h3 class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Canary 对比</h3>
+							<p class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+								{stats?.window_hours ?? 24}h 窗口，按 request_events 比较错误率 / 延迟 / 平均成本
+							</p>
+						</div>
+						<span class="rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+							{canaryOnly.length} canary
+						</span>
+					</div>
+
+					{#if canaryOnly.length === 0}
+						<p class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+							暂无 Canary binding；编辑渠道后把 Canary 设置为 1%-5% 即可开始小流量验证。
+						</p>
+					{:else}
+						<div class="overflow-x-auto">
+							<table class="w-full text-sm">
+								<thead>
+									<tr class="border-b border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+										<th class="py-2 pr-3 text-left font-medium">渠道</th>
+										<th class="py-2 px-3 text-left font-medium">流量</th>
+										<th class="py-2 px-3 text-right font-medium">请求</th>
+										<th class="py-2 px-3 text-right font-medium">错误率</th>
+										<th class="py-2 px-3 text-right font-medium">延迟</th>
+										<th class="py-2 pl-3 text-right font-medium">平均成本</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each canaryOnly as row (row.channel_id)}
+										<tr class="border-b border-zinc-100 dark:border-zinc-800">
+											<td class="py-2.5 pr-3">
+												<div class="font-medium text-zinc-900 dark:text-zinc-100">{row.channel_name}</div>
+												<div class="text-xs text-zinc-600 dark:text-zinc-400">{row.channel_code}</div>
+											</td>
+											<td class="py-2.5 px-3">
+												<span class="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-medium text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">{formatCanaryPercent(row.canary_percent_bps)}</span>
+											</td>
+											<td class="py-2.5 px-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{formatNumber(row.requests)}</td>
+											<td class="py-2.5 px-3 text-right">
+												<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatPercent(row.error_rate)}</div>
+												<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedPercentDelta(metricDelta(row, baseline, 'error_rate'))}</div>
+											</td>
+											<td class="py-2.5 px-3 text-right">
+												<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatMaybeMs(row.avg_latency_ms)}</div>
+												<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedNumberDelta(metricDelta(row, baseline, 'avg_latency_ms'), 'ms')}</div>
+											</td>
+											<td class="py-2.5 pl-3 text-right">
+												<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatMaybeMicros(row.avg_cost_micros)}</div>
+												<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedNumberDelta(metricDelta(row, baseline, 'avg_cost_micros'), 'µ')}</div>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+							下方小字为相对 baseline 的差值；负值代表错误率 / 延迟 / 成本低于 baseline。
+						</p>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- ═══ Fallback Chain ═══ -->
 			{#if chain.length > 0}
@@ -624,7 +780,7 @@
 			<div class="p-5">
 				<div class="flex items-center justify-between mb-3">
 					<h3 class="text-sm font-medium text-zinc-700 dark:text-zinc-300">渠道列表 ({detail.bindings.length})</h3>
-					<button onclick={() => { showAddChannel = true; selectedChannels = new Set(); channelSearch = ''; channelProviderFilter = ''; addPriority = 100; addWeight = 1; }}
+					<button onclick={() => { showAddChannel = true; selectedChannels = new Set(); channelSearch = ''; channelProviderFilter = ''; addPriority = 100; addWeight = 1; addCanaryPercent = null; }}
 						class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700">
 						<Plus class="w-3 h-3" /> 添加渠道
 					</button>
@@ -642,6 +798,7 @@
 									<th class="text-left py-2 px-2 font-medium">类型</th>
 									<th class="text-left py-2 px-2 font-medium">优先级</th>
 									<th class="text-left py-2 px-2 font-medium">权重</th>
+									<th class="text-left py-2 px-2 font-medium">Canary</th>
 									<th class="text-left py-2 px-2 font-medium">模型过滤</th>
 									<th class="text-right py-2 px-2 font-medium">操作</th>
 								</tr>
@@ -685,6 +842,17 @@
 												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
 											{:else}
 												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.weight}</button>
+											{/if}
+										</td>
+										<td class="py-2.5 px-2">
+											{#if isEditing}
+												<input type="number" min="1" max="5" step="0.5" placeholder="关闭" bind:value={editBindingCanaryPercent} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
+											{:else if b.canary_percent_bps !== null && b.canary_percent_bps !== undefined}
+												<button onclick={() => startEditBinding(b)} class="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+													{formatCanaryPercent(b.canary_percent_bps)}
+												</button>
+											{:else}
+												<button onclick={() => startEditBinding(b)} class="text-xs text-zinc-500 dark:text-zinc-400">关闭</button>
 											{/if}
 										</td>
 										<td class="py-2.5 px-2">
@@ -820,6 +988,9 @@
 						<Input id="group-add-weight" type="number" bind:value={addWeight} size="sm" class="w-20" />
 					</Field>
 				</div>
+				<Field label="Canary 流量（可选）" for="group-add-canary" hint="留空为关闭；开启时后端限制 1%-5%，未命中流量会走其它渠道。">
+					<Input id="group-add-canary" type="number" min="1" max="5" step="0.5" bind:value={addCanaryPercent} placeholder="如 5" size="sm" class="w-28" />
+				</Field>
 			</div>
 
 			<!-- Channel list -->

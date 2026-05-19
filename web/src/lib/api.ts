@@ -818,6 +818,7 @@ export interface GroupBinding {
 	capabilities?: ProviderCapabilities;
 	priority: number;
 	weight: number;
+	canary_percent_bps?: number | null;
 	model_filter?: string[];
 	enabled?: boolean;
 	channel_status?: string;
@@ -845,6 +846,19 @@ export interface FallbackStats {
 	cycle_at?: string | null;
 }
 
+export interface CanaryStats {
+	channel_id: string;
+	channel_code: string;
+	channel_name: string;
+	provider_type: string;
+	canary_percent_bps?: number | null;
+	is_canary: boolean;
+	requests: number;
+	error_rate: number;
+	avg_latency_ms?: number | null;
+	avg_cost_micros?: number | null;
+}
+
 export interface GroupDetail {
 	group: ChannelGroup;
 	bindings: GroupBinding[];
@@ -852,6 +866,7 @@ export interface GroupDetail {
 	project_ids?: string[];
 	fallback_chain?: FallbackChainNode[];
 	fallback_stats?: FallbackStats;
+	canary_stats?: CanaryStats[];
 }
 
 export async function listGroups(): Promise<ChannelGroup[]> {
@@ -890,16 +905,17 @@ export async function listGroupBindings(groupId: string): Promise<GroupBinding[]
 	return apiFetch<GroupBinding[]>(`/v1/admin/groups/${rawId(groupId)}/bindings`);
 }
 
-export async function addGroupBinding(groupId: string, channelId: string, priority?: number, weight?: number): Promise<void> {
+export async function addGroupBinding(groupId: string, channelId: string, priority?: number, weight?: number, canary_percent_bps?: number | null): Promise<void> {
 	return apiFetch(`/v1/admin/groups/${rawId(groupId)}/bindings`, {
 		method: 'POST',
-		body: JSON.stringify({ channel_id: rawId(channelId), priority, weight })
+		body: JSON.stringify({ channel_id: rawId(channelId), priority, weight, canary_percent_bps })
 	});
 }
 
 export async function updateGroupBinding(groupId: string, channelId: string, data: {
 	priority?: number;
 	weight?: number;
+	canary_percent_bps?: number | null;
 	model_filter?: string[];
 	enabled?: boolean;
 }): Promise<void> {

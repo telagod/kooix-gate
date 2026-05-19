@@ -58,6 +58,7 @@ pub struct RouteCandidateTrace {
     pub provider_type: String,
     pub priority: i32,
     pub weight: i32,
+    pub canary_percent_bps: Option<i32>,
 }
 
 /// 候选 channel 被跳过的原因。
@@ -247,6 +248,7 @@ impl RouteDecisionTrace {
                 provider_type: candidate.channel.provider_type.clone(),
                 priority: candidate.priority,
                 weight: candidate.weight,
+                canary_percent_bps: candidate.canary_percent_bps,
             }));
     }
 
@@ -995,6 +997,9 @@ pub struct ProviderRouter {
     crypto: Option<Arc<EnvelopeKms>>,
     /// round_robin 策略的全局计数器。
     rr_counter: AtomicU64,
+    /// Deterministic canary gate counter. Avoids flaky RNG and keeps each bps
+    /// target bounded over long windows.
+    canary_counter: AtomicU64,
     /// least_conn 策略的 inflight 计数器。
     inflight: Arc<InflightTracker>,
     /// 滑动窗口成功率追踪（auto-disable 机制）。
@@ -1019,6 +1024,7 @@ impl ProviderRouter {
             channel_key_repo: None,
             crypto: None,
             rr_counter: AtomicU64::new(0),
+            canary_counter: AtomicU64::new(0),
             inflight: Arc::new(InflightTracker::new()),
             metrics: Some(Arc::new(ChannelMetrics::new(10, 0.8))),
             channel_latency_repo: None,
@@ -1138,6 +1144,40 @@ impl ProviderRouter {
                 None
             }
         }
+    }
+
+    fn canary_gate_allows(&self, percent_bps: i32) -> bool {
+        let percent_bps = percent_bps.clamp(0, 10_000) as u64;
+        if percent_bps == 0 {
+            return false;
+        }
+        if percent_bps >= 10_000 {
+            return true;
+        }
+        let seq = self.canary_counter.fetch_add(1, Ordering::Relaxed);
+        // 7919 is coprime with 10000, so a full 10k window hits each bucket once.
+        (seq.wrapping_mul(7_919) % 10_000) < percent_bps
+    }
+
+    fn apply_canary_gate<'a>(
+        &self,
+        compatible: &[&'a ChannelBinding],
+        trace: Option<&mut RouteDecisionTrace>,
+    ) -> Vec<&'a ChannelBinding> {
+        let mut allowed = Vec::with_capacity(compatible.len());
+        let mut trace = trace;
+        for candidate in compatible {
+            if let Some(percent_bps) = candidate.canary_percent_bps
+                && !self.canary_gate_allows(percent_bps)
+            {
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.record_skip(candidate, "canary_not_selected");
+                }
+                continue;
+            }
+            allowed.push(*candidate);
+        }
+        allowed
     }
 
     /// 获取 rate_limiter 的引用（供调用方上报 token 消耗）。
@@ -1414,6 +1454,11 @@ impl ProviderRouter {
             return Ok(None);
         }
 
+        let compatible = self.apply_canary_gate(&compatible, None);
+        if compatible.is_empty() {
+            return Ok(None);
+        }
+
         let persistent_latencies = self
             .persistent_latencies_for_strategy(&group.strategy, &compatible)
             .await;
@@ -1594,6 +1639,11 @@ impl ProviderRouter {
             return Ok(None);
         }
 
+        let compatible = self.apply_canary_gate(&compatible, None);
+        if compatible.is_empty() {
+            return Ok(None);
+        }
+
         let persistent_latencies = self
             .persistent_latencies_for_strategy(&group.strategy, &compatible)
             .await;
@@ -1768,6 +1818,11 @@ impl ProviderRouter {
             })
             .collect();
 
+        if compatible.is_empty() {
+            return Ok(None);
+        }
+
+        let compatible = self.apply_canary_gate(&compatible, None);
         if compatible.is_empty() {
             return Ok(None);
         }
@@ -2058,6 +2113,22 @@ impl ProviderRouter {
                 group_id = %group.group_id,
                 model = model,
                 "no channels support model in group"
+            );
+            return Ok(RouteAttempt::Miss(Box::new(RouteMiss {
+                reason: RouteMissReason::ModelUnsupported,
+                message: route_not_found_message("chat", model, RouteMissReason::ModelUnsupported),
+                capability: None,
+                selected_model: model.to_string(),
+                trace: trace.clone(),
+            })));
+        }
+
+        let compatible = self.apply_canary_gate(&compatible, Some(trace));
+        if compatible.is_empty() {
+            tracing::warn!(
+                group_id = %group.group_id,
+                model = model,
+                "no canary-gated channel selected in group"
             );
             return Ok(RouteAttempt::Miss(Box::new(RouteMiss {
                 reason: RouteMissReason::ModelUnsupported,
@@ -3306,6 +3377,50 @@ mod tests {
         (project_id, router, channel_ids)
     }
 
+    /// Helper: setup with custom strategy and per-channel canary bps.
+    fn setup_strategy_canary_fixtures(
+        strategy: &str,
+        channels_spec: &[(&str, i32, i32, Option<i32>)],
+    ) -> (ProjectId, ProviderRouter, Vec<ChannelId>) {
+        ensure_test_api_key();
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+
+        let now = Utc::now();
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: strategy.to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        });
+        group_repo.seed_default(project_id, group_id);
+
+        let mut channel_ids = Vec::new();
+        for (code, priority, weight, canary_percent_bps) in channels_spec {
+            let ch = make_channel_with_models(code, "openai", vec![]);
+            let ch_id = ch.channel_id;
+            channel_ids.push(ch_id);
+            channel_repo.seed_channel(ch);
+            channel_repo.seed_binding_with_canary(
+                group_id,
+                ch_id,
+                *priority,
+                *weight,
+                *canary_percent_bps,
+            );
+        }
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        (project_id, router, channel_ids)
+    }
+
     // ---- weighted_random ----
 
     #[tokio::test]
@@ -3344,6 +3459,29 @@ mod tests {
             let routed = router.route(pid, "any").await.unwrap().unwrap();
             assert_eq!(routed.channel_id, ch_ids[0]);
         }
+    }
+
+    #[tokio::test]
+    async fn canary_binding_receives_configured_percentage() {
+        let (pid, router, ch_ids) = setup_strategy_canary_fixtures(
+            "priority",
+            &[("ch-canary", 1, 1, Some(500)), ("ch-baseline", 2, 1, None)],
+        );
+
+        let iterations = 2_000;
+        let mut canary_hits = 0u32;
+        for _ in 0..iterations {
+            let routed = router.route(pid, "any").await.unwrap().unwrap();
+            if routed.channel_id == ch_ids[0] {
+                canary_hits += 1;
+            }
+        }
+
+        let ratio = canary_hits as f64 / iterations as f64;
+        assert!(
+            (0.045..=0.055).contains(&ratio),
+            "expected deterministic ~5% canary traffic, got {ratio:.4} ({canary_hits}/{iterations})"
+        );
     }
 
     // ---- round_robin ----
