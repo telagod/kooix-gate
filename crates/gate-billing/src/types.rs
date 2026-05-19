@@ -22,6 +22,9 @@ pub struct UsageEvent {
     pub org_id: Uuid,
     /// 路由到的 Channel ID（可选，fallback provider 时为 None）
     pub channel_id: Option<Uuid>,
+    /// 路由命中的 ChannelGroup ID（可选，fallback provider 或旧事件时为 None）
+    #[serde(default)]
+    pub group_id: Option<Uuid>,
     /// 实际使用的模型名
     pub model: String,
     /// 输入 token 数

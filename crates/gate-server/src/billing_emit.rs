@@ -21,6 +21,7 @@ pub struct BillingCtx {
     pub project_id: Uuid,
     pub org_id: Uuid,
     pub channel_id: Option<Uuid>,
+    pub group_id: Option<Uuid>,
     pub model: String,
     pub request_id: Uuid,
     pub idempotency_key: String,
@@ -33,6 +34,7 @@ impl BillingCtx {
     pub fn from_auth(
         ctx: &AuthContext,
         channel_id: Option<Uuid>,
+        group_id: Option<Uuid>,
         model: &str,
         request_id: Uuid,
     ) -> Option<Self> {
@@ -46,6 +48,7 @@ impl BillingCtx {
                 project_id: *project_id.as_uuid(),
                 org_id: *org_id.as_uuid(),
                 channel_id,
+                group_id,
                 model: model.to_string(),
                 request_id,
                 idempotency_key: request_id.to_string(),
@@ -110,6 +113,7 @@ pub async fn emit_usage(
         project_id: ctx.project_id,
         org_id: ctx.org_id,
         channel_id: ctx.channel_id,
+        group_id: ctx.group_id,
         model: ctx.model,
         prompt_tokens: usage.prompt_tokens as i32,
         completion_tokens: usage.completion_tokens as i32,

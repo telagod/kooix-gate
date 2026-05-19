@@ -37,7 +37,7 @@ async fn create_image(
     Json(mut req): Json<ImageGenerationRequest>,
 ) -> AppResult<Json<ImageGenerationResponse>> {
     let route_start = std::time::Instant::now();
-    let (provider, channel_id, routed_key_id, routed_model) =
+    let (provider, channel_id, routed_group_id, routed_key_id, routed_model) =
         resolve_image_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -51,7 +51,8 @@ async fn create_image(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
+    let billing_ctx =
+        BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &req.model, request_id);
 
     let execute_start = std::time::Instant::now();
     let resp = match provider.generate_image(req.clone()).await {
@@ -141,6 +142,7 @@ async fn resolve_image_provider(
 ) -> AppResult<(
     Arc<dyn ImageProvider>,
     Option<Uuid>,
+    Option<Uuid>,
     Option<ChannelKeyId>,
     Option<String>,
 )> {
@@ -152,6 +154,7 @@ async fn resolve_image_provider(
                 Ok(Some(RoutedImageProvider {
                     provider,
                     channel_id,
+                    group_id,
                     key_id,
                     resolved_model,
                     ..
@@ -159,6 +162,7 @@ async fn resolve_image_provider(
                     return Ok((
                         provider,
                         Some(*channel_id.as_uuid()),
+                        Some(*group_id.as_uuid()),
                         key_id,
                         Some(resolved_model),
                     ));
@@ -179,7 +183,7 @@ async fn resolve_image_provider(
     }
 
     if let Some(provider) = &app.image_provider {
-        return Ok((provider.clone(), None, None, None));
+        return Ok((provider.clone(), None, None, None, None));
     }
 
     Err(AppError::NoRoute {

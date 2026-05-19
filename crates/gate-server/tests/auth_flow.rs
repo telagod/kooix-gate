@@ -597,6 +597,74 @@ async fn admin_rejects_invalid_plugin_manifest_with_pointer() {
 }
 
 #[tokio::test]
+async fn admin_group_detail_exposes_fallback_chain_and_validates_cycles() {
+    let f = fixture();
+    let tok = jwt_for(&f.jwt, f.user_super, None, true);
+
+    let (status, primary) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/groups",
+        Some(&tok),
+        Some(serde_json::json!({
+            "name": "Primary",
+            "strategy": "priority",
+            "description": "primary traffic"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "primary={primary}");
+    assert_eq!(primary["description"], "primary traffic");
+    let primary_id = primary["id"].as_str().unwrap().to_string();
+
+    let (status, fallback) = call(
+        &f.router,
+        "POST",
+        "/v1/admin/groups",
+        Some(&tok),
+        Some(serde_json::json!({
+            "name": "Fallback",
+            "strategy": "least_latency",
+            "fallback_group_id": primary_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "fallback={fallback}");
+    let fallback_id = fallback["id"].as_str().unwrap().to_string();
+
+    let (status, body) = call(
+        &f.router,
+        "PUT",
+        &format!("/v1/admin/groups/{primary_id}"),
+        Some(&tok),
+        Some(serde_json::json!({ "fallback_group_id": fallback_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body={body}");
+    assert_eq!(body["error"]["code"], "bad_request");
+
+    let (status, detail) = call(
+        &f.router,
+        "GET",
+        &format!("/v1/admin/groups/{fallback_id}/detail"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "detail={detail}");
+    assert_eq!(detail["group"]["id"], fallback_id);
+    assert_eq!(detail["fallback_chain"].as_array().unwrap().len(), 2);
+    assert_eq!(detail["fallback_chain"][0]["id"], fallback_id);
+    assert_eq!(detail["fallback_chain"][0]["is_fallback"], false);
+    assert_eq!(detail["fallback_chain"][1]["id"], primary_id);
+    assert_eq!(detail["fallback_chain"][1]["is_fallback"], true);
+    assert_eq!(detail["fallback_stats"]["window_hours"], 24);
+    assert_eq!(detail["fallback_stats"]["has_cycle"], false);
+    assert!(detail["projects_using"].is_array());
+    assert!(detail["project_ids"].is_array());
+}
+
+#[tokio::test]
 async fn admin_rejects_api_key_subject() {
     let f = fixture();
     let (status, body) = call(

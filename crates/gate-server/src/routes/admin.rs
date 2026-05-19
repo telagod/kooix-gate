@@ -22,13 +22,13 @@ use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
-use gate_core::id::{ChannelId, ChannelKeyId, UserId};
+use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, UserId};
 use gate_core::rbac::{Permission, Scope};
 use gate_providers::ProviderCapabilities;
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
 use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1220,7 +1220,7 @@ fn user_to_view(u: gate_core::identity::User) -> UserView {
 // Channel Groups (Admin)
 // ============================================================================
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct GroupView {
     pub id: String,
     pub name: String,
@@ -1237,6 +1237,10 @@ pub struct GroupView {
 pub struct CreateGroupRequest {
     pub name: String,
     pub strategy: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub fallback_group_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1262,6 +1266,39 @@ pub struct BindingView {
     pub channel_status: String,
     pub channel_health: String,
 }
+
+#[derive(Serialize)]
+pub struct FallbackChainNodeView {
+    pub id: String,
+    pub name: String,
+    pub strategy: String,
+    pub enabled: bool,
+    pub channel_count: i64,
+    pub requests: i64,
+    pub share: f64,
+    pub is_fallback: bool,
+}
+
+#[derive(Serialize)]
+pub struct FallbackStatsView {
+    pub window_hours: i64,
+    pub total_requests: i64,
+    pub primary_requests: i64,
+    pub fallback_requests: i64,
+    pub fallback_hit_rate: f64,
+    pub has_cycle: bool,
+    pub cycle_at: Option<String>,
+}
+
+const VALID_GROUP_STRATEGIES: [&str; 5] = [
+    "priority",
+    "weighted_random",
+    "round_robin",
+    "least_conn",
+    "least_latency",
+];
+const MAX_FALLBACK_DEPTH: usize = 5;
+const FALLBACK_STATS_WINDOW_HOURS: i64 = 24;
 
 #[derive(Deserialize)]
 pub struct AddBindingRequest {
@@ -1296,6 +1333,162 @@ async fn list_groups(
     Ok(Json(views))
 }
 
+fn validate_group_strategy(strategy: &str) -> AppResult<()> {
+    if !VALID_GROUP_STRATEGIES.contains(&strategy) {
+        return Err(AppError::BadRequest(format!(
+            "strategy must be one of: {VALID_GROUP_STRATEGIES:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_channel_group_id(value: &str, field: &str) -> AppResult<ChannelGroupId> {
+    value
+        .parse::<ChannelGroupId>()
+        .map_err(|_| AppError::BadRequest(format!("invalid {field} UUID")))
+}
+
+async fn ensure_group_exists(app: &AppState, gid: ChannelGroupId, message: &str) -> AppResult<()> {
+    app.repos
+        .channel_groups
+        .find_by_id(gid)
+        .await
+        .map(|_| ())
+        .map_err(|e| match e {
+            gate_storage::DbError::NotFound => AppError::BadRequest(message.into()),
+            other => AppError::Db(other),
+        })
+}
+
+async fn validate_fallback_target(
+    app: &AppState,
+    gid: ChannelGroupId,
+    fallback: Option<ChannelGroupId>,
+) -> AppResult<()> {
+    validate_fallback_chain(app, Some(gid), fallback).await
+}
+
+async fn validate_fallback_chain(
+    app: &AppState,
+    source: Option<ChannelGroupId>,
+    fallback: Option<ChannelGroupId>,
+) -> AppResult<()> {
+    let Some(fallback) = fallback else {
+        return Ok(());
+    };
+
+    if Some(fallback) == source {
+        return Err(AppError::BadRequest(
+            "fallback_group_id cannot point to itself".into(),
+        ));
+    }
+    ensure_group_exists(app, fallback, "fallback group not found").await?;
+
+    let mut visited = source.into_iter().collect::<HashSet<_>>();
+    let mut current = fallback;
+    let mut depth = 1usize;
+    loop {
+        if !visited.insert(current) {
+            return Err(AppError::BadRequest(format!(
+                "fallback cycle detected at {current}"
+            )));
+        }
+        if depth >= MAX_FALLBACK_DEPTH {
+            return Err(AppError::BadRequest(format!(
+                "fallback chain exceeds max depth {MAX_FALLBACK_DEPTH}"
+            )));
+        }
+        let group = app
+            .repos
+            .channel_groups
+            .find_by_id(current)
+            .await
+            .map_err(|e| match e {
+                gate_storage::DbError::NotFound => {
+                    AppError::BadRequest("fallback group not found".into())
+                }
+                other => AppError::Db(other),
+            })?;
+        match group.fallback_group_id {
+            Some(next) => {
+                current = next;
+                depth += 1;
+            }
+            None => return Ok(()),
+        }
+    }
+}
+
+async fn build_fallback_chain_records(
+    app: &AppState,
+    root: gate_storage::ChannelGroupRecord,
+) -> AppResult<(
+    Vec<gate_storage::ChannelGroupRecord>,
+    bool,
+    Option<ChannelGroupId>,
+)> {
+    let mut chain = Vec::new();
+    let mut visited = HashSet::new();
+    let mut current = root;
+    let mut depth = 0usize;
+
+    loop {
+        if !visited.insert(current.group_id) {
+            return Ok((chain, true, Some(current.group_id)));
+        }
+        let next = current.fallback_group_id;
+        chain.push(current);
+        let Some(next_id) = next else {
+            return Ok((chain, false, None));
+        };
+        if depth >= MAX_FALLBACK_DEPTH {
+            return Ok((chain, true, Some(next_id)));
+        }
+        current = match app.repos.channel_groups.find_by_id(next_id).await {
+            Ok(group) => group,
+            Err(gate_storage::DbError::NotFound) => return Ok((chain, false, None)),
+            Err(e) => return Err(AppError::Db(e)),
+        };
+        depth += 1;
+    }
+}
+
+async fn fallback_request_counts(
+    app: &AppState,
+    group_ids: &[ChannelGroupId],
+    window_hours: i64,
+) -> AppResult<HashMap<ChannelGroupId, i64>> {
+    let Some(pool) = app.repos.pool() else {
+        return Ok(HashMap::new());
+    };
+    if group_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let ids: Vec<Uuid> = group_ids.iter().map(|id| *id.as_uuid()).collect();
+    let rows = sqlx::query_as::<_, (Uuid, i64)>(
+        "SELECT group_id, COUNT(*)::BIGINT AS requests \
+         FROM request_events \
+         WHERE group_id = ANY($1) \
+           AND ts >= NOW() - ($2::BIGINT * INTERVAL '1 hour') \
+         GROUP BY group_id",
+    )
+    .bind(&ids)
+    .bind(window_hours)
+    .fetch_all(pool)
+    .await
+    .map_err(gate_storage::DbError::from)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, count)| (ChannelGroupId::from(id), count))
+        .collect())
+}
+
+async fn group_channel_count(app: &AppState, gid: ChannelGroupId) -> AppResult<i64> {
+    Ok(app.repos.channel_groups.list_bindings(gid).await?.len() as i64)
+}
+
 async fn create_group(
     State(app): State<AppState>,
     Authed(ctx): Authed,
@@ -1304,24 +1497,37 @@ async fn create_group(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    let valid = [
-        "priority",
-        "weighted_random",
-        "round_robin",
-        "least_conn",
-        "least_latency",
-    ];
-    if !valid.contains(&req.strategy.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "strategy must be one of: {valid:?}"
-        )));
-    }
+    validate_group_strategy(&req.strategy)?;
+    let requested_fallback = req
+        .fallback_group_id
+        .as_deref()
+        .map(|id| parse_channel_group_id(id, "fallback_group_id"))
+        .transpose()?;
+    validate_fallback_chain(&app, None, requested_fallback).await?;
 
-    let g = app
+    let mut g = app
         .repos
         .channel_groups
         .create(&req.name, &req.strategy)
         .await?;
+    if req.description.is_some() || requested_fallback.is_some() {
+        g = app
+            .repos
+            .channel_groups
+            .update(
+                g.group_id,
+                None,
+                None,
+                None,
+                if requested_fallback.is_some() {
+                    Some(requested_fallback)
+                } else {
+                    None
+                },
+                req.description.as_deref(),
+            )
+            .await?;
+    }
     app.audit.emit(
         &ctx,
         "channel_group.create",
@@ -1352,35 +1558,24 @@ async fn update_group(
     require_user!(ctx);
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
 
-    // Validate strategy if provided
     if let Some(ref s) = req.strategy {
-        let valid = [
-            "priority",
-            "weighted_random",
-            "round_robin",
-            "least_conn",
-            "least_latency",
-        ];
-        if !valid.contains(&s.as_str()) {
-            return Err(AppError::BadRequest(format!(
-                "strategy must be one of: {valid:?}"
-            )));
-        }
+        validate_group_strategy(s)?;
     }
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
 
     // Parse fallback_group_id: Option<Option<String>> -> Option<Option<ChannelGroupId>>
-    let fallback: Option<Option<gate_core::id::ChannelGroupId>> = match req.fallback_group_id {
+    let fallback: Option<Option<ChannelGroupId>> = match req.fallback_group_id {
         None => None,             // don't change
         Some(None) => Some(None), // clear
         Some(Some(ref s)) => {
-            let fb_uuid = s
-                .parse::<Uuid>()
-                .map_err(|_| AppError::BadRequest("invalid fallback_group_id UUID".into()))?;
-            Some(Some(gate_core::id::ChannelGroupId::from(fb_uuid)))
+            let fb = parse_channel_group_id(s, "fallback_group_id")?;
+            Some(Some(fb))
         }
     };
+    if fallback.is_some() {
+        validate_fallback_target(&app, gid, fallback.flatten()).await?;
+    }
 
     let g = app
         .repos
@@ -1544,9 +1739,13 @@ async fn update_group_binding(
 #[derive(Serialize)]
 pub struct GroupDetailView {
     #[serde(flatten)]
+    pub group_fields: GroupView,
     pub group: GroupView,
     pub bindings: Vec<BindingView>,
     pub projects_using: Vec<String>,
+    pub project_ids: Vec<String>,
+    pub fallback_chain: Vec<FallbackChainNodeView>,
+    pub fallback_stats: FallbackStatsView,
 }
 
 async fn get_group_detail(
@@ -1567,21 +1766,81 @@ async fn get_group_detail(
         .await?;
 
     let binding_views: Vec<BindingView> = bindings.into_iter().map(binding_to_view).collect();
+    let group_view = GroupView {
+        id: g.group_id.to_string(),
+        name: g.name.clone(),
+        description: g.description.clone(),
+        strategy: g.strategy.clone(),
+        enabled: g.enabled,
+        fallback_group_id: g.fallback_group_id.map(|fb| fb.to_string()),
+        channel_count: binding_views.len() as i64,
+        created_at: g.created_at,
+        updated_at: g.updated_at,
+    };
+
+    let (chain_records, has_cycle, cycle_at) = build_fallback_chain_records(&app, g).await?;
+    let chain_group_ids: Vec<ChannelGroupId> =
+        chain_records.iter().map(|group| group.group_id).collect();
+    let request_counts =
+        fallback_request_counts(&app, &chain_group_ids, FALLBACK_STATS_WINDOW_HOURS).await?;
+    let total_requests: i64 = chain_group_ids
+        .iter()
+        .map(|gid| request_counts.get(gid).copied().unwrap_or_default())
+        .sum();
+    let primary_requests = request_counts.get(&gid).copied().unwrap_or_default();
+    let fallback_requests = total_requests.saturating_sub(primary_requests);
+    let fallback_hit_rate = if total_requests > 0 {
+        fallback_requests as f64 / total_requests as f64
+    } else {
+        0.0
+    };
+
+    let mut fallback_chain = Vec::with_capacity(chain_records.len());
+    for (index, group) in chain_records.into_iter().enumerate() {
+        let requests = request_counts
+            .get(&group.group_id)
+            .copied()
+            .unwrap_or_default();
+        let share = if total_requests > 0 {
+            requests as f64 / total_requests as f64
+        } else {
+            0.0
+        };
+        let channel_count = if group.group_id == gid {
+            binding_views.len() as i64
+        } else {
+            group_channel_count(&app, group.group_id).await?
+        };
+        fallback_chain.push(FallbackChainNodeView {
+            id: group.group_id.to_string(),
+            name: group.name,
+            strategy: group.strategy,
+            enabled: group.enabled,
+            channel_count,
+            requests,
+            share,
+            is_fallback: index > 0,
+        });
+    }
+
+    let project_ids: Vec<String> = projects.into_iter().map(|p| p.to_string()).collect();
 
     Ok(Json(GroupDetailView {
-        group: GroupView {
-            id: g.group_id.to_string(),
-            name: g.name,
-            description: g.description,
-            strategy: g.strategy,
-            enabled: g.enabled,
-            fallback_group_id: g.fallback_group_id.map(|fb| fb.to_string()),
-            channel_count: binding_views.len() as i64,
-            created_at: g.created_at,
-            updated_at: g.updated_at,
-        },
+        group_fields: group_view.clone(),
+        group: group_view,
         bindings: binding_views,
-        projects_using: projects.into_iter().map(|p| p.to_string()).collect(),
+        projects_using: project_ids.clone(),
+        project_ids,
+        fallback_chain,
+        fallback_stats: FallbackStatsView {
+            window_hours: FALLBACK_STATS_WINDOW_HOURS,
+            total_requests,
+            primary_requests,
+            fallback_requests,
+            fallback_hit_rate,
+            has_cycle,
+            cycle_at: cycle_at.map(|id| id.to_string()),
+        },
     }))
 }
 

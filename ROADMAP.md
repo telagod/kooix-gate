@@ -428,10 +428,10 @@ cargo test -p gate-providers --all-targets
   - [x] probe 成本上限。
   - [x] 成功率 / 延迟 / 错误码分桶。
 - [x] least_latency 从内存指标升级为持久化滑窗或 Prometheus query。
-- [ ] fallback 策略可视化：
-  - group chain 图
-  - 循环检测
-  - fallback 命中率
+- [x] fallback 策略可视化：
+  - [x] group chain 图
+  - [x] 循环检测
+  - [x] fallback 命中率
 - [ ] Channel draining：
   - 禁止新请求
   - 等待 inflight 清空

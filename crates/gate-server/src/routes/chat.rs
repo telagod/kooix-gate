@@ -146,6 +146,7 @@ async fn chat_completions(
         routed_metrics,
         routed_key_id,
         routed_model,
+        routed_group_id,
     ) = resolve_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -172,7 +173,8 @@ async fn chat_completions(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(uuid::Uuid::now_v7);
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
+    let billing_ctx =
+        BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &req.model, request_id);
     let model = req.model.clone();
     let estimated_stream_usage = estimated_usage_from_request(&req);
 
@@ -415,6 +417,7 @@ pub(crate) async fn resolve_provider(
     Option<Arc<ChannelMetrics>>,
     Option<ChannelKeyId>,
     Option<String>,
+    Option<uuid::Uuid>,
 )> {
     // 尝试从 ProviderRouter 获取
     if let Some(router) = &app.provider_router {
@@ -426,6 +429,10 @@ pub(crate) async fn resolve_provider(
                     let provider_type = routed.provider_type.clone();
                     let metrics = routed.metrics.clone();
                     let resolved_model = routed.resolved_model.clone();
+                    let selected_group_id = routed
+                        .decision_trace
+                        .selected_group_id
+                        .map(|id| *id.as_uuid());
                     crate::metrics::record_provider_route_decision(
                         &provider_type,
                         "selected",
@@ -441,6 +448,7 @@ pub(crate) async fn resolve_provider(
                         metrics,
                         routed.key_id,
                         Some(resolved_model),
+                        selected_group_id,
                     ));
                 }
                 Err(e) => {
@@ -468,6 +476,7 @@ pub(crate) async fn resolve_provider(
         RetryConfig::default(),
         serde_json::json!({}),
         "openai".to_string(),
+        None,
         None,
         None,
         None,

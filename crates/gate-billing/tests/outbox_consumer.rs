@@ -102,6 +102,7 @@ fn make_event(fix: &Fixture) -> UsageEvent {
         project_id: fix.project_id,
         org_id: fix.org_id,
         channel_id: None,
+        group_id: None,
         model: "gpt-4o-mini".to_string(),
         prompt_tokens: 10,
         completion_tokens: 5,

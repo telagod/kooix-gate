@@ -45,7 +45,7 @@ async fn create_speech(
     Json(mut req): Json<AudioSpeechRequest>,
 ) -> AppResult<Response> {
     let route_start = std::time::Instant::now();
-    let (provider, channel_id, routed_key_id, routed_model) =
+    let (provider, channel_id, routed_group_id, routed_key_id, routed_model) =
         resolve_audio_provider(&app, &ctx, &headers, &req.model).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -59,7 +59,8 @@ async fn create_speech(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
+    let billing_ctx =
+        BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &req.model, request_id);
     let content_type = audio_content_type(req.response_format.as_deref());
 
     let execute_start = std::time::Instant::now();
@@ -156,7 +157,7 @@ async fn create_transcription(
     let audio_len = audio.len();
 
     let route_start = std::time::Instant::now();
-    let (provider, channel_id, routed_key_id, routed_model) =
+    let (provider, channel_id, routed_group_id, routed_key_id, routed_model) =
         resolve_audio_provider(&app, &ctx, &headers, &model).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -170,7 +171,7 @@ async fn create_transcription(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &model, request_id);
+    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &model, request_id);
 
     let execute_start = std::time::Instant::now();
     let resp = match provider
@@ -297,6 +298,7 @@ async fn resolve_audio_provider(
 ) -> AppResult<(
     Arc<dyn AudioProvider>,
     Option<Uuid>,
+    Option<Uuid>,
     Option<ChannelKeyId>,
     Option<String>,
 )> {
@@ -308,6 +310,7 @@ async fn resolve_audio_provider(
                 Ok(Some(RoutedAudioProvider {
                     provider,
                     channel_id,
+                    group_id,
                     key_id,
                     resolved_model,
                     ..
@@ -315,6 +318,7 @@ async fn resolve_audio_provider(
                     return Ok((
                         provider,
                         Some(*channel_id.as_uuid()),
+                        Some(*group_id.as_uuid()),
                         key_id,
                         Some(resolved_model),
                     ));
@@ -335,7 +339,7 @@ async fn resolve_audio_provider(
     }
 
     if let Some(provider) = &app.audio_provider {
-        return Ok((provider.clone(), None, None, None));
+        return Ok((provider.clone(), None, None, None, None));
     }
 
     Err(AppError::NoRoute {

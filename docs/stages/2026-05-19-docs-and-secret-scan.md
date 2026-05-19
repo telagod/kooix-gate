@@ -2,7 +2,7 @@
 
 Status: applied
 Scope: 文档入口清理、阶段性文档归档、gitleaks 本地安装复验、HTTP Plugin secret slots 收口。
-Last verified: 2026-05-19
+Last verified: 2026-05-20
 
 ## 关键文档 vs 阶段性文档
 
@@ -49,6 +49,25 @@ npm --prefix web run check
 npm --prefix web test
 /home/telagod/.local/bin/gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && /home/telagod/.local/bin/gitleaks detect --source "$tmp" --no-git --redact --verbose
+```
+
+## P1.4 fallback 策略可视化
+
+本轮把 fallback 从“配置字段存在”推进到控制面可解释、可验尸：
+
+- Admin Group detail API 返回 `fallback_chain` 与 `fallback_stats`，包含链路节点、节点 channel 数、近 24h `request_events.group_id` 请求量、节点占比、primary/fallback 请求量与 fallback hit-rate。
+- Admin Group create/update 接收并持久化 `description` / `fallback_group_id`；fallback 更新前校验目标存在、禁止自引用、禁止 A→B→A 等循环，并限制最大深度 5。
+- billing usage event 增加可选 `group_id`；chat、responses、embeddings、images、audio 路由命中后会把 group_id 写入 outbox，consumer 双写到 `request_events.group_id` 与 `usage_records.group_id`。
+- 控制台 `/admin/groups` 展示 fallback chain 图、节点请求占比、primary/fallback counters、fallback hit-rate 与 cycle warning；编辑候选会过滤掉会形成环的分组。
+- 前端 `GroupDetail` 同时兼容旧 `project_ids` 与后端当前 `projects_using`，避免删除提醒与 detail 面板继续漂移。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-billing -p gate-providers -p gate-server --all-targets
+cargo test -p gate-server --test auth_flow admin_group_detail_exposes_fallback_chain_and_validates_cycles -- --nocapture
+npm --prefix web run check
 ```
 
 ## P1.4 health probe standardization

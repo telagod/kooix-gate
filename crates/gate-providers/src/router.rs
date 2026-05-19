@@ -303,6 +303,7 @@ pub struct RoutedProvider {
 pub struct RoutedEmbeddingProvider {
     pub provider: Arc<dyn EmbeddingProvider>,
     pub channel_id: ChannelId,
+    pub group_id: ChannelGroupId,
     /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
     pub resolved_model: String,
     /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
@@ -314,6 +315,7 @@ pub struct RoutedEmbeddingProvider {
 pub struct RoutedImageProvider {
     pub provider: Arc<dyn ImageProvider>,
     pub channel_id: ChannelId,
+    pub group_id: ChannelGroupId,
     /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
     pub resolved_model: String,
     /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
@@ -325,6 +327,7 @@ pub struct RoutedImageProvider {
 pub struct RoutedAudioProvider {
     pub provider: Arc<dyn AudioProvider>,
     pub channel_id: ChannelId,
+    pub group_id: ChannelGroupId,
     /// 经 alias 解析后的实际模型名。如果没有 alias 就是原始请求的 model。
     pub resolved_model: String,
     /// 本次路由命中的 channel key ID（来自 DB），用于熔断上报。env 回退时为 None。
@@ -1469,6 +1472,7 @@ impl ProviderRouter {
             return Ok(Some(RoutedEmbeddingProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
+                group_id: group.group_id,
                 resolved_model: resolve_model_mapping(&candidate.channel.model_mapping, model),
                 key_id,
             }));
@@ -1646,6 +1650,7 @@ impl ProviderRouter {
             return Ok(Some(RoutedImageProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
+                group_id: group.group_id,
                 resolved_model: resolve_model_mapping(&candidate.channel.model_mapping, model),
                 key_id,
             }));
@@ -1823,6 +1828,7 @@ impl ProviderRouter {
             return Ok(Some(RoutedAudioProvider {
                 provider,
                 channel_id: candidate.channel.channel_id,
+                group_id: group.group_id,
                 resolved_model: resolve_model_mapping(&candidate.channel.model_mapping, model),
                 key_id,
             }));

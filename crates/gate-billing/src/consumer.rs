@@ -127,9 +127,9 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     let mut tx = pool.begin().await?;
     let inserted = sqlx::query_scalar::<_, bool>(
         "INSERT INTO request_events \
-         (ts, request_id, idempotency_key, org_id, project_id, api_key_id, channel_id, \
+         (ts, request_id, idempotency_key, org_id, project_id, api_key_id, channel_id, group_id, \
           model_requested, model_actual, tokens_in, tokens_out, tokens_cached, cost_micros, cost_usd, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13::numeric / 1000000, $14) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14::numeric / 1000000, $15) \
          ON CONFLICT (idempotency_key) DO NOTHING \
          RETURNING TRUE",
     )
@@ -140,6 +140,7 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     .bind(event.project_id)
     .bind(event.api_key_id)
     .bind(event.channel_id)
+    .bind(event.group_id)
     .bind(&event.model)
     .bind(&event.model)
     .bind(event.prompt_tokens)
@@ -158,9 +159,9 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
 
     sqlx::query(
         "INSERT INTO usage_records \
-         (ts, request_id, org_id, project_id, api_key_id, channel_id, \
+         (ts, request_id, org_id, project_id, api_key_id, channel_id, group_id, \
           model_requested, model_actual, tokens_in, tokens_out, tokens_cached, cost_usd, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::numeric / 1000000, $13) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::numeric / 1000000, $14) \
          ON CONFLICT (ts, request_id) DO NOTHING",
     )
     .bind(event.occurred_at)
@@ -169,6 +170,7 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
     .bind(event.project_id)
     .bind(event.api_key_id)
     .bind(event.channel_id)
+    .bind(event.group_id)
     .bind(&event.model)
     .bind(&event.model)
     .bind(event.prompt_tokens)
@@ -272,6 +274,7 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
         "audio_seconds": event.audio_seconds,
         "raw_usage": event.raw_usage,
         "status": event.status,
+        "group_id": event.group_id,
     }))
     .execute(&mut *tx)
     .await?;

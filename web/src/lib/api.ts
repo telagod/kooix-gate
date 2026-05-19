@@ -804,10 +804,34 @@ export interface GroupBinding {
 	channel_health?: string;
 }
 
+export interface FallbackChainNode {
+	id: string;
+	name: string;
+	strategy: string;
+	enabled: boolean;
+	channel_count: number;
+	requests: number;
+	share: number;
+	is_fallback: boolean;
+}
+
+export interface FallbackStats {
+	window_hours: number;
+	total_requests: number;
+	primary_requests: number;
+	fallback_requests: number;
+	fallback_hit_rate: number;
+	has_cycle: boolean;
+	cycle_at?: string | null;
+}
+
 export interface GroupDetail {
 	group: ChannelGroup;
 	bindings: GroupBinding[];
-	project_ids: string[];
+	projects_using?: string[];
+	project_ids?: string[];
+	fallback_chain?: FallbackChainNode[];
+	fallback_stats?: FallbackStats;
 }
 
 export async function listGroups(): Promise<ChannelGroup[]> {

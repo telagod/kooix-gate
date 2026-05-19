@@ -134,6 +134,7 @@ async fn create_response(
         routed_metrics,
         routed_key_id,
         routed_model,
+        routed_group_id,
     ) = chat::resolve_provider(&app, &ctx, &headers, &chat_req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -156,7 +157,13 @@ async fn create_response(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &chat_req.model, request_id);
+    let billing_ctx = BillingCtx::from_auth(
+        &ctx,
+        channel_id,
+        routed_group_id,
+        &chat_req.model,
+        request_id,
+    );
 
     if chat_req.stream {
         create_response_stream(

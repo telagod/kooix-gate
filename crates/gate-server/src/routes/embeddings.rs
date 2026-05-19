@@ -39,7 +39,7 @@ async fn create_embedding(
     Json(mut req): Json<EmbeddingRequest>,
 ) -> AppResult<Json<EmbeddingResponse>> {
     let route_start = std::time::Instant::now();
-    let (provider, channel_id, routed_key_id, routed_model) =
+    let (provider, channel_id, routed_group_id, routed_key_id, routed_model) =
         resolve_embedding_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -52,7 +52,8 @@ async fn create_embedding(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
-    let billing_ctx = BillingCtx::from_auth(&ctx, channel_id, &req.model, request_id);
+    let billing_ctx =
+        BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &req.model, request_id);
     let execute_start = std::time::Instant::now();
     let resp = match provider.embed(req.clone()).await {
         Ok(resp) => {
@@ -156,6 +157,7 @@ async fn resolve_embedding_provider(
 ) -> AppResult<(
     Arc<dyn EmbeddingProvider>,
     Option<Uuid>,
+    Option<Uuid>,
     Option<ChannelKeyId>,
     Option<String>,
 )> {
@@ -167,6 +169,7 @@ async fn resolve_embedding_provider(
                 Ok(Some(RoutedEmbeddingProvider {
                     provider,
                     channel_id,
+                    group_id,
                     key_id,
                     resolved_model,
                     ..
@@ -174,6 +177,7 @@ async fn resolve_embedding_provider(
                     return Ok((
                         provider,
                         Some(*channel_id.as_uuid()),
+                        Some(*group_id.as_uuid()),
                         key_id,
                         Some(resolved_model),
                     ));

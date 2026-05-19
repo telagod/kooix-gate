@@ -6,7 +6,7 @@
 		getGroupDetail, listGroupBindings, addGroupBinding,
 		updateGroupBinding, removeGroupBinding, listAdminChannels
 	} from '$lib/api.js';
-	import type { ChannelGroup, GroupBinding, GroupDetail, Channel } from '$lib/api.js';
+	import type { ChannelGroup, FallbackChainNode, GroupBinding, GroupDetail, Channel } from '$lib/api.js';
 	import { CAPABILITY_LABELS, capabilityList, providerCapabilities } from '$lib/plugin-presets';
 	import type { ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
 	import { addToast } from '$lib/stores/toast.js';
@@ -90,6 +90,14 @@
 		return groups.find(g => g.id === id)?.name ?? shortId(id);
 	}
 
+	function formatNumber(value: number | null | undefined): string {
+		return new Intl.NumberFormat('zh-CN').format(value ?? 0);
+	}
+
+	function formatPercent(value: number | null | undefined): string {
+		return `${((value ?? 0) * 100).toFixed(1)}%`;
+	}
+
 	// Fallback chain builder
 	function buildFallbackChain(groupId: string): ChannelGroup[] {
 		const chain: ChannelGroup[] = [];
@@ -105,6 +113,41 @@
 		return chain;
 	}
 
+	function buildLocalFallbackChain(groupId: string): FallbackChainNode[] {
+		return buildFallbackChain(groupId).map((group, index) => ({
+			id: group.id,
+			name: group.name,
+			strategy: group.strategy,
+			enabled: group.enabled,
+			channel_count: group.channel_count ?? 0,
+			requests: 0,
+			share: 0,
+			is_fallback: index > 0
+		}));
+	}
+
+	function wouldCreateFallbackCycle(sourceId: string | null, targetId: string | null): boolean {
+		if (!sourceId || !targetId) return false;
+		if (sourceId === targetId) return true;
+		const visited = new Set<string>([sourceId]);
+		let current: string | null | undefined = targetId;
+		let depth = 0;
+		while (current) {
+			if (visited.has(current)) return true;
+			visited.add(current);
+			if (depth >= 5) return true;
+			const group = groups.find((g) => g.id === current);
+			if (!group) return false;
+			current = group.fallback_group_id;
+			depth += 1;
+		}
+		return false;
+	}
+
+	function projectRefs(d: GroupDetail | null): string[] {
+		return d?.projects_using ?? d?.project_ids ?? [];
+	}
+
 	// Filtered channels for add modal
 	let filteredChannels = $derived.by(() => {
 		const boundIds = new Set(detail?.bindings?.map(b => b.channel_id) ?? []);
@@ -118,7 +161,9 @@
 	let strategyOptions = $derived(Object.entries(STRATEGIES).map(([value, strategy]) => ({ value, label: strategy.label })));
 	let editFallbackOptions = $derived([
 		{ value: null, label: '无' },
-		...groups.filter((group) => group.id !== selectedId).map((group) => ({ value: group.id, label: group.name }))
+		...groups
+			.filter((group) => group.id !== selectedId && !wouldCreateFallbackCycle(selectedId, group.id))
+			.map((group) => ({ value: group.id, label: group.name }))
 	]);
 	let createFallbackOptions = $derived([
 		{ value: null, label: '无' },
@@ -150,7 +195,22 @@
 		} catch {
 			const bindings = await listGroupBindings(id);
 			const group = groups.find(g => g.id === id)!;
-			detail = { group, bindings, project_ids: [] };
+			detail = {
+				group,
+				bindings,
+				project_ids: [],
+				projects_using: [],
+				fallback_chain: buildLocalFallbackChain(id),
+				fallback_stats: {
+					window_hours: 24,
+					total_requests: 0,
+					primary_requests: 0,
+					fallback_requests: 0,
+					fallback_hit_rate: 0,
+					has_cycle: false,
+					cycle_at: null
+				}
+			};
 		} finally {
 			detailLoading = false;
 		}
@@ -171,6 +231,10 @@
 	// ── CRUD actions ──
 	async function handleCreate() {
 		try {
+			if (wouldCreateFallbackCycle(null, createForm.fallback_group_id)) {
+				addToast('回退链路存在循环，请重新选择', 'error');
+				return;
+			}
 			await createGroup(createForm.name, createForm.strategy, createForm.description, createForm.fallback_group_id);
 			addToast('分组已创建', 'success');
 			showCreate = false;
@@ -184,6 +248,10 @@
 	async function handleUpdate() {
 		if (!selectedId) return;
 		try {
+			if (wouldCreateFallbackCycle(selectedId, editForm.fallback_group_id)) {
+				addToast('回退链路存在循环，请重新选择', 'error');
+				return;
+			}
 			await updateGroup(selectedId, {
 				name: editForm.name,
 				strategy: editForm.strategy,
@@ -391,7 +459,9 @@
 	{#if selectedId && detail}
 		{@const g = detail.group}
 		{@const meta = strategyMeta(g.strategy)}
-		{@const chain = buildFallbackChain(selectedId)}
+		{@const chain = detail.fallback_chain?.length ? detail.fallback_chain : buildLocalFallbackChain(selectedId)}
+		{@const stats = detail.fallback_stats}
+		{@const refs = projectRefs(detail)}
 
 		<div class="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700 divide-y divide-zinc-200 dark:divide-zinc-700">
 
@@ -474,25 +544,75 @@
 			</div>
 
 			<!-- ═══ Fallback Chain ═══ -->
-			{#if chain.length > 1}
+			{#if chain.length > 0}
 				<div class="p-5">
-					<h3 class="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">回退链路</h3>
-					<div class="flex items-center gap-2 overflow-x-auto pb-2">
+					<div class="mb-4 flex items-start justify-between gap-4">
+						<div>
+							<h3 class="text-sm font-medium text-zinc-700 dark:text-zinc-300">回退链路</h3>
+							<p class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+								{stats?.window_hours ?? 24}h 窗口，命中率按 request_events.group_id 统计
+							</p>
+						</div>
+						{#if stats?.has_cycle}
+							<div class="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+								<AlertTriangle class="h-3.5 w-3.5" />
+								<span>检测到循环 {stats.cycle_at ? shortId(stats.cycle_at) : ''}</span>
+							</div>
+						{/if}
+					</div>
+
+					<div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
+						<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+							<div class="text-xs text-zinc-600 dark:text-zinc-400">总请求</div>
+							<div class="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100">{formatNumber(stats?.total_requests)}</div>
+						</div>
+						<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+							<div class="text-xs text-zinc-600 dark:text-zinc-400">Primary</div>
+							<div class="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100">{formatNumber(stats?.primary_requests)}</div>
+						</div>
+						<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+							<div class="text-xs text-zinc-600 dark:text-zinc-400">Fallback</div>
+							<div class="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100">{formatNumber(stats?.fallback_requests)}</div>
+						</div>
+						<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+							<div class="text-xs text-zinc-600 dark:text-zinc-400">命中率</div>
+							<div class="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100">{formatPercent(stats?.fallback_hit_rate)}</div>
+						</div>
+					</div>
+
+					<div class="flex items-stretch gap-2 overflow-x-auto pb-2">
 						{#each chain as node, i}
 							<div class="flex items-center gap-2 flex-shrink-0">
-								<div class="px-3 py-2 rounded-lg border text-sm
+								<div class="min-w-44 px-3 py-2 rounded-lg border text-sm
 									{node.id === selectedId
 										? 'border-zinc-900 dark:border-zinc-300 bg-zinc-100 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium'
 										: 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'}">
-									<div>{node.name}</div>
-									<div class="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">{strategyMeta(node.strategy).label}</div>
+									<div class="flex items-center justify-between gap-3">
+										<div class="truncate">{node.name}</div>
+										<span class="rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200">
+											{node.is_fallback ? 'Fallback' : 'Primary'}
+										</span>
+									</div>
+									<div class="mt-1 text-xs text-zinc-600 dark:text-zinc-300">{strategyMeta(node.strategy).label} · {node.channel_count} 渠道</div>
+									<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+										<div class="h-full rounded-full bg-zinc-900 dark:bg-zinc-100" style={`width: ${Math.min(100, Math.max(0, node.share * 100))}%`}></div>
+									</div>
+									<div class="mt-1 flex justify-between font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+										<span>{formatNumber(node.requests)} req</span>
+										<span>{formatPercent(node.share)}</span>
+									</div>
+									{#if !node.enabled}
+										<div class="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300">
+											<AlertTriangle class="h-3 w-3" /> disabled
+										</div>
+									{/if}
 								</div>
 								{#if i < chain.length - 1}
 									<ChevronRight class="w-4 h-4 text-zinc-400 flex-shrink-0" />
 								{/if}
 							</div>
 						{/each}
-						{#if !chain[chain.length - 1].fallback_group_id}
+						{#if chain.length === 1}
 							<ChevronRight class="w-4 h-4 text-zinc-400 flex-shrink-0" />
 							<span class="text-zinc-600 dark:text-zinc-300 text-sm">∅</span>
 						{/if}
@@ -598,9 +718,9 @@
 				{/if}
 
 				<!-- Project references -->
-				{#if detail.project_ids && detail.project_ids.length > 0}
+				{#if refs.length > 0}
 					<div class="mt-4 text-sm text-zinc-600 dark:text-zinc-300">
-						{detail.project_ids.length} 个项目正在使用此分组
+						{refs.length} 个项目正在使用此分组
 					</div>
 				{/if}
 			</div>
@@ -651,6 +771,7 @@
 
 <!-- ═══ Delete Confirm Modal ═══ -->
 {#if deleteTarget}
+	{@const deleteRefs = selectedId === deleteTarget.id ? projectRefs(detail) : []}
 	<ModalFrame close={() => { deleteTarget = null; }}>
 		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-sm">
 			<div class="p-6 text-center">
@@ -660,8 +781,8 @@
 				<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认删除</h3>
 				<p class="text-sm text-zinc-600 dark:text-zinc-300">
 					确定要删除分组「{deleteTarget.name}」吗？此操作不可撤销。
-					{#if detail?.project_ids && detail.project_ids.length > 0}
-						<br /><span class="text-red-500 font-medium">⚠ 有 {detail.project_ids.length} 个项目正在使用此分组！</span>
+					{#if deleteRefs.length > 0}
+						<br /><span class="inline-flex items-center justify-center gap-1 text-red-500 font-medium"><AlertTriangle class="h-3.5 w-3.5" />有 {deleteRefs.length} 个项目正在使用此分组</span>
 					{/if}
 				</p>
 			</div>

@@ -7,6 +7,7 @@
 - 文件名使用 `YYYY-MM-DD-topic.md`。
 - 文档开头保留 `Status`、`Scope`、`Last verified` 等元数据。
 - 阶段性文档可以保留历史证据和旧 TODO，但不得作为当前路线或实现状态的唯一入口。
+- 连续推进同一阶段时优先追加到已有阶段文件，减少完成态文档碎片。
 - 若内容变成长期运维规则，提炼到 `../README.md`、根目录 `README.md`、`DESIGN.md`、`ROADMAP.md` 或对应 runbook，再从阶段文档回链。
 
 ## 已归档阶段

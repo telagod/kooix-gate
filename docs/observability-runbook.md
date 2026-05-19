@@ -42,6 +42,45 @@ ORDER BY avg_latency_ms ASC;
 - health probe 指标用于 Prometheus 趋势告警；DB 滑窗用于路由决策，不依赖外部 Prometheus query。
 - 若表体积增长，先按保留期跑 `ChannelLatencyRepo::prune_older_than`，再考虑分区。
 
+## Fallback hit-rate
+
+Channel Group detail API 会按 `request_events.group_id` 统计近 24h fallback chain 请求分布；控制台 `/admin/groups` 展示 primary / fallback 请求量、fallback hit-rate 与每个节点占比。
+
+快速验尸 SQL：
+
+```sql
+WITH chain(group_id, depth) AS (
+  SELECT $1::uuid, 0
+  UNION ALL
+  SELECT cg.fallback_group_id, chain.depth + 1
+  FROM chain
+  JOIN channel_groups cg ON cg.id = chain.group_id
+  WHERE cg.fallback_group_id IS NOT NULL
+    AND chain.depth < 5
+)
+SELECT
+  cg.name,
+  chain.depth,
+  COUNT(re.request_id)::BIGINT AS requests,
+  ROUND(
+    COUNT(re.request_id)::NUMERIC
+    / NULLIF(SUM(COUNT(re.request_id)) OVER (), 0),
+    4
+  ) AS share
+FROM chain
+JOIN channel_groups cg ON cg.id = chain.group_id
+LEFT JOIN request_events re
+  ON re.group_id = chain.group_id
+ AND re.ts >= NOW() - INTERVAL '24 hours'
+GROUP BY cg.name, chain.depth
+ORDER BY chain.depth;
+```
+
+- fallback hit-rate = `depth > 0` 的请求量 / 整条 chain 的请求量。
+- 若 hit-rate 突升，先看 primary group 的 channel health、rate limit 与 model_filter，再看 upstream auth/rate-limit 错误。
+- 若 API 返回 `fallback_stats.has_cycle=true`，说明历史数据或绕过控制面的写入制造了环；控制台更新会阻止新的自引用 / 循环 / 深度超过 5 的配置。
+- 旧事件或全局 fallback provider 路径可能没有 `group_id`，不会进入 group hit-rate 统计。
+
 ## Billing / usage settlement
 
 ```promql
