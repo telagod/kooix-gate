@@ -24,8 +24,8 @@ if cur + amt > limit then
 end
 
 local new_val = redis.call('INCRBY', key, amt)
--- 仅在第一次写入时设 TTL（避免每次刷新）
-if cur == 0 then
+-- 仅在第一次写入且 ttl > 0 时设 TTL（ttl <= 0 表示 lifetime counter，不过期）
+if cur == 0 and ttl > 0 then
     redis.call('EXPIRE', key, ttl)
 end
 

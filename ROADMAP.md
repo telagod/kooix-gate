@@ -469,17 +469,17 @@ cargo test -p gate-providers --all-targets
 
 **目标**：配额从 rpm/tpm/budget 扩为完整 policy engine。
 
-- [ ] 实现并启用 concurrent quota。
-- [ ] lifetime budget / lifetime tokens。
-- [ ] user × model / api_key × model 的精确策略 UI。
-- [ ] quota dry-run 模式：
-  - 只记录会不会拦截
-  - 不实际拦截
-- [ ] quota explain：
-  - 命中了哪条规则
-  - 当前消耗
-  - 下次恢复时间
-- [ ] Redis 计数与 PG usage 对账。
+- [x] 实现并启用 concurrent quota。
+- [x] lifetime budget / lifetime tokens。
+- [x] user × model / api_key × model 的精确策略 UI。
+- [x] quota dry-run 模式：
+  - [x] 只记录会不会拦截
+  - [x] 不实际拦截
+- [x] quota explain：
+  - [x] 命中了哪条规则
+  - [x] 当前消耗
+  - [x] 下次恢复时间
+- [x] Redis 计数与 PG usage 对账。
 
 ### P1.7 Identity / Enterprise 补全
 

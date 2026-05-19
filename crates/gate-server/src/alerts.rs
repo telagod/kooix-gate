@@ -203,6 +203,7 @@ mod tests {
             model_filter: None,
             limit_value: Decimal::new(100, 1), // 10.0
             window_seconds: None,
+            mode: "enforce".into(),
             enabled: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -244,6 +245,7 @@ mod tests {
             model_filter: None,
             limit_value: Decimal::new(50, 1), // 5.0
             window_seconds: None,
+            mode: "enforce".into(),
             enabled: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -282,6 +284,7 @@ mod tests {
             model_filter: None,
             limit_value: Decimal::new(1000, 1), // 100.0
             window_seconds: None,
+            mode: "enforce".into(),
             enabled: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),

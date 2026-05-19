@@ -11,7 +11,7 @@ use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
-use crate::inflight::InflightGuards;
+use crate::inflight::{InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::body::Body;
@@ -275,18 +275,26 @@ async fn settle_speech_guards(guards: &InflightGuards, usage: &Usage) {
         .and_then(|v| v.get("tts_characters"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as i64;
-    let actual = (chars * DEFAULT_TTS_RATE_PER_CHAR_MICROS)
+    let actual_cost = (chars * DEFAULT_TTS_RATE_PER_CHAR_MICROS)
         .clamp(0, crate::cost_estimate::MAX_ESTIMATE_MICROS);
     let mut taken = guards.take();
     for g in &mut taken {
-        g.settle(actual).await;
+        let actual = match g.metric {
+            QuotaMetric::CostMicros => actual_cost,
+            QuotaMetric::Tokens | QuotaMetric::Concurrent => 0,
+        };
+        g.settle_units(actual).await;
     }
 }
 
 async fn settle_transcription_guards(guards: &InflightGuards) {
     let mut taken = guards.take();
     for g in &mut taken {
-        g.settle(DEFAULT_STT_REQUEST_MICROS).await;
+        let actual = match g.metric {
+            QuotaMetric::CostMicros => DEFAULT_STT_REQUEST_MICROS,
+            QuotaMetric::Tokens | QuotaMetric::Concurrent => 0,
+        };
+        g.settle_units(actual).await;
     }
 }
 

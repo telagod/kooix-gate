@@ -1,23 +1,20 @@
-//! Quota 执行 middleware：在 /v1/chat/completions 等业务路径上实时拦截
-//! rpm / tpm / daily_budget_usd / monthly_budget_usd 配额。
+//! Quota 执行 middleware：在 data-plane / control-plane 路径上实时拦截或 dry-run。
+//!
+//! 支持维度：
+//! - `rpm` / `tpm`：Redis sliding window
+//! - `concurrent`：Redis pre-debit 1 unit，request 完成后 refund
+//! - `daily_budget_usd` / `monthly_budget_usd` / `lifetime_budget_usd`：费用 micros pre-debit
+//! - `lifetime_tokens`：token units pre-debit，request 完成后按真实 usage settle
 //!
 //! 设计要点：
 //! - 加载 quota 行的主体扇区（apikey: api_key + project + org；user: user + org）
-//! - rpm/tpm 走 [`RateLimiter`](gate_cache::RateLimiter) 滑窗（window_seconds 来自 quota.window_seconds）
-//! - budget 类走 pre-debit（debit 预估费用 → handler 完成后 settle 修正）
-//! - 任意维度超限 → 429 + `quota_exceeded` + `Retry-After`
-//! - fail-open：
-//!   * RateLimiter 未配置 → 跳过 rate 维度
-//!   * QuotaCounter 未配置 → 跳过 budget 维度
-//!   * DB 查 quota 出错 → warn 并通过（避免把整站卡死）
-//!
-//! anonymous 主体直接放行（quota 只对真实身份生效）。
-//!
-//! 与 rate_limit middleware 的关系：rate_limit 是「单一全局桶」按 subject 分；
-//! 这里是「显式配置的多维度配额」，两者叠加生效（rate_limit 在外层先拦）。
+//! - `model_filter` 在 middleware 里按请求 model 精确过滤；`*` 只做简单 glob
+//! - `mode=dry_run` 只记录 `quota_dry_run_total` 与 tracing，不实际 debit / 不拦截
+//! - 任意 enforce 维度超限 → 429 + `quota_exceeded` + `Retry-After`
+//! - fail-open：Redis / DB 异常只 warn，不把整站卡死
 
 use crate::cost_estimate::{DEFAULT_RATE_PER_TOKEN_MICROS, estimate_cost_micros};
-use crate::inflight::{InflightGuard, InflightGuards};
+use crate::inflight::{InflightGuard, InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::Json;
@@ -36,10 +33,23 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 
+const DAILY_TTL_SECONDS: i64 = 86_400;
+const MONTHLY_TTL_SECONDS: i64 = 30 * DAILY_TTL_SECONDS;
+const LIFETIME_TTL_SECONDS: i64 = 0;
+const CONCURRENT_TTL_SECONDS: i64 = 5 * 60;
+
 /// 主体挂载点 — (scope_kind, scope_id) 元组。
 struct ScopeRef {
     kind: &'static str,
     id: uuid::Uuid,
+}
+
+/// 请求体估算结果。费用和 token 分开，避免 lifetime_tokens 被 cost settle 污染。
+#[derive(Debug, Clone, Default)]
+struct RequestEstimate {
+    cost_micros: i64,
+    tokens: i64,
+    model: Option<String>,
 }
 
 /// 解析 AuthContext → quota 加载的扇区列表。
@@ -85,7 +95,7 @@ fn scopes_for(ctx: &AuthContext) -> Vec<ScopeRef> {
     out
 }
 
-/// 用 quota 行构造 Redis key —— 把 scope_kind/scope_id/dimension/model_filter
+/// 用 quota 行构造 Redis key —— 把 scope_kind/scope_id/dimension/model_filter/quota_id
 /// 全部纳入 key 命名，避免不同 quota 串扰。
 fn rate_key(q: &QuotaRecord) -> String {
     let mf = q.model_filter.as_deref().unwrap_or("*");
@@ -95,19 +105,29 @@ fn rate_key(q: &QuotaRecord) -> String {
     )
 }
 
-/// 与 rate_key 同源；budget 类计数器单独命名前缀避免和 rate 混。
-fn budget_key(q: &QuotaRecord) -> String {
+/// 计数器 key：budget / lifetime / concurrent 各自独立 prefix。
+pub(crate) fn quota_counter_key(q: &QuotaRecord) -> String {
     let mf = q.model_filter.as_deref().unwrap_or("*");
-    // 用 daily 前缀对应 24h TTL；月度 budget 走 monthly。
-    let prefix = if q.dimension == "monthly_budget_usd" {
-        "qb:m"
-    } else {
-        "qb:d"
+    let prefix = match q.dimension.as_str() {
+        "monthly_budget_usd" => "qb:m",
+        "lifetime_budget_usd" => "qb:l",
+        "lifetime_tokens" => "qtok:l",
+        "concurrent" => "qc",
+        _ => "qb:d",
     };
     format!(
         "{}:{}:{}:{}:{}:{}",
         prefix, q.scope_kind, q.scope_id, q.dimension, mf, q.id
     )
+}
+
+pub(crate) fn quota_ttl_seconds(dimension: &str) -> i64 {
+    match dimension {
+        "monthly_budget_usd" => MONTHLY_TTL_SECONDS,
+        "lifetime_budget_usd" | "lifetime_tokens" => LIFETIME_TTL_SECONDS,
+        "concurrent" => CONCURRENT_TTL_SECONDS,
+        _ => DAILY_TTL_SECONDS,
+    }
 }
 
 /// quota 检查决策。Allowed 透传；Denied 直接走 429。
@@ -119,20 +139,109 @@ enum Decision {
     },
 }
 
+fn quota_mode(q: &QuotaRecord) -> &str {
+    if q.mode == "dry_run" {
+        "dry_run"
+    } else {
+        "enforce"
+    }
+}
+
+fn is_dry_run(q: &QuotaRecord) -> bool {
+    quota_mode(q) == "dry_run"
+}
+
+fn record_dry_run(q: &QuotaRecord, would_deny: bool, current_used: i64, limit: i64) {
+    metrics::counter!(
+        "quota_dry_run_total",
+        "dimension" => q.dimension.clone(),
+        "scope_kind" => q.scope_kind.clone(),
+        "would_deny" => would_deny.to_string(),
+    )
+    .increment(1);
+    tracing::info!(
+        quota_id = %q.id,
+        scope_kind = %q.scope_kind,
+        scope_id = %q.scope_id,
+        dimension = %q.dimension,
+        model_filter = q.model_filter.as_deref().unwrap_or("*"),
+        current_used,
+        limit,
+        would_deny,
+        "quota dry-run evaluated"
+    );
+}
+
+fn model_matches(filter: Option<&str>, model: Option<&str>) -> bool {
+    let Some(filter) = filter.map(str::trim).filter(|s| !s.is_empty()) else {
+        return true;
+    };
+    if filter == "*" {
+        return true;
+    }
+    let Some(model) = model else {
+        return false;
+    };
+    if !filter.contains('*') {
+        return filter == model;
+    }
+    let parts: Vec<&str> = filter.split('*').collect();
+    let mut rest = model;
+    let mut first = true;
+    for part in parts.iter().copied().filter(|p| !p.is_empty()) {
+        if first && !filter.starts_with('*') {
+            if let Some(stripped) = rest.strip_prefix(part) {
+                rest = stripped;
+            } else {
+                return false;
+            }
+        } else if let Some(idx) = rest.find(part) {
+            rest = &rest[idx + part.len()..];
+        } else {
+            return false;
+        }
+        first = false;
+    }
+    filter.ends_with('*') || parts.last().is_none_or(|last| model.ends_with(last))
+}
+
+fn limit_as_i64(q: &QuotaRecord, unit: &str) -> Option<i64> {
+    let value = if unit == "micros" {
+        q.limit_value * Decimal::from(1_000_000)
+    } else {
+        q.limit_value
+    };
+    value.to_i64().filter(|n| *n >= 0)
+}
+
 /// 检查单条 rate 类 quota（rpm/tpm）。失败一律 fail-open。
-async fn check_rate(limiter: &Arc<RateLimiter>, q: &QuotaRecord) -> Decision {
-    let limit = match q.limit_value.to_i64() {
-        Some(n) if n >= 0 => n as u64,
-        _ => {
-            tracing::warn!(
-                quota_id = %q.id, "rate quota has non-i64 limit_value; fail-open"
-            );
+async fn check_rate(limiter: &Arc<RateLimiter>, q: &QuotaRecord, amount: i64) -> Decision {
+    let limit = match limit_as_i64(q, "units") {
+        Some(n) => n,
+        None => {
+            tracing::warn!(quota_id = %q.id, "rate quota has non-i64 limit_value; fail-open");
             return Decision::Allowed;
         }
     };
     let window_secs = q.window_seconds.unwrap_or(60).max(1) as u64;
     let key = rate_key(q);
-    match limiter.check(&key, window_secs * 1000, limit).await {
+
+    if is_dry_run(q) {
+        let current = match limiter.peek_count(&key, window_secs * 1000).await {
+            Ok(n) => n as i64,
+            Err(e) => {
+                tracing::warn!(error = %e, quota_id = %q.id, "rate quota dry-run peek failed; fail-open");
+                0
+            }
+        };
+        record_dry_run(q, current.saturating_add(amount) > limit, current, limit);
+        return Decision::Allowed;
+    }
+
+    match limiter
+        .check_n(&key, window_secs * 1000, limit as u64, amount.max(0) as u64)
+        .await
+    {
         Ok(d) if d.allowed => Decision::Allowed,
         Ok(d) => Decision::Denied {
             dimension: q.dimension.clone(),
@@ -145,48 +254,60 @@ async fn check_rate(limiter: &Arc<RateLimiter>, q: &QuotaRecord) -> Decision {
     }
 }
 
-/// 检查单条 budget 类 quota（daily/monthly_budget_usd）—— **pre-debit**。
-///
-/// 用 `debit()` 原子预扣 estimated_micros：
-/// - 预扣成功 → 返回 InflightGuard（handler 完成后 settle 修正）
-/// - 预扣失败（超额）→ 429
-/// - Redis 出错 → fail-open（不返 guard）
-async fn check_budget_predebit(
+async fn check_counter_predebit(
     qc: &Arc<QuotaCounter>,
     q: &QuotaRecord,
-    estimated_micros: i64,
+    amount: i64,
+    limit: i64,
+    metric: QuotaMetric,
 ) -> (Decision, Option<InflightGuard>) {
-    let limit_micros = match (q.limit_value * Decimal::from(1_000_000)).to_i64() {
-        Some(n) if n >= 0 => n,
-        _ => {
-            tracing::warn!(quota_id = %q.id, "budget quota limit invalid; fail-open");
-            return (Decision::Allowed, None);
-        }
-    };
-    let ttl = if q.dimension == "monthly_budget_usd" {
-        30 * 86400
-    } else {
-        86400
-    };
-    let key = budget_key(q);
-    match qc.debit(&key, estimated_micros, limit_micros, ttl).await {
+    let key = quota_counter_key(q);
+    let ttl = quota_ttl_seconds(&q.dimension);
+
+    if is_dry_run(q) {
+        let current = match qc.peek(&key).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(error = %e, quota_id = %q.id, "quota dry-run peek failed; fail-open");
+                0
+            }
+        };
+        record_dry_run(q, current.saturating_add(amount) > limit, current, limit);
+        return (Decision::Allowed, None);
+    }
+
+    match qc.debit(&key, amount, limit, ttl).await {
         Ok(outcome) if outcome.ok => {
-            let guard = InflightGuard::new(qc.clone(), key, estimated_micros);
+            let guard = InflightGuard::new(qc.clone(), key, amount, metric);
             (Decision::Allowed, Some(guard))
         }
         Ok(_) => (
             Decision::Denied {
                 dimension: q.dimension.clone(),
-                // budget 不像 rate 有明确恢复时间——给一个保守的 1h 回退建议
-                retry_after_ms: 60 * 60 * 1000,
+                retry_after_ms: if q.dimension == "concurrent" {
+                    30_000
+                } else {
+                    60 * 60 * 1000
+                },
             },
             None,
         ),
         Err(e) => {
-            tracing::warn!(error = %e, quota_id = %q.id, "budget quota debit failed; fail-open");
+            tracing::warn!(error = %e, quota_id = %q.id, "quota counter debit failed; fail-open");
             (Decision::Allowed, None)
         }
     }
+}
+
+fn has_body_metered_quota(q: &QuotaRecord) -> bool {
+    matches!(
+        q.dimension.as_str(),
+        "tpm"
+            | "daily_budget_usd"
+            | "monthly_budget_usd"
+            | "lifetime_budget_usd"
+            | "lifetime_tokens"
+    )
 }
 
 /// quota_enforce middleware 主入口。
@@ -199,13 +320,11 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
     let ctx = match crate::auth::resolve_for_state(&mut parts, &state).await {
         Ok(c) => c,
         Err(_) => {
-            // 让真实 handler 报 401，由 extractor 路径处理
             let req = Request::from_parts(parts, body);
             return next.run(req).await;
         }
     };
 
-    // anonymous 直接放行（未认证主体没有 quota 概念）
     if ctx.subject().is_none() {
         let req = Request::from_parts(parts, body);
         return next.run(req).await;
@@ -217,13 +336,11 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         return next.run(req).await;
     }
 
-    // 收集所有 enabled 的 quota 行
     let mut quotas: Vec<QuotaRecord> = Vec::new();
     for s in &scopes {
         match state.repos.quotas.find_active_for(s.kind, s.id).await {
             Ok(mut rows) => quotas.append(&mut rows),
             Err(e) => {
-                // DB 出错时 fail-open，避免把整站卡死
                 tracing::warn!(error = %e, scope = %s.kind, id = %s.id, "quota load failed; fail-open");
             }
         }
@@ -233,42 +350,55 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         return next.run(req).await;
     }
 
-    // 检查是否有 budget 类 quota —— 若有则需要从 body 估算费用
-    let has_budget = quotas.iter().any(|q| {
-        matches!(
-            q.dimension.as_str(),
-            "daily_budget_usd" | "monthly_budget_usd"
-        )
+    let needs_body = quotas.iter().any(|q| {
+        has_body_metered_quota(q)
+            || q.model_filter
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|filter| !filter.is_empty() && filter != "*")
     });
-
-    // 若有 budget quota，尝试从 body 解析 data-plane request 以估算费用
-    // 失败不阻断——用默认估值
-    let (estimated_micros, body) = if has_budget {
+    let (estimate, body) = if needs_body {
         let bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
             Ok(b) => b,
             Err(_) => {
-                // body 读取失败，fail-open
                 let req = Request::from_parts(parts, Body::empty());
                 return next.run(req).await;
             }
         };
-        let est = estimate_data_plane_cost_micros(&bytes);
+        let est = estimate_data_plane_request(&bytes);
         (est, Body::from(bytes))
     } else {
-        (0, body)
+        (RequestEstimate::default(), body)
     };
 
-    // 逐条评估 + 收集 guards
+    quotas.retain(|q| model_matches(q.model_filter.as_deref(), estimate.model.as_deref()));
+    if quotas.is_empty() {
+        let req = Request::from_parts(parts, body);
+        return next.run(req).await;
+    }
+
     let mut guards: Vec<InflightGuard> = Vec::new();
     for q in &quotas {
         let decision = match q.dimension.as_str() {
-            "rpm" | "tpm" => match &state.rate_limiter {
-                Some(rl) => check_rate(rl, q).await,
+            "rpm" => match &state.rate_limiter {
+                Some(rl) => check_rate(rl, q, 1).await,
                 None => Decision::Allowed,
             },
-            "daily_budget_usd" | "monthly_budget_usd" => match &state.quota_counter {
+            "tpm" => match &state.rate_limiter {
+                Some(rl) => check_rate(rl, q, estimate.tokens.max(1)).await,
+                None => Decision::Allowed,
+            },
+            "concurrent" => match &state.quota_counter {
                 Some(qc) => {
-                    let (d, guard) = check_budget_predebit(qc, q, estimated_micros).await;
+                    let limit = match limit_as_i64(q, "units") {
+                        Some(n) => n,
+                        None => {
+                            tracing::warn!(quota_id = %q.id, "concurrent quota limit invalid; fail-open");
+                            continue;
+                        }
+                    };
+                    let (d, guard) =
+                        check_counter_predebit(qc, q, 1, limit, QuotaMetric::Concurrent).await;
                     if let Some(g) = guard {
                         guards.push(g);
                     }
@@ -276,7 +406,56 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
                 }
                 None => Decision::Allowed,
             },
-            // 其他维度（concurrent / lifetime_tokens）暂不在此层执行
+            "daily_budget_usd" | "monthly_budget_usd" | "lifetime_budget_usd" => {
+                match &state.quota_counter {
+                    Some(qc) => {
+                        let limit = match limit_as_i64(q, "micros") {
+                            Some(n) => n,
+                            None => {
+                                tracing::warn!(quota_id = %q.id, "budget quota limit invalid; fail-open");
+                                continue;
+                            }
+                        };
+                        let (d, guard) = check_counter_predebit(
+                            qc,
+                            q,
+                            estimate.cost_micros.max(0),
+                            limit,
+                            QuotaMetric::CostMicros,
+                        )
+                        .await;
+                        if let Some(g) = guard {
+                            guards.push(g);
+                        }
+                        d
+                    }
+                    None => Decision::Allowed,
+                }
+            }
+            "lifetime_tokens" => match &state.quota_counter {
+                Some(qc) => {
+                    let limit = match limit_as_i64(q, "units") {
+                        Some(n) => n,
+                        None => {
+                            tracing::warn!(quota_id = %q.id, "lifetime_tokens quota limit invalid; fail-open");
+                            continue;
+                        }
+                    };
+                    let (d, guard) = check_counter_predebit(
+                        qc,
+                        q,
+                        estimate.tokens.max(1),
+                        limit,
+                        QuotaMetric::Tokens,
+                    )
+                    .await;
+                    if let Some(g) = guard {
+                        guards.push(g);
+                    }
+                    d
+                }
+                None => Decision::Allowed,
+            },
             _ => Decision::Allowed,
         };
         if let Decision::Denied {
@@ -285,22 +464,19 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         } = decision
         {
             // 被拒绝时，需要退还已成功的 guard（本请求不会走到 handler）
-            // Drop 自动退还
             drop(guards);
             return quota_exceeded_response(&dimension, retry_after_ms).into_response();
         }
     }
 
-    // 把 guards 通过 extension 传给 handler
     if !guards.is_empty() {
-        // Write inflight DB record for crash recovery
         let request_id = parts
             .extensions
             .get::<KooixRequestId>()
             .map(|id| id.0)
             .unwrap_or_else(uuid::Uuid::now_v7);
         let quota_keys: Vec<String> = guards.iter().map(|g| g.key.clone()).collect();
-        let est_micros: Vec<i64> = guards.iter().map(|g| g.estimated_micros).collect();
+        let reserved_units: Vec<i64> = guards.iter().map(|g| g.reserved_units).collect();
 
         let (proj_id, key_id) = match ctx.subject() {
             Some(gate_auth::context::Subject::ApiKey {
@@ -317,19 +493,18 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
             project_id: proj_id.unwrap_or_default(),
             api_key_id: key_id.unwrap_or_default(),
             channel_id: None,
-            model: String::new(),
-            estimated_cost_usd: estimated_micros as f64 / 1_000_000.0,
-            estimated_tokens: 0,
+            model: estimate.model.clone().unwrap_or_default(),
+            estimated_cost_usd: estimate.cost_micros as f64 / 1_000_000.0,
+            estimated_tokens: estimate.tokens.min(i32::MAX as i64).max(0) as i32,
             started_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
             quota_keys: quota_keys.clone(),
-            estimated_micros: est_micros.clone(),
+            estimated_micros: reserved_units.clone(),
         };
         if let Err(e) = inflight_repo.insert(&record).await {
             tracing::warn!(error = %e, "inflight insert failed (crash recovery degraded)");
         }
 
-        // Attach DB cleanup to guards
         let guards: Vec<_> = guards
             .into_iter()
             .map(|g| g.with_db(request_id, inflight_repo.clone()))
@@ -338,8 +513,6 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         parts.extensions.insert(InflightGuards::new(guards));
     }
 
-    // 把已解析的 AuthContext 写进 extension，让下游 extractor 跳过重复解析
-    // （Authed extractor 当前未读 extension，但留作未来优化口子）
     parts.extensions.insert(ctx);
     let req = Request::from_parts(parts, body);
     next.run(req).await
@@ -378,31 +551,66 @@ fn quota_exceeded_response(dimension: &str, retry_after_ms: u64) -> impl IntoRes
     resp
 }
 
-fn estimate_data_plane_cost_micros(bytes: &[u8]) -> i64 {
+fn estimate_data_plane_request(bytes: &[u8]) -> RequestEstimate {
     if let Ok(chat_req) = serde_json::from_slice::<ChatRequest>(bytes) {
-        return estimate_cost_micros(&chat_req, DEFAULT_RATE_PER_TOKEN_MICROS);
+        let cost = estimate_cost_micros(&chat_req, DEFAULT_RATE_PER_TOKEN_MICROS);
+        return RequestEstimate {
+            cost_micros: cost,
+            tokens: estimate_chat_tokens(&chat_req),
+            model: Some(chat_req.model),
+        };
     }
     if let Ok(audio_req) = serde_json::from_slice::<AudioSpeechRequest>(bytes) {
-        return estimate_audio_speech_cost_micros(&audio_req);
+        return RequestEstimate {
+            cost_micros: estimate_audio_speech_cost_micros(&audio_req),
+            tokens: 0,
+            model: Some(audio_req.model),
+        };
     }
     if let Ok(embed_req) = serde_json::from_slice::<EmbeddingRequest>(bytes) {
-        return estimate_embedding_cost_micros(&embed_req);
+        let prompt_tokens = estimate_embedding_tokens(&embed_req);
+        return RequestEstimate {
+            cost_micros: (prompt_tokens * DEFAULT_RATE_PER_TOKEN_MICROS)
+                .min(crate::cost_estimate::MAX_ESTIMATE_MICROS),
+            tokens: prompt_tokens,
+            model: Some(embed_req.model),
+        };
     }
     if let Ok(image_req) = serde_json::from_slice::<ImageGenerationRequest>(bytes) {
-        return estimate_image_cost_micros(&image_req);
+        return RequestEstimate {
+            cost_micros: estimate_image_cost_micros(&image_req),
+            tokens: 0,
+            model: Some(image_req.model),
+        };
     }
-    // 非 ChatRequest / EmbeddingRequest / ImageGenerationRequest / AudioSpeechRequest 格式（可能是其他 endpoint）—— 用保守默认值
-    // 4096 tokens × 3 micros = 12_288
-    4096 * DEFAULT_RATE_PER_TOKEN_MICROS
+    RequestEstimate {
+        cost_micros: 4096 * DEFAULT_RATE_PER_TOKEN_MICROS,
+        tokens: 4096,
+        model: None,
+    }
 }
 
-fn estimate_embedding_cost_micros(req: &EmbeddingRequest) -> i64 {
+#[cfg(test)]
+fn estimate_data_plane_cost_micros(bytes: &[u8]) -> i64 {
+    estimate_data_plane_request(bytes).cost_micros
+}
+
+fn estimate_chat_tokens(req: &ChatRequest) -> i64 {
+    let prompt_tokens: i64 = req
+        .messages
+        .iter()
+        .map(|m| (m.content_text().len() / 4) as i64)
+        .sum();
+    let completion_tokens = req.max_tokens.unwrap_or(1024) as i64;
+    prompt_tokens.saturating_add(completion_tokens)
+}
+
+fn estimate_embedding_tokens(req: &EmbeddingRequest) -> i64 {
     let prompt_chars: usize = match &req.input {
         EmbeddingInput::Single(s) => s.len(),
         EmbeddingInput::Multiple(values) => values.iter().map(String::len).sum(),
     };
-    let prompt_tokens = (prompt_chars / 4) as i64;
-    (prompt_tokens * DEFAULT_RATE_PER_TOKEN_MICROS).min(crate::cost_estimate::MAX_ESTIMATE_MICROS)
+    (prompt_chars / 4) as i64
 }
 
 fn estimate_image_cost_micros(req: &ImageGenerationRequest) -> i64 {
@@ -475,11 +683,21 @@ mod tests {
 
     #[test]
     fn data_plane_estimator_falls_back_for_unknown_body() {
-        let bytes = br#"{"foo":"bar"}"#;
+        let bytes = br#"{\"foo\":\"bar\"}"#;
 
         assert_eq!(
             estimate_data_plane_cost_micros(bytes),
             4096 * DEFAULT_RATE_PER_TOKEN_MICROS
         );
+    }
+
+    #[test]
+    fn model_filter_supports_exact_and_simple_glob() {
+        assert!(model_matches(None, Some("gpt-4o")));
+        assert!(model_matches(Some("gpt-4o"), Some("gpt-4o")));
+        assert!(!model_matches(Some("gpt-4o"), Some("gpt-4o-mini")));
+        assert!(model_matches(Some("gpt-4o*"), Some("gpt-4o-mini")));
+        assert!(model_matches(Some("*-mini"), Some("gpt-4o-mini")));
+        assert!(model_matches(Some("gpt-*mini"), Some("gpt-4o-mini")));
     }
 }

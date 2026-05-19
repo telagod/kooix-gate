@@ -21,6 +21,15 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+fn org_role_to_str(r: OrgRole) -> &'static str {
+    match r {
+        OrgRole::Owner => "owner",
+        OrgRole::Admin => "admin",
+        OrgRole::BillingViewer => "billing_viewer",
+        OrgRole::Member => "member",
+    }
+}
+
 // ----------------------------------------------------------------------------
 // UserRepo
 // ----------------------------------------------------------------------------
@@ -397,6 +406,10 @@ impl InMemoryMembershipRepo {
             .projects
             .insert((project, user), (org, role));
     }
+
+    pub fn seed_org(&self, org: OrgId, user: UserId, role: OrgRole) {
+        self.inner.write().orgs.insert((org, user), role);
+    }
 }
 
 #[async_trait]
@@ -450,8 +463,20 @@ impl MembershipRepo for InMemoryMembershipRepo {
         Ok(())
     }
 
-    async fn list_org_members(&self, _org: OrgId) -> DbResult<Vec<OrgMemberView>> {
-        Ok(vec![])
+    async fn list_org_members(&self, org: OrgId) -> DbResult<Vec<OrgMemberView>> {
+        let g = self.inner.read();
+        let now = Utc::now();
+        Ok(g.orgs
+            .iter()
+            .filter(|((member_org, _), _)| *member_org == org)
+            .map(|((_, user_id), role)| OrgMemberView {
+                user_id: *user_id,
+                email: format!("{user_id}@inmemory.local"),
+                display_name: None,
+                role: org_role_to_str(*role).to_string(),
+                joined_at: now,
+            })
+            .collect())
     }
 
     async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()> {

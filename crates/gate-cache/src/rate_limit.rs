@@ -2,7 +2,7 @@
 
 use crate::error::{CacheError, CacheResult};
 use fred::clients::RedisPool;
-use fred::interfaces::LuaInterface;
+use fred::interfaces::{LuaInterface, SortedSetsInterface};
 use fred::types::RedisValue;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -42,6 +42,20 @@ impl RateLimiter {
         window_ms: u64,
         limit: u64,
     ) -> CacheResult<RateLimitDecision> {
+        self.check_n(key, window_ms, limit, 1).await
+    }
+
+    /// 检查并按 `amount` 增量记账。
+    ///
+    /// 用于 TPM 这类一次请求消耗多个单位的 quota；Lua member 记录为
+    /// `amount:req_id`，同时兼容旧的无前缀 member（按 1 计）。
+    pub async fn check_n(
+        &self,
+        key: &str,
+        window_ms: u64,
+        limit: u64,
+        amount: u64,
+    ) -> CacheResult<RateLimitDecision> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -59,11 +73,39 @@ impl RateLimiter {
                     window_ms.to_string(),
                     limit.to_string(),
                     req_id,
+                    amount.to_string(),
                 ],
             )
             .await?;
 
         parse(reply)
+    }
+
+    /// 只读当前窗口内消耗单位数，不写入新 entry。
+    ///
+    /// dry-run / explain 用；失败由调用方按 fail-open 处理。
+    pub async fn peek_count(&self, key: &str, window_ms: u64) -> CacheResult<u64> {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let cutoff = now_ms.saturating_sub(window_ms as i64);
+        let client = self.pool.next();
+        let _: RedisValue = client
+            .zremrangebyscore(key.to_string(), "-inf", cutoff)
+            .await?;
+        let members: Vec<String> = client
+            .zrange(key.to_string(), 0, -1, None, false, None, false)
+            .await?;
+        Ok(members
+            .iter()
+            .map(|member| {
+                member
+                    .split_once(':')
+                    .and_then(|(raw, _)| raw.parse::<u64>().ok())
+                    .unwrap_or(1)
+            })
+            .sum())
     }
 }
 

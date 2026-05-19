@@ -124,16 +124,31 @@ require!(ctx, Permission::ApiKeyCreate, Scope::Project { org, project });
 | 类型 | 性质 | 算法 | 触发后 | 存储 |
 |---|---|---|---|---|
 | **Rate Limit** | 频率保护 | Redis 滑动窗口 (ZSET + Lua) | 429 | Redis 主存 |
-| **Quota / Budget** | 用量配额 | 原子计数 + 周期重置 | 402 | Redis 计数 + PG 持久化 |
+| **Quota / Budget** | 用量配额 | 原子计数 + 周期重置 | 429 | Redis 计数 + PG 持久化 |
 
 ### 3.2 多维叠加（取最严）
 
-每个请求依次过：
+P1.6 后每个请求依次过：
 ```
-Platform 全局 → Org → Project → User × Model → ApiKey × Model
+ApiKey × Model → Project × Model → Org × Model
+User × Model → Org × Model
 ```
 
-任一维度 deny 即拒。维度内多条规则取**更严**的。
+任一 enabled + `mode=enforce` 规则 deny 即拒。`model_filter` 支持精确值与简单 `*` glob；未命中请求 model 的规则不会参与本次判断。`mode=dry_run` 只记录 would-deny，不扣 Redis、不拦截。
+
+当前维度与计量语义：
+
+| dimension | 计量 | Redis key | reset |
+|---|---|---|---|
+| `rpm` | request count | `qt:{scope}:{id}:rpm:{model}:{quota_id}` | sliding window |
+| `tpm` | estimated tokens | `qt:{scope}:{id}:tpm:{model}:{quota_id}` | sliding window |
+| `concurrent` | inflight request units | `qc:{scope}:{id}:concurrent:{model}:{quota_id}` | settle 后 refund |
+| `daily_budget_usd` | cost micros | `qb:d:{scope}:{id}:daily_budget_usd:{model}:{quota_id}` | 24h TTL |
+| `monthly_budget_usd` | cost micros | `qb:m:{scope}:{id}:monthly_budget_usd:{model}:{quota_id}` | 30d TTL |
+| `lifetime_budget_usd` | cost micros | `qb:l:{scope}:{id}:lifetime_budget_usd:{model}:{quota_id}` | never expire |
+| `lifetime_tokens` | actual token units | `qtok:l:{scope}:{id}:lifetime_tokens:{model}:{quota_id}` | never expire |
+
+`rpm/tpm` 走 Redis ZSET sliding window；TPM member 前缀保存本次 token amount，兼容旧 member 按 1 计。`concurrent`、budget 与 lifetime 维度走 Redis counter pre-debit，handler 成功后按实际 cost/tokens settle，多退少补。
 
 ### 3.3 流式扣费三段式
 
@@ -158,14 +173,23 @@ POST (流结束 / 错误):
 
 **关键：超时回滚**。`inflight_requests.expires_at` 设 `max_tokens / 10 tps` 的预估时间，cleaner 定时跑回滚。
 
-当前实现把 budget 类 quota 的预扣状态同时写入 Redis 与 `inflight_requests`：
+当前实现把 counter 类 quota 的预扣状态同时写入 Redis 与 `inflight_requests`：
 
 - Redis key 由 `scope_kind/scope_id/dimension/model_filter/quota_id` 组成，避免多条 quota 串桶。
-- `inflight_requests.quota_keys` / `estimated_micros` 记录本请求所有成功预扣项。
-- 正常路径由 `InflightGuard::settle(actual_micros)` 多退少补并删除 inflight 行。
+- `inflight_requests.quota_keys` / `estimated_micros` 记录本请求所有成功预扣项；字段名 `estimated_micros` 是历史兼容名，P1.6 后可表示 cost micros、token units 或 concurrent unit，真实语义由内存 guard 的 `QuotaMetric` 区分。
+- 正常路径由 `InflightGuard::settle_units(actual_units)` 多退少补并删除 inflight 行。
 - handler panic / 取消时 `Drop` 全额退还；进程崩溃时后台 sweeper 每 60s 删除过期 inflight 行并按 `quota_keys × estimated_micros` 退还 Redis。
 
-### 3.4 Billing ledger 与 invoice 状态机
+### 3.4 Quota policy diagnostics
+
+控制面新增两条诊断链路：
+
+- `GET /v1/orgs/:org_id/quotas/explain`：按 scope/model/估算 tokens/cost 解释会命中的规则，返回 `current_used`、`estimated`、`remaining`、`would_deny`、`retry_after_ms` 与 `reset_at`。
+- `GET /v1/orgs/:org_id/quotas/reconcile`：对 counter 维度读取 Redis，对 budget / lifetime tokens 从 `usage_records` 聚合 PG projection，返回 `redis_used`、`pg_used`、`delta` 与 runtime-only / glob best-effort 说明。
+
+`quota_dry_run_total{dimension,scope_kind,would_deny}` 是 dry-run 策略的主信号；dry-run 规则只 `peek` 当前 Redis 用量，失败按 fail-open 处理并写 warning。
+
+### 3.5 Billing ledger 与 invoice 状态机
 
 P1.5 后 `billing_ledger_events` 是计费审计源，`usage_records` 只作为控制台 / analytics projection：
 

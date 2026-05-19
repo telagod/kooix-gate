@@ -10,7 +10,7 @@ use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
-use crate::inflight::InflightGuards;
+use crate::inflight::{InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::extract::State;
@@ -127,10 +127,14 @@ fn image_usage(req: &ImageGenerationRequest, resp: &ImageGenerationResponse) -> 
 
 async fn settle_image_guards(guards: &InflightGuards, usage: &Usage) {
     const RATE_PER_IMAGE_MICROS: i64 = 80_000;
-    let actual = usage.image_units.unwrap_or(1).max(1) as i64 * RATE_PER_IMAGE_MICROS;
+    let actual_cost = usage.image_units.unwrap_or(1).max(1) as i64 * RATE_PER_IMAGE_MICROS;
     let mut taken = guards.take();
     for g in &mut taken {
-        g.settle(actual).await;
+        let actual = match g.metric {
+            QuotaMetric::CostMicros => actual_cost,
+            QuotaMetric::Tokens | QuotaMetric::Concurrent => 0,
+        };
+        g.settle_units(actual).await;
     }
 }
 

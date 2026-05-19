@@ -12,7 +12,7 @@ use crate::auth::Authed;
 use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
-use crate::inflight::InflightGuards;
+use crate::inflight::{InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::extract::State;
@@ -136,10 +136,16 @@ fn embedding_usage(resp: &EmbeddingResponse) -> EmbeddingMeter {
 
 async fn settle_embedding_guards(guards: &InflightGuards, usage: &EmbeddingMeter) {
     const RATE_PER_TOKEN_MICROS: i64 = crate::cost_estimate::DEFAULT_RATE_PER_TOKEN_MICROS;
-    let actual = usage.total_tokens as i64 * RATE_PER_TOKEN_MICROS;
+    let actual_cost = usage.total_tokens as i64 * RATE_PER_TOKEN_MICROS;
+    let actual_tokens = usage.total_tokens as i64;
     let mut taken = guards.take();
     for g in &mut taken {
-        g.settle(actual).await;
+        let actual = match g.metric {
+            QuotaMetric::CostMicros => actual_cost,
+            QuotaMetric::Tokens => actual_tokens,
+            QuotaMetric::Concurrent => 0,
+        };
+        g.settle_units(actual).await;
     }
 }
 

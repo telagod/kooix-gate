@@ -29,7 +29,7 @@ use crate::billing_emit::{BillingCtx, emit_usage};
 use crate::cost_estimate::{DEFAULT_RATE_PER_TOKEN_MICROS, estimate_cost_micros};
 use crate::error::{AppError, AppResult, provider_failure_policy};
 use crate::gateway::{GatewayStage, StageOutcome};
-use crate::inflight::InflightGuards;
+use crate::inflight::{InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
 use axum::extract::State;
@@ -85,10 +85,16 @@ pub(crate) fn estimated_usage_from_request(req: &ChatRequest) -> Usage {
 
 /// 结算所有 inflight guards。
 pub(crate) async fn settle_guards(guards: &InflightGuards, usage: &Usage) {
-    let actual = actual_cost_from_usage(usage);
+    let actual_cost = actual_cost_from_usage(usage);
+    let actual_tokens = metered_tokens(usage) as i64;
     let mut taken = guards.take();
     for g in &mut taken {
-        g.settle(actual).await;
+        let actual = match g.metric {
+            QuotaMetric::CostMicros => actual_cost,
+            QuotaMetric::Tokens => actual_tokens,
+            QuotaMetric::Concurrent => 0,
+        };
+        g.settle_units(actual).await;
     }
 }
 

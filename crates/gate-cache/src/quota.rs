@@ -91,6 +91,15 @@ impl QuotaCounter {
             }),
         }
     }
+
+    /// 返回 key 剩余 TTL（毫秒）。
+    ///
+    /// Redis 语义：`-2` key 不存在，`-1` 永不过期。
+    pub async fn pttl_ms(&self, key: &str) -> CacheResult<i64> {
+        let v: RedisValue = self.pool.next().pttl(key.to_string()).await?;
+        v.as_i64()
+            .ok_or_else(|| CacheError::Shape(format!("expected int from PTTL {key}, got {v:?}")))
+    }
 }
 
 fn as_array3(v: RedisValue) -> CacheResult<Vec<RedisValue>> {

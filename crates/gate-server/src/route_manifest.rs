@@ -129,6 +129,18 @@ pub const ROUTES: &[RouteMeta] = &[
     route!("GET", "/v1/orgs/:org_id/quotas", User, CONTROL_PLANE),
     route!("POST", "/v1/orgs/:org_id/quotas", User, CONTROL_PLANE),
     route!(
+        "GET",
+        "/v1/orgs/:org_id/quotas/explain",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/orgs/:org_id/quotas/reconcile",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
         "DELETE",
         "/v1/orgs/:org_id/quotas/:quota_id",
         User,

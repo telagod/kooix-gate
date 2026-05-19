@@ -493,3 +493,27 @@ npm --prefix web test
 gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
+
+## P1.6 Quota / Policy engine
+
+本轮把 P1.6 从 roadmap 项落成完整 policy engine：
+
+- quota schema 增加 `mode=enforce|dry_run`，dimension 增加 `lifetime_budget_usd`；历史 `quotas_dimension_check` 迁移会先安全 drop 再重建，避免空库 / 旧库约束重名。
+- middleware 支持 `rpm`、`tpm`、`concurrent`、`daily_budget_usd`、`monthly_budget_usd`、`lifetime_budget_usd`、`lifetime_tokens`，并按 `model_filter` 精确 / 简单 glob 过滤规则。
+- TPM sliding window 支持按 estimated token amount 多单位记账；`lifetime_tokens` settle 使用真实 usage tokens，不再混用 cost micros。
+- `mode=dry_run` 只 peek 当前 Redis 用量，记录 `quota_dry_run_total` 与 would-deny tracing，不扣 Redis、不拦截。
+- control-plane 新增 quota explain / reconcile：`/v1/orgs/:org_id/quotas/explain` 返回命中规则、当前消耗、估算量、剩余量、would-deny 与 reset；`/reconcile` 对比 Redis counter 与 PG usage projection。
+- Quota UI 重铸为 policy 工作台：支持 org/project/api_key/user scope、model filter、enforce/dry-run、lifetime budget、explain 面板与 Redis/PG 对账面板。
+- InMemoryMembershipRepo 补 `list_org_members`，让 user scope quota 在 dev/test 的 list / delete / reconcile 链路与 PG 行为一致。
+
+已跑验证：
+
+```bash
+cargo clean -p gate-storage
+cargo test -p gate-storage --test quota_repo
+cargo test -p gate-server --test quota_enforce
+cargo test -p gate-server --test quota_predebit
+npm --prefix web run check
+```
+
+剩余全量门禁继续在本阶段末尾统一跑：`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`npm --prefix web test`、`npm --prefix web run build`、`gitleaks` 双扫描。

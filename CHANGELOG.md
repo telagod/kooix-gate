@@ -77,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed — Quota / Billing
 
+- Quota policy engine 补全 P1.6：新增 `concurrent`、`lifetime_budget_usd`、`lifetime_tokens`，并支持 `mode=enforce|dry_run`。dry-run 只记录 `quota_dry_run_total` 与 would-deny tracing，不扣 Redis、不拦截请求。
+- Quota middleware 按 `model_filter` 精确 / 简单 glob 过滤规则，TPM sliding window 支持按 estimated tokens 多单位记账，lifetime tokens settle 使用真实 usage tokens 而非 cost micros。
+- 控制面新增 `/v1/orgs/:org_id/quotas/explain` 与 `/reconcile`：前者返回命中规则、当前消耗、剩余额度和恢复时间，后者对比 Redis counter 与 PG `usage_records` projection。
+- Quota 控制台升级为 scope/model policy UI，支持 user / api_key / project / org、enforce / dry-run、lifetime budget、explain 预览与 Redis/PG 对账结果。
 - 修复 budget quota pre-debit 的 `inflight_requests` 写入竞态：中间件不再后台 spawn insert，避免 handler 先 settle/delete 后 insert 才落库，导致同一 `x-request-id` 的 inflight 行残留并破坏 crash recovery 对账。
 - budget quota pre-debit 支持解析 `EmbeddingRequest`，按 embedding input 字符数估算预扣，并在 `/v1/embeddings` 完成后用实际 `usage.total_tokens` settle / refund。
 - `/v1/embeddings` 上游失败不再包装成 internal error；auth、rate limit、invalid request、policy、network、decode 与 mapped error 进入统一 provider error shape，并同步 channel key cooldown / circuit breaker 统计。

@@ -16,7 +16,9 @@ use chrono::Duration as ChronoDuration;
 use fred::interfaces::KeysInterface;
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
 use gate_core::id::{ApiKeyId, OrgId, ProjectId, UserId};
-use gate_core::identity::{OrgRole, OrgStatus, Organization, Project, ProjectRole, ProjectStatus};
+use gate_core::identity::{
+    OrgRole, OrgStatus, Organization, Project, ProjectRole, ProjectStatus, User, UserStatus,
+};
 use gate_providers::openai::OpenAiProvider;
 use gate_server::loader::{ApiKeyRecord as LoaderApiKey, InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
@@ -120,6 +122,20 @@ async fn make_fixture() -> Fix {
         created_at: now,
         updated_at: now,
     });
+    users.seed(
+        User {
+            id: user_id,
+            email: "quota-owner@example.com".into(),
+            display_name: Some("Quota Owner".into()),
+            status: UserStatus::Active,
+            mfa_enabled: false,
+            email_verified_at: None,
+            last_login_at: None,
+            created_at: now,
+            updated_at: now,
+        },
+        None,
+    );
     projects.seed(Project {
         id: project_id,
         org_id,
@@ -169,6 +185,7 @@ async fn make_fixture() -> Fix {
     };
 
     // user 也作为 owner 对该 Org 拥有 Owner role（用于跑 REST endpoint 鉴权）
+    memberships.seed_org(org_id, user_id, OrgRole::Owner);
     memberships.seed_project(org_id, project_id, user_id, ProjectRole::Owner);
     let mut user_orgs = HashMap::new();
     user_orgs.insert(org_id, OrgRole::Owner);
@@ -278,6 +295,7 @@ async fn rpm_quota_blocks_after_limit() {
             model_filter: None,
             limit_value: Decimal::from(5),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -331,6 +349,7 @@ async fn daily_budget_blocks_when_exhausted() {
             model_filter: None,
             limit_value: Decimal::from(1), // $1 = 1_000_000 micros
             window_seconds: None,
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -393,6 +412,7 @@ async fn user_subject_quota_path() {
             model_filter: None,
             limit_value: Decimal::from(2),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -481,7 +501,8 @@ async fn rest_upsert_list_delete_quota() {
                 "scope_id": f.org_id.as_uuid().to_string(),
                 "dimension": "rpm",
                 "limit_value": "100",
-                "window_seconds": 60
+                "window_seconds": 60,
+                "mode": "dry_run"
             }))
             .unwrap(),
         ))
@@ -492,6 +513,7 @@ async fn rest_upsert_list_delete_quota() {
         serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let quota_id = body["id"].as_str().unwrap().to_string();
     assert_eq!(body["dimension"], "rpm");
+    assert_eq!(body["mode"], "dry_run");
 
     // GET 列表（含 project + api_key 子层）
     let req = Request::builder()
@@ -506,6 +528,7 @@ async fn rest_upsert_list_delete_quota() {
         serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let arr = body.as_array().unwrap();
     assert!(arr.iter().any(|v| v["id"] == quota_id));
+    assert!(arr.iter().any(|v| v["mode"] == "dry_run"));
 
     // DELETE
     let req = Request::builder()
@@ -528,6 +551,114 @@ async fn rest_upsert_list_delete_quota() {
     let body: Value =
         serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert!(body.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rest_user_scope_quota_list_explain_and_reconcile() {
+    let f = make_fixture().await;
+    let tok = user_token(&f.jwt, f.user_id, f.org_id);
+    let url = format!("/v1/orgs/{}/quotas", f.org_id.as_uuid());
+
+    let create = Request::builder()
+        .method("POST")
+        .uri(&url)
+        .header("authorization", format!("Bearer {tok}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "scope_kind": "user",
+                "scope_id": f.user_id.as_uuid().to_string(),
+                "dimension": "lifetime_budget_usd",
+                "model_filter": "gpt-4o*",
+                "limit_value": "1.25",
+                "mode": "dry_run"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = f.router.clone().oneshot(create).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let quota_id = body["id"].as_str().unwrap().to_string();
+    assert_eq!(body["scope_kind"], "user");
+    assert_eq!(body["dimension"], "lifetime_budget_usd");
+    assert_eq!(body["mode"], "dry_run");
+
+    let list = Request::builder()
+        .method("GET")
+        .uri(&url)
+        .header("authorization", format!("Bearer {tok}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = f.router.clone().oneshot(list).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert!(body.as_array().unwrap().iter().any(|v| v["id"] == quota_id));
+
+    let explain_url = format!(
+        "{url}/explain?scope_kind=user&scope_id={}&dimension=lifetime_budget_usd&model=gpt-4o-mini&estimated_cost_micros=250000",
+        f.user_id.as_uuid()
+    );
+    let explain = Request::builder()
+        .method("GET")
+        .uri(explain_url)
+        .header("authorization", format!("Bearer {tok}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = f.router.clone().oneshot(explain).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let rules = body["rules"].as_array().unwrap();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0]["quota_id"], quota_id);
+    assert_eq!(rules[0]["limit"], 1_250_000);
+    assert_eq!(rules[0]["estimated"], 250_000);
+    assert_eq!(rules[0]["would_deny"], false);
+
+    let reconcile = Request::builder()
+        .method("GET")
+        .uri(format!("{url}/reconcile"))
+        .header("authorization", format!("Bearer {tok}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = f.router.clone().oneshot(reconcile).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert!(
+        body["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["quota_id"] == quota_id)
+    );
+}
+
+#[tokio::test]
+async fn rest_upsert_invalid_mode_returns_400() {
+    let f = make_fixture().await;
+    let tok = user_token(&f.jwt, f.user_id, f.org_id);
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/v1/orgs/{}/quotas", f.org_id.as_uuid()))
+        .header("authorization", format!("Bearer {tok}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "scope_kind": "org",
+                "scope_id": f.org_id.as_uuid().to_string(),
+                "dimension": "rpm",
+                "limit_value": "10",
+                "mode": "shadow"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = f.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -591,6 +722,7 @@ async fn project_quota_layer_also_intercepts() {
             model_filter: None,
             limit_value: Decimal::from(1),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();

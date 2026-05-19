@@ -30,6 +30,8 @@ pub struct QuotaRecord {
     pub model_filter: Option<String>,
     pub limit_value: Decimal,
     pub window_seconds: Option<i32>,
+    /// `enforce` 实际拦截；`dry_run` 只记录 would-deny，不扣 Redis，不拦截。
+    pub mode: String,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -47,6 +49,7 @@ pub struct QuotaUpsert {
     pub model_filter: Option<String>,
     pub limit_value: Decimal,
     pub window_seconds: Option<i32>,
+    pub mode: String,
 }
 
 #[async_trait]
@@ -81,7 +84,7 @@ impl PgQuotaRepo {
 }
 
 const QUOTA_COLUMNS: &str = "id, scope_kind, scope_id, dimension, model_filter, \
-    limit_value, window_seconds, enabled, created_at, updated_at";
+    limit_value, window_seconds, mode, enabled, created_at, updated_at";
 
 fn row_to_record(row: &sqlx::postgres::PgRow) -> DbResult<QuotaRecord> {
     Ok(QuotaRecord {
@@ -92,6 +95,7 @@ fn row_to_record(row: &sqlx::postgres::PgRow) -> DbResult<QuotaRecord> {
         model_filter: row.try_get("model_filter")?,
         limit_value: row.try_get("limit_value")?,
         window_seconds: row.try_get("window_seconds")?,
+        mode: row.try_get("mode")?,
         enabled: row.try_get("enabled")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
@@ -140,11 +144,12 @@ impl QuotaRepo for PgQuotaRepo {
         if let Some(row) = existing {
             let id: Uuid = row.try_get("id")?;
             let updated = sqlx::query(&format!(
-                "UPDATE quotas SET limit_value = $1, window_seconds = $2, enabled = TRUE \
-                 WHERE id = $3 RETURNING {QUOTA_COLUMNS}"
+                "UPDATE quotas SET limit_value = $1, window_seconds = $2, mode = $3, enabled = TRUE \
+                 WHERE id = $4 RETURNING {QUOTA_COLUMNS}"
             ))
             .bind(q.limit_value)
             .bind(q.window_seconds)
+            .bind(&q.mode)
             .bind(id)
             .fetch_one(&self.pool)
             .await?;
@@ -152,8 +157,8 @@ impl QuotaRepo for PgQuotaRepo {
         } else {
             let inserted = sqlx::query(&format!(
                 "INSERT INTO quotas (scope_kind, scope_id, dimension, model_filter, \
-                                     limit_value, window_seconds, enabled) \
-                 VALUES ($1, $2, $3, $4, $5, $6, TRUE) \
+                                     limit_value, window_seconds, mode, enabled) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE) \
                  RETURNING {QUOTA_COLUMNS}"
             ))
             .bind(&q.scope_kind)
@@ -162,6 +167,7 @@ impl QuotaRepo for PgQuotaRepo {
             .bind(q.model_filter.as_deref())
             .bind(q.limit_value)
             .bind(q.window_seconds)
+            .bind(&q.mode)
             .fetch_one(&self.pool)
             .await?;
             row_to_record(&inserted)
@@ -247,6 +253,7 @@ impl QuotaRepo for InMemoryQuotaRepo {
             let mut rec = g.get(&id).unwrap().clone();
             rec.limit_value = q.limit_value;
             rec.window_seconds = q.window_seconds;
+            rec.mode = q.mode;
             rec.enabled = true;
             rec.updated_at = now;
             g.insert(id, rec.clone());
@@ -261,6 +268,7 @@ impl QuotaRepo for InMemoryQuotaRepo {
                 model_filter: q.model_filter,
                 limit_value: q.limit_value,
                 window_seconds: q.window_seconds,
+                mode: q.mode,
                 enabled: true,
                 created_at: now,
                 updated_at: now,

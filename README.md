@@ -31,7 +31,7 @@
 - ✅ typed ID API response（`org_...` / `proj_...` / `usr_...`），路径参数仍兼容裸 UUID
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
 - ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价，ledger 对账 + invoice 状态机）
-- ✅ Quota 拦截（rpm / tpm / budget，Redis Lua 原子）
+- ✅ Quota policy engine（rpm / tpm / concurrent / daily / monthly / lifetime，Redis Lua 原子，dry-run / explain / reconcile）
 - ✅ 可视化编排 Playground（@xyflow/svelte 节点式流程编辑器）
 - ✅ SvelteKit 控制台（channel 管理 / 请求日志 / usage 仪表盘 / 月度账单 / SSO）
 - ✅ `kgctl` 部署 CLI + Docker Compose 一键部署 + GitHub Actions CI
@@ -40,7 +40,7 @@
 
 - 🧩 typed ID 输出与 `FlexUuid` 路径参数兼容，前端用 `rawId()` / `shortId()` 处理展示和跳转。
 - 💸 Pricing rules 管理闭环：`/v1/admin/pricing-rules`、`kgctl pricing list|set|delete`、`/admin/pricing` 控制台页面。
-- 🧯 Crash-safe quota pre-debit：`inflight_requests.quota_keys/estimated_micros` + 60s sweeper 自动退还过期预扣。
+- 🧯 Crash-safe quota pre-debit：`inflight_requests.quota_keys/estimated_micros` + 60s sweeper 自动退还过期预扣；P1.6 扩展到 concurrent、lifetime budget、lifetime tokens 与 dry-run policy。
 - 🌊 HTTP Plugin SSE normalizer + Provider preset，覆盖私有 SSE 帧、Anthropic Messages、Azure deployment URL 与 OpenAI-compatible usage 末帧。
 - 🛡️ HTTP Plugin manifest 作为不可信配置处理：模板变量分域白名单、绝对 URL 默认禁用、内网/metadata host 拒绝、request/response/SSE size limit。
 - 🧱 前端模板化：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等集中到 `web/src/lib/components/templates/`。

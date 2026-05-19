@@ -604,6 +604,7 @@ export interface Quota {
 	model_filter: string | null;
 	limit_value: string;
 	window_seconds: number | null;
+	mode: 'enforce' | 'dry_run' | string;
 	enabled: boolean;
 }
 
@@ -612,8 +613,58 @@ export interface UpsertQuotaRequest {
 	scope_id: string;
 	dimension: string;
 	model_filter?: string | null;
-	limit_value: number;
+	limit_value: number | string;
 	window_seconds?: number | null;
+	mode?: 'enforce' | 'dry_run';
+}
+
+export interface QuotaExplainRule {
+	quota_id: string;
+	scope_kind: string;
+	scope_id: string;
+	dimension: string;
+	model_filter: string | null;
+	mode: string;
+	limit: number;
+	current_used: number;
+	estimated: number;
+	remaining: number;
+	would_deny: boolean;
+	retry_after_ms: number | null;
+	reset_at: string | null;
+}
+
+export interface QuotaExplainResponse {
+	org_id: string;
+	rules: QuotaExplainRule[];
+}
+
+export interface QuotaExplainParams {
+	scope_kind: string;
+	scope_id: string;
+	dimension?: string;
+	model?: string;
+	estimated_tokens?: number;
+	estimated_cost_micros?: number;
+}
+
+export interface QuotaReconcileRow {
+	quota_id: string;
+	scope_kind: string;
+	scope_id: string;
+	dimension: string;
+	model_filter: string | null;
+	mode: string;
+	redis_key: string | null;
+	redis_used: number | null;
+	pg_used: number;
+	delta: number | null;
+	note: string | null;
+}
+
+export interface QuotaReconcileResponse {
+	org_id: string;
+	rows: QuotaReconcileRow[];
 }
 
 export async function listQuotas(orgId: string): Promise<Quota[]> {
@@ -626,6 +677,27 @@ export async function upsertQuota(orgId: string, data: UpsertQuotaRequest): Prom
 	return apiFetch<Quota>(`/v1/orgs/${rawId(orgId)}/quotas`, {
 		method: 'POST',
 		body: JSON.stringify(data),
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function explainQuota(orgId: string, params: QuotaExplainParams): Promise<QuotaExplainResponse> {
+	const query = new URLSearchParams();
+	query.set('scope_kind', params.scope_kind);
+	query.set('scope_id', rawId(params.scope_id));
+	if (params.dimension) query.set('dimension', params.dimension);
+	if (params.model) query.set('model', params.model);
+	if (params.estimated_tokens !== undefined) query.set('estimated_tokens', String(params.estimated_tokens));
+	if (params.estimated_cost_micros !== undefined) {
+		query.set('estimated_cost_micros', String(params.estimated_cost_micros));
+	}
+	return apiFetch<QuotaExplainResponse>(`/v1/orgs/${rawId(orgId)}/quotas/explain?${query}`, {
+		headers: { 'X-Kooix-Org': orgId }
+	});
+}
+
+export async function reconcileQuotas(orgId: string): Promise<QuotaReconcileResponse> {
+	return apiFetch<QuotaReconcileResponse>(`/v1/orgs/${rawId(orgId)}/quotas/reconcile`, {
 		headers: { 'X-Kooix-Org': orgId }
 	});
 }

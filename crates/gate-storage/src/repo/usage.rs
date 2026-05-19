@@ -49,6 +49,17 @@ pub struct UsageTotals {
     pub tokens_out: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ScopeUsageFilter {
+    pub org_id: OrgId,
+    pub scope_kind: String,
+    pub scope_id: Uuid,
+    pub model_filter: Option<String>,
+    /// None = lifetime；Some(from,to) = 时间窗口。
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+}
+
 // ============================================================================
 // Trait
 // ============================================================================
@@ -71,6 +82,8 @@ pub trait UsageRepo: Send + Sync + 'static {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> DbResult<UsageTotals>;
+
+    async fn totals_for_scope(&self, filter: ScopeUsageFilter) -> DbResult<UsageTotals>;
 }
 
 // ============================================================================
@@ -274,6 +287,72 @@ impl UsageRepo for PgUsageRepo {
             tokens_out: row.try_get("tokens_out")?,
         })
     }
+
+    async fn totals_for_scope(&self, filter: ScopeUsageFilter) -> DbResult<UsageTotals> {
+        let mut conditions = vec!["org_id = $1".to_string()];
+        let mut bind_idx = 2;
+        match filter.scope_kind.as_str() {
+            "org" => {}
+            "project" => {
+                conditions.push(format!("project_id = ${bind_idx}"));
+                bind_idx += 1;
+            }
+            "api_key" => {
+                conditions.push(format!("api_key_id = ${bind_idx}"));
+                bind_idx += 1;
+            }
+            // usage_records 当前不存 user_id；user scope 只能通过 Redis explain，看 PG 对账为 0。
+            _ => {
+                return Ok(UsageTotals::default());
+            }
+        }
+        if filter.model_filter.is_some() {
+            conditions.push(format!("model_actual = ${bind_idx}"));
+            bind_idx += 1;
+        }
+        if filter.from.is_some() {
+            conditions.push(format!("ts >= ${bind_idx}"));
+            bind_idx += 1;
+        }
+        if filter.to.is_some() {
+            conditions.push(format!("ts < ${bind_idx}"));
+        }
+
+        let sql = format!(
+            "SELECT COALESCE(SUM(cost_usd), 0)::float8 AS cost_usd, \
+                    COALESCE(SUM(tokens_in), 0)::bigint AS tokens_in, \
+                    COALESCE(SUM(tokens_out), 0)::bigint AS tokens_out \
+             FROM usage_records WHERE {}",
+            conditions.join(" AND ")
+        );
+        let mut q = sqlx::query(&sql).bind(*filter.org_id.as_uuid());
+        match filter.scope_kind.as_str() {
+            "project" | "api_key" => {
+                q = q.bind(filter.scope_id);
+            }
+            _ => {}
+        }
+        if let Some(model) = &filter.model_filter {
+            if model.contains('*') {
+                // PG 对账 API 只做精确 model；glob 交由 Redis explain 展示当前计数。
+                return Ok(UsageTotals::default());
+            }
+            q = q.bind(model);
+        }
+        if let Some(from) = filter.from {
+            q = q.bind(from);
+        }
+        if let Some(to) = filter.to {
+            q = q.bind(to);
+        }
+
+        let row = q.fetch_one(&self.pool).await?;
+        Ok(UsageTotals {
+            cost_usd: row.try_get("cost_usd")?,
+            tokens_in: row.try_get("tokens_in")?,
+            tokens_out: row.try_get("tokens_out")?,
+        })
+    }
 }
 
 // ============================================================================
@@ -409,6 +488,42 @@ impl UsageRepo for InMemoryUsageRepo {
         }
         // 避免 dead_code 告警：DbError 导入未用的兜底
         let _ = DbError::NotFound;
+        Ok(t)
+    }
+
+    async fn totals_for_scope(&self, filter: ScopeUsageFilter) -> DbResult<UsageTotals> {
+        let inner = self.inner.read();
+        let mut t = UsageTotals::default();
+        for r in inner.iter() {
+            if r.org_id != filter.org_id {
+                continue;
+            }
+            if let Some(from) = filter.from
+                && r.ts < from
+            {
+                continue;
+            }
+            if let Some(to) = filter.to
+                && r.ts >= to
+            {
+                continue;
+            }
+            if let Some(model) = filter.model_filter.as_deref()
+                && !model.contains('*')
+                && r.model != model
+            {
+                continue;
+            }
+            match filter.scope_kind.as_str() {
+                "org" => {}
+                // 内存 usage seed 目前只保留 org/model/cost/tokens；无法可靠对 project/api_key 过滤。
+                "project" | "api_key" | "user" | "membership" => continue,
+                _ => continue,
+            }
+            t.cost_usd += r.cost_usd;
+            t.tokens_in += r.tokens_in;
+            t.tokens_out += r.tokens_out;
+        }
         Ok(t)
     }
 }

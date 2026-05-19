@@ -205,6 +205,20 @@ WHERE u.request_id IS NULL
 - CSV 导出响应头 `x-kooix-export-digest=sha256:<hex>`；JSON 导出 `/v1/orgs/:org_id/billing/export.json` 内嵌 `digest`，便于审计留存。
 - 成本告警覆盖预算 50/80/100% 阈值；`billing_settle_failures_total{reason="pricing_miss"}` 是 channel/model 单价缺失信号；单请求异常成本先按 24h org spend 粗告警，后续可升级为 request_events P99 / max。
 
+## Quota policy engine
+
+```promql
+sum(rate(quota_dry_run_total[5m])) by (dimension, scope_kind, would_deny)
+sum(rate(http_requests_total{status="429"}[5m])) by (route)
+```
+
+- `mode=dry_run` 规则不扣 Redis、不拦截请求，只在中间件里 peek 当前用量并写 `quota_dry_run_total{would_deny=...}`；若 `would_deny=true` 持续出现，先用控制台 Quota explain 确认命中规则，再切 `enforce`。
+- `rpm/tpm` 使用 Redis ZSET sliding window；TPM member 保存本次 estimated token amount。窗口内 member 很多时 explain / dry-run peek 会遍历窗口内 member，异常高 QPS 租户要优先看 Redis CPU。
+- `concurrent`、`daily_budget_usd`、`monthly_budget_usd`、`lifetime_budget_usd`、`lifetime_tokens` 使用 Redis counter pre-debit；key 前缀分别是 `qc`、`qb:d`、`qb:m`、`qb:l`、`qtok:l`。
+- `lifetime_*` key 不设置 TTL；若误配策略需要人工清零，先导出 `GET /v1/orgs/:org_id/quotas/reconcile` 结果，再按 quota id 精确删除对应 Redis key。
+- `GET /v1/orgs/:org_id/quotas/explain` 用于单 scope/model 诊断，返回 `current_used`、`estimated`、`remaining`、`would_deny`、`retry_after_ms`、`reset_at`。
+- `GET /v1/orgs/:org_id/quotas/reconcile` 用于对账：Redis counter 是当前 runtime 状态，PG `usage_records` 是 persisted projection；`rpm/concurrent` 属 runtime-only，glob model_filter 的 PG 对账是 best-effort。
+
 ## Worker ownership
 
 ```promql

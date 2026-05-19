@@ -13,21 +13,37 @@ use gate_storage::InFlightRepo;
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuotaMetric {
+    CostMicros,
+    Tokens,
+    Concurrent,
+}
+
 pub struct InflightGuard {
     quota_counter: Arc<QuotaCounter>,
     pub key: String,
-    pub estimated_micros: i64,
+    /// 预扣单位。历史字段名曾叫 `estimated_micros`；现在可以是 cost micros、
+    /// tokens 或 concurrent unit，具体由 `metric` 解释。
+    pub reserved_units: i64,
+    pub metric: QuotaMetric,
     settled: bool,
     request_id: Option<Uuid>,
     inflight_repo: Option<Arc<dyn InFlightRepo>>,
 }
 
 impl InflightGuard {
-    pub fn new(qc: Arc<QuotaCounter>, key: String, estimated_micros: i64) -> Self {
+    pub fn new(
+        qc: Arc<QuotaCounter>,
+        key: String,
+        reserved_units: i64,
+        metric: QuotaMetric,
+    ) -> Self {
         Self {
             quota_counter: qc,
             key,
-            estimated_micros,
+            reserved_units,
+            metric,
             settled: false,
             request_id: None,
             inflight_repo: None,
@@ -40,18 +56,24 @@ impl InflightGuard {
         self
     }
 
-    pub async fn settle(&mut self, actual_micros: i64) {
-        let diff = self.estimated_micros - actual_micros;
+    pub async fn settle_units(&mut self, actual_units: i64) {
+        let diff = self.reserved_units - actual_units;
         if diff > 0 {
             let _ = self.quota_counter.refund(&self.key, diff).await;
         } else if diff < 0 {
+            // 多扣差额时不改变 key TTL：lifetime counter ttl=0 永不过期，
+            // rolling budget/concurrent key 维持原有 TTL。
             let _ = self
                 .quota_counter
-                .debit(&self.key, -diff, i64::MAX, 86400)
+                .debit(&self.key, -diff, i64::MAX, 0)
                 .await;
         }
         self.settled = true;
         self.cleanup_db_now().await;
+    }
+
+    pub async fn settle(&mut self, actual_micros: i64) {
+        self.settle_units(actual_micros).await;
     }
 
     fn cleanup_db(&self) {
@@ -74,7 +96,7 @@ impl Drop for InflightGuard {
         if !self.settled {
             let qc = self.quota_counter.clone();
             let key = self.key.clone();
-            let amount = self.estimated_micros;
+            let amount = self.reserved_units;
             tokio::spawn(async move {
                 let _ = qc.refund(&key, amount).await;
             });

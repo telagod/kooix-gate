@@ -32,6 +32,8 @@ pub enum QuotaDimension {
     DailyBudgetUsd,
     /// 每月预算（USD，重置周期）
     MonthlyBudgetUsd,
+    /// 终身预算（USD，不重置）
+    LifetimeBudgetUsd,
     /// 终身配额（不重置）
     LifetimeTokens,
 }
@@ -43,7 +45,10 @@ impl QuotaDimension {
     pub fn is_budget(&self) -> bool {
         matches!(
             self,
-            Self::DailyBudgetUsd | Self::MonthlyBudgetUsd | Self::LifetimeTokens
+            Self::DailyBudgetUsd
+                | Self::MonthlyBudgetUsd
+                | Self::LifetimeBudgetUsd
+                | Self::LifetimeTokens
         )
     }
 }
@@ -61,6 +66,8 @@ pub struct Quota {
     pub limit_value: Decimal,
     /// 时间窗口（秒，仅对 rate 类有意义）
     pub window_seconds: Option<i32>,
+    /// enforce = 实际拦截；dry_run = 只记录 would-deny。
+    pub mode: String,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

@@ -121,6 +121,7 @@ async fn setup(upstream: &MockServer, pool: fred::clients::RedisPool, limit_usd:
         model_filter: None,
         limit_value: limit_usd.parse::<Decimal>().unwrap(),
         window_seconds: None,
+        mode: "enforce".into(),
         enabled: true,
         created_at: now,
         updated_at: now,
@@ -189,6 +190,7 @@ async fn setup_embeddings(
         model_filter: None,
         limit_value: limit_usd.parse::<Decimal>().unwrap(),
         window_seconds: None,
+        mode: "enforce".into(),
         enabled: true,
         created_at: now,
         updated_at: now,
@@ -299,6 +301,7 @@ async fn setup_images(
         model_filter: None,
         limit_value: limit_usd.parse::<Decimal>().unwrap(),
         window_seconds: None,
+        mode: "enforce".into(),
         enabled: true,
         created_at: now,
         updated_at: now,
@@ -409,6 +412,7 @@ async fn setup_audio_speech(
         model_filter: None,
         limit_value: limit_usd.parse::<Decimal>().unwrap(),
         window_seconds: None,
+        mode: "enforce".into(),
         enabled: true,
         created_at: now,
         updated_at: now,
@@ -842,6 +846,209 @@ async fn predebit_concurrent_prevents_overspend() {
     assert_eq!(denied_count, 3, "remaining 3 must be rejected");
 }
 
+#[tokio::test]
+async fn concurrent_quota_blocks_only_while_request_inflight() {
+    let (_c, pool) = start_redis().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_millis(250))
+                .set_body_json(mock_response(10, 5)),
+        )
+        .mount(&upstream)
+        .await;
+
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+    let loader = Arc::new(InMemoryLoader::new());
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+    let quota_repo = Arc::new(InMemoryQuotaRepo::new());
+    let now = Utc::now();
+    quota_repo.seed(QuotaRecord {
+        id: Uuid::now_v7(),
+        scope_kind: "api_key".into(),
+        scope_id: *api_key_id.as_uuid(),
+        dimension: "concurrent".into(),
+        model_filter: None,
+        limit_value: Decimal::from(1),
+        window_seconds: None,
+        mode: "enforce".into(),
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    let provider = OpenAiProvider::new(format!("{}/v1", upstream.uri()), "test-key").unwrap();
+    let mut repos = Repos::in_memory();
+    repos.quotas = quota_repo;
+    let router = build_router(
+        AppState::new(jwt, loader, repos)
+            .with_provider(provider)
+            .with_quota_counter(QuotaCounter::new(pool.clone())),
+    );
+
+    let first = {
+        let r = router.clone();
+        tokio::spawn(async move {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+                .header("content-type", "application/json")
+                .body(chat_request_body("Hi"))
+                .unwrap();
+            r.oneshot(req).await.unwrap().status()
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+    let second = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+                .header("content-type", "application/json")
+                .body(chat_request_body("Hi"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(first.await.unwrap(), StatusCode::OK);
+    yield_for_settle().await;
+
+    let third = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+                .header("content-type", "application/json")
+                .body(chat_request_body("Hi"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn lifetime_tokens_settles_by_tokens_not_cost() {
+    let (_c, pool) = start_redis().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_response(10, 5)))
+        .mount(&upstream)
+        .await;
+
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+    let loader = Arc::new(InMemoryLoader::new());
+    let api_key_id = ApiKeyId::new();
+    let project_id = ProjectId::new();
+    let org_id = OrgId::new();
+    loader.add_api_key(
+        PLAINTEXT_KEY,
+        ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+    let quota_repo = Arc::new(InMemoryQuotaRepo::new());
+    let now = Utc::now();
+    quota_repo.seed(QuotaRecord {
+        id: Uuid::now_v7(),
+        scope_kind: "api_key".into(),
+        scope_id: *api_key_id.as_uuid(),
+        dimension: "lifetime_tokens".into(),
+        model_filter: None,
+        limit_value: Decimal::from(115),
+        window_seconds: None,
+        mode: "enforce".into(),
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    let provider = OpenAiProvider::new(format!("{}/v1", upstream.uri()), "test-key").unwrap();
+    let mut repos = Repos::in_memory();
+    repos.quotas = quota_repo;
+    let router = build_router(
+        AppState::new(jwt, loader, repos)
+            .with_provider(provider)
+            .with_quota_counter(QuotaCounter::new(pool)),
+    );
+
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(chat_request_body("Hi"))
+        .unwrap();
+    assert_eq!(
+        router.clone().oneshot(req1).await.unwrap().status(),
+        StatusCode::OK
+    );
+    yield_for_settle().await;
+
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(chat_request_body("Hi"))
+        .unwrap();
+    assert_eq!(
+        router.clone().oneshot(req2).await.unwrap().status(),
+        StatusCode::OK
+    );
+    yield_for_settle().await;
+
+    let req3 = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", PLAINTEXT_KEY))
+        .header("content-type", "application/json")
+        .body(chat_request_body("Hi"))
+        .unwrap();
+    let resp3 = router.oneshot(req3).await.unwrap();
+    assert_eq!(resp3.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
 /// Test 4: no quota configured → requests pass without pre-debit (no guards).
 #[tokio::test]
 async fn no_quota_configured_passes_through() {
@@ -1000,6 +1207,7 @@ async fn embedding_request_id_is_shared_by_quota_inflight_and_billing_outbox() {
             model_filter: None,
             limit_value: "1.0".parse::<Decimal>().unwrap(),
             window_seconds: None,
+            mode: "enforce".into(),
         })
         .await
         .unwrap();

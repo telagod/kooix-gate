@@ -51,8 +51,8 @@ pub use repo::request_log::{
     ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
 };
 pub use repo::usage::{
-    GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, UsageBucket, UsageRepo, UsageSeed,
-    UsageTotals,
+    GroupBy as UsageGroupBy, InMemoryUsageRepo, PgUsageRepo, ScopeUsageFilter, UsageBucket,
+    UsageRepo, UsageSeed, UsageTotals,
 };
 pub use repo::user::{PgUserRepo, UserRepo};
 pub use rls::RlsContext;

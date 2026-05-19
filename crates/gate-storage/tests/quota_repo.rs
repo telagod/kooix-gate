@@ -45,6 +45,7 @@ async fn quota_upsert_inserts_then_updates_same_row() {
             model_filter: None,
             limit_value: Decimal::from(100),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -59,6 +60,7 @@ async fn quota_upsert_inserts_then_updates_same_row() {
             model_filter: None,
             limit_value: Decimal::from(500),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -85,6 +87,7 @@ async fn quota_find_active_filters_disabled() {
             model_filter: None,
             limit_value: Decimal::from(1000),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -131,6 +134,7 @@ async fn quota_delete_removes_row_or_not_found() {
             model_filter: Some("gpt-4o*".into()),
             limit_value: Decimal::from(20),
             window_seconds: Some(60),
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
@@ -160,6 +164,7 @@ async fn quota_scope_kind_isolated() {
         model_filter: None,
         limit_value: Decimal::from(100),
         window_seconds: Some(60),
+        mode: "enforce".into(),
     })
     .await
     .unwrap();
@@ -170,6 +175,7 @@ async fn quota_scope_kind_isolated() {
         model_filter: None,
         limit_value: Decimal::from(50),
         window_seconds: Some(60),
+        mode: "enforce".into(),
     })
     .await
     .unwrap();
@@ -196,6 +202,7 @@ async fn quota_model_filter_creates_separate_rows() {
         model_filter: None,
         limit_value: Decimal::from(100),
         window_seconds: Some(60),
+        mode: "enforce".into(),
     })
     .await
     .unwrap();
@@ -206,6 +213,7 @@ async fn quota_model_filter_creates_separate_rows() {
         model_filter: Some("gpt-4o".into()),
         limit_value: Decimal::from(10),
         window_seconds: Some(60),
+        mode: "enforce".into(),
     })
     .await
     .unwrap();
@@ -225,6 +233,7 @@ async fn quota_model_filter_creates_separate_rows() {
         model_filter: Some("gpt-4o".into()),
         limit_value: Decimal::from(20),
         window_seconds: Some(60),
+        mode: "enforce".into(),
     })
     .await
     .unwrap();
@@ -259,6 +268,7 @@ async fn quota_multiple_dimensions_coexist() {
             } else {
                 Some(60)
             },
+            mode: "enforce".into(),
         })
         .await
         .unwrap();
