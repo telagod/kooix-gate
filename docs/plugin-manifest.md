@@ -55,7 +55,7 @@ v1 固定以下分区：
 固定分区语义：
 
 - `metadata`：name、vendor、homepage、docs、owner、tags。
-- `capabilities`：chat、streaming、tools、embeddings、image、audio、vision、json_mode、batch。
+- `capabilities`：chat、streaming、tools、embeddings、image、audio、vision、json_mode、batch；与内置 Provider 能力矩阵共用字段，Admin API / 控制台 / 路由都读取同一形状。
 - `auth`：认证策略与 secret slot 引用；不允许明文 secret。
 - `request`：method、path、query、headers、body、timeout、retry。
 - `response`：非流式字段映射。
@@ -110,7 +110,7 @@ v1 固定以下分区：
 
 ## Provider preset
 
-`preset.provider` 会补齐默认 path、headers、request adapter、response mapper 与 SSE mapper。
+`preset.provider` 会补齐默认 path、headers、request adapter、response mapper、SSE mapper、capability 默认值与 Base URL 建议。
 
 当前 v0.2.0 支持：
 
@@ -118,11 +118,21 @@ v1 固定以下分区：
 | --- | --- |
 | `openai` / `openai_compatible` | 标准 `/chat/completions`，streaming 自动注入 `stream_options.include_usage=true` |
 | `deepseek` / `mistral` / `groq` / `together` / `openrouter` / `moonshot` / `zhipu` / `qwen` / `yi` / `ollama` | OpenAI-compatible 变体 |
+| `vllm` / `lm_studio` / `ollama_openai` / `localai` / `xinference` | 本地 / 自托管 OpenAI-compatible endpoint 变体 |
 | `azure_openai` | 使用 `/openai/deployments/{{model}}/chat/completions?api-version=...` deployment path，认证走 `api-key` header |
 | `gemini` | 使用 Gemini OpenAI-compatible path `/v1beta/openai/chat/completions` |
 | `anthropic_messages` | OpenAI messages 转 Anthropic Messages API，含 stream / usage mapper |
 | `cohere_chat` | Cohere Chat OpenAI-compatible preset |
 | `bedrock_converse` | Bedrock Converse request/response 映射，默认使用 `aws_sigv4` 正式签名 |
+
+Capability 默认值说明：
+
+- OpenAI-compatible preset 默认声明 `chat` / `streaming` / `tools` / `embeddings` / `vision` / `json_mode`；`image` / `audio` / `batch` 需显式确认后再开。
+- Anthropic Messages 默认声明 `chat` / `streaming` / `tools` / `vision` / `json_mode`。
+- Bedrock Converse 当前声明 `chat` / `streaming`；工具、视觉和结构化输出先按保守能力关闭。
+- manifest v1 的 bool 字段无法表达“未声明但显式 false”的三态；preset 只会把 truthy 默认能力并入 manifest，若需要严格禁用能力，应在控制台显示层和路由策略同步检查。
+
+路由行为：chat runtime 会根据已声明能力跳过不满足 stream、tool calling、vision input、JSON mode 的 channel；embedding 路由只选择声明 `embeddings=true` 且有内置 embedding runtime 的 Provider。
 
 示例：Azure OpenAI
 

@@ -186,6 +186,8 @@ async fn plugin_manifest_builder_flow_creates_fixture_channel_and_group_binding(
         channel["model_mapping"]["plugin"]["probe"]["max_cost_micros"],
         100
     );
+    assert_eq!(channel["capabilities"]["chat"], true);
+    assert_eq!(channel["capabilities"]["streaming"], true);
 
     let channel_uuid = channel["id"].as_str().unwrap().split_once('_').unwrap().1;
     let (status, binding) = call(

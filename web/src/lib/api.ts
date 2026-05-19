@@ -260,6 +260,7 @@ export interface Channel {
 	timeout_ms: number;
 	max_retries: number;
 	tags: string[];
+	capabilities: ProviderCapabilities;
 	model_mapping: Record<string, unknown>;
 	balance: number | null;
 	balance_updated_at: string | null;
@@ -267,6 +268,18 @@ export interface Channel {
 	last_error_at: string | null;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface ProviderCapabilities {
+	chat: boolean;
+	streaming: boolean;
+	tools: boolean;
+	embeddings: boolean;
+	image: boolean;
+	audio: boolean;
+	vision: boolean;
+	json_mode: boolean;
+	batch: boolean;
 }
 
 export interface PaginatedChannels {
@@ -782,6 +795,7 @@ export interface GroupBinding {
 	channel_code: string;
 	channel_name: string;
 	provider_type: string;
+	capabilities?: ProviderCapabilities;
 	priority: number;
 	weight: number;
 	model_filter?: string[];

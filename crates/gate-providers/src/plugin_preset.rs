@@ -1,5 +1,6 @@
 //! Built-in provider presets for the runtime HTTP plugin.
 
+use crate::capabilities::{ProviderCapabilities, plugin_preset_capabilities};
 use crate::error::{ProviderError, ProviderResult};
 use crate::types::*;
 use schemars::JsonSchema;
@@ -29,6 +30,38 @@ pub(crate) enum ProviderPresetKind {
     Qwen,
     Yi,
     Ollama,
+    Vllm,
+    LmStudio,
+    OllamaOpenai,
+    Localai,
+    Xinference,
+}
+
+pub(crate) fn provider_preset_name(kind: ProviderPresetKind) -> &'static str {
+    match kind {
+        ProviderPresetKind::Openai => "openai",
+        ProviderPresetKind::OpenaiCompatible => "openai_compatible",
+        ProviderPresetKind::Deepseek => "deepseek",
+        ProviderPresetKind::Mistral => "mistral",
+        ProviderPresetKind::Gemini => "gemini",
+        ProviderPresetKind::AzureOpenai => "azure_openai",
+        ProviderPresetKind::AnthropicMessages => "anthropic_messages",
+        ProviderPresetKind::BedrockConverse => "bedrock_converse",
+        ProviderPresetKind::CohereChat => "cohere_chat",
+        ProviderPresetKind::Groq => "groq",
+        ProviderPresetKind::Together => "together",
+        ProviderPresetKind::Openrouter => "openrouter",
+        ProviderPresetKind::Moonshot => "moonshot",
+        ProviderPresetKind::Zhipu => "zhipu",
+        ProviderPresetKind::Qwen => "qwen",
+        ProviderPresetKind::Yi => "yi",
+        ProviderPresetKind::Ollama => "ollama",
+        ProviderPresetKind::Vllm => "vllm",
+        ProviderPresetKind::LmStudio => "lm_studio",
+        ProviderPresetKind::OllamaOpenai => "ollama_openai",
+        ProviderPresetKind::Localai => "localai",
+        ProviderPresetKind::Xinference => "xinference",
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,6 +330,7 @@ pub(crate) struct ProviderPresetSpec {
     pub(crate) response: ResponseManifest,
     pub(crate) stream: StreamManifest,
     pub(crate) adapter: Option<PresetAdapter>,
+    pub(crate) capabilities: ProviderCapabilities,
 }
 
 impl ProviderPresetSpec {
@@ -317,7 +351,12 @@ impl ProviderPresetSpec {
             | ProviderPresetKind::Zhipu
             | ProviderPresetKind::Qwen
             | ProviderPresetKind::Yi
-            | ProviderPresetKind::Ollama => Self::openai_compatible(DEFAULT_CHAT_PATH),
+            | ProviderPresetKind::Ollama
+            | ProviderPresetKind::Vllm
+            | ProviderPresetKind::LmStudio
+            | ProviderPresetKind::OllamaOpenai
+            | ProviderPresetKind::Localai
+            | ProviderPresetKind::Xinference => Self::openai_compatible(DEFAULT_CHAT_PATH),
             ProviderPresetKind::Gemini => {
                 Self::openai_compatible("/v1beta/openai/chat/completions")
             }
@@ -331,7 +370,10 @@ impl ProviderPresetSpec {
             ProviderPresetKind::BedrockConverse => Self::bedrock_converse(),
             ProviderPresetKind::CohereChat => Self::openai_compatible("/chat"),
         };
-        Ok(spec.with_base_defaults(base_url))
+        let mut spec = spec.with_base_defaults(base_url);
+        spec.capabilities = plugin_preset_capabilities(provider_preset_name(kind))
+            .unwrap_or_else(ProviderCapabilities::chat_stream);
+        Ok(spec)
     }
 
     fn openai_compatible(chat_path: impl Into<String>) -> Self {
@@ -349,6 +391,7 @@ impl ProviderPresetSpec {
                 ..Default::default()
             },
             adapter: Some(PresetAdapter::OpenaiCompatible),
+            capabilities: ProviderCapabilities::openai_compatible_core(),
         }
     }
 
@@ -395,6 +438,8 @@ impl ProviderPresetSpec {
                 ..Default::default()
             },
             adapter: Some(PresetAdapter::BedrockConverse),
+            capabilities: plugin_preset_capabilities("bedrock_converse")
+                .unwrap_or_else(ProviderCapabilities::chat_stream),
         }
     }
 
@@ -445,6 +490,8 @@ impl ProviderPresetSpec {
                 ..Default::default()
             },
             adapter: Some(PresetAdapter::AnthropicMessages),
+            capabilities: plugin_preset_capabilities("anthropic_messages")
+                .unwrap_or_else(ProviderCapabilities::chat_stream),
         }
     }
 

@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
 use gate_core::id::OrgId;
 use gate_core::rbac::{Permission, Scope};
+use gate_providers::ProviderCapabilities;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -26,6 +27,7 @@ pub struct ChannelView {
     pub code: String,
     pub name: String,
     pub provider_type: String,
+    pub capabilities: ProviderCapabilities,
     pub status: String,
     pub health: String,
     pub updated_at: DateTime<Utc>,
@@ -48,15 +50,31 @@ async fn list_channels(
     Ok(Json(
         records
             .into_iter()
-            .map(|r| ChannelView {
-                id: r.channel_id.to_string(),
-                code: r.code,
-                name: r.name,
-                provider_type: r.provider_type,
-                status: r.status,
-                health: r.health,
-                updated_at: r.updated_at,
+            .map(|r| {
+                let capabilities = channel_capabilities(&r);
+                ChannelView {
+                    id: r.channel_id.to_string(),
+                    code: r.code,
+                    name: r.name,
+                    provider_type: r.provider_type,
+                    capabilities,
+                    status: r.status,
+                    health: r.health,
+                    updated_at: r.updated_at,
+                }
             })
             .collect(),
     ))
+}
+
+fn channel_capabilities(r: &gate_storage::ChannelRecord) -> ProviderCapabilities {
+    if matches!(
+        r.provider_type.as_str(),
+        "plugin" | "custom" | "http" | "http_plugin"
+    ) {
+        return gate_providers::plugin_manifest(r.model_mapping.clone(), &r.base_url)
+            .map(|manifest| manifest.capabilities)
+            .unwrap_or_else(|_| gate_providers::provider_capabilities(&r.provider_type));
+    }
+    gate_providers::provider_capabilities(&r.provider_type)
 }

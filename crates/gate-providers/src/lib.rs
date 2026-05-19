@@ -12,6 +12,7 @@ pub mod adapt;
 pub mod anthropic;
 pub mod azure;
 pub mod bedrock;
+pub mod capabilities;
 pub mod cohere;
 pub mod custom_provider;
 pub mod deepseek;
@@ -27,10 +28,14 @@ pub mod router;
 pub mod sse;
 pub mod types;
 
+pub use capabilities::{
+    ProviderCapabilities, ProviderCapability, plugin_preset_base_url_suggestion,
+    plugin_preset_capabilities, provider_base_url_suggestion, provider_capabilities,
+};
 pub use custom_provider::{CustomHttpProvider, replay_plugin_sse};
 pub use error::{ProviderError, ProviderResult};
 pub use plugin_manifest::{
-    ChannelPluginMapping, PluginManifest, ProbeManifest, plugin_manifest,
+    CapabilitiesManifest, ChannelPluginMapping, PluginManifest, ProbeManifest, plugin_manifest,
     plugin_manifest_schema_json, validate_plugin_manifest,
 };
 pub use router::{

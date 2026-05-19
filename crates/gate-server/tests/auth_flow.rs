@@ -535,6 +535,9 @@ async fn admin_can_create_plugin_channel_with_provider_preset_manifest() {
         body["model_mapping"]["plugin"]["preset"]["provider"],
         "openai_compatible"
     );
+    assert_eq!(body["capabilities"]["chat"], true);
+    assert_eq!(body["capabilities"]["streaming"], true);
+    assert_eq!(body["capabilities"]["embeddings"], true);
 }
 
 #[tokio::test]

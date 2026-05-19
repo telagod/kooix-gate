@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildPluginAuthManifest,
+	capabilityList,
 	defaultPluginAuthForm,
 	defaultPluginAuthForPreset,
 	PLUGIN_PRESET_OPTIONS,
@@ -9,6 +10,8 @@ import {
 	buildPluginBuilderManifest,
 	defaultPluginBuilderDraft,
 	manifestPreset,
+	pluginCapabilitiesForPreset,
+	pluginPresetBaseUrlSuggestion,
 	parsePluginManifest,
 	pluginManifestFromPreset,
 	selectedPluginMapping,
@@ -26,6 +29,11 @@ describe('plugin provider presets', () => {
 		expect(values).toContain('mistral');
 		expect(values).toContain('cohere_chat');
 		expect(values).toContain('ollama');
+		expect(values).toContain('vllm');
+		expect(values).toContain('lm_studio');
+		expect(values).toContain('ollama_openai');
+		expect(values).toContain('localai');
+		expect(values).toContain('xinference');
 		expect(values).toContain('bedrock_converse');
 	});
 
@@ -43,7 +51,17 @@ describe('plugin provider presets', () => {
 		expect(manifest).toEqual({
 			plugin: {
 				version: 1,
-				capabilities: { chat: true, streaming: true },
+				capabilities: {
+					chat: true,
+					streaming: true,
+					tools: true,
+					embeddings: false,
+					image: false,
+					audio: false,
+					vision: true,
+					json_mode: true,
+					batch: false
+				},
 				auth: { strategy: 'bearer', secret_slot: 'primary' },
 				preset: { provider: 'anthropic_messages' }
 			}
@@ -57,7 +75,17 @@ describe('plugin provider presets', () => {
 		expect(manifest).toEqual({
 			plugin: {
 				version: 1,
-				capabilities: { chat: true, streaming: true },
+				capabilities: {
+					chat: true,
+					streaming: true,
+					tools: true,
+					embeddings: false,
+					image: false,
+					audio: false,
+					vision: true,
+					json_mode: true,
+					batch: false
+				},
 				auth: {
 					strategy: 'api_key_header',
 					header_name: 'x-api-key',
@@ -66,6 +94,14 @@ describe('plugin provider presets', () => {
 				preset: { provider: 'anthropic_messages' }
 			}
 		});
+	});
+
+	it('exposes capability defaults and base url suggestions for local OpenAI variants', () => {
+		for (const preset of ['vllm', 'lm_studio', 'ollama_openai', 'localai', 'xinference']) {
+			const caps = pluginCapabilitiesForPreset(preset);
+			expect(capabilityList(caps)).toEqual(expect.arrayContaining(['chat', 'streaming', 'embeddings']));
+			expect(pluginPresetBaseUrlSuggestion(preset)).toMatch(/^https?:\/\//);
+		}
 	});
 
 	it('uses selected preset over stale manifest input', () => {

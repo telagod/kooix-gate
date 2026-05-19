@@ -40,15 +40,22 @@
 	import { cn, dataTemplate } from '$lib/design';
 	import {
 		PLUGIN_PRESET_OPTIONS,
+		CAPABILITY_LABELS,
 		authFormFromManifest,
 		buildPluginBuilderManifest,
+		capabilityList,
 		defaultPluginBuilderDraft,
 		defaultPluginAuthForPreset,
 		manifestPreset,
+		missingCapabilityList,
+		pluginCapabilitiesForPreset,
+		pluginPresetBaseUrlSuggestion,
+		providerBaseUrlSuggestion,
+		providerCapabilities,
 		selectedPluginMapping,
 		suggestResponsePaths
 	} from '$lib/plugin-presets';
-	import type { PluginAuthForm, PluginBuilderDraft, PluginResponsePathSuggestion } from '$lib/plugin-presets';
+	import type { PluginAuthForm, PluginBuilderDraft, PluginResponsePathSuggestion, ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
 	import {
 		Search,
 		Plus,
@@ -189,6 +196,20 @@
 	let toastType = $state<'ok' | 'err'>('ok');
 
 	let totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)));
+	let createProviderCaps = $derived(
+		isPluginProvider(createForm.provider_type)
+			? pluginCapabilitiesForPreset(pluginBuilderDraft.preset)
+			: providerCapabilities(createForm.provider_type)
+	);
+	let createMissingCaps = $derived(missingCapabilityList(createProviderCaps, ['image', 'audio', 'batch']));
+	let editProviderCaps = $derived<ProviderCapabilities | null>(
+		editingChannel
+			? (isPluginProvider(editingChannel.provider_type)
+					? pluginCapabilitiesForPreset(editPluginPreset || manifestPreset(editingChannel.model_mapping))
+					: providerCapabilities(editingChannel.provider_type))
+			: null
+	);
+	let editMissingCaps = $derived(missingCapabilityList(editProviderCaps ?? undefined, ['image', 'audio', 'batch']));
 
 	// ── Init ─────────────────────────────────────────
 	onMount(() => {
@@ -315,6 +336,14 @@
 		if (filterHealth !== prevFilterHealth) {
 			prevFilterHealth = filterHealth;
 			if (!loading) onFilterChange();
+		}
+	});
+
+	let prevCreateProvider = $state('openai');
+	$effect(() => {
+		if (createForm.provider_type !== prevCreateProvider) {
+			prevCreateProvider = createForm.provider_type;
+			if (!createForm.base_url) applyBaseUrlSuggestion('create');
 		}
 	});
 
@@ -524,6 +553,38 @@ data: {"payload":{"type":"message_stop"}}
 		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
 	}
 
+	function capabilityFallback(providerType: string, caps: ProviderCapabilities | undefined): ProviderCapabilities {
+		if (caps) return caps;
+		return providerCapabilities(providerType);
+	}
+
+	function capabilityTitle(caps: ProviderCapabilities | undefined): string {
+		const active = capabilityList(caps);
+		return active.length > 0 ? active.map(key => CAPABILITY_LABELS[key]).join(', ') : 'No capability declared';
+	}
+
+	function capabilityChipClass(key: ProviderCapabilityKey): string {
+		if (key === 'image' || key === 'audio' || key === 'batch') {
+			return 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20';
+		}
+		return 'bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700';
+	}
+
+	function applyBaseUrlSuggestion(kind: 'create' | 'edit') {
+		if (kind === 'create') {
+			const suggestion = isPluginProvider(createForm.provider_type)
+				? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset)
+				: providerBaseUrlSuggestion(createForm.provider_type);
+			if (suggestion && !createForm.base_url) createForm.base_url = suggestion;
+			return;
+		}
+		if (!editingChannel) return;
+		const suggestion = isPluginProvider(editingChannel.provider_type)
+			? pluginPresetBaseUrlSuggestion(editPluginPreset)
+			: providerBaseUrlSuggestion(editingChannel.provider_type);
+		if (suggestion && !editForm.base_url) editForm.base_url = suggestion;
+	}
+
 	function syncBuilderToCreateForm() {
 		pluginPreset = pluginBuilderDraft.preset;
 		createAuthForm = pluginBuilderDraft.auth;
@@ -548,6 +609,7 @@ data: {"payload":{"type":"message_stop"}}
 			...defaultPluginBuilderDraft(preset),
 			target_group_id: pluginBuilderDraft.target_group_id
 		};
+		if (pluginPresetBaseUrlSuggestion(preset)) createForm.base_url = createForm.base_url || pluginPresetBaseUrlSuggestion(preset);
 		pluginBuilderStep = 2;
 		syncBuilderToCreateForm();
 	}
@@ -594,6 +656,7 @@ data: {"payload":{"type":"message_stop"}}
 
 	function openCreateDrawer() {
 		showCreate = true;
+		applyBaseUrlSuggestion('create');
 		loadCreateGroups();
 	}
 
@@ -614,12 +677,14 @@ data: {"payload":{"type":"message_stop"}}
 		createAuthForm = defaultPluginAuthForPreset(pluginPreset);
 		lastCreatePluginPreset = pluginPreset;
 		pluginBuilderDraft = { ...pluginBuilderDraft, preset: pluginPreset, auth: createAuthForm };
+		applyBaseUrlSuggestion('create');
 	}
 
 	function handleEditPresetChange(event: Event) {
 		editPluginPreset = (event.currentTarget as HTMLSelectElement).value;
 		editAuthForm = defaultPluginAuthForPreset(editPluginPreset);
 		lastEditPluginPreset = editPluginPreset;
+		applyBaseUrlSuggestion('edit');
 	}
 
 	function lintCreatePluginManifest() {
@@ -985,9 +1050,34 @@ data: {"payload":{"type":"message_stop"}}
 							<Field label="Provider" for="ch-provider" required>
 								<ProviderSelect bind:value={createForm.provider_type} options={PROVIDER_OPTIONS} mode="grid" disabled={creating} />
 							</Field>
+							<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+								<div class="mb-2 flex items-center justify-between gap-2">
+									<p class="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Capability</p>
+									{#if isPluginProvider(createForm.provider_type) && pluginBuilderDraft.preset}
+										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{pluginBuilderDraft.preset}</span>
+									{:else}
+										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{createForm.provider_type}</span>
+									{/if}
+								</div>
+								<div class="flex flex-wrap gap-1.5" title={capabilityTitle(createProviderCaps)}>
+									{#each capabilityList(createProviderCaps) as cap}
+										<span class="rounded-md px-2 py-0.5 text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+									{/each}
+								</div>
+								{#if createMissingCaps.length > 0}
+									<p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+										未声明 {createMissingCaps.map(cap => CAPABILITY_LABELS[cap]).join(' / ')}；这些请求不会路由到该 Channel。
+									</p>
+								{/if}
+							</div>
 							<div>
 								<label for="ch-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL <span class="text-red-500">*</span></label>
-								<Input id="ch-url" placeholder="https://api.openai.com/v1" bind:value={createForm.base_url} disabled={creating} />
+								<Input id="ch-url" placeholder={isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) || 'https://api.example.com/v1' : providerBaseUrlSuggestion(createForm.provider_type) || 'https://api.openai.com/v1'} bind:value={createForm.base_url} disabled={creating} />
+								{#if (isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) : providerBaseUrlSuggestion(createForm.provider_type))}
+									<button type="button" class="mt-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100" onclick={() => { createForm.base_url = isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) : providerBaseUrlSuggestion(createForm.provider_type); }}>
+										使用建议：{isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) : providerBaseUrlSuggestion(createForm.provider_type)}
+									</button>
+								{/if}
 							</div>
 							{#if isPluginProvider(createForm.provider_type)}
 								<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
@@ -1006,6 +1096,17 @@ data: {"payload":{"type":"message_stop"}}
 												<option value={opt.value}>{opt.label}</option>
 											{/each}
 										</select>
+										{#if pluginBuilderDraft.preset}
+											<div class="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+												<p class="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">Preset capability defaults</p>
+												<div class="flex flex-wrap gap-1.5">
+													{#each capabilityList(pluginCapabilitiesForPreset(pluginBuilderDraft.preset)) as cap}
+														<span class="rounded-md px-2 py-0.5 text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+													{/each}
+												</div>
+												<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Base URL 建议：{pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) || '按上游文档填写'}</p>
+											</div>
+										{/if}
 									{:else if pluginBuilderStep === 2}
 										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">2. 配置 auth</p>
 										<PluginAuthEditor bind:form={pluginBuilderDraft.auth} disabled={creating} idPrefix="ch-builder-auth" />
@@ -1149,7 +1250,30 @@ data: {"payload":{"type":"message_stop"}}
 							<div>
 								<label for="ed-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL</label>
 								<Input id="ed-url" bind:value={editForm.base_url} disabled={editing} />
+								{#if editingChannel && (isPluginProvider(editingChannel.provider_type) ? pluginPresetBaseUrlSuggestion(editPluginPreset) : providerBaseUrlSuggestion(editingChannel.provider_type))}
+									<button type="button" class="mt-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100" onclick={() => { if (editingChannel) editForm.base_url = isPluginProvider(editingChannel.provider_type) ? pluginPresetBaseUrlSuggestion(editPluginPreset) : providerBaseUrlSuggestion(editingChannel.provider_type); }}>
+										使用建议：{isPluginProvider(editingChannel.provider_type) ? pluginPresetBaseUrlSuggestion(editPluginPreset) : providerBaseUrlSuggestion(editingChannel.provider_type)}
+									</button>
+								{/if}
 							</div>
+							{#if editProviderCaps}
+								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+									<div class="mb-2 flex items-center justify-between gap-2">
+										<p class="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Capability</p>
+										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{editingChannel.provider_type}</span>
+									</div>
+									<div class="flex flex-wrap gap-1.5" title={capabilityTitle(editProviderCaps)}>
+										{#each capabilityList(editProviderCaps) as cap}
+											<span class="rounded-md px-2 py-0.5 text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+										{/each}
+									</div>
+									{#if editMissingCaps.length > 0}
+										<p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+											未声明 {editMissingCaps.map(cap => CAPABILITY_LABELS[cap]).join(' / ')}；这些请求不会路由到该 Channel。
+										</p>
+									{/if}
+								</div>
+							{/if}
 							{#if isPluginProvider(editingChannel.provider_type)}
 								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
 									<label for="ed-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
@@ -1421,9 +1545,19 @@ data: {"payload":{"type":"message_stop"}}
 						</td>
 						<!-- Provider -->
 						<td class="px-4 py-4">
-							<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-50 dark:bg-zinc-800 text-xs font-mono text-zinc-600 dark:text-zinc-400">
-								{ch.provider_type}
-							</span>
+							<div class="space-y-1.5">
+								<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-50 dark:bg-zinc-800 text-xs font-mono text-zinc-600 dark:text-zinc-400">
+									{ch.provider_type}
+								</span>
+								<div class="flex max-w-[220px] flex-wrap gap-1" title={capabilityTitle(capabilityFallback(ch.provider_type, ch.capabilities))}>
+									{#each capabilityList(capabilityFallback(ch.provider_type, ch.capabilities)).slice(0, 4) as cap}
+										<span class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+									{/each}
+									{#if capabilityList(capabilityFallback(ch.provider_type, ch.capabilities)).length > 4}
+										<span class="rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">+{capabilityList(capabilityFallback(ch.provider_type, ch.capabilities)).length - 4}</span>
+									{/if}
+								</div>
+							</div>
 						</td>
 						<!-- Status -->
 						<td class="px-4 py-4 text-center" onclick={(e: MouseEvent) => e.stopPropagation()}>
@@ -1517,6 +1651,14 @@ data: {"payload":{"type":"message_stop"}}
 										</div>
 									</div>
 								{/if}
+								<div class="mt-4">
+									<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">Capabilities</p>
+									<div class="flex flex-wrap gap-1.5">
+										{#each capabilityList(capabilityFallback(ch.provider_type, ch.capabilities)) as cap}
+											<span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+										{/each}
+									</div>
+								</div>
 								{#if ch.supported_models && ch.supported_models.length > 2}
 									<div class="mt-4">
 										<p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-1.5">全部模型 ({ch.supported_models.length})</p>

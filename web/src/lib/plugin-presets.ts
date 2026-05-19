@@ -3,6 +3,147 @@ export interface PluginPresetOption {
 	label: string;
 }
 
+export interface ProviderCapabilities {
+	chat: boolean;
+	streaming: boolean;
+	tools: boolean;
+	embeddings: boolean;
+	image: boolean;
+	audio: boolean;
+	vision: boolean;
+	json_mode: boolean;
+	batch: boolean;
+}
+
+export type ProviderCapabilityKey = keyof ProviderCapabilities;
+
+export const CAPABILITY_LABELS: Record<ProviderCapabilityKey, string> = {
+	chat: 'Chat',
+	streaming: 'Stream',
+	tools: 'Tools',
+	embeddings: 'Embed',
+	image: 'Image',
+	audio: 'Audio',
+	vision: 'Vision',
+	json_mode: 'JSON',
+	batch: 'Batch'
+};
+
+const NO_CAPABILITIES: ProviderCapabilities = {
+	chat: false,
+	streaming: false,
+	tools: false,
+	embeddings: false,
+	image: false,
+	audio: false,
+	vision: false,
+	json_mode: false,
+	batch: false
+};
+
+const CHAT_STREAM: ProviderCapabilities = { ...NO_CAPABILITIES, chat: true, streaming: true };
+const OPENAI_COMPAT_CORE: ProviderCapabilities = {
+	...CHAT_STREAM,
+	tools: true,
+	embeddings: true,
+	vision: true,
+	json_mode: true
+};
+const OPENAI_FULL: ProviderCapabilities = { ...OPENAI_COMPAT_CORE, image: true, audio: true };
+
+export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
+	openai: OPENAI_FULL,
+	azure: OPENAI_COMPAT_CORE,
+	anthropic: { ...CHAT_STREAM, tools: true, vision: true, json_mode: true },
+	gemini: OPENAI_COMPAT_CORE,
+	deepseek: { ...CHAT_STREAM, json_mode: true },
+	ollama: { ...CHAT_STREAM, embeddings: true, tools: true, vision: true, json_mode: true },
+	mistral: OPENAI_COMPAT_CORE,
+	cohere: { ...CHAT_STREAM, tools: true, embeddings: true, json_mode: true },
+	bedrock: CHAT_STREAM,
+	groq: OPENAI_COMPAT_CORE,
+	together: OPENAI_COMPAT_CORE,
+	openrouter: OPENAI_COMPAT_CORE,
+	moonshot: OPENAI_COMPAT_CORE,
+	zhipu: OPENAI_COMPAT_CORE,
+	qwen: OPENAI_COMPAT_CORE,
+	yi: OPENAI_COMPAT_CORE,
+	plugin: CHAT_STREAM,
+	custom: CHAT_STREAM,
+	http: CHAT_STREAM,
+	http_plugin: CHAT_STREAM
+};
+
+export const PLUGIN_PRESET_CAPABILITIES: Record<string, ProviderCapabilities> = {
+	openai: OPENAI_COMPAT_CORE,
+	openai_compatible: OPENAI_COMPAT_CORE,
+	vllm: OPENAI_COMPAT_CORE,
+	lm_studio: OPENAI_COMPAT_CORE,
+	ollama_openai: OPENAI_COMPAT_CORE,
+	localai: OPENAI_COMPAT_CORE,
+	xinference: OPENAI_COMPAT_CORE,
+	anthropic_messages: { ...CHAT_STREAM, tools: true, vision: true, json_mode: true },
+	azure_openai: OPENAI_COMPAT_CORE,
+	gemini: OPENAI_COMPAT_CORE,
+	deepseek: { ...CHAT_STREAM, json_mode: true },
+	mistral: OPENAI_COMPAT_CORE,
+	cohere_chat: { ...CHAT_STREAM, tools: true, embeddings: true, json_mode: true },
+	ollama: { ...CHAT_STREAM, embeddings: true, tools: true, vision: true, json_mode: true },
+	groq: OPENAI_COMPAT_CORE,
+	together: OPENAI_COMPAT_CORE,
+	openrouter: OPENAI_COMPAT_CORE,
+	moonshot: OPENAI_COMPAT_CORE,
+	zhipu: OPENAI_COMPAT_CORE,
+	qwen: OPENAI_COMPAT_CORE,
+	yi: OPENAI_COMPAT_CORE,
+	bedrock_converse: CHAT_STREAM
+};
+
+export const PROVIDER_BASE_URL_SUGGESTIONS: Record<string, string> = {
+	openai: 'https://api.openai.com/v1',
+	anthropic: 'https://api.anthropic.com',
+	gemini: 'https://generativelanguage.googleapis.com',
+	azure: 'https://<resource>.openai.azure.com',
+	bedrock: 'https://bedrock-runtime.<region>.amazonaws.com',
+	deepseek: 'https://api.deepseek.com/v1',
+	ollama: 'http://localhost:11434/v1',
+	mistral: 'https://api.mistral.ai/v1',
+	cohere: 'https://api.cohere.com/v2',
+	groq: 'https://api.groq.com/openai/v1',
+	together: 'https://api.together.xyz/v1',
+	openrouter: 'https://openrouter.ai/api/v1',
+	moonshot: 'https://api.moonshot.cn/v1',
+	zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+	qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+	yi: 'https://api.lingyiwanwu.com/v1',
+	plugin: 'https://api.example.com/v1'
+};
+
+export const PLUGIN_PRESET_BASE_URL_SUGGESTIONS: Record<string, string> = {
+	openai: 'https://api.openai.com/v1',
+	openai_compatible: 'https://api.openai.com/v1',
+	vllm: 'http://localhost:8000/v1',
+	lm_studio: 'http://localhost:1234/v1',
+	ollama: 'http://localhost:11434/v1',
+	ollama_openai: 'http://localhost:11434/v1',
+	localai: 'http://localhost:8080/v1',
+	xinference: 'http://localhost:9997/v1',
+	deepseek: 'https://api.deepseek.com/v1',
+	mistral: 'https://api.mistral.ai/v1',
+	gemini: 'https://generativelanguage.googleapis.com',
+	azure_openai: 'https://<resource>.openai.azure.com',
+	anthropic_messages: 'https://api.anthropic.com',
+	bedrock_converse: 'https://bedrock-runtime.<region>.amazonaws.com',
+	cohere_chat: 'https://api.cohere.com/v2',
+	groq: 'https://api.groq.com/openai/v1',
+	together: 'https://api.together.xyz/v1',
+	openrouter: 'https://openrouter.ai/api/v1',
+	moonshot: 'https://api.moonshot.cn/v1',
+	zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+	qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+	yi: 'https://api.lingyiwanwu.com/v1'
+};
+
 export type PluginAuthStrategy =
 	| 'bearer'
 	| 'api_key_header'
@@ -75,6 +216,11 @@ export interface PluginResponsePathSuggestion {
 export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] = [
 	{ value: '', label: '自定义 manifest' },
 	{ value: 'openai_compatible', label: 'OpenAI-compatible' },
+	{ value: 'vllm', label: 'vLLM' },
+	{ value: 'lm_studio', label: 'LM Studio' },
+	{ value: 'ollama_openai', label: 'Ollama OpenAI endpoint' },
+	{ value: 'localai', label: 'LocalAI' },
+	{ value: 'xinference', label: 'Xinference' },
 	{ value: 'anthropic_messages', label: 'Anthropic Messages' },
 	{ value: 'azure_openai', label: 'Azure OpenAI' },
 	{ value: 'gemini', label: 'Google Gemini' },
@@ -148,6 +294,34 @@ export function defaultPluginAuthForPreset(preset: string): PluginAuthForm {
 	return defaultPluginAuthForm('bearer');
 }
 
+export function providerCapabilities(providerType: string): ProviderCapabilities {
+	return cloneCapabilities(PROVIDER_CAPABILITIES[normalizeProvider(providerType)] ?? OPENAI_COMPAT_CORE);
+}
+
+export function pluginCapabilitiesForPreset(preset: string): ProviderCapabilities {
+	return cloneCapabilities(PLUGIN_PRESET_CAPABILITIES[normalizeProvider(preset)] ?? CHAT_STREAM);
+}
+
+export function providerBaseUrlSuggestion(providerType: string): string {
+	return PROVIDER_BASE_URL_SUGGESTIONS[normalizeProvider(providerType)] ?? '';
+}
+
+export function pluginPresetBaseUrlSuggestion(preset: string): string {
+	return PLUGIN_PRESET_BASE_URL_SUGGESTIONS[normalizeProvider(preset)] ?? '';
+}
+
+export function capabilityList(caps: ProviderCapabilities | undefined): ProviderCapabilityKey[] {
+	if (!caps) return [];
+	return (Object.keys(CAPABILITY_LABELS) as ProviderCapabilityKey[]).filter(key => !!caps[key]);
+}
+
+export function missingCapabilityList(
+	caps: ProviderCapabilities | undefined,
+	keys: ProviderCapabilityKey[]
+): ProviderCapabilityKey[] {
+	return keys.filter(key => !caps?.[key]);
+}
+
 export function pluginManifestFromPreset(
 	provider: string,
 	authForm?: PluginAuthForm
@@ -156,7 +330,7 @@ export function pluginManifestFromPreset(
 		? {
 				plugin: {
 					version: 1,
-					capabilities: { chat: true, streaming: true },
+					capabilities: pluginCapabilitiesForPreset(provider),
 					auth: authForm ? buildPluginAuthManifest(authForm) : { strategy: 'bearer', secret_slot: 'primary' },
 					preset: { provider }
 				}
@@ -278,7 +452,7 @@ export function defaultPluginBuilderDraft(preset = ''): PluginBuilderDraft {
 export function buildPluginBuilderManifest(draft: PluginBuilderDraft): Record<string, unknown> {
 	const plugin: Record<string, unknown> = {
 		version: 1,
-		capabilities: { chat: true, streaming: true },
+		capabilities: pluginCapabilitiesForPreset(draft.preset),
 		auth: buildPluginAuthManifest(draft.auth)
 	};
 	if (draft.preset) {
@@ -513,6 +687,14 @@ function requiredSlot(value: string, label: string): string {
 
 function slotOrDefault(value: string, fallback: string): string {
 	return requiredSlot(value.trim() || fallback, 'secret_slot');
+}
+
+function cloneCapabilities(caps: ProviderCapabilities): ProviderCapabilities {
+	return { ...NO_CAPABILITIES, ...caps };
+}
+
+function normalizeProvider(value: string): string {
+	return value.trim().toLowerCase().replaceAll('-', '_');
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

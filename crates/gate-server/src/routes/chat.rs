@@ -405,7 +405,7 @@ async fn resolve_provider(
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
 
         if let Some(project_id) = project_id_opt {
-            match router.route(project_id, &req.model).await {
+            match router.route_chat(project_id, req).await {
                 Ok(Some(routed)) => {
                     let provider_type = routed.provider_type.clone();
                     let metrics = routed.metrics.clone();
@@ -486,8 +486,8 @@ async fn report_channel_failure(
     routed_metrics: &Option<Arc<ChannelMetrics>>,
 ) {
     let failure = provider_failure_policy(error);
-    if let Some(key_id) = key_id {
-        if let Err(e) = app
+    if let Some(key_id) = key_id
+        && let Err(e) = app
             .repos
             .channel_keys
             .report_failure(
@@ -497,9 +497,8 @@ async fn report_channel_failure(
                 failure.circuit_breaker_failures,
             )
             .await
-        {
-            tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "channel key failure report failed");
-        }
+    {
+        tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "channel key failure report failed");
     }
     if let (Some(m), Some(ch_uuid)) = (routed_metrics, channel_id) {
         let ch_id = ChannelId::from(ch_uuid);
@@ -517,7 +516,7 @@ async fn report_channel_failure(
             }
         }
     }
-    crate::metrics::record_upstream_error(&failure.kind_label);
+    crate::metrics::record_upstream_error(failure.kind_label);
 }
 
 struct ProviderFailurePolicy {

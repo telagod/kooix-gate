@@ -348,7 +348,7 @@ cd web && npm test -- plugin-presets
 
 **目标**：让 plugin/preset/编译期 Provider 都能声明能力，路由、UI、计费按能力做决策。
 
-- [ ] 建立 `ProviderCapability`：
+- [x] 建立 `ProviderCapability`：
   - chat
   - streaming
   - tool calling
@@ -358,14 +358,14 @@ cd web && npm test -- plugin-presets
   - vision input
   - JSON mode / structured output
   - batch
-- [ ] 控制台显示 Provider / Channel capability，创建 channel 时提示不可用能力。
-- [ ] Provider preset 增加能力默认值与 base_url 建议。
-- [ ] 补齐 OpenAI-compatible 常见变体：
-  - vLLM
-  - LM Studio
-  - Ollama OpenAI endpoint
-  - LocalAI
-  - Xinference
+- [x] 控制台显示 Provider / Channel capability，创建 channel 时提示不可用能力。
+- [x] Provider preset 增加能力默认值与 base_url 建议。
+- [x] 补齐 OpenAI-compatible 常见变体：
+  - [x] vLLM
+  - [x] LM Studio
+  - [x] Ollama OpenAI endpoint
+  - [x] LocalAI
+  - [x] Xinference
 - [x] 对 Bedrock Converse 用 plugin auth `aws_sigv4` 补齐正式鉴权。
 
 **验收门禁**

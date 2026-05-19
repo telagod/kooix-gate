@@ -24,6 +24,7 @@ use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
 use gate_core::id::{ChannelId, ChannelKeyId, UserId};
 use gate_core::rbac::{Permission, Scope};
+use gate_providers::ProviderCapabilities;
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
 use gate_storage::{CreateChannel, ListChannelsQuery, UpdateChannel};
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,7 @@ pub struct ChannelSummary {
     pub timeout_ms: i32,
     pub max_retries: i32,
     pub tags: Vec<String>,
+    pub capabilities: ProviderCapabilities,
     pub model_mapping: serde_json::Value,
     pub balance: Option<f64>,
     pub balance_updated_at: Option<DateTime<Utc>>,
@@ -314,6 +316,7 @@ async fn list_channels(
 }
 
 fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummary {
+    let capabilities = channel_capabilities(&r);
     ChannelSummary {
         id: r.channel_id.to_string(),
         code: r.code,
@@ -328,6 +331,7 @@ fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummary {
         timeout_ms: r.timeout_ms,
         max_retries: r.max_retries,
         tags: r.tags,
+        capabilities,
         model_mapping: r.model_mapping,
         balance: r.balance,
         balance_updated_at: r.balance_updated_at,
@@ -336,6 +340,15 @@ fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummary {
         created_at: r.created_at,
         updated_at: r.updated_at,
     }
+}
+
+fn channel_capabilities(r: &gate_storage::ChannelRecord) -> ProviderCapabilities {
+    if is_plugin_provider(&r.provider_type) {
+        return gate_providers::plugin_manifest(r.model_mapping.clone(), &r.base_url)
+            .map(|manifest| manifest.capabilities)
+            .unwrap_or_else(|_| gate_providers::provider_capabilities(&r.provider_type));
+    }
+    gate_providers::provider_capabilities(&r.provider_type)
 }
 
 async fn create_channel(
@@ -1241,6 +1254,7 @@ pub struct BindingView {
     pub channel_code: String,
     pub channel_name: String,
     pub provider_type: String,
+    pub capabilities: ProviderCapabilities,
     pub priority: i32,
     pub weight: i32,
     pub model_filter: Vec<String>,
@@ -1434,23 +1448,24 @@ async fn list_group_bindings(
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
-    Ok(Json(
-        bindings
-            .into_iter()
-            .map(|b| BindingView {
-                channel_id: b.channel.channel_id.to_string(),
-                channel_code: b.channel.code,
-                channel_name: b.channel.name,
-                provider_type: b.channel.provider_type,
-                priority: b.priority,
-                weight: b.weight,
-                model_filter: b.model_filter,
-                enabled: b.enabled,
-                channel_status: b.channel.status,
-                channel_health: b.channel.health,
-            })
-            .collect(),
-    ))
+    Ok(Json(bindings.into_iter().map(binding_to_view).collect()))
+}
+
+fn binding_to_view(b: gate_storage::ChannelBinding) -> BindingView {
+    let capabilities = channel_capabilities(&b.channel);
+    BindingView {
+        channel_id: b.channel.channel_id.to_string(),
+        channel_code: b.channel.code,
+        channel_name: b.channel.name,
+        provider_type: b.channel.provider_type,
+        capabilities,
+        priority: b.priority,
+        weight: b.weight,
+        model_filter: b.model_filter,
+        enabled: b.enabled,
+        channel_status: b.channel.status,
+        channel_health: b.channel.health,
+    }
 }
 
 async fn add_group_binding(
@@ -1551,21 +1566,7 @@ async fn get_group_detail(
         .list_projects_using_group(gid)
         .await?;
 
-    let binding_views: Vec<BindingView> = bindings
-        .into_iter()
-        .map(|b| BindingView {
-            channel_id: b.channel.channel_id.to_string(),
-            channel_code: b.channel.code,
-            channel_name: b.channel.name,
-            provider_type: b.channel.provider_type,
-            priority: b.priority,
-            weight: b.weight,
-            model_filter: b.model_filter,
-            enabled: b.enabled,
-            channel_status: b.channel.status,
-            channel_health: b.channel.health,
-        })
-        .collect();
+    let binding_views: Vec<BindingView> = bindings.into_iter().map(binding_to_view).collect();
 
     Ok(Json(GroupDetailView {
         group: GroupView {

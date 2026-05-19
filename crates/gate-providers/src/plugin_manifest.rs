@@ -55,19 +55,7 @@ pub struct MetadataManifest {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
-#[serde(default)]
-pub struct CapabilitiesManifest {
-    pub chat: bool,
-    pub streaming: bool,
-    pub tools: bool,
-    pub embeddings: bool,
-    pub image: bool,
-    pub audio: bool,
-    pub vision: bool,
-    pub json_mode: bool,
-    pub batch: bool,
-}
+pub type CapabilitiesManifest = crate::capabilities::ProviderCapabilities;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -307,6 +295,7 @@ impl PluginManifest {
         let spec =
             ProviderPresetSpec::for_kind(kind, base_url, self.preset.api_version.as_deref())?;
         self.preset.adapter = spec.adapter;
+        self.capabilities.merge_truthy_defaults(&spec.capabilities);
         match kind {
             crate::plugin_preset::ProviderPresetKind::AzureOpenai
                 if self.auth.strategy == AuthStrategy::Bearer =>
@@ -1603,6 +1592,48 @@ mod tests {
             manifest.request.path.as_deref(),
             Some("/model/{{model}}/converse")
         );
+    }
+
+    #[test]
+    fn preset_defaults_fill_capabilities() {
+        let manifest = PluginManifest::from_value(
+            json!({ "plugin": { "preset": { "provider": "anthropic_messages" } } }),
+            "https://api.anthropic.com",
+        )
+        .unwrap();
+
+        assert!(manifest.capabilities.chat);
+        assert!(manifest.capabilities.streaming);
+        assert!(manifest.capabilities.tools);
+        assert!(manifest.capabilities.vision);
+        assert!(manifest.capabilities.json_mode);
+        assert!(!manifest.capabilities.embeddings);
+    }
+
+    #[test]
+    fn openai_compatible_variant_presets_parse() {
+        for provider in [
+            "vllm",
+            "lm_studio",
+            "ollama_openai",
+            "localai",
+            "xinference",
+        ] {
+            let manifest = PluginManifest::from_value(
+                json!({ "plugin": { "preset": { "provider": provider } } }),
+                "http://localhost:8000/v1",
+            )
+            .unwrap();
+
+            assert_eq!(
+                manifest.request.path.as_deref(),
+                Some("/chat/completions"),
+                "provider={provider}"
+            );
+            assert!(manifest.capabilities.chat, "provider={provider}");
+            assert!(manifest.capabilities.streaming, "provider={provider}");
+            assert!(manifest.capabilities.embeddings, "provider={provider}");
+        }
     }
 
     #[test]

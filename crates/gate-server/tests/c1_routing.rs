@@ -1094,3 +1094,113 @@ async fn health_checker_manifest_probe_failure_auto_disables_channel() {
             .contains("plugin_probe_http: 503")
     );
 }
+
+#[tokio::test]
+async fn route_chat_skips_channel_missing_requested_capability() {
+    unsafe {
+        std::env::set_var("KOOIX_API_KEY", "test-key");
+    }
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-capability",
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "fallback selected" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let org_id = OrgId::new();
+    let project_id = ProjectId::new();
+    let api_key_id = ApiKeyId::new();
+    let group_id = ChannelGroupId::new();
+    let plugin_id = ChannelId::new();
+    let fallback_id = ChannelId::new();
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let key_repo = Arc::new(InMemoryChannelKeyRepo::new());
+
+    ch_repo.seed_channel(make_plugin_channel(
+        plugin_id,
+        "text-only-plugin",
+        "https://placeholder.invalid",
+        json!({
+            "plugin": {
+                "version": 1,
+                "capabilities": { "chat": true, "streaming": true },
+                "auth": { "strategy": "none" }
+            }
+        }),
+    ));
+    ch_repo.seed_channel(make_channel(
+        fallback_id,
+        "vision-openai",
+        &format!("{}/v1", upstream.uri()),
+    ));
+    ch_repo.seed_binding(group_id, plugin_id, 1, 1);
+    ch_repo.seed_binding(group_id, fallback_id, 2, 1);
+    grp_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "capability-group".to_string(),
+        description: String::new(),
+        strategy: "priority".to_string(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
+    grp_repo.seed_default(project_id, group_id);
+
+    let plaintext = "sk-kg-test-capability-routing-key-000000";
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_api_key(
+        plaintext,
+        gate_server::loader::ApiKeyRecord {
+            api_key_id,
+            project_id,
+            org_id,
+            revoked: false,
+            allowed_ips: vec![],
+        },
+    );
+
+    let repos = repos_with_channels(ch_repo.clone(), grp_repo.clone(), key_repo);
+    let state = AppState::new(test_jwt(), loader, repos)
+        .with_provider_router(ProviderRouter::new(ch_repo, grp_repo));
+    let router = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {plaintext}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "model": "gpt-4o-mini",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": "describe" },
+                        { "type": "image_url", "image_url": { "url": "data:image/png;base64,AA==" } }
+                    ]
+                }]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        body["choices"][0]["message"]["content"],
+        "fallback selected"
+    );
+}

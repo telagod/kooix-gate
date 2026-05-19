@@ -7,6 +7,8 @@
 		updateGroupBinding, removeGroupBinding, listAdminChannels
 	} from '$lib/api.js';
 	import type { ChannelGroup, GroupBinding, GroupDetail, Channel } from '$lib/api.js';
+	import { CAPABILITY_LABELS, capabilityList, providerCapabilities } from '$lib/plugin-presets';
+	import type { ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
 	import { addToast } from '$lib/stores/toast.js';
 	import { Button, Field, Input, Select, Skeleton, Textarea } from '$lib/components/ui';
 	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
@@ -64,6 +66,12 @@
 	// ── Helpers ──
 	function strategyMeta(s: string) { return STRATEGIES[s] ?? { label: s, color: 'gray', desc: '' }; }
 	function providerColor(_p: string) { return PROVIDER_COLOR; }
+	function bindingCapabilities(b: GroupBinding): ProviderCapabilities {
+		return b.capabilities ?? providerCapabilities(b.provider_type);
+	}
+	function capabilityChipClass(_key: ProviderCapabilityKey): string {
+		return 'bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700';
+	}
 
 	function strategyBadgeClass(_color: string) {
 		return 'bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200';
@@ -531,9 +539,19 @@
 											<div class="text-xs text-zinc-600 dark:text-zinc-300">{b.channel_code}</div>
 										</td>
 										<td class="py-2.5 px-2">
-											<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(b.provider_type)}">
-												{b.provider_type}
-											</span>
+											<div class="space-y-1">
+												<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(b.provider_type)}">
+													{b.provider_type}
+												</span>
+												<div class="flex max-w-44 flex-wrap gap-1">
+													{#each capabilityList(bindingCapabilities(b)).slice(0, 3) as cap}
+														<span class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+													{/each}
+													{#if capabilityList(bindingCapabilities(b)).length > 3}
+														<span class="rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">+{capabilityList(bindingCapabilities(b)).length - 3}</span>
+													{/if}
+												</div>
+											</div>
 										</td>
 										<td class="py-2.5 px-2">
 											{#if isEditing}

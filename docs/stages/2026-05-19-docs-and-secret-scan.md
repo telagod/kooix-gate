@@ -161,3 +161,29 @@ cargo test -p gate-server --test channel_plugin_e2e -- --nocapture
 npm --prefix web test -- plugin-presets
 npm --prefix web run check
 ```
+
+## P1.2 Provider Capability Matrix
+
+本轮把 P1.2 的 capability matrix 从路线项落成 runtime / API / UI 共享契约：
+
+- `gate_providers::ProviderCapabilities` 成为内置 Provider 与 HTTP Plugin manifest v1 共用字段，覆盖 `chat`、`streaming`、`tools`、`embeddings`、`image`、`audio`、`vision`、`json_mode`、`batch`。
+- `PluginManifest::apply_preset` 会把 preset 的 truthy capability 默认值并入 manifest；旧 v0 / 简写 preset 仍可自动升级。
+- Router 新增 `route_chat`，会按请求实际需求跳过不满足 `streaming` / `tools` / `vision` / `json_mode` 的 channel，并在 route decision trace 记录 `missing_capability:*`。
+- Embedding route 改为读取 capability matrix，只选择声明 `embeddings=true` 且当前已有 embedding runtime 的内置 Provider。
+- Admin Channel / Group binding API 返回 `capabilities`，控制台在 Channel 列表、创建 / 编辑抽屉和 Group binding 表展示 capability chips。
+- Plugin preset 增加 Base URL 建议与本地 / 自托管 OpenAI-compatible 变体：`vllm`、`lm_studio`、`ollama_openai`、`localai`、`xinference`。
+- Bedrock Converse 保持 `aws_sigv4` 正式鉴权，capability 先按保守 `chat` / `streaming` 声明。
+
+验证命令：
+
+```bash
+cargo test -p gate-providers capability -- --nocapture
+cargo test -p gate-providers preset_defaults_fill_capabilities -- --nocapture
+cargo test -p gate-providers openai_compatible_variant_presets_parse -- --nocapture
+cargo test -p gate-providers route_chat_records_capability_skip_reason -- --nocapture
+cargo test -p gate-server --test c1_routing route_chat_skips_channel_missing_requested_capability -- --nocapture
+cargo test -p gate-server --test auth_flow admin_can_create_plugin_channel_with_provider_preset_manifest -- --nocapture
+cargo test -p gate-server --test channel_plugin_e2e plugin_manifest_builder_flow_creates_fixture_channel_and_group_binding -- --nocapture
+npm --prefix web test -- plugin-presets
+npm --prefix web run check
+```

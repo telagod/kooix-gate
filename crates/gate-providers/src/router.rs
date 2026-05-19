@@ -28,7 +28,8 @@ use crate::gemini::GeminiProvider;
 use crate::mistral::MistralProvider;
 use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
-use crate::plugin_manifest::plugin_manifest_retry_config;
+use crate::plugin_manifest::{plugin_manifest, plugin_manifest_retry_config};
+use crate::{ProviderCapabilities, provider_capabilities};
 use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelRepo, ModelAliasRepo};
@@ -953,6 +954,26 @@ impl ProviderRouter {
         project_id: ProjectId,
         requested_model: &str,
     ) -> ProviderResult<Option<RoutedProvider>> {
+        self.route_with_request(project_id, requested_model, None)
+            .await
+    }
+
+    /// 根据完整 chat request 选 Provider，并按 channel capability 做细粒度过滤。
+    pub async fn route_chat(
+        &self,
+        project_id: ProjectId,
+        req: &crate::types::ChatRequest,
+    ) -> ProviderResult<Option<RoutedProvider>> {
+        self.route_with_request(project_id, &req.model, Some(req))
+            .await
+    }
+
+    async fn route_with_request(
+        &self,
+        project_id: ProjectId,
+        requested_model: &str,
+        req: Option<&crate::types::ChatRequest>,
+    ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 0: alias 解析
         let alias_result = self.resolve_alias(project_id, requested_model).await?;
         let (model, params_override) = match &alias_result {
@@ -967,7 +988,10 @@ impl ProviderRouter {
         );
 
         // Step 1: 尝试主模型路由
-        if let Some(mut routed) = self.route_for_model(project_id, model, &mut trace).await? {
+        if let Some(mut routed) = self
+            .route_for_model(project_id, model, req, &mut trace)
+            .await?
+        {
             routed.params_override = params_override;
             return Ok(Some(routed));
         }
@@ -982,7 +1006,7 @@ impl ProviderRouter {
             );
             trace.fallbacks.push(fallback.to_string());
             if let Some(mut routed) = self
-                .route_for_model(project_id, fallback, &mut trace)
+                .route_for_model(project_id, fallback, req, &mut trace)
                 .await?
             {
                 routed.params_override = params_override;
@@ -1100,8 +1124,8 @@ impl ProviderRouter {
                     b.channel.supported_models.is_empty()
                         || b.channel.supported_models.iter().any(|m| m == model)
                 };
-                let provider_ok =
-                    !matches!(b.channel.provider_type.as_str(), "anthropic" | "bedrock");
+                let provider_ok = channel_capabilities(&b.channel).embeddings
+                    && !is_plugin_provider(&b.channel.provider_type);
                 model_ok && provider_ok
             })
             .collect();
@@ -1204,6 +1228,7 @@ impl ProviderRouter {
         &self,
         project_id: ProjectId,
         model: &str,
+        req: Option<&crate::types::ChatRequest>,
         trace: &mut RouteDecisionTrace,
     ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 1: 找 project 的默认 channel_group
@@ -1248,7 +1273,7 @@ impl ProviderRouter {
             } else {
                 // Try to find a channel in this group
                 if let Some(routed) = self
-                    .try_route_in_group(&current_group, model, trace)
+                    .try_route_in_group(&current_group, model, req, trace)
                     .await?
                 {
                     return Ok(Some(routed));
@@ -1294,6 +1319,7 @@ impl ProviderRouter {
         &self,
         group: &gate_storage::ChannelGroupRecord,
         model: &str,
+        req: Option<&crate::types::ChatRequest>,
         trace: &mut RouteDecisionTrace,
     ) -> ProviderResult<Option<RoutedProvider>> {
         // Step 2: 取 group 内 healthy channels
@@ -1348,6 +1374,28 @@ impl ProviderRouter {
 
         // Try each channel in order until one passes rate limits
         for candidate in &ordered {
+            if let Some(req) = req {
+                let caps = channel_capabilities(&candidate.channel);
+                let missing = caps.missing_for_chat_request(req);
+                if !missing.is_empty() {
+                    let reason = format!(
+                        "missing_capability:{}",
+                        missing
+                            .iter()
+                            .map(|cap| cap.as_str())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    );
+                    tracing::info!(
+                        channel = %candidate.channel.code,
+                        missing = %reason,
+                        "channel capability matrix rejected chat route candidate"
+                    );
+                    trace.record_skip(candidate, &reason);
+                    continue;
+                }
+            }
+
             if is_plugin_provider(&candidate.channel.provider_type)
                 && !self
                     .has_available_plugin_secret(
@@ -1598,6 +1646,15 @@ impl ProviderRouter {
 
 fn is_plugin_provider(provider_type: &str) -> bool {
     matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
+}
+
+fn channel_capabilities(channel: &gate_storage::ChannelRecord) -> ProviderCapabilities {
+    if is_plugin_provider(&channel.provider_type) {
+        return plugin_manifest(channel.model_mapping.clone(), &channel.base_url)
+            .map(|manifest| manifest.capabilities)
+            .unwrap_or_else(|_| provider_capabilities(&channel.provider_type));
+    }
+    provider_capabilities(&channel.provider_type)
 }
 
 fn env_secret_map(channel_code: &str, primary: String) -> HashMap<String, String> {
@@ -1900,6 +1957,82 @@ mod tests {
         assert_eq!(
             routed.params_override,
             serde_json::json!({ "temperature": 0.2 })
+        );
+    }
+
+    #[tokio::test]
+    async fn route_chat_records_capability_skip_reason() {
+        ensure_test_api_key();
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let text_only = make_channel_with_models("text-only", "plugin", vec![]);
+        let selected = make_channel_with_models("vision-openai", "openai", vec![]);
+        let text_only_id = text_only.channel_id;
+        let selected_id = selected.channel_id;
+
+        let channel_repo = Arc::new(InMemoryChannelRepo::new());
+        let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        group_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "capabilities".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        group_repo.seed_default(project_id, group_id);
+        channel_repo.seed_channel(ChannelRecord {
+            provider_type: "plugin".to_string(),
+            model_mapping: serde_json::json!({
+                "plugin": {
+                    "version": 1,
+                    "capabilities": { "chat": true, "streaming": true },
+                    "auth": { "strategy": "none" }
+                }
+            }),
+            ..text_only
+        });
+        channel_repo.seed_channel(selected);
+        channel_repo.seed_binding(group_id, text_only_id, 1, 1);
+        channel_repo.seed_binding(group_id, selected_id, 2, 1);
+
+        let router = ProviderRouter::new(channel_repo, group_repo);
+        let routed = router
+            .route_chat(
+                project_id,
+                &ChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: vec![ChatMessage {
+                        role: Role::User,
+                        content: Some(crate::types::MessageContent::Parts(vec![
+                            crate::types::ContentPart::ImageUrl {
+                                r#type: crate::types::ContentType::ImageUrl,
+                                image_url: crate::types::ImageUrl {
+                                    url: "data:image/png;base64,AA==".to_string(),
+                                    detail: None,
+                                },
+                            },
+                        ])),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    }],
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .expect("vision-capable fallback should route");
+
+        assert_eq!(routed.channel_id, selected_id);
+        assert!(
+            routed.decision_trace.skipped.iter().any(|skip| {
+                skip.channel_id == text_only_id && skip.reason == "missing_capability:vision"
+            }),
+            "trace should explain capability rejection: {:?}",
+            routed.decision_trace.skipped
         );
     }
 
