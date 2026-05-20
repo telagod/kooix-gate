@@ -10,6 +10,7 @@
 	import type { IdentityProvider } from '$lib/api.js';
 	import { Alert, Badge, Button, Card, Field, Input, Select, Skeleton, Textarea } from '$lib/components/ui';
 	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { cn, dataTemplate, text } from '$lib/design';
@@ -278,10 +279,26 @@
 	<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
 		<section class="space-y-4">
 			<Card padding="sm">
-				<div class="relative">
-					<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-					<Input class="pl-9" placeholder="搜索 name / slug / issuer / domain" bind:value={search} />
-				</div>
+				<DataToolbar class="mb-0">
+					{#snippet query()}
+						<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+						<Input class="pl-9" placeholder="搜索 name / slug / issuer / domain" bind:value={search} />
+					{/snippet}
+
+					{#snippet actions()}
+						{#if search.trim()}
+							<Button variant="outline" size="sm" onclick={() => (search = '')}>
+								<X size={14} />
+								清除
+							</Button>
+						{/if}
+					{/snippet}
+
+					{#snippet badges()}
+						<Badge>{filteredProviders.length} / {providers.length} providers</Badge>
+						<Badge variant="success">{enabledCount} enabled</Badge>
+					{/snippet}
+				</DataToolbar>
 			</Card>
 
 			{#if loading}

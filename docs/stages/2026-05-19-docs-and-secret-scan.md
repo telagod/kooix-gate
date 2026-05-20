@@ -251,6 +251,24 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / admin SSO toolbar rollout
+
+本轮继续按 P2.1 “表格能力统一”清理 `/admin/sso` 的工具栏模板缺口：
+
+- SSO Provider 搜索区从手写 search card 迁到共享 `DataToolbar`，继续保留 name / slug / issuer / domain 搜索语义。
+- 工具栏新增清除搜索动作，避免搜索词藏在输入框里导致误判空态。
+- 工具栏 badges 展示当前匹配 provider 数与 enabled provider 数，和页面顶部三张统计卡形成轻量补充。
+- 原有 OIDC discovery、allowlist、claim mapping、JIT auto-create、auto-join role、enabled 切换与 redirect policy 编辑链路不变。
+- 模板审计快照：25 个 route page，`/admin/sso` gaps 清零，pages_with_gaps 从 5 降到 4。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
