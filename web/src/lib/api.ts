@@ -550,16 +550,32 @@ export interface AuditLog {
 	after: Record<string, unknown> | null;
 }
 
+export type AuditLogSortBy = 'ts' | 'actor_kind' | 'action' | 'resource_kind' | 'outcome';
+export type SortDir = 'asc' | 'desc';
+
+export interface AuditLogListParams {
+	limit?: number;
+	offset?: number;
+	sort_by?: AuditLogSortBy;
+	sort_dir?: SortDir;
+}
+
 export async function listAuditLogs(
 	orgId: string,
-	limit = 50,
+	limitOrParams: number | AuditLogListParams = 50,
 	offset = 0
 ): Promise<AuditLog[]> {
+	const paramsInput =
+		typeof limitOrParams === 'number'
+			? { limit: limitOrParams, offset }
+			: limitOrParams;
 	const params = new URLSearchParams({
 		org_id: orgId,
-		limit: String(limit),
-		offset: String(offset)
+		limit: String(paramsInput.limit ?? 50),
+		offset: String(paramsInput.offset ?? 0)
 	});
+	if (paramsInput.sort_by) params.set('sort_by', paramsInput.sort_by);
+	if (paramsInput.sort_dir) params.set('sort_dir', paramsInput.sort_dir);
 	return apiFetch<AuditLog[]>(`/v1/admin/audit-logs?${params}`);
 }
 

@@ -10,7 +10,9 @@ pub mod rls;
 
 pub use error::{DbError, DbResult};
 pub use repo::api_key::{ApiKeyRecord, ApiKeyRepo, ApiKeySummaryRecord, PgApiKeyRepo};
-pub use repo::audit::{AuditRecord, AuditRepo, InMemoryAuditRepo, PgAuditRepo};
+pub use repo::audit::{
+    AuditRecord, AuditRepo, AuditSortBy, InMemoryAuditRepo, PgAuditRepo, SortDirection,
+};
 pub use repo::billing::{
     BillingInvoice, BillingRepo, BillingSeed, InMemoryBillingRepo, InvoiceStatus, ModelBillLine,
     MonthlyBill, PgBillingRepo, ProjectBillLine, UsageExportRow,

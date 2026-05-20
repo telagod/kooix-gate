@@ -25,9 +25,9 @@ use gate_server::loader::{ApiKeyRecord, InMemoryLoader, UserRecord};
 use gate_server::state::Repos;
 use gate_server::{AppState, build_router};
 use gate_storage::{
-    ApiKeyRecord as RepoApiKey, ChannelGroupRecord, ChannelRecord, InMemoryApiKeyRepo,
-    InMemoryChannelGroupRepo, InMemoryChannelRepo, InMemoryMembershipRepo, InMemoryOrgRepo,
-    InMemoryProjectRepo, InMemoryUserRepo,
+    ApiKeyRecord as RepoApiKey, AuditRecord, AuditRepo, ChannelGroupRecord, ChannelRecord,
+    InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryChannelGroupRepo, InMemoryChannelRepo,
+    InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryUserRepo,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -1077,6 +1077,74 @@ async fn admin_incidents_requires_platform_admin_user() {
         body["upstream_errors_runtime_top"][0]["kind"],
         "rate_limit_error"
     );
+}
+
+#[tokio::test]
+async fn admin_audit_logs_support_pagination_and_sort_query() {
+    let jwt = JwtIssuer::new(
+        b"test-secret-32-bytes-minimum-ok!",
+        "kg-test",
+        "console",
+        TokenLifetimes {
+            access: ChronoDuration::minutes(15),
+            refresh: ChronoDuration::days(1),
+        },
+    )
+    .unwrap();
+
+    let org = OrgId::new();
+    let user_super = UserId::new();
+    let loader = Arc::new(InMemoryLoader::new());
+    loader.add_user(
+        user_super,
+        UserRecord {
+            orgs: HashMap::new(),
+            projects: HashMap::new(),
+            platform: Some(PlatformRole::SuperAdmin),
+        },
+    );
+
+    let audit_repo = Arc::new(InMemoryAuditRepo::new());
+    let base = Utc::now();
+    for (i, action) in ["zeta", "alpha", "beta", "gamma"].iter().enumerate() {
+        audit_repo
+            .append(&AuditRecord {
+                id: Uuid::now_v7(),
+                ts: base + ChronoDuration::seconds(i as i64),
+                actor_kind: "user".into(),
+                actor_id: Some(*user_super.as_uuid()),
+                actor_ip: None,
+                actor_user_agent: None,
+                request_id: None,
+                action: (*action).into(),
+                resource_kind: "audit_test".into(),
+                resource_id: None,
+                org_id: Some(*org.as_uuid()),
+                project_id: None,
+                before: None,
+                after: None,
+                outcome: if i % 2 == 0 { "success" } else { "denied" }.into(),
+                error_message: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    let mut repos = Repos::in_memory();
+    repos.audit = audit_repo;
+    let router = build_router(AppState::new(jwt.clone(), loader, repos));
+    let tok = jwt_for(&jwt, user_super, None, true);
+    let uri = format!(
+        "/v1/admin/audit-logs?org_id={}&limit=2&offset=1&sort_by=action&sort_dir=asc",
+        org.as_uuid()
+    );
+
+    let (status, body) = call(&router, "GET", &uri, Some(&tok), None).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    let rows = body.as_array().expect("audit response must be array");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["action"], "beta");
+    assert_eq!(rows[1]["action"], "gamma");
 }
 
 #[tokio::test]

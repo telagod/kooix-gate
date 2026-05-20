@@ -162,6 +162,31 @@ describe('api module', () => {
 		expect(url).toContain('group_by=model');
 	});
 
+	it('listAuditLogs passes pagination and sort params', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => []
+		});
+
+		const { listAuditLogs } = await loadApi();
+		await listAuditLogs('019e2c1b-a7d1-7162-8422-07e4b24f5f98', {
+			limit: 100,
+			offset: 200,
+			sort_by: 'action',
+			sort_dir: 'asc'
+		});
+
+		const [url] = mockFetch.mock.calls[0];
+		expect(url).toContain('/v1/admin/audit-logs');
+		expect(url).toContain('org_id=019e2c1b-a7d1-7162-8422-07e4b24f5f98');
+		expect(url).toContain('limit=100');
+		expect(url).toContain('offset=200');
+		expect(url).toContain('sort_by=action');
+		expect(url).toContain('sort_dir=asc');
+	});
+
 	it('exportBillingCsv returns blob on success', async () => {
 		localStorage.setItem('kooix_access_token', 'tok');
 		const blob = new Blob(['csv,data'], { type: 'text/csv' });

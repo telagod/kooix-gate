@@ -105,6 +105,28 @@ node scripts/audit-page-templates.mjs --fail-on-gaps
 
 `--fail-on-gaps` 当前预期非零，用于后续缺口清零后接入 CI。
 
+## P2.1 Frontend UX / table capability base
+
+本轮推进 P2.1 “表格能力统一”的第一块基座，并先迁一个旧页验证闭环：
+
+- 新增 `web/src/lib/table-state.ts`，统一 page size / offset、`sort_by` / `sort_dir`、column visibility、saved filters 的规范化与 localStorage 持久化。
+- `/admin/audit` 从手写 header / toolbar / native table 迁到 `PageShell`、`DataToolbar`、`DataTable`、`StatePanel`，模板审计缺口从 13 页降到 12 页。
+- `/admin/audit` 支持 page size、上一页/下一页 offset 分页、表头排序、列显隐与持久化筛选状态；required columns 不允许隐藏。
+- 后端 `GET /v1/admin/audit-logs` 增加枚举化 `sort_by` / `sort_dir`，仅允许 `ts`、`actor_kind`、`action`、`resource_kind`、`outcome`，避免任意 SQL 拼接。
+- `gate-storage` 增加 `AuditSortBy` / `SortDirection` 与 `list_by_org_sorted`，Pg 查询使用白名单列名，InMemory 实现补稳定排序与分页测试。
+- `ROADMAP.md` 将表格能力四个子项标记为基座完成，保留“推广到剩余数据页”作为未完成项。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo test -p gate-storage repo::audit -- --nocapture
+cargo test -p gate-server admin_audit_logs_support_pagination_and_sort_query -- --nocapture
+npm --prefix web run check
+npm --prefix web test -- table-state.test.ts
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

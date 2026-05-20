@@ -11,6 +11,42 @@ use sqlx::{PgPool, Row};
 use std::collections::VecDeque;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditSortBy {
+    Ts,
+    ActorKind,
+    Action,
+    ResourceKind,
+    Outcome,
+}
+
+impl AuditSortBy {
+    pub fn sql_column(self) -> &'static str {
+        match self {
+            Self::Ts => "ts",
+            Self::ActorKind => "actor_kind",
+            Self::Action => "action",
+            Self::ResourceKind => "resource_kind",
+            Self::Outcome => "outcome",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+impl SortDirection {
+    pub fn sql(self) -> &'static str {
+        match self {
+            Self::Asc => "ASC",
+            Self::Desc => "DESC",
+        }
+    }
+}
+
 /// 审计日志行（与 `audit_logs` 表 1:1 映射）。
 #[derive(Debug, Clone)]
 pub struct AuditRecord {
@@ -43,6 +79,16 @@ pub trait AuditRepo: Send + Sync + 'static {
         org_id: Uuid,
         limit: i64,
         offset: i64,
+    ) -> DbResult<Vec<AuditRecord>>;
+
+    /// 按 Org 查询审计日志（分页 + 可控排序）。排序字段必须由调用方枚举化，避免 SQL 注入。
+    async fn list_by_org_sorted(
+        &self,
+        org_id: Uuid,
+        limit: i64,
+        offset: i64,
+        sort_by: AuditSortBy,
+        sort_dir: SortDirection,
     ) -> DbResult<Vec<AuditRecord>>;
 
     /// 按资源查询审计日志（分页，时间倒序）。
@@ -130,9 +176,23 @@ impl AuditRepo for PgAuditRepo {
         limit: i64,
         offset: i64,
     ) -> DbResult<Vec<AuditRecord>> {
+        self.list_by_org_sorted(org_id, limit, offset, AuditSortBy::Ts, SortDirection::Desc)
+            .await
+    }
+
+    async fn list_by_org_sorted(
+        &self,
+        org_id: Uuid,
+        limit: i64,
+        offset: i64,
+        sort_by: AuditSortBy,
+        sort_dir: SortDirection,
+    ) -> DbResult<Vec<AuditRecord>> {
+        let sort_col = sort_by.sql_column();
+        let sort_dir = sort_dir.sql();
         let rows = sqlx::query(&format!(
             "SELECT {AUDIT_COLUMNS} FROM audit_logs \
-             WHERE org_id = $1 ORDER BY ts DESC LIMIT $2 OFFSET $3"
+             WHERE org_id = $1 ORDER BY {sort_col} {sort_dir}, id DESC LIMIT $2 OFFSET $3"
         ))
         .bind(org_id)
         .bind(limit)
@@ -195,13 +255,43 @@ impl AuditRepo for InMemoryAuditRepo {
         limit: i64,
         offset: i64,
     ) -> DbResult<Vec<AuditRecord>> {
+        self.list_by_org_sorted(org_id, limit, offset, AuditSortBy::Ts, SortDirection::Desc)
+            .await
+    }
+
+    async fn list_by_org_sorted(
+        &self,
+        org_id: Uuid,
+        limit: i64,
+        offset: i64,
+        sort_by: AuditSortBy,
+        sort_dir: SortDirection,
+    ) -> DbResult<Vec<AuditRecord>> {
         let g = self.inner.read();
-        Ok(g.iter()
+        let mut rows = g
+            .iter()
             .rev()
             .filter(|r| r.org_id == Some(org_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| {
+            let ordering = match sort_by {
+                AuditSortBy::Ts => a.ts.cmp(&b.ts),
+                AuditSortBy::ActorKind => a.actor_kind.cmp(&b.actor_kind),
+                AuditSortBy::Action => a.action.cmp(&b.action),
+                AuditSortBy::ResourceKind => a.resource_kind.cmp(&b.resource_kind),
+                AuditSortBy::Outcome => a.outcome.cmp(&b.outcome),
+            };
+            let ordering = match sort_dir {
+                SortDirection::Asc => ordering,
+                SortDirection::Desc => ordering.reverse(),
+            };
+            ordering.then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(rows
+            .into_iter()
             .skip(offset as usize)
             .take(limit as usize)
-            .cloned()
             .collect())
     }
 
@@ -330,5 +420,52 @@ mod tests {
         assert_eq!(page2.len(), 3);
         assert_eq!(page1[0].action, "action.9");
         assert_eq!(page2[0].action, "action.6");
+    }
+
+    #[tokio::test]
+    async fn in_memory_sorted_list_is_stable_and_paginated() {
+        let repo = InMemoryAuditRepo::new();
+        let org = Uuid::now_v7();
+        let base = Utc::now();
+
+        for (i, action) in ["zeta", "alpha", "beta", "alpha"].iter().enumerate() {
+            let r = AuditRecord {
+                id: Uuid::now_v7(),
+                ts: base + chrono::Duration::seconds(i as i64),
+                actor_kind: "user".into(),
+                actor_id: None,
+                actor_ip: None,
+                actor_user_agent: None,
+                request_id: None,
+                action: (*action).into(),
+                resource_kind: "test".into(),
+                resource_id: None,
+                org_id: Some(org),
+                project_id: None,
+                before: None,
+                after: None,
+                outcome: if i % 2 == 0 { "success" } else { "denied" }.into(),
+                error_message: None,
+            };
+            repo.append(&r).await.unwrap();
+        }
+
+        let asc = repo
+            .list_by_org_sorted(org, 10, 0, AuditSortBy::Action, SortDirection::Asc)
+            .await
+            .unwrap();
+        assert_eq!(
+            asc.iter().map(|r| r.action.as_str()).collect::<Vec<_>>(),
+            vec!["alpha", "alpha", "beta", "zeta"]
+        );
+
+        let page = repo
+            .list_by_org_sorted(org, 2, 1, AuditSortBy::Action, SortDirection::Desc)
+            .await
+            .unwrap();
+        assert_eq!(
+            page.iter().map(|r| r.action.as_str()).collect::<Vec<_>>(),
+            vec!["beta", "alpha"]
+        );
     }
 }

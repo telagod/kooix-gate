@@ -31,9 +31,9 @@ use gate_core::rbac::{Permission, Scope};
 use gate_providers::ProviderCapabilities;
 use gate_providers::types::{ChatMessage, ChatRequest, MessageContent, Role};
 use gate_storage::{
-    ChannelStatus, CreateChannel, IdentityProviderCreate, IdentityProviderRecord,
-    IdentityProviderUpdate, InvitationCreate, InvitationRecord, ListChannelsQuery, UpdateChannel,
-    UpdateChannelBinding,
+    AuditSortBy, ChannelStatus, CreateChannel, IdentityProviderCreate, IdentityProviderRecord,
+    IdentityProviderUpdate, InvitationCreate, InvitationRecord, ListChannelsQuery, SortDirection,
+    UpdateChannel, UpdateChannelBinding,
 };
 use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1010,10 +1010,42 @@ pub struct AuditLogQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    #[serde(default = "default_audit_sort_by")]
+    pub sort_by: String,
+    #[serde(default = "default_audit_sort_dir")]
+    pub sort_dir: String,
 }
 
 fn default_limit() -> i64 {
     50
+}
+
+fn default_audit_sort_by() -> String {
+    "ts".into()
+}
+
+fn default_audit_sort_dir() -> String {
+    "desc".into()
+}
+
+fn parse_audit_sort_by(value: &str) -> AuditSortBy {
+    match value {
+        "actor_kind" => AuditSortBy::ActorKind,
+        "action" => AuditSortBy::Action,
+        "resource_kind" => AuditSortBy::ResourceKind,
+        "outcome" => AuditSortBy::Outcome,
+        _ => AuditSortBy::Ts,
+    }
+}
+
+fn parse_sort_dir(value: &str, default: SortDirection) -> SortDirection {
+    if value.eq_ignore_ascii_case("asc") {
+        SortDirection::Asc
+    } else if value.eq_ignore_ascii_case("desc") {
+        SortDirection::Desc
+    } else {
+        default
+    }
 }
 
 #[derive(Serialize)]
@@ -1040,9 +1072,14 @@ async fn list_audit_logs(
 
     let limit = q.limit.clamp(1, 200);
     let offset = q.offset.max(0);
+    let sort_by = parse_audit_sort_by(&q.sort_by);
+    let sort_dir = parse_sort_dir(&q.sort_dir, SortDirection::Desc);
 
     let records = if let Some(org_id) = q.org_id {
-        app.repos.audit.list_by_org(org_id, limit, offset).await?
+        app.repos
+            .audit
+            .list_by_org_sorted(org_id, limit, offset, sort_by, sort_dir)
+            .await?
     } else {
         // No org filter — platform admin sees all (via org_id=nil trick won't work;
         // for now require org_id)

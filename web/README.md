@@ -54,6 +54,7 @@ pnpm build
 
 新页面优先使用模板，避免在 route 内复制基础按钮、输入框、卡片长 class。详细规范见 `src/lib/design/README.md`。
 当前前端质量门禁：`npm run check` 必须保持 `0 errors / 0 warnings`；`npm run build` 不应输出大 chunk、Rolldown plugin timings 或 adapter-node d3 circular warnings。数据页优先复用 `DataToolbar` / `FilterPanel` / `DataTable`，再写页面特有业务单元格。
+数据页状态优先复用 `src/lib/table-state.ts`：page size / offset、`sort_by` / `sort_dir`、column visibility、saved filters 都在该 helper 做规范化与 localStorage 持久化，页面只负责把状态映射到 API query。
 
 模板一致性审计：
 

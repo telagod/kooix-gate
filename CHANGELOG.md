@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P1.9 控制台事故页落地：新增 `GET /v1/admin/incidents` 与 `/admin/incidents`，聚合最近错误、top failing channels、quota deny top、upstream 401/429/5xx 分类，并暴露 runtime-local quota / upstream error 快照辅助止血。
 - P1.9 Runbook 收口：`docs/observability-runbook.md` 增加上游全挂、Redis 不可用、Postgres 慢查询、pricing sync 失败与 outbox backlog 的 signals / 止血 / 诊断 / 恢复链路。
 - P2.1 前端模板一致性审计落地：新增 `scripts/audit-page-templates.mjs`，覆盖 25 个 Svelte route 页面的 `PageShell` / `AuthFrame`、`DataToolbar` / `FilterPanel` / `DataTable` 与 loading / error / empty 状态缺口清单。
+- P2.1 表格能力基座落地：新增 `web/src/lib/table-state.ts` 管理 page size、sort、column visibility 与 saved filters；`/admin/audit` 迁移到 `PageShell` / `DataToolbar` / `DataTable`，并给 `/v1/admin/audit-logs` 补齐 `sort_by` / `sort_dir` 服务端排序。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。

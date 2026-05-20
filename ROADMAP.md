@@ -575,10 +575,11 @@ cargo test -p gate-providers --all-targets
   - [x] table
   - [x] empty / loading / error
 - [ ] 表格能力统一：
-  - server-side pagination
-  - sort
-  - column visibility
-  - saved filters
+  - [x] server-side pagination 基座（`table-state` + `/admin/audit` offset/page size）
+  - [x] sort 基座（`/v1/admin/audit-logs` sort_by/sort_dir + UI 表头排序）
+  - [x] column visibility 基座（列显隐持久化）
+  - [x] saved filters 基座（table state localStorage 持久化）
+  - [ ] 推广到剩余数据页（`/admin/users`、`/admin/incidents`、`/orgs/*`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest
   - 选择 auth strategy 并填写 secret slot
