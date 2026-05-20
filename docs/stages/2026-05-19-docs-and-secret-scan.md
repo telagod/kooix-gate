@@ -286,6 +286,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / setup auth frame rollout
+
+本轮继续按 P2.1 “表格能力统一”清理 `/setup` 的认证页模板缺口：
+
+- 首次初始化页从手写 full-screen shell / Card 迁到共享 `AuthFrame`，和 `/login`、`/invite/accept` 使用同一无 sidebar 页面节奏。
+- theme toggle 改用 `authTemplate.themeToggle`，避免 route 内复制固定定位按钮长 class。
+- 保留两步 bootstrap：管理员邮箱/密码校验、默认 Org/Project 创建、初始化完成后用新管理员账号自动登录并跳转 `/orgs`。
+- 模板审计快照：25 个 route page，`/setup` gaps 清零，pages_with_gaps 从 3 降到 2。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

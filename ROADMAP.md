@@ -588,7 +588,8 @@ cargo test -p gate-providers --all-targets
   - [x] 推广到 `/orgs/[orgId]/projects/[projectId]/keys`（`PageShell` / `DataTable` / `ModalFrame`）
   - [x] 推广到 `/admin/sso`（`DataToolbar` 搜索 + active badges）
   - [x] 推广到 `/usage`（`PageShell` / `DataToolbar` / `StatePanel`）
-  - [ ] 继续推广到剩余模板缺口（`/admin/channels`、`/admin/groups`、`/setup`）
+  - [x] 推广到 `/setup`（`AuthFrame`）
+  - [ ] 继续推广到剩余模板缺口（`/admin/channels`、`/admin/groups`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest
   - 选择 auth strategy 并填写 secret slot
