@@ -1,7 +1,7 @@
 # 文档分层与 Secret Scan 收口
 
 Status: applied
-Scope: 文档入口清理、阶段性文档归档、gitleaks 本地安装复验、HTTP Plugin secret slots 与 P1.8 Plugin Ecosystem 收口。
+Scope: 文档入口清理、阶段性文档归档、gitleaks 本地安装复验、HTTP Plugin secret slots、P1.8 Plugin Ecosystem 与 P2.2 性能打磨收口。
 Last verified: 2026-05-20
 
 ## 关键文档 vs 阶段性文档
@@ -1146,4 +1146,21 @@ cargo check -p gate-providers --benches
 ```bash
 cargo check -p gate-server --benches
 cargo test -p gate-server middleware::quota::tests -- --nocapture
+```
+
+### Usage/outbox batch insert follow-up
+
+- `OutboxRepo` 增加 `enqueue_batch` 与 `mark_done_batch` 默认兼容方法；`PgOutboxRepo` 用 `UNNEST($1::jsonb[])` 批量写 outbox，并用 `WHERE id = ANY($1)` 批量标记完成，`InMemoryOutboxRepo` 同步覆盖测试 / dev 路径。
+- `Consumer::tick` 改为批量 settlement：先批量插入 `request_events`，再只对新插入的 idempotency key 批量写 `usage_records`、hourly/daily rollups 与 `billing_ledger_events.actual_settle`。
+- duplicate `idempotency_key` 会计入 `billing_settle_duplicates_total`，不会重复写 usage / ledger；对应 outbox row 仍视为语义完成并随本批 `mark_done_batch` 清掉，避免重复事件长期堆积。
+- 批量路径失败时会退回逐条 `commit_usage`，保留单条失败不影响其他事件；失败事件仍逐条 `mark_failed`，并发消费者仍依赖 `fetch_batch` 的 lease / `FOR UPDATE SKIP LOCKED`。
+- 新增 `enqueue_batch_and_consume_three`、`consumer_batch_settlement_marks_duplicate_outbox_done_once` 覆盖批量 enqueue、批量 settlement、重复幂等键与 batch mark done。
+- `ROADMAP.md` 中 P2.2 `Usage/outbox batch insert` 收口为完成。
+
+追加验证命令：
+
+```bash
+cargo fmt --all
+cargo test -p gate-billing --test outbox_consumer -- --nocapture
+cargo check -p gate-billing --all-targets
 ```

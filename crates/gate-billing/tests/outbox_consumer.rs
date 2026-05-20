@@ -145,6 +145,86 @@ async fn enqueue_and_consume_three() {
 }
 
 #[tokio::test]
+async fn enqueue_batch_and_consume_three() {
+    let (_c, pool, fix) = start_pg().await;
+    let outbox = Arc::new(PgOutboxRepo::new(pool.clone()));
+    let events = vec![make_event(&fix), make_event(&fix), make_event(&fix)];
+
+    let ids = outbox.enqueue_batch(&events).await.unwrap();
+    assert_eq!(ids.len(), 3, "expected 3 outbox ids from batch enqueue");
+
+    let pending_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM outbox_events WHERE processed_at IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pending_before, 3);
+
+    let consumer = Consumer::new(outbox.clone(), pool.clone(), 10, Duration::from_secs(9999));
+    consumer.tick().await.unwrap();
+
+    let usage_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usage_records")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(usage_count, 3);
+
+    let pending_after: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM outbox_events WHERE processed_at IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pending_after, 0);
+}
+
+#[tokio::test]
+async fn consumer_batch_settlement_marks_duplicate_outbox_done_once() {
+    let (_c, pool, fix) = start_pg().await;
+    let outbox = Arc::new(PgOutboxRepo::new(pool.clone()));
+
+    let mut event = make_event(&fix);
+    event.idempotency_key = Some("consumer-batch-duplicate-idem".to_string());
+    outbox.enqueue(&event).await.unwrap();
+    outbox.enqueue(&event).await.unwrap();
+
+    let consumer = Consumer::new(outbox.clone(), pool.clone(), 10, Duration::from_secs(9999));
+    consumer.tick().await.unwrap();
+
+    let usage_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usage_records")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        usage_count, 1,
+        "idempotent batch settle must keep one usage projection"
+    );
+
+    let request_event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM request_events WHERE idempotency_key = $1")
+            .bind("consumer-batch-duplicate-idem")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(request_event_count, 1);
+
+    let processed: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM outbox_events WHERE processed_at IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        processed, 2,
+        "duplicate outbox rows are semantically settled and must be batch marked done"
+    );
+
+    let ledger_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM billing_ledger_events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ledger_count, 1);
+}
+
+#[tokio::test]
 async fn one_failure_doesnt_affect_others() {
     let (_c, pool, fix) = start_pg().await;
 

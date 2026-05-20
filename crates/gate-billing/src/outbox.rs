@@ -23,6 +23,18 @@ pub trait OutboxRepo: Send + Sync + 'static {
     /// 将 UsageEvent 写入 outbox（topic = 'usage'）。
     async fn enqueue(&self, event: &UsageEvent) -> BillingResult<OutboxId>;
 
+    /// 批量写入 UsageEvent。
+    ///
+    /// 默认实现保持兼容；Pg/InMemory 实现会覆盖成单次批量写，减少热路径
+    /// request log / billing outbox 的 round trips。
+    async fn enqueue_batch(&self, events: &[UsageEvent]) -> BillingResult<Vec<OutboxId>> {
+        let mut ids = Vec::with_capacity(events.len());
+        for event in events {
+            ids.push(self.enqueue(event).await?);
+        }
+        Ok(ids)
+    }
+
     /// 拉取最多 `limit` 条未处理的 outbox 行（processed_at IS NULL，按 id ASC）。
     ///
     /// Pg 实现会在事务中用 `FOR UPDATE SKIP LOCKED` 锁住本批行，并把
@@ -31,6 +43,16 @@ pub trait OutboxRepo: Send + Sync + 'static {
 
     /// 标记成功处理。
     async fn mark_done(&self, id: OutboxId) -> BillingResult<()>;
+
+    /// 批量标记成功处理。
+    ///
+    /// 默认实现保持单条隔离；Pg/InMemory 实现会覆盖成单次批量 update。
+    async fn mark_done_batch(&self, ids: &[OutboxId]) -> BillingResult<()> {
+        for id in ids {
+            self.mark_done(*id).await?;
+        }
+        Ok(())
+    }
 
     /// 标记失败（递增 retry_count，记录 last_error）。
     async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()>;
@@ -60,6 +82,17 @@ impl OutboxRepo for PgOutboxRepo {
             .await
     }
 
+    async fn enqueue_batch(&self, events: &[UsageEvent]) -> BillingResult<Vec<OutboxId>> {
+        let span = tracing::info_span!(
+            "billing.outbox.enqueue_batch",
+            batch_size = events.len(),
+            worker_id = %self.worker_id,
+        );
+        async move { self.enqueue_batch_inner(events).await }
+            .instrument(span)
+            .await
+    }
+
     async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
         let span = tracing::info_span!(
             "billing.outbox.fetch_batch",
@@ -81,6 +114,27 @@ impl OutboxRepo for PgOutboxRepo {
              WHERE id = $1",
         )
         .bind(id)
+        .execute(&self.pool)
+        .instrument(span)
+        .await?;
+        Ok(())
+    }
+
+    async fn mark_done_batch(&self, ids: &[OutboxId]) -> BillingResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let span = tracing::info_span!(
+            "billing.outbox.mark_done_batch",
+            batch_size = ids.len(),
+            worker_id = %self.worker_id,
+        );
+        sqlx::query(
+            "UPDATE outbox_events \
+             SET processed_at = NOW(), locked_until = NULL, locked_by = NULL \
+             WHERE id = ANY($1)",
+        )
+        .bind(ids)
         .execute(&self.pool)
         .instrument(span)
         .await?;
@@ -121,6 +175,36 @@ impl PgOutboxRepo {
         span.record("outbox_id", id);
         record_outbox_enqueued(event);
         Ok(id)
+    }
+
+    async fn enqueue_batch_inner(&self, events: &[UsageEvent]) -> BillingResult<Vec<OutboxId>> {
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let payloads = events
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()?;
+        let rows = sqlx::query(
+            "INSERT INTO outbox_events (topic, payload) \
+             SELECT 'usage', payload \
+             FROM UNNEST($1::jsonb[]) WITH ORDINALITY AS t(payload, ord) \
+             ORDER BY ord \
+             RETURNING id",
+        )
+        .bind(&payloads)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            ids.push(row.try_get("id")?);
+        }
+        for event in events {
+            record_outbox_enqueued(event);
+        }
+        Ok(ids)
     }
 
     async fn fetch_batch_inner(
@@ -252,6 +336,13 @@ impl OutboxRepo for InMemoryOutboxRepo {
             .await
     }
 
+    async fn enqueue_batch(&self, events: &[UsageEvent]) -> BillingResult<Vec<OutboxId>> {
+        let span = tracing::info_span!("billing.outbox.enqueue_batch", batch_size = events.len());
+        async move { self.enqueue_batch_inner(events) }
+            .instrument(span)
+            .await
+    }
+
     async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
         let span = tracing::info_span!(
             "billing.outbox.fetch_batch",
@@ -270,6 +361,22 @@ impl OutboxRepo for InMemoryOutboxRepo {
         let mut g = self.inner.lock();
         if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
             r.processed = true;
+        }
+        Ok(())
+    }
+
+    async fn mark_done_batch(&self, ids: &[OutboxId]) -> BillingResult<()> {
+        let _guard =
+            tracing::info_span!("billing.outbox.mark_done_batch", batch_size = ids.len()).entered();
+        let ids = ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let mut g = self.inner.lock();
+        for row in &mut g.rows {
+            if ids.contains(&row.id) {
+                row.processed = true;
+            }
         }
         Ok(())
     }
@@ -302,6 +409,28 @@ impl InMemoryOutboxRepo {
         });
         record_outbox_enqueued(event);
         Ok(id)
+    }
+
+    fn enqueue_batch_inner(&self, events: &[UsageEvent]) -> BillingResult<Vec<OutboxId>> {
+        let mut ids = Vec::with_capacity(events.len());
+        let mut g = self.inner.lock();
+        for event in events {
+            g.next_id += 1;
+            let id = g.next_id;
+            ids.push(id);
+            g.rows.push(InMemoryRow {
+                id,
+                event: event.clone(),
+                processed: false,
+                retry_count: 0,
+                last_error: None,
+            });
+        }
+        drop(g);
+        for event in events {
+            record_outbox_enqueued(event);
+        }
+        Ok(ids)
     }
 
     fn fetch_batch_inner(

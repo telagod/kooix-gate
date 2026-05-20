@@ -210,7 +210,7 @@ POST (流结束 / 错误):
   enqueue outbox_events('usage', record)
 ```
 
-后台 worker 消费 outbox → 落 `usage_records` projection、写 `billing_ledger_events.actual_settle`、触发告警、对账。
+后台 worker 消费 outbox → 批量写 `request_events` / `usage_records` projection、批量 upsert hourly/daily rollups、批量写 `billing_ledger_events.actual_settle`，再批量 `mark_done`；duplicate `idempotency_key` 只记一次账但会把重复 outbox row 标为完成，触发告警、对账。
 
 **关键：超时回滚**。`inflight_requests.expires_at` 设 `max_tokens / 10 tps` 的预估时间，cleaner 定时跑回滚。
 
@@ -437,7 +437,7 @@ KOOIX_CHANNEL_KEY_CACHE_TTL_SECS # optional，channel key 解密缓存 TTL，默
 - [x] gate-cache: Redis 滑动窗口 Lua + 配额扣减 Lua
 - [x] gate-server: Axum AppState + Auth 抽取器 + 控制台/API 路由
 - [x] gate-providers: 9 个编译期 Provider + HTTP Plugin adapter + Provider preset
-- [x] gate-billing: usage outbox 消费者 + pricing rules + LiteLLM sync
+- [x] gate-billing: usage outbox 批量消费者 + pricing rules + LiteLLM sync
 - [x] web: SvelteKit 控制台
 - [x] HTTP Plugin manifest v1 schema / builder / replay debugger
 - [x] WASM 插件 ABI vNext 设计稿

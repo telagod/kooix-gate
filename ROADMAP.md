@@ -626,7 +626,11 @@ cargo test -p gate-providers --all-targets
   - [x] TTL
   - [x] revoke 失效
   - [x] rotation 失效
-- [ ] Usage/outbox batch insert。
+- [x] Usage/outbox batch insert：
+  - [x] outbox enqueue batch
+  - [x] usage/request_events/rollups/ledger batch settlement
+  - [x] outbox mark done batch
+  - [x] duplicate idempotency key safe path。
 - [ ] Request log 分区 / retention。
 - [ ] SSE parser 压测：
   - 小帧多

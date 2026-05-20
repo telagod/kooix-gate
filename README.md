@@ -196,8 +196,8 @@ P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim
 - **多 Org 三层租户**：Org → Project → ApiKey，永不耦合
 - **project_memberships 用 `(OrgId, ProjectId)` 复合 key**：防止跨 Org 重放
 - **RLS 兜底**：应用层漏 filter 也泄露不了租户数据
-- **流式计费正确性**：`stream_options.include_usage` 强制注入，末帧捕获 usage 后写 outbox；worker 落 `usage_records` projection + `billing_ledger_events.actual_settle`
-- **Outbox pattern**：业务事务和计费写入解耦，幂等 `ON CONFLICT DO NOTHING`
+- **流式计费正确性**：`stream_options.include_usage` 强制注入，末帧捕获 usage 后写 outbox；worker 批量落 `usage_records` projection + `billing_ledger_events.actual_settle`
+- **Outbox pattern**：业务事务和计费写入解耦，支持 `enqueue_batch`、批量 settlement、批量 mark done，并用幂等 `ON CONFLICT DO NOTHING` 兜底重复事件
 - **Billing ledger / invoice**：`billing_ledger_events` 是审计源；月账单状态机 `draft -> closed -> exported -> paid/waived`，导出 digest 绑定审计留存
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
 - **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`；manifest 按不可信配置处理，默认不允许绝对 URL，模板变量、outbound allowlist、DNS rebind guard、header redaction 与 body/response/SSE size 均有限制
