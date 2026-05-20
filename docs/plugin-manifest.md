@@ -595,7 +595,7 @@ v0.2.0 必须遵守：
 - 私有 URL / header / body 都视为不可信配置，发布前需要人工 review；生产环境仍建议用网络层 egress firewall 作为 runtime allowlist 外的兜底。
 - 不在日志、request log、audit 中写出 `api_key`、secret header、Bearer token 或 query secret；probe/debug 输出必须使用 redacted headers / URL。
 
-后续计划补齐：signed manifest package、跨版本 fixture 批量回放与 WASM ABI 资源审计。
+后续计划补齐：signed manifest package、跨版本 fixture 批量回放与 WASM runtime PoC。WASM ABI vNext 设计稿见 [wasm-plugin-abi.md](./wasm-plugin-abi.md)。
 
 ## 当前测试覆盖
 

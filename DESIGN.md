@@ -8,7 +8,7 @@
 2. **多 Org 第一公民**：`Org → Project → ApiKey` 三层，永不混淆。
 3. **强类型 ID**：编译期防止 `OrgId` 当 `ProjectId` 传。
 4. **租户隔离两道闸**：应用层 `WHERE org_id` + 数据库 RLS 兜底。
-5. **插件边界先稳后扩**：编译期 provider trait + 运行期 HTTP Plugin manifest 先落地，WASM ABI 延后到边界稳定后再定。
+5. **插件边界先稳后扩**：编译期 provider trait + 运行期 HTTP Plugin manifest 先落地；WASM 先冻结 vNext ABI 设计稿，runtime 等边界稳定后再实现。
 6. **预扣 + 修正**：流式扣费三段式，避免热点 + 漏扣。
 7. **审计同步落，用量异步落**：区分关键事件与高频事件。
 
@@ -286,7 +286,7 @@ Channel 级 `health` 由所有 key 状态聚合：
 - `response.*_path`：把私有非流式响应抽成 `ChatResponse`。
 - `stream.*_path`：共享 SSE decoder 先处理 CRLF/LF、注释、多行 data、分片，再按 path 抽 token / finish_reason / usage，归一成 `ChatStreamChunk`；OpenAI-compatible 预设自动注入 `stream_options.include_usage=true`。
 
-这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；manifest v0 边界与示例见 `docs/plugin-manifest.md`。WASM ABI 仍延后，避免早期冻结插件边界。
+这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；manifest v1 边界与示例见 `docs/plugin-manifest.md`。WASM runtime 仍延后，vNext ABI 设计稿见 `docs/wasm-plugin-abi.md`，避免早期把执行沙箱冻结成生产承诺。
 
 ### 4.4 Typed ID API 边界
 
@@ -345,7 +345,7 @@ SET LOCAL app.is_platform_admin = 'false';
 | 4 | Channel 平台级 | 运营与租户解耦，符合 SaaS 心智 |
 | 5 | 流式三段式扣费 | 实时扣 → 热点；事后扣 → 漏扣；预扣 + 修正是唯一解 |
 | 6 | TimescaleDB 作为高吞吐可选增强 | v0.2.0 默认普通 PostgreSQL 可跑；5w rpm × 30 天 = 21 亿行时建议 hypertable |
-| 7 | WASM 插件延后，先落 HTTP Plugin manifest + Provider 预设 | trait 抽象先稳定，主流 Provider 与私有协议主要差异可先用 preset、request/response/SSE path 映射吸收，ABI 一旦发出去难改 |
+| 7 | WASM runtime 延后，先落 HTTP Plugin manifest + Provider 预设；ABI 只做 vNext 设计稿 | trait 抽象先稳定，主流 Provider 与私有协议主要差异可先用 preset、request/response/SSE path 映射吸收；WASM 执行面必须先明确 transform、secret、determinism、resource audit 边界 |
 | 8 | 自建 RBAC | 角色组合有限，Casbin 引入心智税不值 |
 | 9 | API 对外 typed ID，DB 继续裸 UUID | 外部可读性和防串台更强，存储/索引/外键不迁移，`FlexUuid` 保持向后兼容 |
 | 10 | Pricing rules 暴露 REST + CLI + UI 三入口 | 运营日常用 UI，部署/批量改价用 CLI，自动化接 REST；三者复用同一 `pricing_rules` 主表 |
@@ -438,7 +438,8 @@ KOOIX_PUBLIC_URL    # https://gate.example.com — OIDC redirect_uri 基底
 - [x] gate-providers: 9 个编译期 Provider + HTTP Plugin adapter + Provider preset
 - [x] gate-billing: usage outbox 消费者 + pricing rules + LiteLLM sync
 - [x] web: SvelteKit 控制台
-- [ ] HTTP Plugin manifest v1 schema / builder / replay debugger
-- [ ] WASM 插件 ABI 与 sandbox runtime
+- [x] HTTP Plugin manifest v1 schema / builder / replay debugger
+- [x] WASM 插件 ABI vNext 设计稿
+- [ ] WASM sandbox runtime
 - [ ] master key 轮换工具
 - [x] `JwtRing` 双密钥轮换窗口

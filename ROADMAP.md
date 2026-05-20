@@ -524,13 +524,13 @@ cargo test -p gate-providers --all-targets
   - [x] request / response size limit。
   - [x] timeout / retry / circuit breaker。
   - [x] manifest 权限声明。
-- [ ] WASM 插件 ABI 设计稿只做 vNext：
-  - request transform。
-  - response transform。
-  - streaming transform。
-  - secret access API。
-  - deterministic execution constraints。
-  - 资源限制与审计。
+- [x] WASM 插件 ABI 设计稿只做 vNext：
+  - [x] request transform。
+  - [x] response transform。
+  - [x] streaming transform。
+  - [x] secret access API。
+  - [x] deterministic execution constraints。
+  - [x] 资源限制与审计。
 
 ### P1.9 Observability / Operations 补全
 

@@ -1,7 +1,7 @@
 # 文档分层与 Secret Scan 收口
 
 Status: applied
-Scope: 文档入口清理、阶段性文档归档、gitleaks 本地安装复验、HTTP Plugin secret slots 收口。
+Scope: 文档入口清理、阶段性文档归档、gitleaks 本地安装复验、HTTP Plugin secret slots 与 P1.8 Plugin Ecosystem 收口。
 Last verified: 2026-05-20
 
 ## 关键文档 vs 阶段性文档
@@ -688,4 +688,23 @@ cargo test -p gate-providers plugin -- --nocapture
 cargo test -p gate-providers custom_provider -- --nocapture
 cargo test -p kgctl plugin_ -- --nocapture
 cargo run -p kgctl -- plugin package lint examples/manifest-packages/private-auth-field-map-sse --verify --json
+```
+
+## P1.8 Plugin Ecosystem / WASM ABI vNext Design
+
+本轮只做 `ROADMAP.md` 要求的 WASM 插件 ABI 设计稿，不实现 runtime：
+
+- 新增长期关键文档 `docs/wasm-plugin-abi.md`，明确 WASM 是 vNext 受限 transform runtime，不替代 HTTP Plugin manifest v1。
+- 设计稿覆盖 request transform、response transform、streaming transform 三个 phase，并规定 host 继续掌控 network egress、billing、quota、routing、fallback、audit 与 trace。
+- Secret access API 采用 capability + slot 声明；raw secret access 默认禁用，优先用 host-managed auth / derived signing hostcall，并要求每次访问写 audit。
+- Deterministic constraints 禁止 filesystem、network、env、thread、direct clock/random 与跨请求持久写入；时间和 nonce 只能由 hostcall 显式提供。
+- Resource limits 覆盖 wall timeout、stream event timeout、WASM memory pages、fuel/input/output bytes 与 stream scratch state；超限进入 fail-closed 和 channel key failure policy。
+- Audit / metrics / trace 仅允许低基数字段，避免 request_id、org_id、api_key_id、错误原文等高基数字段污染 metrics。
+- `docs/README.md` 把该设计稿列为关键文档；`DESIGN.md` 与 `docs/plugin-manifest.md` 指向该 vNext ABI，`ROADMAP.md` 将 P1.8 WASM ABI 设计稿子项全部勾选。
+
+阶段验证命令：
+
+```bash
+git diff --check
+rg -n "WASM|request transform|response transform|streaming transform|secret access|deterministic|资源限制|audit" docs/wasm-plugin-abi.md ROADMAP.md DESIGN.md docs/plugin-manifest.md
 ```
