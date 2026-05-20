@@ -69,6 +69,22 @@ node scripts/check-route-manifest.mjs
 node scripts/generate-route-types.mjs --check
 ```
 
+## P1.9 Observability / Operations runbook
+
+本轮把 P1.9 Runbook 从路线项收口为长期运维文档，仍保持文档分层干净：
+
+- 关键文档落在 `docs/observability-runbook.md` 的 `Incident runbooks`，覆盖上游全挂、Redis 不可用、Postgres 慢查询、pricing sync 失败与 outbox backlog。
+- 每个事故条目固定 `Signals -> 止血 -> 诊断 -> 恢复 / 验证`，同时给出 PromQL、SQL、`kgctl`、`curl` 与 Redis / Postgres 命令。
+- `ROADMAP.md` 将 P1.9 Runbook 子项全部勾选；`CHANGELOG.md` 在 Unreleased 记录该运维收口。
+- 文档分层继续遵守本文件开头规则：长期运维规则只留在关键 runbook，阶段性证据追加在 `docs/stages/`，根目录不新增完成态散文档。
+
+阶段验证命令：
+
+```bash
+git diff --check
+rg -n "上游全挂|Redis 不可用|Postgres 慢查询|pricing sync 失败|outbox backlog|Incident runbooks" docs/observability-runbook.md ROADMAP.md CHANGELOG.md
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

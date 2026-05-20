@@ -553,12 +553,12 @@ cargo test -p gate-providers --all-targets
   - [x] top failing channels
   - [x] quota deny top
   - [x] upstream 401/429/5xx 分类
-- [ ] Runbook：
-  - 上游全挂
-  - Redis 不可用
-  - Postgres 慢查询
-  - pricing sync 失败
-  - outbox backlog。
+- [x] Runbook：
+  - [x] 上游全挂
+  - [x] Redis 不可用
+  - [x] Postgres 慢查询
+  - [x] pricing sync 失败
+  - [x] outbox backlog。
 
 ---
 

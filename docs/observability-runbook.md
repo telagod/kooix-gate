@@ -308,3 +308,307 @@ sum(rate(worker_inflight_swept_total[5m]))
 
 - `worker_lease_owner{job="kooix_pricing_sync"}` 多实例只应一个为 `1`。
 - `worker_inflight_swept_total` 突增：可能有大量流式/上游超时导致 pre-debit 过期回退。
+
+## Incident runbooks
+
+以下五条是 P1.9 固定事故处置链。先从 `/admin/incidents` 收敛影响面，再用 Prometheus / SQL / CLI 验证根因；所有变更优先使用 drain / disable / config rollback 这类可逆动作。
+
+### 上游全挂 / no healthy upstream
+
+**Signals**
+
+```promql
+sum(rate(provider_route_decisions_total{outcome=~"none|error"}[5m])) by (provider_type, outcome)
+sum(rate(gateway_upstream_errors_total[5m])) by (kind, provider_type, channel, model)
+sum(rate(provider_health_probe_total[5m])) by (provider_type, outcome, status_bucket)
+```
+
+- 客户端错误通常表现为 `no_healthy_channel`、`model_not_found`、上游 `authentication_error` / `rate_limit_error` / `upstream_error`。
+- `/admin/incidents` 里若 `top_failing_channels` 多个 channel 同时升高，先按 provider_type / model 判定是上游区域性故障、统一凭证失效，还是 routing group 误配。
+- Health checker 行为：`auth_error` 会 auto-disable active channel；`rate_limited` 只记录指标和日志；连续 `5xx|network` 可触发 auto-disable。
+
+**止血**
+
+1. 对单个坏 channel 先 drain，避免新流量继续打过去：
+
+   ```bash
+   curl -X POST "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/drain" \
+     -H "Authorization: Bearer $ADMIN_TOKEN"
+   curl "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/drain-status" \
+     -H "Authorization: Bearer $ADMIN_TOKEN"
+   curl -X POST "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/disable-when-idle" \
+     -H "Authorization: Bearer $ADMIN_TOKEN"
+   ```
+
+2. 若某 provider 全挂，进入 `/admin/groups` 把 fallback group 临时切到其它 provider，或在 `/admin/channels` 批量禁用对应 provider 的 unhealthy channel。
+3. 若是统一凭证 401/403，先轮换 channel key，再用 `POST /v1/admin/channels/:id/probe` 验证，不要反复扩大重试。
+4. 若是 429/rate limit，降低该 channel weight / canary 百分比，增加 fallback 容量；不要让 health probe 误判为禁用条件。
+
+**诊断**
+
+```sql
+SELECT id, code, name, provider_type, status, health, last_error, last_error_at
+FROM channels
+WHERE deleted_at IS NULL
+ORDER BY status, health, last_error_at DESC NULLS LAST;
+```
+
+```bash
+curl "$KOOIX_URL/v1/admin/incidents?hours=1" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -X POST "$KOOIX_URL/v1/admin/channels/$CHANNEL_ID/probe" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+**恢复 / 验证**
+
+- channel 恢复后确认 `provider_health_probe_total{outcome="success"}` 回升，`provider_route_decisions_total{outcome=~"none|error"}` 回落。
+- 发一条最小 `/v1/chat/completions` smoke，确认 trace 中 `gateway.upstream_request{outcome="success"}` 与 `kooix.channel_id` 命中预期 channel。
+- 回滚临时 routing / fallback 改动前，保留 15-30 分钟 canary 或低权重观察窗口。
+
+### Redis 不可用
+
+**Signals**
+
+```promql
+sum(rate(quota_denies_total[5m])) by (dimension, scope_kind, mode)
+sum(rate(quota_dry_run_total[5m])) by (dimension, scope_kind, would_deny)
+```
+
+- 日志关键字：`rate limiter failed; allowing`、`rate quota check failed; fail-open`、`quota counter debit failed; fail-open`、`Redis RPM check failed; fail-open`。
+- Redis 主要承载 rate limit / quota 计数：`rpm/tpm` sliding window、budget/concurrent pre-debit、lifetime token/budget counters。
+- 当前策略是 Redis 异常 fail-open：data-plane 尽量不中断，但 quota / rate protection 降级，可能出现超额消费。
+
+**止血**
+
+1. 先确认 Redis 是否真的不可达：
+
+   ```bash
+   redis-cli -u "$KOOIX_REDIS_URL" ping
+   kgctl doctor
+   ```
+
+2. Redis 故障期间暂时降低高风险 API key / project 的 quota 配置或 channel group 容量，避免 fail-open 放大成本。
+3. 若只影响单实例网络，先重启该实例或迁移流量；若 Redis 集群整体不可用，优先恢复 Redis 持久化与主从，而不是重启所有 gateway。
+4. 严禁在未导出 reconcile 前清理 `qb:*` / `qc:*` / `qtok:*` key，避免预算和并发状态无法追账。
+
+**诊断**
+
+```bash
+redis-cli -u "$KOOIX_REDIS_URL" info server
+redis-cli -u "$KOOIX_REDIS_URL" info stats
+redis-cli -u "$KOOIX_REDIS_URL" slowlog get 20
+```
+
+```bash
+curl "$KOOIX_URL/v1/orgs/$ORG_ID/quotas/explain?scope_kind=project&scope_id=$PROJECT_ID&model=$MODEL" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+curl "$KOOIX_URL/v1/orgs/$ORG_ID/quotas/reconcile" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+**恢复 / 验证**
+
+- `redis-cli ... ping` 返回 `PONG`，`kgctl doctor` Redis Lua 检查全绿。
+- `quota_denies_total{mode="enforce"}` 与 `quota_dry_run_total` 恢复正常趋势；日志不再出现 fail-open 关键字。
+- 对故障窗口内高消费 org 执行 `quotas/reconcile`，必要时通过 billing ledger 做 manual adjustment。
+
+### Postgres 慢查询
+
+**Signals**
+
+```promql
+histogram_quantile(0.95, sum(rate(gateway_stage_duration_seconds_bucket[5m])) by (le, stage, outcome))
+max(billing_outbox_lag_seconds)
+max(billing_settle_lag_seconds)
+max(usage_rollup_lag_seconds)
+```
+
+- API 侧表现：控制台列表慢、`/admin/incidents` 或 usage dashboard 新鲜度下降、billing outbox lag 抬升。
+- Worker 侧表现：`billing_outbox_tick_errors_total`、`billing_outbox_failed_total`、`billing_settle_failures_total{reason="commit_usage"}` 增长。
+- 先区分是连接池耗尽、锁等待、缺索引/大表扫描、autovacuum 落后，还是迁移未完成。
+
+**止血**
+
+1. 暂停大范围导出 / 报表 / migration dry-run；控制面限流，保护 data-plane。
+2. 若 outbox backlog 同时抬升，可临时增大 worker 批量和缩短 tick 间隔：
+
+   ```bash
+   export KOOIX_OUTBOX_BATCH_SIZE=500
+   export KOOIX_OUTBOX_INTERVAL_MS=250
+   ```
+
+   只在数据库 CPU / I/O 仍有余量时使用，否则会放大锁竞争。
+3. 若发现单条 runaway query，先用 `pg_cancel_backend(pid)`；只有确认会长期阻塞且可安全回滚时才 `pg_terminate_backend(pid)`。
+
+**诊断**
+
+```sql
+SELECT pid, now() - query_start AS age, wait_event_type, wait_event, state, query
+FROM pg_stat_activity
+WHERE state <> 'idle'
+ORDER BY age DESC
+LIMIT 20;
+```
+
+```sql
+SELECT relname, n_dead_tup, last_vacuum, last_autovacuum
+FROM pg_stat_user_tables
+ORDER BY n_dead_tup DESC
+LIMIT 20;
+```
+
+```sql
+SELECT relation::regclass AS relation, mode, granted, COUNT(*)
+FROM pg_locks
+WHERE relation IS NOT NULL
+GROUP BY relation, mode, granted
+ORDER BY COUNT(*) DESC;
+```
+
+- 对疑似慢读模型使用 `EXPLAIN (ANALYZE, BUFFERS)`；优先看 `request_events`、`usage_hourly_rollups`、`channel_latency_samples`、`outbox_events`、`billing_ledger_events`。
+- 部署前后跑：
+
+  ```bash
+  kgctl migrate --dry-run
+  kgctl migrate
+  ```
+
+**恢复 / 验证**
+
+- P95 `gateway_stage_duration_seconds` 回落，`billing_outbox_lag_seconds` / `usage_rollup_lag_seconds` 不再持续增长。
+- 慢 SQL 修复后补索引或 retention / partition 策略，避免只靠重启止痛。
+- 若做过手工 cancel / terminate，把相关 request_id 与 ledger 对账一次，确认没有半落库事件。
+
+### pricing sync 失败
+
+**Signals**
+
+```promql
+worker_lease_owner{job="kooix_pricing_sync"}
+sum(rate(worker_pricing_sync_total[15m])) by (outcome)
+sum(rate(billing_settle_failures_total{reason=~"pricing_miss|pricing_lookup"}[5m])) by (reason)
+```
+
+- 日志关键字：`pricing_sync: fetching from LiteLLM`、`pricing_sync: fetched LiteLLM data`、`pricing_sync: complete`、`worker: pricing sync failed`。
+- 自动同步从 LiteLLM `model_prices_and_context_window.json` 拉取，HTTP timeout 为 30s；只覆盖 `description LIKE 'litellm/%'` 的 global rules，不覆盖 channel-specific rules。
+- 失败不阻断 data-plane，但 `billing.emit_usage{outcome="pricing_miss"}` 会导致请求漏账。
+
+**止血**
+
+1. 确认 worker owner 存在；多实例只应一个 `worker_lease_owner{job="kooix_pricing_sync"} == 1`。
+2. 如果外网或 GitHub raw 临时不可达，先在 `/admin/pricing` 或 CLI 手工补关键 model 的 global/channel-specific rules：
+
+   ```bash
+   kgctl pricing list --model "$MODEL"
+   kgctl pricing set \
+     --model "$MODEL" \
+     --dimension input_tokens \
+     --unit per_million_tokens \
+     --rate "$INPUT_USD_PER_MILLION" \
+     --priority 100 \
+     --description "manual incident input"
+   kgctl pricing set \
+     --model "$MODEL" \
+     --dimension output_tokens \
+     --unit per_million_tokens \
+     --rate "$OUTPUT_USD_PER_MILLION" \
+     --priority 100 \
+     --description "manual incident output"
+   ```
+
+3. 如果同步数据异常污染了全局规则，先把 `KOOIX_PRICING_SYNC_INTERVAL_SECS=0` 暂停自动同步，再回滚到上一份 pricing snapshot 或手工规则。
+
+**诊断**
+
+```sql
+SELECT model, dimension, unit, rate, priority, description, effective_from
+FROM pricing_rules
+WHERE channel_id IS NULL
+ORDER BY effective_from DESC, model, dimension
+LIMIT 50;
+```
+
+```sql
+SELECT model, COUNT(*) AS rule_count, MAX(effective_from) AS newest
+FROM pricing_rules
+WHERE channel_id IS NULL
+GROUP BY model
+ORDER BY newest DESC NULLS LAST
+LIMIT 50;
+```
+
+**恢复 / 验证**
+
+- pricing sync 成功后 `worker_pricing_sync_total{outcome="success"}` 增长，失败计数停止。
+- 对事故窗口内 `pricing_miss` 的 model 补跑 usage / ledger 对账；无法自动补账时写 `billing_ledger_events.manual_adjustment`。
+- 手工规则若只为止血，恢复自动同步后保留 channel-specific rule 的运营优先级，或删除临时 global rule，避免长期价格漂移。
+
+### outbox backlog
+
+**Signals**
+
+```promql
+max(billing_outbox_lag_seconds)
+max(billing_settle_lag_seconds)
+sum(rate(billing_outbox_failed_total[5m]))
+sum(rate(billing_outbox_tick_errors_total[5m]))
+billing_outbox_batch_size
+```
+
+- backlog 表示 usage 已进入 `outbox_events` 但 worker 未及时 `fetch_batch -> commit_usage -> mark_done`。
+- 常见根因：worker 没跑、`KOOIX_MODE` 误设为 `gateway|controlplane`、Postgres 慢、`commit_usage` 失败、poison event 达到 `retry_count >= 3`、旧 worker lease 未过期。
+- `fetch_batch` 使用 transaction + `FOR UPDATE SKIP LOCKED` + `locked_until` / `locked_by`；单个卡住 worker 最多等待 lease 过期再被其它 worker 接手。
+
+**止血**
+
+1. 确认至少一个实例以 `KOOIX_MODE=all` 或 `KOOIX_MODE=worker` 运行。
+2. 若 DB 健康且 backlog 只是流量峰值，临时提高 worker 吞吐：
+
+   ```bash
+   export KOOIX_OUTBOX_BATCH_SIZE=500
+   export KOOIX_OUTBOX_INTERVAL_MS=250
+   ```
+
+3. 若 `last_error` 指向单类 payload / migration 缺失，先修 payload 或迁移，不要直接删除 outbox 行。
+4. 对 `retry_count >= 3` 的 poison rows，导出 payload 与 `last_error` 后再决定重置 retry 或做人工 ledger adjustment。
+
+**诊断**
+
+```sql
+SELECT COUNT(*) AS pending,
+       MIN(created_at) AS oldest,
+       EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) AS oldest_age_seconds
+FROM outbox_events
+WHERE topic = 'usage' AND processed_at IS NULL;
+```
+
+```sql
+SELECT id, created_at, retry_count, locked_until, locked_by, last_error
+FROM outbox_events
+WHERE topic = 'usage' AND processed_at IS NULL
+ORDER BY created_at ASC
+LIMIT 20;
+```
+
+```sql
+SELECT retry_count, COUNT(*) AS rows
+FROM outbox_events
+WHERE topic = 'usage' AND processed_at IS NULL
+GROUP BY retry_count
+ORDER BY retry_count;
+```
+
+```sql
+SELECT request_id, COUNT(*)
+FROM request_events
+WHERE ts >= NOW() - INTERVAL '1 hour'
+GROUP BY request_id
+HAVING COUNT(*) > 1;
+```
+
+**恢复 / 验证**
+
+- `pending` 下降到正常水位，`billing_outbox_lag_seconds` 与 `billing_settle_lag_seconds` 回落，`billing_outbox_batch_size` 不再长时间贴近上限。
+- 抽样检查 outbox oldest payload 对应的 `request_events`、`usage_records`、`billing_ledger_events.actual_settle` 都已落库。
+- 若做过 retry 重置或手工 adjustment，记录 request_id、outbox id、ledger event id，方便月账单复盘。

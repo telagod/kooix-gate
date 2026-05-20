@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P1.9 Prometheus metrics 命名收口：新增 `gateway_requests_total`、`gateway_request_duration_seconds`、`gateway_upstream_errors_total{kind,provider_type,channel,model}`、`quota_denies_total`、`billing_settle_lag_seconds`，并补齐 billing outbox enqueue/lag 指标与 `/metrics` smoke 覆盖。
 - P1.9 Trace 串联收口：新增 `http.request`、`gateway.data_plane`、`gateway.upstream_request`、`billing.emit_usage`、`billing.outbox.*` 与 `billing.consumer.*` spans，用 `kooix.request_id` 串起 data-plane upstream、pricing/outbox 与 settlement。
 - P1.9 控制台事故页落地：新增 `GET /v1/admin/incidents` 与 `/admin/incidents`，聚合最近错误、top failing channels、quota deny top、upstream 401/429/5xx 分类，并暴露 runtime-local quota / upstream error 快照辅助止血。
+- P1.9 Runbook 收口：`docs/observability-runbook.md` 增加上游全挂、Redis 不可用、Postgres 慢查询、pricing sync 失败与 outbox backlog 的 signals / 止血 / 诊断 / 恢复链路。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。
