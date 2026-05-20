@@ -94,6 +94,13 @@ flowchart LR
 - `crates/gate-server/src/worker.rs`：后台任务只在 `all|worker` 运行。
 - `crates/gate-server/src/route_manifest.rs`：route → mode 的静态清单，配合 `scripts/check-route-manifest.mjs` 做 CI 门禁。
 
+
+## 4.1 子页面导航
+
+- [Data Plane](./architecture/data-plane.md)
+- [Control Plane](./architecture/control-plane.md)
+- [Worker Plane](./architecture/worker-plane.md)
+
 ## 5. Route boundary
 
 ### 5.1 Gateway plane

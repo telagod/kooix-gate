@@ -70,6 +70,8 @@ kooix-gate/
 ├── LICENSE                     # AGPL-3.0
 ├── ROADMAP.md
 ├── RELEASE.md
+├── CONTRIBUTING.md
+├── SECURITY.md
 ├── docs/                       # 文档索引 / runbooks / waivers / stages
 ├── crates/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）

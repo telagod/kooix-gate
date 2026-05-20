@@ -8,18 +8,24 @@
 建议阅读顺序：
 
 1. `README.md`：先看项目定位与快速开始。
-2. `docs/architecture.md`：再看系统架构图、runtime mode、route boundary 与关键流。
-3. `DESIGN.md`：确认领域模型、权限、配额、计费等长期设计原则。
-4. `ROADMAP.md`：确认当前路线和未完成阶段。
-5. `RELEASE.md` / `docs/*runbook*`：看部署与处置。
-6. `docs/stages/`：最后看已完成阶段证据。
+2. `docs/architecture.md`：再看系统架构总览与子页面导航。
+3. `docs/architecture/data-plane.md`：确认热路径边界。
+4. `docs/architecture/control-plane.md`：确认管理面边界。
+5. `docs/architecture/worker-plane.md`：确认后台任务边界。
+6. `DESIGN.md`：确认领域模型、权限、配额、计费等长期设计原则。
+7. `ROADMAP.md`：确认当前路线和未完成阶段。
+8. `RELEASE.md` / `docs/*runbook*`：看部署与处置。
+9. `docs/stages/`：最后看已完成阶段证据。
 
 ## 关键文档
 
 | 文档 | 用途 |
 | --- | --- |
 | [README.md](../README.md) | 项目入口、能力速览、Quick Start、测试命令。 |
-| [architecture.md](./architecture.md) | 系统架构图、runtime mode、route boundary、关键请求流与部署形态。 |
+| [architecture.md](./architecture.md) | 系统架构总览入口、C4、runtime mode、route boundary 与关键请求流。 |
+| [architecture/data-plane.md](./architecture/data-plane.md) | Data Plane 关键边界与代码锚点。 |
+| [architecture/control-plane.md](./architecture/control-plane.md) | Control Plane 管理面边界与代码锚点。 |
+| [architecture/worker-plane.md](./architecture/worker-plane.md) | Worker Plane 后台任务边界与代码锚点。 |
 | [DESIGN.md](../DESIGN.md) | 设计原则、领域模型、权限、配额、计费与演进边界。 |
 | [ROADMAP.md](../ROADMAP.md) | 当前产品路线与未完成阶段计划。 |
 | [CHANGELOG.md](../CHANGELOG.md) | 版本变更记录。 |
@@ -43,6 +49,8 @@
 | [crates/kgctl/README.md](../crates/kgctl/README.md) | `kgctl` 部署 / 运维 CLI 使用说明。 |
 | [bench/README.md](../bench/README.md) | 50k rpm 负载测试与 mock upstream 说明。 |
 | [examples/README.md](../examples/README.md) | SDK、curl、Postman、Bruno、OpenAPI、Terraform、Helm 示例入口。 |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献前检查、提交原则、PR 要求与文档规范。 |
+| [SECURITY.md](../SECURITY.md) | 安全披露、重点关注面与高风险类别。 |
 | [examples/terraform/README.md](../examples/terraform/README.md) | Terraform provider / resource 示例入口。 |
 | [examples/manifest-registry/registry.json](../examples/manifest-registry/registry.json) | 官方/社区 HTTP Plugin manifest registry 索引，可用 `kgctl plugin registry` 导入私有包。 |
 | [examples/manifest-packages/private-auth-field-map-sse/](../examples/manifest-packages/private-auth-field-map-sse/) | HTTP Plugin manifest package 目录规范样本，覆盖 `manifest.json`、`fixtures/`、`README.md`、`security.md`。 |
