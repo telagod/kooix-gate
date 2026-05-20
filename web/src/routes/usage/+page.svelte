@@ -1,15 +1,15 @@
 <!-- /usage — 用量仪表盘：stat cards + 双 SVG 折线图 + 维度切换 -->
 <script lang="ts">
-	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { getUsage, getMe } from '$lib/api.js';
 	import type { UsageResponse } from '$lib/api.js';
-	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Stat from '$lib/components/Stat.svelte';
 	import FilterPills from '$lib/components/ui/FilterPills.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { BarChart3 } from 'lucide-svelte';
-	import { clsx } from 'clsx';
 
 	let usage = $state<UsageResponse | null>(null);
 	let loading = $state(true);
@@ -147,19 +147,27 @@
 	});
 </script>
 
-<div class="px-6 py-6">
-	<div class="flex items-center justify-between mb-6">
-		<div class="flex items-center gap-3">
-			<div class="flex items-center justify-center w-9 h-9 rounded-lg bg-zinc-900 dark:bg-zinc-100">
-				<BarChart3 size={18} class="text-white dark:text-zinc-900" />
-			</div>
-			<h1 class="text-xl font-bold text-zinc-900 dark:text-zinc-100">用量仪表盘</h1>
-		</div>
-		<div class="flex items-center gap-3">
+<PageShell
+	title="用量仪表盘"
+	description={currentOrg ? `Org 用量趋势、模型/渠道分布与 token 成本汇总 · ${currentOrg}` : '全平台用量趋势、模型/渠道分布与 token 成本汇总'}
+	icon={BarChart3}
+	max="wide"
+>
+	<DataToolbar>
+		{#snippet controls()}
 			<FilterPills bind:value={groupBy} options={groupByOptions} />
 			<FilterPills bind:value={range} options={rangeOptions} />
-		</div>
-	</div>
+		{/snippet}
+
+		{#snippet badges()}
+			<span class="rounded-full border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+				{groupBy === 'day' ? '每日趋势' : groupBy === 'model' ? '模型分布' : '渠道分布'}
+			</span>
+			<span class="rounded-full border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+				{range}
+			</span>
+		{/snippet}
+	</DataToolbar>
 
 	{#if loading}
 		<div class="space-y-4">
@@ -171,9 +179,7 @@
 			<div class="h-64 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse"></div>
 		</div>
 	{:else if error}
-		<Card class="p-6">
-			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-		</Card>
+		<StatePanel title="用量加载失败" description={error} icon={BarChart3} variant="danger" />
 	{:else if usage}
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 			<Stat title="总花费" value={formatCost(usage.total_cost_usd)} subtitle="USD · {usage.range}" />
@@ -251,4 +257,4 @@
 			{usage.from.slice(0, 10)} → {usage.to.slice(0, 10)}
 		</p>
 	{/if}
-</div>
+</PageShell>

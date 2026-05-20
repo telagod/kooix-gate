@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P2.1 `/orgs/[orgId]/projects/[projectId]/keys` 推广数据页模板：API Key 管理页改用 `PageShell` / `DataTable` / `ModalFrame` / `StatePanel`，保留明文 key 一次性展示、复制、撤销确认与刷新动作，模板审计缺口降至 6 页。
 - P2.1 `/orgs/[orgId]/projects/[projectId]` 推广页面模板：Project 设置页改用 `PageShell` / `StatePanel`，保留 Project invite、项目设置、API Key quick create 与模型别名操作，模板审计缺口降至 5 页。
 - P2.1 `/admin/sso` 推广数据页工具栏：SSO Provider 搜索从手写 search card 迁到 `DataToolbar`，新增清除搜索与 provider/enabled badges，模板审计缺口降至 4 页。
+- P2.1 `/usage` 推广页面模板：用量仪表盘改用 `PageShell` / `DataToolbar` / `StatePanel`，保留 range / group_by / chart mode 切换、stat cards、趋势折线与模型/渠道柱状图，模板审计缺口降至 3 页。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。

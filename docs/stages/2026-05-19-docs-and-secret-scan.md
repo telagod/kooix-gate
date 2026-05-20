@@ -269,6 +269,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / usage dashboard shell rollout
+
+本轮继续按 P2.1 “表格能力统一”清理 `/usage` 的页面模板缺口：
+
+- 用量仪表盘从手写 header / icon / H1 迁到共享 `PageShell`，页面说明统一展示当前 Org 或全平台视角。
+- range 与 group_by 控件迁到共享 `DataToolbar`，并用 badges 展示当前趋势维度与时间范围。
+- error 状态改用 `StatePanel`；loading skeleton、stat cards、chart mode 切换、每日趋势折线图、模型/渠道横向柱状图与 Org/date range footnote 保持原行为。
+- 模板审计快照：25 个 route page，`/usage` gaps 清零，pages_with_gaps 从 4 降到 3。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
