@@ -81,7 +81,7 @@ node ../scripts/audit-page-templates.mjs --json
 | `/orgs/[orgId]/projects/[projectId]` | Project 设置、Project invite、API Keys、模型别名 |
 | `/invite/accept` | 公开邀请接受页：preview token、邮箱匹配、新用户设密码并加入 Org / Project |
 | `/orgs/[orgId]/billing` | 月账单、quota alerts、CSV/JSON digest 导出与 invoice 状态机 |
-| `/orgs/[orgId]/quotas` | Quota policy engine：org/project/api_key/user × model 策略、enforce/dry-run、explain 与 Redis/PG 对账 |
+| `/orgs/[orgId]/quotas` | Quota policy engine 与 Quota wizard：org/project/api_key/user × model filter，批量输入 RPM/TPM/Budget，Explain 预览、enforce/dry-run 与 Redis/PG 对账 |
 | `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设、自定义 manifest、SSE replay、初始 key 写入、自动 probe 与保存后加入 Group |
 | `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
 | `/admin/pricing` | Platform admin Pricing wizard：选择 Model / Channel、dimension / unit / rate，预览价格并模拟一条 usage cost 后写入 global / channel-specific rule |

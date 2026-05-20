@@ -604,11 +604,11 @@ cargo test -p gate-providers --all-targets
   - [x] 选择计费维度
   - [x] 预览价格
   - [x] 模拟一条 usage cost
-- [ ] Quota wizard：
-  - 选择 scope
-  - 选择 model filter
-  - 输入 rpm/tpm/budget
-  - explain 预览。
+- [x] Quota wizard：
+  - [x] 选择 scope
+  - [x] 选择 model filter
+  - [x] 输入 rpm/tpm/budget
+  - [x] explain 预览。
 - [ ] UI 文案统一：
   - 中文为主
   - Provider / Channel / API Key 等术语保留英文。

@@ -371,6 +371,24 @@ npm --prefix web run check
 npm --prefix web test
 ```
 
+## P2.1 Frontend UX / quota wizard
+
+本轮把 P2.1 的 Quota wizard 从分散的手工表单/explain 面板补齐为可批量生成策略的 4 步向导：
+
+- `/orgs/[orgId]/quotas` 新增 Quota wizard：Scope、Model filter、RPM/TPM/Budget、Explain preview。
+- Wizard 可在一次草稿中生成 `rpm`、`tpm`、`daily|monthly|lifetime_budget_usd` 多条 policy，保留 `enforce` / `dry_run` 模式。
+- 新增 `web/src/lib/quota-wizard.ts`，集中处理 model filter 归一、rpm/tpm/budget request 组装、本地 would-deny 预览与 explain dimension 推导。
+- Explain 步调用后端 `explainQuota` 只读预览真实 counter / existing quota 命中；保存时逐条 `upsertQuota`，再刷新 quota 列表。
+- 新增 `web/src/tests/quota-wizard.test.ts` 覆盖 request 组装、空/通配 model filter、无效 limit 忽略、本地 would-deny 预览；`web/src/tests/quota-api.test.ts` 覆盖 quota API typed ID raw path/query。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test -- quota-api.test.ts quota-wizard.test.ts
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
