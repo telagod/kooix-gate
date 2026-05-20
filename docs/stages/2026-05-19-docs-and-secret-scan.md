@@ -1186,3 +1186,23 @@ cargo test -p gate-storage --test pg_repo -- --nocapture
 cargo test -p gate-server --test billing_e2e embeddings_apikey_emits_usage_event -- --nocapture
 cargo test -p kgctl usage_storage_plan_mentions_request_log_projection_and_retention_helpers -- --nocapture
 ```
+
+### SSE parser benchmark follow-up
+
+- `crates/gate-providers/benches/sse.rs` 新增共享 SSE decoder Criterion 压测，覆盖：
+  - `sse_parser_many_small_frames`：128 / 1024 / 8192 个 token 小帧；
+  - `sse_parser_large_frame`：64 KiB / 256 KiB / 1 MiB 单事件；
+  - `sse_parser_fragmented_utf8`：3-byte chunks 切分中文与 emoji UTF-8；
+  - `sse_parser_long_connection_cancel`：长连接只收到未以 blank line 终止的 partial events 后取消。
+- `crates/gate-providers/src/sse.rs` 单测同步覆盖四类边界，确保压测不是孤立 benchmark：小帧多、大帧、UTF-8 byte-by-byte 分片，以及 cancel 前不提前 emit incomplete event。
+- 压测暴露并修复 `SseLineDecoder` 在 incomplete long connection 上每次从头扫描 buffer 的 O(n²) 行为；decoder 现在保存 `scan_from` 增量扫描游标，并保留 3-byte overlap 捕捉跨 chunk 的 `\n\n` / `\r\n\r\n` 边界。
+- 本轮 `cargo bench --package gate-providers --bench sse -- --sample-size 10` 复测结果：`sse_parser_fragmented_utf8/three_byte_chunks` 从约 66 µs 降至约 8.7 µs，`sse_parser_long_connection_cancel/incomplete_events_dropped_on_cancel` 从约 161 ms 降至约 196 µs；大帧保持约 1.0 GiB/s 级吞吐。
+- `ROADMAP.md` 中 P2.2 `SSE parser 压测` 收口为完成，关键变更记录在 `CHANGELOG.md`；阶段证据继续追加在本文，根目录不新增完成态文档。
+
+追加验证命令：
+
+```bash
+cargo test -p gate-providers sse::tests -- --nocapture
+cargo check -p gate-providers --benches
+cargo bench --package gate-providers --bench sse -- --sample-size 10
+```

@@ -637,11 +637,11 @@ cargo test -p gate-providers --all-targets
   - [x] 当前 + 未来分区 helper
   - [x] retention dry-run / apply helper
   - [x] request log read path 优先读分区投影。
-- [ ] SSE parser 压测：
-  - 小帧多
-  - 大帧
-  - 分片 UTF-8
-  - 长连接取消。
+- [x] SSE parser 压测：
+  - [x] 小帧多
+  - [x] 大帧
+  - [x] 分片 UTF-8
+  - [x] 长连接取消。
 - [ ] Web bundle 预算：
   - route-level splitting
   - flow editor lazy load

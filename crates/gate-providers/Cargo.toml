@@ -38,3 +38,7 @@ wiremock = "0.6"
 [[bench]]
 name = "routing"
 harness = false
+
+[[bench]]
+name = "sse"
+harness = false

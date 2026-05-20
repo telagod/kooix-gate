@@ -15,9 +15,15 @@ pub struct SseEvent {
     pub data: String,
 }
 
+#[derive(Default)]
+struct SseDecoderState {
+    buf: Vec<u8>,
+    scan_from: usize,
+}
+
 #[derive(Clone, Default)]
 pub struct SseLineDecoder {
-    buf: Arc<Mutex<Vec<u8>>>,
+    state: Arc<Mutex<SseDecoderState>>,
 }
 
 impl SseLineDecoder {
@@ -27,9 +33,9 @@ impl SseLineDecoder {
 
     pub fn push(&self, item: Result<Bytes, reqwest::Error>) -> ProviderResult<Vec<SseEvent>> {
         let bytes = item.map_err(|e| ProviderError::Network(e.to_string()))?;
-        let mut buf = self.buf.lock();
-        buf.extend_from_slice(&bytes);
-        Ok(drain_sse_events(&mut buf))
+        let mut state = self.state.lock();
+        state.buf.extend_from_slice(&bytes);
+        Ok(drain_decoder_events(&mut state))
     }
 }
 
@@ -39,6 +45,29 @@ pub fn drain_sse_events(buf: &mut Vec<u8>) -> Vec<SseEvent> {
         let event_bytes: Vec<u8> = buf.drain(..idx + delim_len).collect();
         if let Some(event) = parse_event(&event_bytes[..idx]) {
             out.push(event);
+        }
+    }
+    out
+}
+
+fn drain_decoder_events(state: &mut SseDecoderState) -> Vec<SseEvent> {
+    let mut out = Vec::new();
+    loop {
+        let start = state.scan_from.min(state.buf.len().saturating_sub(2));
+        match find_event_boundary_from(&state.buf, start) {
+            Some((idx, delim_len)) => {
+                let event_bytes: Vec<u8> = state.buf.drain(..idx + delim_len).collect();
+                state.scan_from = 0;
+                if let Some(event) = parse_event(&event_bytes[..idx]) {
+                    out.push(event);
+                }
+            }
+            None => {
+                // Keep a small overlap so boundaries split across chunks are still
+                // detected: `\n\n` needs one previous byte, `\r\n\r\n` needs three.
+                state.scan_from = state.buf.len().saturating_sub(3);
+                break;
+            }
         }
     }
     out
@@ -72,7 +101,11 @@ fn parse_event(bytes: &[u8]) -> Option<SseEvent> {
 }
 
 fn find_event_boundary(buf: &[u8]) -> Option<(usize, usize)> {
-    let mut i = 0;
+    find_event_boundary_from(buf, 0)
+}
+
+fn find_event_boundary_from(buf: &[u8], start: usize) -> Option<(usize, usize)> {
+    let mut i = start.min(buf.len().saturating_sub(2));
     while i + 1 < buf.len() {
         if buf[i] == b'\n' && buf[i + 1] == b'\n' {
             return Some((i, 2));
@@ -141,5 +174,66 @@ mod tests {
         assert_eq!(second.len(), 1);
         assert_eq!(second[0].event.as_deref(), Some("token"));
         assert_eq!(second[0].data, "{\"a\":1}\n{\"b\":2}");
+    }
+
+    #[test]
+    fn decodes_many_small_frames() {
+        let decoder = SseLineDecoder::new();
+        let mut total = 0usize;
+
+        for i in 0..2_048 {
+            let frame = format!("data: {{\"i\":{i},\"delta\":\"x\"}}\n\n");
+            let events = decoder.push(Ok(Bytes::from(frame))).unwrap();
+            assert_eq!(events.len(), 1);
+            total += events.len();
+        }
+
+        assert_eq!(total, 2_048);
+    }
+
+    #[test]
+    fn decodes_large_frame() {
+        let decoder = SseLineDecoder::new();
+        let payload = "x".repeat(128 * 1024);
+        let frame = format!("event: chunk\ndata: {{\"blob\":\"{payload}\"}}\n\n");
+        let events = decoder.push(Ok(Bytes::from(frame))).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event.as_deref(), Some("chunk"));
+        assert_eq!(
+            events[0].data.len(),
+            payload.len() + "{\"blob\":\"\"}".len()
+        );
+        assert!(events[0].data.ends_with("\"}"));
+    }
+
+    #[test]
+    fn decodes_fragmented_utf8_byte_by_byte() {
+        let decoder = SseLineDecoder::new();
+        let frame = "data: {\"delta\":\"星辰🚀\"}\n\n";
+        let mut events = Vec::new();
+
+        for byte in frame.as_bytes() {
+            events.extend(decoder.push(Ok(Bytes::copy_from_slice(&[*byte]))).unwrap());
+        }
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data, "{\"delta\":\"星辰🚀\"}");
+    }
+
+    #[test]
+    fn does_not_emit_incomplete_event_before_long_connection_cancel() {
+        let decoder = SseLineDecoder::new();
+
+        for i in 0..512 {
+            let partial = format!("data: {{\"i\":{i},\"delta\":\"still-open\"}}\n");
+            let events = decoder.push(Ok(Bytes::from(partial))).unwrap();
+            assert!(
+                events.is_empty(),
+                "decoder must not emit an event before blank-line boundary"
+            );
+        }
+
+        drop(decoder);
     }
 }
