@@ -131,6 +131,7 @@ async fn build_fixture(
         orgs: Arc::new(InMemoryOrgRepo::new()),
         projects: Arc::new(InMemoryProjectRepo::new()),
         memberships: memberships.clone(),
+        invitations: Arc::new(gate_storage::InMemoryInvitationRepo::new()),
         api_keys: Arc::new(InMemoryApiKeyRepo::new()),
         channels: Arc::new(InMemoryChannelRepo::new()),
         channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),

@@ -166,6 +166,7 @@ async fn make_fixture() -> Fix {
         orgs,
         projects,
         memberships: memberships.clone(),
+        invitations: Arc::new(gate_storage::InMemoryInvitationRepo::new()),
         api_keys,
         channels,
         channel_groups,

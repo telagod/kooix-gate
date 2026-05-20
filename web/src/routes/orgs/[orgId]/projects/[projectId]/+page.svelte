@@ -5,6 +5,7 @@
 	import { getMe, getProject, updateProject, listKeys, createKey, revokeKey, listModelAliases, upsertModelAlias, deleteModelAlias } from '$lib/api.js';
 	import type { Project, ApiKey, CreateKeyResponse, ModelAlias } from '$lib/api.js';
 	import { Button, Card, Field, Input, Select } from '$lib/components/ui';
+	import InvitationPanel from '$lib/components/InvitationPanel.svelte';
 	import { Settings, Key, Plus, Trash2, Copy, Check, ArrowRight } from 'lucide-svelte';
 
 	let orgId = $derived($page.params.orgId ?? '');
@@ -154,6 +155,8 @@
 				{/if}
 			</div>
 		</Card>
+
+		<InvitationPanel scope="project" {orgId} {projectId} class="mb-6" />
 
 		<!-- API Keys -->
 		<Card class="p-5">

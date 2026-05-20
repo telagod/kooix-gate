@@ -76,6 +76,7 @@ async fn fixture() -> Fixture {
     let repos = Repos {
         users: users.clone(),
         memberships: memberships.clone(),
+        invitations: Arc::new(gate_storage::InMemoryInvitationRepo::new()),
         audit: audit.clone(),
         ..Repos::in_memory()
     };

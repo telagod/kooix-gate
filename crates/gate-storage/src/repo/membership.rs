@@ -39,6 +39,16 @@ pub trait MembershipRepo: Send + Sync + 'static {
         user: UserId,
         role: ProjectRole,
     ) -> DbResult<()>;
+    async fn add_project_member_in_org(
+        &self,
+        org: OrgId,
+        project: ProjectId,
+        user: UserId,
+        role: ProjectRole,
+    ) -> DbResult<()> {
+        let _ = org;
+        self.add_project_member(project, user, role).await
+    }
     async fn list_org_members(&self, org: OrgId) -> DbResult<Vec<OrgMemberView>>;
     async fn remove_org_member(&self, org: OrgId, user: UserId) -> DbResult<()>;
 }

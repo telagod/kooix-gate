@@ -35,6 +35,9 @@ pub use repo::identity::{
 pub use repo::inflight::{
     ExpiredInFlight, InFlightRecord, InFlightRepo, InMemoryInFlightRepo, PgInFlightRepo,
 };
+pub use repo::invitation::{
+    InMemoryInvitationRepo, InvitationCreate, InvitationRecord, InvitationRepo, PgInvitationRepo,
+};
 pub use repo::membership::{MembershipRepo, OrgMemberView, PgMembershipRepo, UserMemberships};
 pub use repo::memory::{
     InMemoryApiKeyRepo, InMemoryMembershipRepo, InMemoryOrgRepo, InMemoryProjectRepo,

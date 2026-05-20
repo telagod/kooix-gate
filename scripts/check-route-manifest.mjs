@@ -83,6 +83,7 @@ const routeFiles = [
   'crates/gate-server/src/routes/admin.rs',
   'crates/gate-server/src/routes/models.rs',
   'crates/gate-server/src/routes/images.rs',
+  'crates/gate-server/src/routes/invitations.rs',
   'crates/gate-server/src/routes/quotas.rs',
   'crates/gate-server/src/routes/request_logs.rs',
   'crates/gate-server/src/routes/channels.rs',

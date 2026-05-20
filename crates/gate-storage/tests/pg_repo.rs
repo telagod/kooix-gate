@@ -8,8 +8,9 @@
 use chrono::Utc;
 use gate_core::identity::{OrgRole, ProjectRole};
 use gate_storage::{
-    ApiKeyRepo, BillingRepo, InvoiceStatus, MembershipRepo, OrgRepo, PgApiKeyRepo, PgBillingRepo,
-    PgMembershipRepo, PgOrgRepo, PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
+    ApiKeyRepo, BillingRepo, InvitationCreate, InvitationRepo, InvoiceStatus, MembershipRepo,
+    OrgRepo, PgApiKeyRepo, PgBillingRepo, PgInvitationRepo, PgMembershipRepo, PgOrgRepo,
+    PgProjectRepo, PgUserRepo, ProjectRepo, UserRepo,
 };
 use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
@@ -128,6 +129,89 @@ async fn membership_roundtrip_includes_cross_org_key() {
     // 复合键意图：(org_b, p_a) 不应命中（即便 p_a 被攻击者借去）
     assert!(!snap.projects.contains_key(&(org_b.id, p_a.id)));
     assert!(snap.platform.is_none());
+}
+
+#[tokio::test]
+async fn invitation_repo_create_list_accept_and_revoke() {
+    let (_c, pool) = start_pg().await;
+    let users = PgUserRepo::new(pool.clone());
+    let orgs = PgOrgRepo::new(pool.clone());
+    let invitations = PgInvitationRepo::new(pool);
+
+    let owner = users
+        .create("invite-owner@x.com", None, None, None)
+        .await
+        .unwrap();
+    let invitee = users
+        .create("invitee@x.com", None, None, None)
+        .await
+        .unwrap();
+    let org = orgs.create("Invites", "invites", owner.id).await.unwrap();
+
+    let now = Utc::now();
+    let active = invitations
+        .create(InvitationCreate {
+            id: uuid::Uuid::now_v7(),
+            scope_kind: "org".into(),
+            scope_id: *org.id.as_uuid(),
+            email: "invitee@x.com".into(),
+            role: "member".into(),
+            token_hash: "hash-active".into(),
+            invited_by: owner.id,
+            expires_at: now + chrono::Duration::hours(2),
+        })
+        .await
+        .unwrap();
+    let revoked = invitations
+        .create(InvitationCreate {
+            id: uuid::Uuid::now_v7(),
+            scope_kind: "org".into(),
+            scope_id: *org.id.as_uuid(),
+            email: "second@x.com".into(),
+            role: "admin".into(),
+            token_hash: "hash-revoked".into(),
+            invited_by: owner.id,
+            expires_at: now + chrono::Duration::hours(2),
+        })
+        .await
+        .unwrap();
+    invitations
+        .create(InvitationCreate {
+            id: uuid::Uuid::now_v7(),
+            scope_kind: "org".into(),
+            scope_id: *org.id.as_uuid(),
+            email: "expired@x.com".into(),
+            role: "member".into(),
+            token_hash: "hash-expired".into(),
+            invited_by: owner.id,
+            expires_at: now - chrono::Duration::minutes(1),
+        })
+        .await
+        .unwrap();
+
+    let pending = invitations
+        .list_scope("org", *org.id.as_uuid(), false)
+        .await
+        .unwrap();
+    assert_eq!(pending.len(), 2, "expired invite hidden from pending list");
+
+    let accepted = invitations.accept("hash-active", invitee.id).await.unwrap();
+    assert_eq!(accepted.id, active.id);
+    assert_eq!(accepted.accepted_by, Some(invitee.id));
+    assert!(accepted.accepted_at.is_some());
+
+    let revoked = invitations.revoke(revoked.id).await.unwrap();
+    assert!(revoked.revoked_at.is_some());
+
+    let all = invitations
+        .list_scope("org", *org.id.as_uuid(), true)
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 3);
+    assert!(matches!(
+        invitations.accept("hash-expired", invitee.id).await,
+        Err(gate_storage::DbError::Conflict(_))
+    ));
 }
 
 #[tokio::test]

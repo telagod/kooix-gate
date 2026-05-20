@@ -583,3 +583,26 @@ npm --prefix web run check
 node scripts/check-route-manifest.mjs
 node scripts/generate-route-types.mjs --check
 ```
+
+## P1.7 Identity / Invitation Flow
+
+本轮把 P1.7 的邀请流从 schema TODO 落成 Org / Project 成员接入闭环：
+
+- `gate-storage` 新增 `InvitationRepo`，PG / InMemory 双实现对齐既有 `invitations` 表；明文 token 只在创建响应返回一次，存储层只保存 `SHA-256(token)`。
+- Admin API 新增 Org invitation create/list/revoke 与 Project invitation create/list/revoke；Org 入口要求 `OrgMemberInvite` / `OrgMemberRemove`，Project 入口要求 `ProjectMemberInvite` / `ProjectMemberRemove`。
+- 公开 `POST /v1/invitations/preview` 与 `POST /v1/invitations/accept`：preview 只暴露邮箱、scope、role、过期与状态；accept 校验 token pending、邮箱匹配、用户 active 或新建密码用户后写 membership。
+- 过期 / 撤销 / 已接受邀请均无法再次接受；accept 使用条件更新阻断重放。
+- Project invite accept 会重新读取 `projects.org_id` 并写入带 `(OrgId, ProjectId)` 上下文的 project membership，延续跨 Org project ID 重放防线。
+- 控制台在 `/orgs/[orgId]/projects` 增加 Org invite 面板，在 `/orgs/[orgId]/projects/[projectId]` 增加 Project invite 面板；新增 `/invite/accept` 公开接受页。
+- Route manifest 与生成的 `web/src/lib/api/route-manifest.ts` 同步新增 8 条 invitation 路由；关键文档同步 `README.md`、`DESIGN.md`、`CHANGELOG.md`、`ROADMAP.md`、`web/README.md`。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo test -p gate-server --test invitations_e2e
+cargo test -p gate-storage invitation_repo_create_list_accept_and_revoke
+npm --prefix web run check
+node scripts/check-route-manifest.mjs
+node scripts/generate-route-types.mjs --check
+```

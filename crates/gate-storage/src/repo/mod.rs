@@ -17,6 +17,7 @@ pub mod channel_key;
 pub mod channel_latency;
 pub mod identity;
 pub mod inflight;
+pub mod invitation;
 pub mod membership;
 pub mod memory;
 pub mod model_alias;

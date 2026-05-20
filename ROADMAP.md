@@ -485,10 +485,10 @@ cargo test -p gate-providers --all-targets
 
 **目标**：从内部 admin 可用，走向企业接入可用。
 
-- [ ] 邀请流：
-  - org invite
-  - project invite
-  - 过期 / 撤销
+- [x] 邀请流：
+  - [x] org invite
+  - [x] project invite
+  - [x] 过期 / 撤销
 - [x] SSO provider UI 完整化：
   - [x] OIDC discovery
   - [x] allowlist

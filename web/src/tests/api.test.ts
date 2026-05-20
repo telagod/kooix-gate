@@ -262,6 +262,58 @@ describe('api module', () => {
 		expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
 	});
 
+	it('invitation APIs use raw typed id paths and public accept endpoints', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		const orgId = 'org_019e2c1ba7d17162842207e4b24f5f98';
+		const projectId = 'proj_019e2c1ba7d17162842207e4b24f5f99';
+		const invitationId = '019e2c1b-a7d1-7162-8422-07e4b24f5f97';
+		const invitation = {
+			id: invitationId,
+			scope_kind: 'project',
+			scope_id: projectId,
+			email: 'dev@example.com',
+			role: 'developer',
+			invited_by: 'usr_019e2c1ba7d17162842207e4b24f5f96',
+			expires_at: '2026-01-02T00:00:00Z',
+			accepted_at: null,
+			accepted_by: null,
+			revoked_at: null,
+			created_at: '2026-01-01T00:00:00Z',
+			status: 'pending'
+		};
+		mockFetch
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...invitation, token: 'kg_inv_token', accept_url: null }) })
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => [invitation] })
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...invitation, status: 'revoked', revoked_at: '2026-01-01T01:00:00Z' }) })
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...invitation, id: invitationId }) })
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ user_id: 'usr_1', email: 'dev@example.com', scope_kind: 'project', scope_id: projectId, role: 'developer', accepted_at: '2026-01-01T00:00:00Z' }) });
+
+		const {
+			createProjectInvitation,
+			listProjectInvitations,
+			revokeProjectInvitation,
+			previewInvitation,
+			acceptInvitation
+		} = await loadApi();
+		await createProjectInvitation(orgId, projectId, { email: 'dev@example.com', role: 'developer', ttl_hours: 24 });
+		await listProjectInvitations(orgId, projectId, true);
+		await revokeProjectInvitation(orgId, projectId, invitationId);
+		await previewInvitation('kg_inv_token');
+		await acceptInvitation({ token: 'kg_inv_token', email: 'dev@example.com', password: 'strong-password-123' });
+
+		expect(mockFetch).toHaveBeenCalledTimes(5);
+		expect(mockFetch.mock.calls[0][0]).toContain('/v1/admin/orgs/019e2c1b-a7d1-7162-8422-07e4b24f5f98/projects/019e2c1b-a7d1-7162-8422-07e4b24f5f99/invitations');
+		expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+		expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ email: 'dev@example.com', role: 'developer', ttl_hours: 24 });
+		expect(mockFetch.mock.calls[1][0]).toContain('include_inactive=true');
+		expect(mockFetch.mock.calls[2][0]).toContain(`/invitations/${invitationId}`);
+		expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
+		expect(mockFetch.mock.calls[3][0]).toContain('/v1/invitations/preview');
+		expect(mockFetch.mock.calls[3][1].headers.has('Authorization')).toBe(false);
+		expect(mockFetch.mock.calls[4][0]).toContain('/v1/invitations/accept');
+		expect(mockFetch.mock.calls[4][1].headers.has('Authorization')).toBe(false);
+	});
+
 	it('admin channel drain APIs use raw typed id paths', async () => {
 		localStorage.setItem('kooix_access_token', 'tok');
 		const channel = {

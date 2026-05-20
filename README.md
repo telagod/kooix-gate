@@ -173,6 +173,18 @@ curl http://localhost:8080/v1/chat/completions \
 
 OIDC `client_secret` 使用 `KOOIX_MASTER_KEY` 派生的 envelope encryption 加密，AAD 绑定 `identity_providers.id`，API 与 audit 都不回显明文或密文。Provider 配置支持 OIDC discovery、邮箱域 allowlist、JIT auto-create、auto-join role 与 redirect policy；SSO `redirect_to` 默认只允许相对路径，绝对 URL 必须命中 Provider 的 `allowed_origins`。
 
+### 邀请流
+
+Org / Project 页面提供成员邀请面板，对应 API：
+
+- `GET/POST /v1/admin/orgs/:org_id/invitations`
+- `DELETE /v1/admin/orgs/:org_id/invitations/:invitation_id`
+- `GET/POST /v1/admin/orgs/:org_id/projects/:project_id/invitations`
+- `DELETE /v1/admin/orgs/:org_id/projects/:project_id/invitations/:invitation_id`
+- `POST /v1/invitations/preview`、`POST /v1/invitations/accept`（公开接受邀请）
+
+邀请明文 token 只在创建响应中返回一次，数据库只保存 `token_hash=SHA-256(token)`；过期、已接受或已撤销的邀请不能再次接受。Org 邀请要求 `Permission::OrgMemberInvite` / revoke 要求 `OrgMemberRemove`，Project 邀请要求 `ProjectMemberInvite` / revoke 要求 `ProjectMemberRemove`；接受 Project 邀请时会重新读取 Project 所属 Org，写入带 `(OrgId, ProjectId)` 复合上下文的 `project_memberships`，避免跨 Org project ID 重放。
+
 ## 设计要点速览
 
 - **多 Org 三层租户**：Org → Project → ApiKey，永不耦合

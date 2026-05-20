@@ -9,6 +9,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import InvitationPanel from '$lib/components/InvitationPanel.svelte';
 	import { FolderOpen, Plus, X } from 'lucide-svelte';
 
 	let orgId = $derived($page.params.orgId ?? '');
@@ -98,6 +99,8 @@
 				</form>
 			</Card>
 		{/if}
+
+		<InvitationPanel scope="org" {orgId} class="mb-6" />
 
 		<!-- 项目列表 -->
 		{#if loading}

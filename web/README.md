@@ -67,7 +67,9 @@ pnpm build
 |------|------|
 | `/login` | 邮箱密码登录，成功后跳 `/orgs` |
 | `/orgs` | 组织列表，支持切换激活 Org（X-Kooix-Org header）|
-| `/orgs/[orgId]/projects` | 列出指定 Org 下的 Project，支持创建 |
+| `/orgs/[orgId]/projects` | 列出指定 Org 下的 Project，支持创建与 Org invite |
+| `/orgs/[orgId]/projects/[projectId]` | Project 设置、Project invite、API Keys、模型别名 |
+| `/invite/accept` | 公开邀请接受页：preview token、邮箱匹配、新用户设密码并加入 Org / Project |
 | `/orgs/[orgId]/billing` | 月账单、quota alerts、CSV/JSON digest 导出与 invoice 状态机 |
 | `/orgs/[orgId]/quotas` | Quota policy engine：org/project/api_key/user × model 策略、enforce/dry-run、explain 与 Redis/PG 对账 |
 | `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设与自定义 manifest |

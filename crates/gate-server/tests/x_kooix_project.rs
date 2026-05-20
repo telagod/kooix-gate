@@ -193,6 +193,7 @@ async fn fixture() -> Fixture {
         orgs: orgs_repo,
         projects: projects_repo,
         memberships: Arc::new(gate_storage::InMemoryMembershipRepo::new()),
+        invitations: Arc::new(gate_storage::InMemoryInvitationRepo::new()),
         api_keys: Arc::new(gate_storage::InMemoryApiKeyRepo::new()),
         channels: ch_repo,
         channel_groups: grp_repo,

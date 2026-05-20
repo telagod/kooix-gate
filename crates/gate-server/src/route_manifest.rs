@@ -60,6 +60,8 @@ pub const ROUTES: &[RouteMeta] = &[
     route!("GET", "/v1/auth/sso/providers", Public, CONTROL_PLANE),
     route!("GET", "/v1/auth/sso/:slug/start", Public, CONTROL_PLANE),
     route!("GET", "/v1/auth/sso/callback", Public, CONTROL_PLANE),
+    route!("POST", "/v1/invitations/preview", Public, CONTROL_PLANE),
+    route!("POST", "/v1/invitations/accept", Public, CONTROL_PLANE),
     route!("GET", "/v1/me", User, CONTROL_PLANE),
     route!("PUT", "/v1/me/password", User, CONTROL_PLANE),
     route!("GET", "/v1/orgs/:org_id/projects", User, CONTROL_PLANE),
@@ -408,6 +410,42 @@ pub const ROUTES: &[RouteMeta] = &[
         "POST",
         "/v1/admin/orgs/:org_id/members",
         PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/admin/orgs/:org_id/invitations",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/orgs/:org_id/invitations",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "DELETE",
+        "/v1/admin/orgs/:org_id/invitations/:invitation_id",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/admin/orgs/:org_id/projects/:project_id/invitations",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/orgs/:org_id/projects/:project_id/invitations",
+        User,
+        CONTROL_PLANE
+    ),
+    route!(
+        "DELETE",
+        "/v1/admin/orgs/:org_id/projects/:project_id/invitations/:invitation_id",
+        User,
         CONTROL_PLANE
     ),
     route!(

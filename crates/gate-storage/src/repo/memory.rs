@@ -463,6 +463,20 @@ impl MembershipRepo for InMemoryMembershipRepo {
         Ok(())
     }
 
+    async fn add_project_member_in_org(
+        &self,
+        org: OrgId,
+        project: ProjectId,
+        user: UserId,
+        role: ProjectRole,
+    ) -> DbResult<()> {
+        self.inner
+            .write()
+            .projects
+            .insert((project, user), (org, role));
+        Ok(())
+    }
+
     async fn list_org_members(&self, org: OrgId) -> DbResult<Vec<OrgMemberView>> {
         let g = self.inner.read();
         let now = Utc::now();

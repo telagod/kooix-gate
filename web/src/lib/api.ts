@@ -872,6 +872,122 @@ export async function updateOrg(id: string, data: { name?: string; billing_email
 	});
 }
 
+// ── Invitations ──────────────────────────────────
+
+export interface Invitation {
+	id: string;
+	scope_kind: 'org' | 'project';
+	scope_id: string;
+	email: string;
+	role: string;
+	invited_by: string;
+	expires_at: string;
+	accepted_at: string | null;
+	accepted_by: string | null;
+	revoked_at: string | null;
+	created_at: string;
+	status: 'pending' | 'accepted' | 'expired' | 'revoked';
+}
+
+export interface CreatedInvitation extends Invitation {
+	token: string;
+	accept_url: string | null;
+}
+
+export interface InvitationPreview {
+	id: string;
+	scope_kind: 'org' | 'project';
+	scope_id: string;
+	email: string;
+	role: string;
+	expires_at: string;
+	status: 'pending' | 'accepted' | 'expired' | 'revoked';
+}
+
+export interface AcceptInvitationResult {
+	user_id: string;
+	email: string;
+	scope_kind: 'org' | 'project';
+	scope_id: string;
+	role: string;
+	accepted_at: string;
+}
+
+export async function listOrgInvitations(orgId: string, includeInactive = true): Promise<Invitation[]> {
+	const params = new URLSearchParams({ include_inactive: String(includeInactive) });
+	return apiFetch<Invitation[]>(`/v1/admin/orgs/${rawId(orgId)}/invitations?${params}`);
+}
+
+export async function createOrgInvitation(
+	orgId: string,
+	data: { email: string; role: string; ttl_hours?: number }
+): Promise<CreatedInvitation> {
+	return apiFetch<CreatedInvitation>(`/v1/admin/orgs/${rawId(orgId)}/invitations`, {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function revokeOrgInvitation(orgId: string, invitationId: string): Promise<Invitation> {
+	return apiFetch<Invitation>(`/v1/admin/orgs/${rawId(orgId)}/invitations/${rawId(invitationId)}`, {
+		method: 'DELETE'
+	});
+}
+
+export async function listProjectInvitations(
+	orgId: string,
+	projectId: string,
+	includeInactive = true
+): Promise<Invitation[]> {
+	const params = new URLSearchParams({ include_inactive: String(includeInactive) });
+	return apiFetch<Invitation[]>(
+		`/v1/admin/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/invitations?${params}`
+	);
+}
+
+export async function createProjectInvitation(
+	orgId: string,
+	projectId: string,
+	data: { email: string; role: string; ttl_hours?: number }
+): Promise<CreatedInvitation> {
+	return apiFetch<CreatedInvitation>(`/v1/admin/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/invitations`, {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function revokeProjectInvitation(
+	orgId: string,
+	projectId: string,
+	invitationId: string
+): Promise<Invitation> {
+	return apiFetch<Invitation>(
+		`/v1/admin/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/invitations/${rawId(invitationId)}`,
+		{ method: 'DELETE' }
+	);
+}
+
+export async function previewInvitation(token: string): Promise<InvitationPreview> {
+	return apiFetch<InvitationPreview>('/v1/invitations/preview', {
+		method: 'POST',
+		body: JSON.stringify({ token }),
+		skipAuth: true
+	});
+}
+
+export async function acceptInvitation(data: {
+	token: string;
+	email: string;
+	password?: string;
+	display_name?: string;
+}): Promise<AcceptInvitationResult> {
+	return apiFetch<AcceptInvitationResult>('/v1/invitations/accept', {
+		method: 'POST',
+		body: JSON.stringify(data),
+		skipAuth: true
+	});
+}
+
 // ── Admin Users ───────────────────────────────────
 
 export interface UserDetail {

@@ -11,9 +11,9 @@ use gate_crypto::EnvelopeKms;
 use gate_providers::{AudioProvider, ImageProvider, Provider, ProviderRouter};
 use gate_storage::{
     ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelLatencyRepo,
-    ChannelRepo, IdentityProviderRepo, InFlightRepo, MembershipRepo, ModelAliasRepo, OidcStateRepo,
-    OrgRepo, ProjectRepo, QuotaRepo, RequestLogRepo, UsageRepo, UserIdentityRepo, UserRepo,
-    UserSessionRepo,
+    ChannelRepo, IdentityProviderRepo, InFlightRepo, InvitationRepo, MembershipRepo,
+    ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, RequestLogRepo, UsageRepo,
+    UserIdentityRepo, UserRepo, UserSessionRepo,
 };
 use std::sync::Arc;
 
@@ -95,6 +95,8 @@ pub struct Repos {
     pub identity_providers: Arc<dyn IdentityProviderRepo>,
     pub user_identities: Arc<dyn UserIdentityRepo>,
     pub oidc_states: Arc<dyn OidcStateRepo>,
+    /// Enterprise invitation flow（P1.7）：org/project pending invites.
+    pub invitations: Arc<dyn InvitationRepo>,
     /// 控制台 refresh token 会话（P1.7）：持久化、轮转、撤销。
     pub sessions: Arc<dyn UserSessionRepo>,
     /// 用量聚合（E2 追加）—— 控制台 /v1/usage 仪表盘读它。
@@ -119,9 +121,10 @@ impl Repos {
     pub fn from_pg(pool: sqlx::PgPool) -> Self {
         use gate_storage::{
             PgApiKeyRepo, PgAuditRepo, PgBillingRepo, PgChannelGroupRepo, PgChannelKeyRepo,
-            PgChannelLatencyRepo, PgChannelRepo, PgIdentityProviderRepo, PgMembershipRepo,
-            PgModelAliasRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo, PgQuotaRepo,
-            PgRequestLogRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo, PgUserSessionRepo,
+            PgChannelLatencyRepo, PgChannelRepo, PgIdentityProviderRepo, PgInvitationRepo,
+            PgMembershipRepo, PgModelAliasRepo, PgOidcStateRepo, PgOrgRepo, PgProjectRepo,
+            PgQuotaRepo, PgRequestLogRepo, PgUsageRepo, PgUserIdentityRepo, PgUserRepo,
+            PgUserSessionRepo,
         };
         Self {
             users: Arc::new(PgUserRepo::new(pool.clone())),
@@ -136,6 +139,7 @@ impl Repos {
             identity_providers: Arc::new(PgIdentityProviderRepo::new(pool.clone())),
             user_identities: Arc::new(PgUserIdentityRepo::new(pool.clone())),
             oidc_states: Arc::new(PgOidcStateRepo::new(pool.clone())),
+            invitations: Arc::new(PgInvitationRepo::new(pool.clone())),
             sessions: Arc::new(PgUserSessionRepo::new(pool.clone())),
             usage: Arc::new(PgUsageRepo::new(pool.clone())),
             quotas: Arc::new(PgQuotaRepo::new(pool.clone())),
@@ -153,10 +157,10 @@ impl Repos {
         use gate_storage::{
             InMemoryApiKeyRepo, InMemoryAuditRepo, InMemoryBillingRepo, InMemoryChannelGroupRepo,
             InMemoryChannelKeyRepo, InMemoryChannelLatencyRepo, InMemoryChannelRepo,
-            InMemoryIdentityProviderRepo, InMemoryMembershipRepo, InMemoryModelAliasRepo,
-            InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo, InMemoryQuotaRepo,
-            InMemoryRequestLogRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo, InMemoryUserRepo,
-            InMemoryUserSessionRepo,
+            InMemoryIdentityProviderRepo, InMemoryInvitationRepo, InMemoryMembershipRepo,
+            InMemoryModelAliasRepo, InMemoryOidcStateRepo, InMemoryOrgRepo, InMemoryProjectRepo,
+            InMemoryQuotaRepo, InMemoryRequestLogRepo, InMemoryUsageRepo, InMemoryUserIdentityRepo,
+            InMemoryUserRepo, InMemoryUserSessionRepo,
         };
         Self {
             users: Arc::new(InMemoryUserRepo::new()),
@@ -171,6 +175,7 @@ impl Repos {
             identity_providers: Arc::new(InMemoryIdentityProviderRepo::new()),
             user_identities: Arc::new(InMemoryUserIdentityRepo::new()),
             oidc_states: Arc::new(InMemoryOidcStateRepo::new()),
+            invitations: Arc::new(InMemoryInvitationRepo::new()),
             sessions: Arc::new(InMemoryUserSessionRepo::new()),
             usage: Arc::new(InMemoryUsageRepo::new()),
             quotas: Arc::new(InMemoryQuotaRepo::new()),

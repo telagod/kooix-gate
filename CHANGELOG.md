@@ -99,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `kgctl doctor` 新增 `KOOIX_JWT_PREVIOUS_SECRETS` 可选检查：逗号分隔 base64，每项至少 32B；`--json` 会报告窗口是否配置。
 - SSO Provider 管理落地：新增 `/v1/admin/identity-providers` CRUD、`/discover` OIDC discovery、公开 `/v1/auth/sso/providers`，控制台 `/admin/sso` 支持 allowlist、auto-join role、enabled 状态与 redirect policy，登录页自动展示 enabled Provider。
 - SSO `redirect_to` 增加 Provider 级 redirect policy：相对路径由 `allow_relative` 控制，绝对 URL 必须命中 `allowed_origins`；scheme-relative URL、`javascript:` 与未授权 origin 会在 start/callback 阶段拒绝。
+- 邀请流落地：新增 org/project invitation create/list/revoke 与公开 preview/accept API，邀请 token 只存 SHA-256 hash，控制台在 Org / Project 页面可创建、复制、查看状态并撤销邀请，过期或已撤销邀请无法接受。
 
 ### Changed — Docs
 

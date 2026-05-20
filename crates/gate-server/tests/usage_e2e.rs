@@ -164,6 +164,7 @@ fn build_fixture() -> Fixture {
         orgs: Arc::new(InMemoryOrgRepo::new()),
         projects: Arc::new(InMemoryProjectRepo::new()),
         memberships: Arc::new(InMemoryMembershipRepo::new()),
+        invitations: Arc::new(gate_storage::InMemoryInvitationRepo::new()),
         api_keys: Arc::new(InMemoryApiKeyRepo::new()),
         channels: channels_repo,
         channel_groups: Arc::new(InMemoryChannelGroupRepo::new()),

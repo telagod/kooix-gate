@@ -15,6 +15,7 @@ pub mod chat;
 pub mod embeddings;
 pub mod health;
 pub mod images;
+pub mod invitations;
 pub mod me;
 pub mod model_aliases;
 pub mod models;
@@ -49,6 +50,7 @@ pub fn v1_router() -> Router<AppState> {
         .merge(chat::router())
         .merge(responses::router())
         .merge(images::router())
+        .merge(invitations::router())
         .merge(audio::router())
         .merge(auth::router())
         .merge(sso::router())

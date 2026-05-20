@@ -126,7 +126,17 @@
 - `metadata.redirect_policy` 是 SSO redirect 边界：相对路径由 `allow_relative` 控制；绝对 URL 只允许命中 `allowed_origins`，`javascript:`、scheme-relative URL 与未配置 origin 的外站跳转一律拒绝。
 - JIT provisioning 仍由 `auto_create_users`、`email_domain_allowlist`、`auto_join_org_role` 三项共同约束；allowlist 不匹配时在创建 / 绑定用户前拒绝。
 
-### 2.6 权限检查门面
+### 2.6 邀请流
+
+`invitations` 表是 Org / Project 成员邀请的唯一 pending source：
+
+- Admin API：Org 邀请走 `/v1/admin/orgs/:org_id/invitations`，Project 邀请走 `/v1/admin/orgs/:org_id/projects/:project_id/invitations`；创建 / 列表分别要求 `OrgMemberInvite` 或 `ProjectMemberInvite`，撤销要求对应 remove 权限。
+- 公开接受入口：`POST /v1/invitations/preview` 只返回目标邮箱、scope、role、状态与过期时间；`POST /v1/invitations/accept` 校验 token pending、邮箱匹配、用户 active 或新建密码用户后写 membership。
+- token 明文只在创建响应返回一次，存储层只保存 `SHA-256(token)`；accept 使用 `accepted_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()` 条件更新，天然拒绝重放、过期与撤销。
+- Project invite accept 会重新读取 `projects.org_id` 后调用 `add_project_member_in_org`，确保 `AuthContext` 中仍以 `(OrgId, ProjectId)` 复合 key 保存 project role，延续跨 Org 重放防线。
+- 关键 mutation 写入 `invitation.create` / `invitation.revoke` audit；accept 当前为公开 self-service 路径，不回显 token hash，也不写明文 token。
+
+### 2.7 权限检查门面
 
 所有路由强制走：
 
