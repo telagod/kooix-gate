@@ -135,6 +135,7 @@ enum Decision {
     Allowed,
     Denied {
         dimension: String,
+        scope_kind: String,
         retry_after_ms: u64,
     },
 }
@@ -245,6 +246,7 @@ async fn check_rate(limiter: &Arc<RateLimiter>, q: &QuotaRecord, amount: i64) ->
         Ok(d) if d.allowed => Decision::Allowed,
         Ok(d) => Decision::Denied {
             dimension: q.dimension.clone(),
+            scope_kind: q.scope_kind.clone(),
             retry_after_ms: d.retry_after_ms,
         },
         Err(e) => {
@@ -284,6 +286,7 @@ async fn check_counter_predebit(
         Ok(_) => (
             Decision::Denied {
                 dimension: q.dimension.clone(),
+                scope_kind: q.scope_kind.clone(),
                 retry_after_ms: if q.dimension == "concurrent" {
                     30_000
                 } else {
@@ -460,9 +463,11 @@ pub async fn quota_enforce(State(state): State<AppState>, req: Request, next: Ne
         };
         if let Decision::Denied {
             dimension,
+            scope_kind,
             retry_after_ms,
         } = decision
         {
+            crate::metrics::record_quota_deny(&dimension, &scope_kind, "enforce");
             // 被拒绝时，需要退还已成功的 guard（本请求不会走到 handler）
             drop(guards);
             return quota_exceeded_response(&dimension, retry_after_ms).into_response();

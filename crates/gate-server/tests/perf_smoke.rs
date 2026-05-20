@@ -7,6 +7,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{Duration as ChronoDuration, Utc};
 use gate_auth::jwt::{JwtIssuer, TokenLifetimes};
+use gate_billing::{InMemoryOutboxRepo, InMemoryPricingRepo, OutboxRepo, PricingRepo, UsageEvent};
 use gate_core::id::{ApiKeyId, ChannelGroupId, ChannelId, OrgId, ProjectId, UserId};
 use gate_core::identity::{PlatformRole, Project, ProjectStatus};
 use gate_providers::ProviderRouter;
@@ -189,8 +190,14 @@ async fn harness() -> Harness {
         },
     )
     .unwrap();
+    let pricing = Arc::new(InMemoryPricingRepo::new());
+    pricing.seed_global("gpt-4o-mini", 0.15, 0.60);
+    let outbox = Arc::new(InMemoryOutboxRepo::new());
+
     let state = AppState::new(jwt, loader, repos)
-        .with_provider_router(ProviderRouter::new(channels, groups));
+        .with_provider_router(ProviderRouter::new(channels, groups))
+        .with_outbox(outbox as Arc<dyn OutboxRepo>)
+        .with_pricing(pricing as Arc<dyn PricingRepo>);
     let jwt = state.jwt.clone();
     let router = build_router(state);
     let admin_token = jwt
@@ -472,6 +479,17 @@ async fn gateway_controlplane_and_metrics_smoke() {
         "/v1/admin/dashboard-stats too slow: {elapsed:?}"
     );
 
+    gate_server::metrics::record_quota_deny("daily_budget_usd", "api_key", "enforce");
+    gate_server::metrics::record_upstream_error_with_context(
+        "authentication_error",
+        "openai",
+        "ch_perf_smoke",
+        "gpt-4o-mini",
+    );
+    gate_server::metrics::record_billing_settle_lag_seconds(0.25);
+    gate_server::metrics::record_billing_outbox_lag_seconds(0.5);
+    gate_server::metrics::record_usage_rollup_lag_seconds(0.25);
+
     let (status, body, _) = timed(
         &h.router,
         Request::builder()
@@ -488,6 +506,54 @@ async fn gateway_controlplane_and_metrics_smoke() {
         "provider_route_decisions_total",
         "gate_tokens_total",
         "gate_requests_total",
+        "gateway_requests_total",
+        "gateway_request_duration_seconds",
+        "gateway_upstream_errors_total",
+        "quota_denies_total",
+        "billing_outbox_enqueued_total",
+        "billing_outbox_lag_seconds",
+        "billing_settle_lag_seconds",
+    ] {
+        assert!(
+            metrics.contains(needle),
+            "missing metric {needle}; metrics={metrics}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn outbox_metrics_track_pending_lag_without_pg() {
+    gate_server::metrics::install_recorder();
+    let outbox = InMemoryOutboxRepo::new();
+    let event = UsageEvent {
+        request_id: Uuid::now_v7(),
+        idempotency_key: Some("perf-outbox-metric".to_string()),
+        api_key_id: Uuid::now_v7(),
+        project_id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        channel_id: None,
+        group_id: None,
+        model: "gpt-4o-mini".to_string(),
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        cached_tokens: 0,
+        reasoning_tokens: 0,
+        image_units: 0,
+        audio_seconds: 0.0,
+        raw_usage: None,
+        cost_micros: 1,
+        occurred_at: Utc::now() - ChronoDuration::seconds(2),
+        status: 200,
+    };
+
+    outbox.enqueue(&event).await.unwrap();
+    let batch = outbox.fetch_batch(10).await.unwrap();
+    assert_eq!(batch.len(), 1);
+
+    let metrics = gate_server::metrics::render_for_tests().expect("metrics installed");
+    for needle in [
+        "billing_outbox_enqueued_total",
+        "billing_outbox_lag_seconds",
     ] {
         assert!(
             metrics.contains(needle),

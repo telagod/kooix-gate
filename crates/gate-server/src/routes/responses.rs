@@ -19,100 +19,14 @@ use axum::{Extension, Json, Router, routing::post};
 use futures::StreamExt;
 use gate_core::id::ChannelId;
 use gate_providers::retry::with_retry;
-use gate_providers::{
-    ChatMessage, ChatRequest, ChatResponse, ContentPart, ContentType, MessageContent, Role,
-    ToolDef, Usage,
-};
-use serde::{Deserialize, Serialize};
+use gate_providers::{ChatRequest, ChatResponse, Usage};
+mod responses_codec;
+use responses_codec::{ResponsesRequest, chat_to_responses_response, responses_to_chat_request};
 use std::convert::Infallible;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/responses", post(create_response))
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ResponsesRequest {
-    model: String,
-    input: ResponseInput,
-    #[serde(default)]
-    instructions: Option<String>,
-    #[serde(default)]
-    stream: bool,
-    #[serde(default)]
-    temperature: Option<f32>,
-    #[serde(default)]
-    top_p: Option<f32>,
-    #[serde(default, alias = "max_completion_tokens")]
-    max_output_tokens: Option<u32>,
-    #[serde(default)]
-    tools: Option<Vec<ToolDef>>,
-    #[serde(default)]
-    tool_choice: Option<serde_json::Value>,
-    #[serde(default, flatten)]
-    extra: serde_json::Map<String, serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum ResponseInput {
-    Text(String),
-    Items(Vec<ResponseInputItem>),
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ResponseInputItem {
-    #[serde(default)]
-    role: Option<Role>,
-    #[serde(default)]
-    content: Option<ResponseInputContent>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum ResponseInputContent {
-    Text(String),
-    Parts(Vec<ResponseContentPart>),
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ResponseContentPart {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default)]
-    image_url: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ResponsesResponse {
-    id: String,
-    object: &'static str,
-    created_at: i64,
-    status: &'static str,
-    model: String,
-    output: Vec<ResponseOutputItem>,
-    output_text: String,
-    #[serde(default)]
-    usage: Usage,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ResponseOutputItem {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    id: String,
-    status: &'static str,
-    role: &'static str,
-    content: Vec<ResponseOutputContent>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ResponseOutputContent {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    text: String,
 }
 
 async fn create_response(
@@ -174,6 +88,7 @@ async fn create_response(
             routed_metrics,
             billing_ctx,
             guards,
+            provider_type,
             chat_req,
         )
         .await
@@ -187,6 +102,7 @@ async fn create_response(
             routed_metrics,
             billing_ctx,
             guards,
+            provider_type,
             chat_req,
         )
         .await
@@ -203,6 +119,7 @@ async fn create_response_non_stream(
     routed_metrics: Option<std::sync::Arc<gate_providers::ChannelMetrics>>,
     billing_ctx: Option<BillingCtx>,
     guards: Option<Extension<InflightGuards>>,
+    provider_type: String,
     chat_req: ChatRequest,
 ) -> AppResult<axum::response::Response> {
     let start = std::time::Instant::now();
@@ -212,6 +129,8 @@ async fn create_response_non_stream(
         let provider = provider.clone();
         let app = app.clone();
         let routed_metrics = routed_metrics.clone();
+        let provider_type = provider_type.clone();
+        let model_for_metrics = model_for_metrics.clone();
         async move {
             match provider.chat(req_clone).await {
                 Ok(resp) => Ok(resp),
@@ -222,6 +141,8 @@ async fn create_response_non_stream(
                         routed_key_id,
                         &err,
                         &routed_metrics,
+                        &provider_type,
+                        &model_for_metrics,
                     )
                     .await;
                     Err(err)
@@ -297,6 +218,7 @@ async fn create_response_stream(
     routed_metrics: Option<std::sync::Arc<gate_providers::ChannelMetrics>>,
     billing_ctx: Option<BillingCtx>,
     guards: Option<Extension<InflightGuards>>,
+    provider_type: String,
     chat_req: ChatRequest,
 ) -> AppResult<axum::response::Response> {
     let model = chat_req.model.clone();
@@ -317,8 +239,16 @@ async fn create_response_stream(
                 StageOutcome::Error,
                 execute_start.elapsed().as_secs_f64(),
             );
-            chat::report_channel_failure(&app, channel_id, routed_key_id, &e, &routed_metrics)
-                .await;
+            chat::report_channel_failure(
+                &app,
+                channel_id,
+                routed_key_id,
+                &e,
+                &routed_metrics,
+                &provider_type,
+                &model,
+            )
+            .await;
             release_channel(&app, channel_id);
             return Err(AppError::Provider(e));
         }
@@ -345,6 +275,8 @@ async fn create_response_stream(
         .as_ref()
         .map(|router| router.rate_limiter());
     let model_for_tail = model.clone();
+    let provider_type_for_stream = provider_type.clone();
+    let model_for_stream_errors = model.clone();
 
     let mapped = upstream.map(move |item| match item {
         Ok(chunk) => {
@@ -362,13 +294,23 @@ async fn create_response_stream(
             });
             Ok::<_, Infallible>(Event::default().data(payload.to_string()))
         }
-        Err(e) => Ok(Event::default().data(
-            serde_json::json!({
-                "type": "error",
-                "error": e.to_string()
-            })
-            .to_string(),
-        )),
+        Err(e) => {
+            let channel = crate::metrics::channel_label(channel_id);
+            let failure = crate::error::provider_failure_policy(&e);
+            crate::metrics::record_upstream_error_with_context(
+                failure.kind_label,
+                &provider_type_for_stream,
+                &channel,
+                &model_for_stream_errors,
+            );
+            Ok(Event::default().data(
+                serde_json::json!({
+                    "type": "error",
+                    "error": e.to_string()
+                })
+                .to_string(),
+            ))
+        }
     });
 
     let tail = futures::stream::once(async move {
@@ -408,124 +350,5 @@ async fn create_response_stream(
 fn release_channel(app: &AppState, channel_id: Option<Uuid>) {
     if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
         router.release_channel(ChannelId::from(ch_uuid));
-    }
-}
-
-fn responses_to_chat_request(req: ResponsesRequest) -> AppResult<ChatRequest> {
-    let mut messages = Vec::new();
-    if let Some(instructions) = req.instructions
-        && !instructions.trim().is_empty()
-    {
-        messages.push(ChatMessage::text(Role::System, instructions));
-    }
-    messages.extend(response_input_to_messages(req.input)?);
-    if messages.is_empty() {
-        return Err(AppError::BadRequest(
-            "responses input must not be empty".into(),
-        ));
-    }
-
-    Ok(ChatRequest {
-        model: req.model,
-        messages,
-        temperature: req.temperature,
-        top_p: req.top_p,
-        max_tokens: req.max_output_tokens,
-        stream: req.stream,
-        tools: req.tools,
-        tool_choice: req.tool_choice,
-        extra: req.extra,
-    })
-}
-
-fn response_input_to_messages(input: ResponseInput) -> AppResult<Vec<ChatMessage>> {
-    match input {
-        ResponseInput::Text(text) => Ok(vec![ChatMessage::text(Role::User, text)]),
-        ResponseInput::Items(items) => items
-            .into_iter()
-            .map(|item| {
-                let role = item.role.unwrap_or(Role::User);
-                let content = match item.content {
-                    Some(content) => response_content_to_message_content(content)?,
-                    None => MessageContent::Text(String::new()),
-                };
-                Ok(ChatMessage {
-                    role,
-                    content: Some(content),
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                })
-            })
-            .collect(),
-    }
-}
-
-fn response_content_to_message_content(content: ResponseInputContent) -> AppResult<MessageContent> {
-    match content {
-        ResponseInputContent::Text(text) => Ok(MessageContent::Text(text)),
-        ResponseInputContent::Parts(parts) => {
-            let mut out = Vec::new();
-            for part in parts {
-                match part.kind.as_str() {
-                    "input_text" | "text" => out.push(ContentPart::Text {
-                        r#type: ContentType::Text,
-                        text: part.text.unwrap_or_default(),
-                    }),
-                    "input_image" | "image_url" => {
-                        let url =
-                            part.image_url
-                                .and_then(|value| {
-                                    value.as_str().map(ToOwned::to_owned).or_else(|| {
-                                        value.get("url")?.as_str().map(ToOwned::to_owned)
-                                    })
-                                })
-                                .ok_or_else(|| {
-                                    AppError::BadRequest(
-                                        "responses image input requires image_url".into(),
-                                    )
-                                })?;
-                        out.push(ContentPart::ImageUrl {
-                            r#type: ContentType::ImageUrl,
-                            image_url: gate_providers::ImageUrl { url, detail: None },
-                        });
-                    }
-                    other => {
-                        return Err(AppError::BadRequest(format!(
-                            "unsupported responses input content type '{other}'"
-                        )));
-                    }
-                }
-            }
-            Ok(MessageContent::Parts(out))
-        }
-    }
-}
-
-fn chat_to_responses_response(resp: ChatResponse) -> ResponsesResponse {
-    let output_text = resp
-        .choices
-        .first()
-        .and_then(|choice| choice.message.content.as_ref())
-        .map(MessageContent::to_text)
-        .unwrap_or_default();
-    ResponsesResponse {
-        id: resp.id.clone(),
-        object: "response",
-        created_at: chrono::Utc::now().timestamp(),
-        status: "completed",
-        model: resp.model,
-        output: vec![ResponseOutputItem {
-            kind: "message",
-            id: format!("msg_{}", Uuid::now_v7().simple()),
-            status: "completed",
-            role: "assistant",
-            content: vec![ResponseOutputContent {
-                kind: "output_text",
-                text: output_text.clone(),
-            }],
-        }],
-        output_text,
-        usage: resp.usage,
     }
 }

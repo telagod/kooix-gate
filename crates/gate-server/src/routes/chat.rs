@@ -201,7 +201,16 @@ async fn chat_completions(
                     StageOutcome::Error,
                     execute_start.elapsed().as_secs_f64(),
                 );
-                report_channel_failure(&app, channel_id, routed_key_id, &e, &routed_metrics).await;
+                report_channel_failure(
+                    &app,
+                    channel_id,
+                    routed_key_id,
+                    &e,
+                    &routed_metrics,
+                    &provider_type,
+                    &model,
+                )
+                .await;
                 return Err(AppError::Provider(e));
             }
         };
@@ -232,13 +241,24 @@ async fn chat_completions(
         let rate_limiter_for_tpm = app.provider_router.as_ref().map(|r| r.rate_limiter());
         let tpm_channel_id = channel_id.map(ChannelId::from);
         let estimated_stream_usage = estimated_stream_usage.clone();
+        let model_for_stream_errors = model.clone();
 
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
-        let wrapped = upstream.inspect(move |item| {
-            if let Ok(chunk) = item
-                && let Some(u) = &chunk.usage
-            {
-                *captured_clone.lock() = Some(u.clone());
+        let wrapped = upstream.inspect(move |item| match item {
+            Ok(chunk) => {
+                if let Some(u) = &chunk.usage {
+                    *captured_clone.lock() = Some(u.clone());
+                }
+            }
+            Err(err) => {
+                let channel = crate::metrics::channel_label(channel_id);
+                let failure = provider_failure_policy(err);
+                crate::metrics::record_upstream_error_with_context(
+                    failure.kind_label,
+                    &provider_type,
+                    &channel,
+                    &model_for_stream_errors,
+                );
             }
         });
 
@@ -312,6 +332,8 @@ async fn chat_completions(
             let provider = provider.clone();
             let app = app.clone();
             let routed_metrics = routed_metrics.clone();
+            let provider_type = provider_type.clone();
+            let model = model.clone();
             async move {
                 match provider.chat(req_clone).await {
                     Ok(resp) => Ok(resp),
@@ -322,6 +344,8 @@ async fn chat_completions(
                             routed_key_id,
                             &err,
                             &routed_metrics,
+                            &provider_type,
+                            &model,
                         )
                         .await;
                         Err(err)
@@ -504,6 +528,8 @@ pub(crate) async fn report_channel_failure(
     key_id: Option<ChannelKeyId>,
     error: &ProviderError,
     routed_metrics: &Option<Arc<ChannelMetrics>>,
+    provider_type: &str,
+    model: &str,
 ) {
     let failure = provider_failure_policy(error);
     if let Some(key_id) = key_id
@@ -536,7 +562,13 @@ pub(crate) async fn report_channel_failure(
             }
         }
     }
-    crate::metrics::record_upstream_error(failure.kind_label);
+    let channel = crate::metrics::channel_label(channel_id);
+    crate::metrics::record_upstream_error_with_context(
+        failure.kind_label,
+        provider_type,
+        &channel,
+        model,
+    );
 }
 
 /// 从 AuthContext + headers 提取 project_id（带越权校验）。

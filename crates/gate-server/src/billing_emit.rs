@@ -80,6 +80,15 @@ pub async fn emit_usage(
     };
 
     let now = Utc::now();
+    let request_started_at = ctx
+        .request_id
+        .get_timestamp()
+        .map(std::time::SystemTime::from)
+        .map(chrono::DateTime::<Utc>::from)
+        .unwrap_or(now);
+    crate::metrics::record_billing_outbox_lag_seconds(
+        (now - request_started_at).num_milliseconds().max(0) as f64 / 1000.0,
+    );
     let pricing_rules = match pricing.find_rules(ctx.channel_id, &ctx.model, now).await {
         Ok(rules) if !rules.is_empty() => rules,
         Ok(_) => {

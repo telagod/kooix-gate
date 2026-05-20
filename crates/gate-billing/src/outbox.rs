@@ -10,6 +10,7 @@
 use crate::BillingResult;
 use crate::types::UsageEvent;
 use async_trait::async_trait;
+use chrono::Utc;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -59,6 +60,7 @@ impl OutboxRepo for PgOutboxRepo {
         .fetch_one(&self.pool)
         .await?;
         let id: OutboxId = row.try_get("id")?;
+        record_outbox_enqueued(event);
         Ok(id)
     }
 
@@ -116,6 +118,8 @@ impl OutboxRepo for PgOutboxRepo {
             .await
         {
             metrics::gauge!("billing_outbox_lag_seconds").set(lag_seconds);
+        } else if ids.is_empty() {
+            metrics::gauge!("billing_outbox_lag_seconds").set(0.0);
         }
         tx.commit().await?;
         Ok(result)
@@ -212,6 +216,7 @@ impl OutboxRepo for InMemoryOutboxRepo {
             retry_count: 0,
             last_error: None,
         });
+        record_outbox_enqueued(event);
         Ok(id)
     }
 
@@ -224,6 +229,13 @@ impl OutboxRepo for InMemoryOutboxRepo {
             .take(limit.max(0) as usize)
             .map(|r| (r.id, r.event.clone()))
             .collect();
+        let lag_seconds = g
+            .rows
+            .iter()
+            .filter(|r| !r.processed && r.retry_count < 3)
+            .map(|r| (Utc::now() - r.event.occurred_at).num_milliseconds().max(0) as f64 / 1000.0)
+            .fold(0.0, f64::max);
+        metrics::gauge!("billing_outbox_lag_seconds").set(lag_seconds);
         Ok(out)
     }
 
@@ -243,4 +255,10 @@ impl OutboxRepo for InMemoryOutboxRepo {
         }
         Ok(())
     }
+}
+
+fn record_outbox_enqueued(event: &UsageEvent) {
+    metrics::counter!("billing_outbox_enqueued_total").increment(1);
+    let lag_seconds = (Utc::now() - event.occurred_at).num_milliseconds().max(0) as f64 / 1000.0;
+    metrics::gauge!("billing_outbox_lag_seconds").set(lag_seconds);
 }

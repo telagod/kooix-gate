@@ -37,7 +37,7 @@ async fn create_image(
     Json(mut req): Json<ImageGenerationRequest>,
 ) -> AppResult<Json<ImageGenerationResponse>> {
     let route_start = std::time::Instant::now();
-    let (provider, channel_id, routed_group_id, routed_key_id, routed_model) =
+    let (provider, channel_id, routed_group_id, routed_key_id, routed_model, provider_type) =
         resolve_image_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -75,7 +75,15 @@ async fn create_image(
             {
                 router.release_channel(ChannelId::from(ch_uuid));
             }
-            report_image_key_failure(&app, routed_key_id, &e).await;
+            report_image_key_failure(
+                &app,
+                routed_key_id,
+                &e,
+                &provider_type,
+                channel_id,
+                &req.model,
+            )
+            .await;
             return Err(AppError::Provider(e));
         }
     };
@@ -149,6 +157,7 @@ async fn resolve_image_provider(
     Option<Uuid>,
     Option<ChannelKeyId>,
     Option<String>,
+    String,
 )> {
     if let Some(router) = &app.provider_router {
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
@@ -161,6 +170,7 @@ async fn resolve_image_provider(
                     group_id,
                     key_id,
                     resolved_model,
+                    provider_type,
                     ..
                 })) => {
                     return Ok((
@@ -169,6 +179,7 @@ async fn resolve_image_provider(
                         Some(*group_id.as_uuid()),
                         key_id,
                         Some(resolved_model),
+                        provider_type,
                     ));
                 }
                 Ok(None) => {
@@ -187,7 +198,14 @@ async fn resolve_image_provider(
     }
 
     if let Some(provider) = &app.image_provider {
-        return Ok((provider.clone(), None, None, None, None));
+        return Ok((
+            provider.clone(),
+            None,
+            None,
+            None,
+            None,
+            "fallback".to_string(),
+        ));
     }
 
     Err(AppError::NoRoute {
@@ -209,6 +227,9 @@ async fn report_image_key_failure(
     app: &AppState,
     key_id: Option<ChannelKeyId>,
     error: &ProviderError,
+    provider_type: &str,
+    channel_id: Option<Uuid>,
+    model: &str,
 ) {
     let failure = provider_failure_policy(error);
     if let Some(key_id) = key_id
@@ -225,7 +246,13 @@ async fn report_image_key_failure(
     {
         tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "image channel key failure report failed");
     }
-    crate::metrics::record_upstream_error(failure.kind_label);
+    let channel = crate::metrics::channel_label(channel_id);
+    crate::metrics::record_upstream_error_with_context(
+        failure.kind_label,
+        provider_type,
+        &channel,
+        model,
+    );
 }
 
 async fn extract_project_id(

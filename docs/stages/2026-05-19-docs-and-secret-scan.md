@@ -708,3 +708,24 @@ cargo run -p kgctl -- plugin package lint examples/manifest-packages/private-aut
 git diff --check
 rg -n "WASM|request transform|response transform|streaming transform|secret access|deterministic|资源限制|audit" docs/wasm-plugin-abi.md ROADMAP.md DESIGN.md docs/plugin-manifest.md
 ```
+
+## P1.9 Observability / Prometheus Metrics Naming
+
+本轮把 ROADMAP 中 “Prometheus metrics 完整命名” 从既有局部指标收敛为固定生产指标命名：
+
+- `gateway_requests_total{method,path,status,status_class}` 固定 request count；旧 `gate_requests_total` 暂保留兼容。
+- `gateway_request_duration_seconds{method,path,status_class}` 固定请求 latency，并在 Prometheus exporter 中配置 true histogram buckets；旧 `gate_request_duration_seconds` 暂保留兼容。
+- `gateway_upstream_errors_total{kind,provider_type,channel,model}` 覆盖 chat / responses / embeddings / images / audio provider failures，fallback channel 标记为 `fallback`。
+- `quota_denies_total{dimension,scope_kind,mode}` 记录 enforce hard deny；dry-run 继续使用 `quota_dry_run_total`。
+- `billing_outbox_lag_seconds` 记录 billing outbox pending age；`billing_outbox_enqueued_total` 记录 enqueue。
+- `billing_settle_lag_seconds` 记录 usage settlement age；`usage_rollup_lag_seconds` 保持 read model freshness。
+- `docs/observability-runbook.md` 增加 PromQL 入口；`crates/gate-server/tests/perf_smoke.rs` 对 `/metrics` 和 InMemory outbox lag 做 smoke 覆盖。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo check --workspace
+cargo test -p gate-server --test perf_smoke -- --nocapture
+rg -n "gateway_requests_total|gateway_request_duration_seconds|gateway_upstream_errors_total|quota_denies_total|billing_outbox_lag_seconds|billing_settle_lag_seconds" crates docs ROADMAP.md CHANGELOG.md
+```

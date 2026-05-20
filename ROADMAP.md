@@ -536,13 +536,13 @@ cargo test -p gate-providers --all-targets
 
 **目标**：生产出问题时能定位、能止血、能复盘。
 
-- [ ] Prometheus metrics 完整命名：
-  - request count
-  - latency histogram
-  - upstream error by provider/channel/model
-  - quota deny
-  - billing settle lag
-  - outbox lag
+- [x] Prometheus metrics 完整命名：
+  - [x] request count
+  - [x] latency histogram
+  - [x] upstream error by provider/channel/model
+  - [x] quota deny
+  - [x] billing settle lag
+  - [x] outbox lag
 - [ ] Trace 串联：
   - request_id
   - org/project/api_key/channel/model

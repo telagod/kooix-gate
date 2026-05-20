@@ -5,13 +5,27 @@
 ## Gateway pipeline
 
 ```promql
+sum(rate(gateway_requests_total[5m])) by (method, path, status_class)
+histogram_quantile(0.95, sum(rate(gateway_request_duration_seconds_bucket[5m])) by (le, method, path))
 histogram_quantile(0.95, sum(rate(gateway_stage_duration_seconds_bucket[5m])) by (le, stage, outcome))
 sum(rate(provider_route_decisions_total[5m])) by (provider_type, outcome)
 provider_runtime_snapshot_version
 ```
 
+- `gateway_requests_total` / `gateway_request_duration_seconds` 是 P1.9 固定命名；旧 `gate_requests_total` / `gate_request_duration_seconds` 暂保留兼容。
 - `stage=route|adapt|execute|...`：定位热路径慢在哪一段。
 - `provider_route_decisions_total{outcome="none|error"}` 突增：优先查 channel health / group binding / model alias。
+
+## Upstream errors / quota denies
+
+```promql
+sum(rate(gateway_upstream_errors_total[5m])) by (kind, provider_type, channel, model)
+sum(rate(quota_denies_total[5m])) by (dimension, scope_kind, mode)
+```
+
+- `gateway_upstream_errors_total` 按 provider / typed channel / model 展开；fallback provider 使用 `channel="fallback"`。
+- `kind=authentication_error|rate_limit_error|model_not_found|policy_error|upstream_error|...` 与 data-plane error shape 同源。
+- `quota_denies_total{mode="enforce"}` 只记录硬拦截，dry-run 继续看 `quota_dry_run_total`。
 
 ## Provider health probes
 
@@ -149,12 +163,14 @@ ORDER BY b.canary_percent_bps NULLS FIRST, requests DESC;
 
 ```promql
 max(billing_outbox_lag_seconds)
+max(billing_settle_lag_seconds)
 sum(rate(billing_outbox_failed_total[5m]))
 sum(rate(billing_settle_failures_total[5m])) by (reason)
 max(usage_rollup_lag_seconds)
 ```
 
-- `billing_outbox_lag_seconds` 持续升高：worker 没跑、DB 慢、或 outbox 被锁住。
+- `billing_outbox_lag_seconds` 持续升高：enqueue 到 worker fetch 的 pending age 在变老，常见是 worker 没跑、DB 慢、或 outbox 被锁住。
+- `billing_settle_lag_seconds` 持续升高：outbox 已消费但 settlement / rollup 落库慢。
 - `billing_settle_failures_total{reason="pricing_miss"}`：定价规则缺口，不阻断请求但会漏账。
 - `usage_rollup_lag_seconds` 持续升高：read model 延迟，会影响 dashboard 新鲜度。
 

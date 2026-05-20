@@ -247,6 +247,7 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
 
     let lag_seconds = (Utc::now() - event.occurred_at).num_milliseconds().max(0) as f64 / 1000.0;
     metrics::gauge!("usage_rollup_lag_seconds").set(lag_seconds);
+    metrics::gauge!("billing_settle_lag_seconds").set(lag_seconds);
 
     let ledger_event = BillingLedgerEvent::actual_settle(event, idem);
     insert_ledger_event_tx(&mut tx, &ledger_event).await?;

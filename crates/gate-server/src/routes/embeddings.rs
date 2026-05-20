@@ -39,7 +39,7 @@ async fn create_embedding(
     Json(mut req): Json<EmbeddingRequest>,
 ) -> AppResult<Json<EmbeddingResponse>> {
     let route_start = std::time::Instant::now();
-    let (provider, channel_id, routed_group_id, routed_key_id, routed_model) =
+    let (provider, channel_id, routed_group_id, routed_key_id, routed_model, provider_type) =
         resolve_embedding_provider(&app, &ctx, &headers, &req).await?;
     crate::gateway::record_stage(
         GatewayStage::Route,
@@ -75,7 +75,15 @@ async fn create_embedding(
             {
                 router.release_channel(ChannelId::from(ch_uuid));
             }
-            report_embedding_key_failure(&app, routed_key_id, &e).await;
+            report_embedding_key_failure(
+                &app,
+                routed_key_id,
+                &e,
+                &provider_type,
+                channel_id,
+                &req.model,
+            )
+            .await;
             return Err(AppError::Provider(e));
         }
     };
@@ -166,6 +174,7 @@ async fn resolve_embedding_provider(
     Option<Uuid>,
     Option<ChannelKeyId>,
     Option<String>,
+    String,
 )> {
     if let Some(router) = &app.provider_router {
         let project_id_opt = extract_project_id(app, ctx, headers).await?;
@@ -178,6 +187,7 @@ async fn resolve_embedding_provider(
                     group_id,
                     key_id,
                     resolved_model,
+                    provider_type,
                     ..
                 })) => {
                     return Ok((
@@ -186,6 +196,7 @@ async fn resolve_embedding_provider(
                         Some(*group_id.as_uuid()),
                         key_id,
                         Some(resolved_model),
+                        provider_type,
                     ));
                 }
                 Ok(None) => {
@@ -225,6 +236,9 @@ async fn report_embedding_key_failure(
     app: &AppState,
     key_id: Option<ChannelKeyId>,
     error: &ProviderError,
+    provider_type: &str,
+    channel_id: Option<Uuid>,
+    model: &str,
 ) {
     let failure = provider_failure_policy(error);
     if let Some(key_id) = key_id
@@ -241,7 +255,13 @@ async fn report_embedding_key_failure(
     {
         tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "embedding channel key failure report failed");
     }
-    crate::metrics::record_upstream_error(failure.kind_label);
+    let channel = crate::metrics::channel_label(channel_id);
+    crate::metrics::record_upstream_error_with_context(
+        failure.kind_label,
+        provider_type,
+        &channel,
+        model,
+    );
 }
 
 /// 从 AuthContext + headers 提取 project_id（与 chat.rs 完全相同的越权校验逻辑）。
