@@ -354,6 +354,23 @@ npm --prefix web run check
 npm --prefix web test -- api.test.ts
 ```
 
+## P2.1 Frontend UX / pricing wizard
+
+本轮把 P2.1 的 Pricing wizard 从普通 create form 升为可预览、可模拟的 4 步向导：
+
+- `/admin/pricing` 新增 Model / Channel、dimension / unit / rate、价格预览、usage cost simulation 四步，保留 global / channel-specific rule 写入。
+- `formUnit` 默认值修正为后端实际消费的 `per_million_tokens`，避免 UI 写入不存在的 `per_million`。
+- 新增 `web/src/lib/pricing-preview.ts`，前端预览镜像 `gate-billing::compute_cost`：input tokens 扣 cached、`per_image` conditions、`per_request`、batch multiplier、region multiplier 与 per-million 单位换算。
+- 新增 `web/src/tests/pricing-preview.test.ts` 覆盖基础 token cost、cached input、image condition、batch / region multiplier、channel-specific rule 选择。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

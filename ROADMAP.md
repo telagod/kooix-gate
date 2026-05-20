@@ -599,11 +599,11 @@ cargo test -p gate-providers --all-targets
   - [x] 粘贴 response / SSE sample 并点选字段映射
   - [x] 自动 probe
   - [x] 保存并加入 group
-- [ ] Pricing wizard：
-  - 选择模型
-  - 选择计费维度
-  - 预览价格
-  - 模拟一条 usage cost
+- [x] Pricing wizard：
+  - [x] 选择模型
+  - [x] 选择计费维度
+  - [x] 预览价格
+  - [x] 模拟一条 usage cost
 - [ ] Quota wizard：
   - 选择 scope
   - 选择 model filter

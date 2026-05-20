@@ -187,6 +187,48 @@ describe('api module', () => {
 		expect(url).toContain('sort_dir=asc');
 	});
 
+	it('pricing rule APIs use raw typed id paths and query params', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		const channelId = 'ch_019e2c1ba7d17162842207e4b24f5f98';
+		const pricingRule = {
+			id: '019e2c1b-a7d1-7162-8422-07e4b24f5f97',
+			channel_id: channelId,
+			model: 'gpt-4o-mini',
+			dimension: 'input_tokens',
+			unit: 'per_million_tokens',
+			rate: 0.15,
+			conditions: {},
+			effective_from: '2026-01-01T00:00:00Z',
+			effective_until: null,
+			priority: 0,
+			description: null
+		};
+		mockFetch
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => [pricingRule] })
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => pricingRule })
+			.mockResolvedValueOnce({ ok: true, status: 204, json: async () => ({}) });
+
+		const { listPricingRules, upsertPricingRule, deletePricingRule } = await loadApi();
+		await listPricingRules(channelId, 'gpt-4o-mini');
+		await upsertPricingRule({
+			channel_id: channelId,
+			model: 'gpt-4o-mini',
+			dimension: 'input_tokens',
+			unit: 'per_million_tokens',
+			rate: 0.15
+		});
+		await deletePricingRule('prc_019e2c1ba7d17162842207e4b24f5f97');
+
+		expect(mockFetch.mock.calls[0][0]).toContain('/v1/admin/pricing-rules');
+		expect(mockFetch.mock.calls[0][0]).toContain('channel_id=019e2c1b-a7d1-7162-8422-07e4b24f5f98');
+		expect(mockFetch.mock.calls[0][0]).toContain('model=gpt-4o-mini');
+		expect(mockFetch.mock.calls[1][0]).toContain('/v1/admin/pricing-rules');
+		expect(mockFetch.mock.calls[1][1].method).toBe('POST');
+		expect(JSON.parse(mockFetch.mock.calls[1][1].body).channel_id).toBe(channelId);
+		expect(mockFetch.mock.calls[2][0]).toContain('/v1/admin/pricing-rules/019e2c1b-a7d1-7162-8422-07e4b24f5f97');
+		expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
+	});
+
 	it('exportBillingCsv returns blob on success', async () => {
 		localStorage.setItem('kooix_access_token', 'tok');
 		const blob = new Blob(['csv,data'], { type: 'text/csv' });

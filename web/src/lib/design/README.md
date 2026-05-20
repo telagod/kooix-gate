@@ -51,6 +51,7 @@
 - `ModalFrame` 已用于旧 modal/drawer 的遮罩收敛，后续新增弹层不要再手写 `div onclick` 遮罩。
 - `PageShell` / `AuthFrame` / `StatePanel` / `DataToolbar` / `FilterPanel` / `DataTable` 已作为页面与数据页模板落地，并迁移 `setup`、`login`、`invite/accept`、`admin/audit`、`admin/users`、`admin/channels`、`admin/groups`、`admin/incidents`、`admin/pricing`、`admin/requests`、`admin/sso`、`orgs/[orgId]/quotas`、`orgs/[orgId]/billing`、`orgs/[orgId]/projects`、`orgs/[orgId]/projects/[projectId]`、`orgs/[orgId]/projects/[projectId]/keys`、`usage/+page`、`usage/requests`、`channels/+page`、`channels/[channelId]` 代表页；后续新增数据页继续优先复用模板。
 - 表格状态基座在 `src/lib/table-state.ts`；server-side pagination / sort / column visibility / saved filters 不要在 route 内重复造 localStorage key 与 normalize 逻辑。
+- Pricing wizard 的 cost preview 逻辑集中在 `src/lib/pricing-preview.ts`；页面只负责采集 Model / Channel / usage sample，不要在 Svelte route 内重复实现 `compute_cost` 镜像。
 
 ## 美学约束
 

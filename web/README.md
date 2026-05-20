@@ -84,7 +84,7 @@ node ../scripts/audit-page-templates.mjs --json
 | `/orgs/[orgId]/quotas` | Quota policy engine：org/project/api_key/user × model 策略、enforce/dry-run、explain 与 Redis/PG 对账 |
 | `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设、自定义 manifest、SSE replay、初始 key 写入、自动 probe 与保存后加入 Group |
 | `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
-| `/admin/pricing` | Platform admin 定价规则管理，支持 global / channel-specific rules |
+| `/admin/pricing` | Platform admin Pricing wizard：选择 Model / Channel、dimension / unit / rate，预览价格并模拟一条 usage cost 后写入 global / channel-specific rule |
 | `/admin/users` | Platform admin 用户生命周期管理：创建、停用/启用、重置密码、查看 / 撤销 refresh sessions |
 | `/admin/sso` | Platform admin SSO Provider 管理：OIDC discovery、allowlist、auto-join role、redirect policy |
 | `/admin/requests` / `/usage/requests` | 请求日志与使用明细过滤页 |

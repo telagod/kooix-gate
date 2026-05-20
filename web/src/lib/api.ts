@@ -1835,7 +1835,7 @@ export interface UpsertPricingRuleRequest {
 
 export async function listPricingRules(channelId?: string, model?: string): Promise<PricingRule[]> {
 	const params = new URLSearchParams();
-	if (channelId) params.set('channel_id', channelId);
+	if (channelId) params.set('channel_id', rawId(channelId));
 	if (model) params.set('model', model);
 	const q = params.toString();
 	return apiFetch<PricingRule[]>(`/v1/admin/pricing-rules${q ? '?' + q : ''}`);
