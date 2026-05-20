@@ -8,6 +8,7 @@
 		listAdminChannels,
 		listChannels,
 		createChannel,
+		createChannelKey,
 		updateChannel,
 		deleteChannel,
 		batchEnableChannels,
@@ -179,6 +180,10 @@
 	let pluginBuilderSuggestions = $state<PluginResponsePathSuggestion[]>([]);
 	let createGroups = $state<ChannelGroup[]>([]);
 	let loadingCreateGroups = $state(false);
+	let createInitialKeyAlias = $state('primary');
+	let lastSyncedCreateInitialKeyAlias = $state('primary');
+	let createInitialKeySecret = $state('');
+	let createAutoProbe = $state(true);
 
 	let editingChannel = $state<Channel | null>(null);
 	let editForm = $state<UpdateChannelRequest>({});
@@ -658,6 +663,7 @@ data: {"payload":{"type":"message_stop"}}
 			...defaultPluginBuilderDraft(preset),
 			target_group_id: pluginBuilderDraft.target_group_id
 		};
+		syncInitialKeyAliasFromAuth();
 		if (pluginPresetBaseUrlSuggestion(preset)) createForm.base_url = createForm.base_url || pluginPresetBaseUrlSuggestion(preset);
 		pluginBuilderStep = 2;
 		syncBuilderToCreateForm();
@@ -665,6 +671,7 @@ data: {"payload":{"type":"message_stop"}}
 
 	function updateBuilderManifestPreview() {
 		try {
+			syncInitialKeyAliasFromAuth();
 			syncBuilderToCreateForm();
 			createError = '';
 		} catch (err: any) {
@@ -726,6 +733,7 @@ data: {"payload":{"type":"message_stop"}}
 		createAuthForm = defaultPluginAuthForPreset(pluginPreset);
 		lastCreatePluginPreset = pluginPreset;
 		pluginBuilderDraft = { ...pluginBuilderDraft, preset: pluginPreset, auth: createAuthForm };
+		syncInitialKeyAliasFromAuth();
 		applyBaseUrlSuggestion('create');
 	}
 
@@ -738,6 +746,7 @@ data: {"payload":{"type":"message_stop"}}
 
 	function lintCreatePluginManifest() {
 		try {
+			syncInitialKeyAliasFromAuth();
 			syncCreateAuthPreset();
 			selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm);
 			createError = '';
@@ -813,6 +822,58 @@ data: {"payload":{"type":"message_stop"}}
 		}
 	}
 
+	function pluginAuthSlotSummary(form: PluginAuthForm): string {
+		switch (form.strategy) {
+			case 'bearer':
+			case 'api_key_header':
+			case 'api_key_query':
+			case 'hmac':
+				return form.secret_slot.trim() || 'primary';
+			case 'basic':
+				return `${form.username_slot.trim() || 'username'} / ${form.password_slot.trim() || 'primary'}`;
+			case 'aws_sigv4':
+				return [form.aws_access_key_slot.trim() || 'primary', form.aws_secret_key_slot.trim() || 'aws_secret_key', form.aws_session_token_slot.trim()]
+					.filter(Boolean)
+					.join(' / ');
+			case 'oauth_client_credentials':
+				return `${form.oauth_client_id_slot.trim() || 'client_id'} / ${form.oauth_client_secret_slot.trim() || 'client_secret'}`;
+			case 'custom_headers':
+				return '按 Headers JSON 内的 {{slot}} 引用';
+			case 'none':
+				return '无认证 slot';
+			default:
+				return 'primary';
+		}
+	}
+
+	function preferredCreateKeyAlias(): string {
+		const form = pluginBuilderDraft.auth;
+		switch (form.strategy) {
+			case 'bearer':
+			case 'api_key_header':
+			case 'api_key_query':
+			case 'hmac':
+				return form.secret_slot.trim() || 'primary';
+			case 'basic':
+				return form.password_slot.trim() || 'primary';
+			case 'aws_sigv4':
+				return form.aws_secret_key_slot.trim() || 'aws_secret_key';
+			case 'oauth_client_credentials':
+				return form.oauth_client_secret_slot.trim() || 'client_secret';
+			default:
+				return createInitialKeyAlias.trim() || 'primary';
+		}
+	}
+
+	function syncInitialKeyAliasFromAuth() {
+		const alias = preferredCreateKeyAlias();
+		if (!alias) return;
+		if (!createInitialKeyAlias.trim() || createInitialKeyAlias === lastSyncedCreateInitialKeyAlias) {
+			createInitialKeyAlias = alias;
+			lastSyncedCreateInitialKeyAlias = alias;
+		}
+	}
+
 	function resetCreateForm() {
 		createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
 		modelsInput = '';
@@ -824,6 +885,10 @@ data: {"payload":{"type":"message_stop"}}
 		createReplayInput = '';
 		createReplayOutput = '';
 		createReplayError = '';
+		createInitialKeyAlias = 'primary';
+		lastSyncedCreateInitialKeyAlias = 'primary';
+		createInitialKeySecret = '';
+		createAutoProbe = true;
 		pluginBuilderStep = 1;
 		pluginBuilderDraft = defaultPluginBuilderDraft('');
 		pluginBuilderSuggestions = [];
@@ -847,17 +912,47 @@ data: {"payload":{"type":"message_stop"}}
 			}
 			const models = modelsInput.split(',').map(s => s.trim()).filter(Boolean);
 			const tags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
-			const model_mapping = isPluginProvider(createForm.provider_type)
+			const pluginChannel = isPluginProvider(createForm.provider_type);
+			const model_mapping = pluginChannel
 				? selectedPluginMapping(pluginPreset, pluginManifestInput, createAuthForm)
 				: createForm.model_mapping;
 			const created = await createChannel({ ...createForm, supported_models: models, tags, model_mapping });
-			const joinedGroup = isPluginProvider(createForm.provider_type) && !!pluginBuilderDraft.target_group_id;
-			if (isPluginProvider(createForm.provider_type) && pluginBuilderDraft.target_group_id) {
+			const joinedGroup = pluginChannel && !!pluginBuilderDraft.target_group_id;
+			const shouldAutoProbe = pluginChannel && createAutoProbe;
+			let keyCreated = false;
+			let warningToast = false;
+			let keySummary = '';
+			let autoProbeSummary = '';
+			if (pluginChannel && createInitialKeySecret.trim()) {
+				try {
+					await createChannelKey(created.id, createInitialKeySecret, createInitialKeyAlias.trim() || preferredCreateKeyAlias());
+					keyCreated = true;
+					keySummary = '，初始 Key 已写入';
+				} catch (err: any) {
+					warningToast = true;
+					keySummary = `，初始 Key 写入失败：${err?.message ?? 'unknown error'}`;
+				}
+			}
+			if (pluginChannel && pluginBuilderDraft.target_group_id) {
 				await addGroupBinding(pluginBuilderDraft.target_group_id, created.id, 1, 1);
+			}
+			if (shouldAutoProbe) {
+				try {
+					const result = await probeChannel(created.id);
+					autoProbeSummary = `，Probe 发现 ${result.models.length} 个模型`;
+					if (result.models.length > 0 && models.length === 0) {
+						const updated = await updateChannel(created.id, { supported_models: result.models });
+						channels = channels.map(c => c.id === updated.id ? updated : c);
+						autoProbeSummary += '并已同步';
+					}
+				} catch (err: any) {
+					warningToast = true;
+					autoProbeSummary = `，${keyCreated ? '但 ' : '未填初始 Key，'}Probe 失败：${err?.message ?? 'unknown error'}`;
+				}
 			}
 			showCreate = false;
 			resetCreateForm();
-			showToast(joinedGroup ? 'Channel 创建成功并已加入 Group' : 'Channel 创建成功');
+			showToast(`${joinedGroup ? 'Channel 创建成功并已加入 Group' : 'Channel 创建成功'}${keySummary}${autoProbeSummary}`, warningToast ? 'err' : 'ok');
 			await loadChannels();
 		} catch (err: any) {
 			createError = err?.message ?? '创建失败';
@@ -1207,7 +1302,16 @@ data: {"payload":{"type":"message_stop"}}
 										{#if createReplayError}<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{createReplayError}</p>{/if}
 										{#if createReplayOutput}<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{createReplayOutput}</pre>{/if}
 									{:else if pluginBuilderStep === 6}
-										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">6. Test connection 参数</p>
+										<div class="mb-2 flex items-start justify-between gap-3">
+											<div>
+												<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">6. 自动 Probe 参数</p>
+												<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">保存时先写入初始 Key，再调用 channel probe；若未填写 key，则依赖环境变量或 none auth，Probe 失败只提示不回滚。</p>
+											</div>
+											<label class="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+												<input type="checkbox" bind:checked={createAutoProbe} disabled={creating} class="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:ring-zinc-100" />
+												保存后自动 Probe
+											</label>
+										</div>
 										<Input placeholder="/models 或 /health/chat" bind:value={pluginBuilderDraft.probe_path} disabled={creating} />
 										<div class="mt-2 grid grid-cols-2 gap-2">
 											<Input placeholder="probe model" bind:value={pluginBuilderDraft.probe_model} disabled={creating} />
@@ -1215,7 +1319,15 @@ data: {"payload":{"type":"message_stop"}}
 										</div>
 										<Input class="mt-2" placeholder="max_cost_micros，空为不声明成本" bind:value={pluginBuilderDraft.probe_max_cost_micros} disabled={creating} />
 										<textarea class="mt-2 min-h-24 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PROBE_BODY_PLACEHOLDER} bind:value={pluginBuilderDraft.probe_body} disabled={creating}></textarea>
-										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); lintCreatePluginManifest(); pluginBuilderStep = 7; }} disabled={creating}>生成并 lint</Button>
+										<div class="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+											<p class="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">初始 Key（可选）</p>
+											<div class="grid grid-cols-[0.8fr_1.2fr] gap-2">
+												<Input placeholder="key alias / secret slot" bind:value={createInitialKeyAlias} disabled={creating} />
+												<Input type="password" placeholder="只在保存时加密写入，不进入 manifest" bind:value={createInitialKeySecret} disabled={creating} autocomplete="new-password" />
+											</div>
+											<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">当前 auth 需要 slot：{pluginAuthSlotSummary(pluginBuilderDraft.auth)}。留空则继续使用已存在 channel key 或环境变量，创建流程不会保存明文。</p>
+										</div>
+										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); lintCreatePluginManifest(); pluginBuilderStep = 7; }} disabled={creating}>生成 probe manifest 并 lint</Button>
 									{:else}
 										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">7. 保存 channel 并加入 group</p>
 										<select bind:value={pluginBuilderDraft.target_group_id} disabled={creating || loadingCreateGroups} class="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
@@ -1224,7 +1336,7 @@ data: {"payload":{"type":"message_stop"}}
 												<option value={group.id}>{group.name} · {group.strategy}</option>
 											{/each}
 										</select>
-										<p class="mt-2 text-xs text-zinc-500">保存成功后会调用 addGroupBinding(group, channel, priority=1, weight=1)。</p>
+										<p class="mt-2 text-xs text-zinc-500">保存成功后会调用 addGroupBinding(group, channel, priority=1, weight=1)。若开启自动 Probe，会在创建后立即按 manifest probe 探活；发现模型且模型列表为空时会自动同步。</p>
 									{/if}
 
 									<div class="mt-4">

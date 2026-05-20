@@ -592,13 +592,13 @@ cargo test -p gate-providers --all-targets
   - [x] 推广到 `/admin/groups`（`PageShell` / `DataTable`）
   - [x] 推广到 `/admin/channels`（`PageShell` / `DataTable`）
   - [x] 模板审计缺口清零（`node scripts/audit-page-templates.mjs`）
-- [ ] Channel 创建 wizard：
-  - 选择 Provider / preset / 自定义 manifest
-  - 选择 auth strategy 并填写 secret slot
-  - 填 base_url / key / path template
-  - 粘贴 response / SSE sample 并点选字段映射
-  - 自动 probe
-  - 保存并加入 group
+- [x] Channel 创建 wizard：
+  - [x] 选择 Provider / preset / 自定义 manifest
+  - [x] 选择 auth strategy 并填写 secret slot
+  - [x] 填 base_url / key / path template
+  - [x] 粘贴 response / SSE sample 并点选字段映射
+  - [x] 自动 probe
+  - [x] 保存并加入 group
 - [ ] Pricing wizard：
   - 选择模型
   - 选择计费维度

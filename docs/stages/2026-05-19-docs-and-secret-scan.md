@@ -337,6 +337,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / channel creation wizard
+
+本轮把 P2.1 的 Channel 创建 wizard 从“可生成 manifest”补齐到可落地接入链路：
+
+- `/channels` 的 plugin 创建抽屉保留 7 步 wizard：preset / auth / request / response sample / SSE replay / probe / save+group。
+- Probe 步新增保存后自动 Probe 开关、probe path/model/body/success status/cost 字段，以及初始 key alias + secret 输入；secret 只通过 `createChannelKey` 写入加密 key 池，不进入 manifest preview。
+- 保存链路按顺序执行 create channel → 写入初始 key（可选）→ addGroupBinding → probe channel；Probe 成功且模型列表为空时自动同步 discovered models，Probe 失败只提示 toast，不回滚已创建 channel。
+- API 单测补 `createChannel` + `createChannelKey` + `addGroupBinding` + `probeChannel` typed ID raw path 链路，避免 wizard 后续回归到裸 typed ID 拼接错误。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test -- api.test.ts
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

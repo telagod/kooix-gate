@@ -82,7 +82,7 @@ node ../scripts/audit-page-templates.mjs --json
 | `/invite/accept` | 公开邀请接受页：preview token、邮箱匹配、新用户设密码并加入 Org / Project |
 | `/orgs/[orgId]/billing` | 月账单、quota alerts、CSV/JSON digest 导出与 invoice 状态机 |
 | `/orgs/[orgId]/quotas` | Quota policy engine：org/project/api_key/user × model 策略、enforce/dry-run、explain 与 Redis/PG 对账 |
-| `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设与自定义 manifest |
+| `/channels` | Channel 列表与创建/编辑，plugin 渠道支持 Provider 插件预设、自定义 manifest、SSE replay、初始 key 写入、自动 probe 与保存后加入 Group |
 | `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
 | `/admin/pricing` | Platform admin 定价规则管理，支持 global / channel-specific rules |
 | `/admin/users` | Platform admin 用户生命周期管理：创建、停用/启用、重置密码、查看 / 撤销 refresh sessions |
@@ -103,6 +103,7 @@ Channel 表单在 `provider_type=plugin` 时提供预设下拉：
 
 - 预设清单在 `src/lib/plugin-presets.ts`，当前 UI 覆盖 OpenAI-compatible、vLLM、LM Studio、Ollama OpenAI endpoint、LocalAI、Xinference、Anthropic Messages、Azure OpenAI、Gemini、DeepSeek、Mistral、Cohere、Ollama、Groq、Together、OpenRouter、Moonshot、智谱、通义千问、零一万物、Bedrock Converse；后端 manifest 也接受 `openai` alias。
 - 选择预设会生成 `plugin.version = 1` manifest（含 capabilities / auth / preset），并展示 capability chips 与 Base URL 建议；旧 v0 `{ "plugin": { "preset": { "provider": "..." } } }` 仍由后端自动升级；自定义 manifest 仍可直接输入 JSON。
+- Channel 创建 wizard 按 preset/auth/request/response sample/SSE replay/probe/save 分步收敛：response sample 可点选字段映射，Probe 步可填写初始 key alias + secret（只提交给 `channel_keys` 加密保存，不进入 manifest），保存后可自动调用 `/v1/admin/channels/:id/probe`，发现模型时同步到 Channel，并按选择加入 Group。
 - Channel / Group 页面从 API 的 `capabilities` 字段展示能力；创建或编辑时会提示未声明的 image / audio / batch，路由层也会按 stream / tools / vision / JSON mode 跳过不满足能力的 channel。
 - 测试在 `src/tests/plugin-presets.test.ts`，新增预设时同步补选项和测试。
 

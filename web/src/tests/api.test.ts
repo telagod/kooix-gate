@@ -403,4 +403,100 @@ describe('api module', () => {
 		expect(mockFetch.mock.calls[2][0]).toContain('/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f98/disable-when-idle');
 		expect(mockFetch.mock.calls[2][1].method).toBe('POST');
 	});
+
+	it('channel create wizard helpers can write key, bind group, and probe with raw typed ids', async () => {
+		localStorage.setItem('kooix_access_token', 'tok');
+		const channel = {
+			id: 'ch_019e2c1ba7d17162842207e4b24f5f98',
+			code: 'plugin-private',
+			name: 'Plugin Private',
+			provider_type: 'plugin',
+			base_url: 'https://upstream.example.com',
+			status: 'active',
+			health: 'unknown',
+			supported_models: [],
+			rpm_limit: null,
+			tpm_limit: null,
+			timeout_ms: 60000,
+			max_retries: 2,
+			tags: [],
+			capabilities: {
+				chat: true,
+				streaming: true,
+				tools: false,
+				embeddings: false,
+				image: false,
+				audio: false,
+				vision: false,
+				json_mode: false,
+				batch: false
+			},
+			model_mapping: { plugin: { version: 1 } },
+			balance: null,
+			balance_updated_at: null,
+			last_error: null,
+			last_error_at: null,
+			created_at: '2026-01-01T00:00:00Z',
+			updated_at: '2026-01-01T00:00:00Z'
+		};
+		mockFetch
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => channel })
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({
+					id: 'chk_019e2c1ba7d17162842207e4b24f5f97',
+					channel_id: channel.id,
+					label: 'primary',
+					fingerprint: 'sha256:abc',
+					weight: 1,
+					health: 'healthy',
+					total_requests: 0,
+					total_errors: 0,
+					consecutive_errors: 0,
+					last_error_code: null,
+					last_error_at: null,
+					cooldown_until: null,
+					created_at: '2026-01-01T00:00:00Z'
+				})
+			})
+			.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) })
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({
+					channel_id: channel.id,
+					provider_type: 'plugin',
+					models: ['private-model'],
+					probe_model: 'private-model',
+					max_cost_micros: 100
+				})
+			});
+
+		const { createChannel, createChannelKey, addGroupBinding, probeChannel } = await loadApi();
+		const created = await createChannel({
+			code: 'plugin-private',
+			provider_type: 'plugin',
+			base_url: 'https://upstream.example.com',
+			model_mapping: { plugin: { version: 1 } }
+		});
+		await createChannelKey(created.id, 'secret-value', 'primary');
+		await addGroupBinding('grp_019e2c1ba7d17162842207e4b24f5f99', created.id, 1, 1);
+		await probeChannel(created.id);
+
+		expect(mockFetch).toHaveBeenCalledTimes(4);
+		expect(mockFetch.mock.calls[0][0]).toContain('/v1/admin/channels');
+		expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+		expect(mockFetch.mock.calls[1][0]).toContain('/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f98/keys');
+		expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ secret: 'secret-value', alias: 'primary' });
+		expect(mockFetch.mock.calls[2][0]).toContain('/v1/admin/groups/019e2c1b-a7d1-7162-8422-07e4b24f5f99/bindings');
+		expect(JSON.parse(mockFetch.mock.calls[2][1].body)).toEqual({
+			channel_id: '019e2c1b-a7d1-7162-8422-07e4b24f5f98',
+			priority: 1,
+			weight: 1,
+			canary_percent_bps: undefined
+		});
+		expect(mockFetch.mock.calls[3][0]).toContain('/v1/admin/channels/019e2c1b-a7d1-7162-8422-07e4b24f5f98/probe');
+		expect(mockFetch.mock.calls[3][1].method).toBe('POST');
+	});
 });
