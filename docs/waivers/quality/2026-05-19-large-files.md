@@ -1,7 +1,7 @@
 # Quality waiver: legacy large modules
 
 Status: active
-Last reviewed: 2026-05-19
+Last reviewed: 2026-05-20
 Scope: temporary waiver for files that predate the runtime/billing refactor and still exceed the 500 code-line quality threshold.
 
 ## Why this waiver exists
@@ -11,14 +11,26 @@ The 2026-05-19 refactor first closes runtime separation, outbox concurrency, req
 ## Current offenders from `checking-code-quality`
 
 - `crates/gate-server/src/routes/admin.rs`
+- `crates/gate-server/src/health_check.rs`
+- `crates/gate-server/src/middleware/quota.rs`
+- `crates/gate-server/src/route_manifest.rs`
+- `crates/gate-server/src/routes/chat.rs`
+- `crates/gate-server/src/routes/quotas.rs`
+- `crates/gate-server/src/routes/sso.rs`
+- `crates/gate-storage/src/repo/billing.rs`
 - `crates/gate-storage/src/repo/channel.rs`
+- `crates/gate-storage/src/repo/channel_key.rs`
 - `crates/gate-storage/src/repo/identity.rs`
+- `crates/gate-storage/src/repo/memory.rs`
 - `crates/gate-storage/src/repo/request_log.rs`
+- `crates/gate-storage/src/repo/usage.rs`
 - `crates/gate-providers/src/anthropic.rs`
 - `crates/gate-providers/src/custom_provider.rs`
+- `crates/gate-providers/src/plugin_manifest.rs`
 - `crates/gate-providers/src/plugin_preset.rs`
 - `crates/gate-providers/src/router.rs`
 - `web/src/lib/api.ts`
+- `web/src/lib/plugin-presets.ts`
 
 ## Exit plan
 

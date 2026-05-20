@@ -136,7 +136,17 @@
 - Project invite accept 会重新读取 `projects.org_id` 后调用 `add_project_member_in_org`，确保 `AuthContext` 中仍以 `(OrgId, ProjectId)` 复合 key 保存 project role，延续跨 Org 重放防线。
 - 关键 mutation 写入 `invitation.create` / `invitation.revoke` audit；accept 当前为公开 self-service 路径，不回显 token hash，也不写明文 token。
 
-### 2.7 权限检查门面
+### 2.7 SCIM 评估边界
+
+P1.7 只完成 SCIM 2.0 评估，不声明当前已有 SCIM runtime endpoints；长期评估文档见 `docs/scim-evaluation.md`。实现边界如下：
+
+- SCIM 仅作为 Org-scoped inbound provisioning connector，同步企业用户和组，不授予平台级 `PlatformRole`。
+- 用户同步以 email 归一化匹配现有 `users.email`，外部稳定键必须落独立 SCIM binding；不得复用 OIDC `user_identities.subject`。
+- `active=false` / DELETE 默认映射为 `users.status = suspended` 并撤销 refresh sessions，不硬删用户、不设置密码、不创建 API key。
+- SCIM Group 不能直接等同 Kooix role；必须先由管理员配置显式 group → Org/Project role mapping，Project mapping 必须带 Org 上下文并校验 `projects.org_id`。
+- SCIM 只能撤销自己授予的 membership grant，不能误删本地手工 Owner / Admin；`owner` mapping 默认禁用，必须显式二次确认。
+
+### 2.8 权限检查门面
 
 所有路由强制走：
 

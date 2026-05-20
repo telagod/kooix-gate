@@ -494,10 +494,10 @@ cargo test -p gate-providers --all-targets
   - [x] allowlist
   - [x] auto-join role
   - [x] redirect policy
-- [ ] SCIM 评估：
-  - 用户同步
-  - group → role mapping
-- [ ] Session 管理：
+- [x] SCIM 评估：
+  - [x] 用户同步
+  - [x] group → role mapping
+- [x] Session 管理：
   - [x] 查看活跃 refresh token
   - [x] 单用户踢下线
   - [x] 全局 JWT rotation。

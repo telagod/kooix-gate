@@ -14,6 +14,7 @@
 | [AGENTS.md](../AGENTS.md) | 仓库级工程规则与 Codex 执行约束。 |
 | [CLAUDE.md](../CLAUDE.md) | 与 AGENTS 同步的项目规则副本。 |
 | [plugin-manifest.md](./plugin-manifest.md) | HTTP Plugin manifest v1 schema、兼容升级、示例与安全约束。 |
+| [scim-evaluation.md](./scim-evaluation.md) | P1.7 SCIM 2.0 用户同步与 group → role mapping 评估，定义 vNext 实现边界。 |
 | [security-runbook.md](./security-runbook.md) | 密钥、JWT、Channel key、Redis quota、Plugin 风险处置。 |
 | [observability-runbook.md](./observability-runbook.md) | Gateway、billing、worker 指标与 PromQL 入口。 |
 

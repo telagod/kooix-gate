@@ -185,6 +185,10 @@ Org / Project 页面提供成员邀请面板，对应 API：
 
 邀请明文 token 只在创建响应中返回一次，数据库只保存 `token_hash=SHA-256(token)`；过期、已接受或已撤销的邀请不能再次接受。Org 邀请要求 `Permission::OrgMemberInvite` / revoke 要求 `OrgMemberRemove`，Project 邀请要求 `ProjectMemberInvite` / revoke 要求 `ProjectMemberRemove`；接受 Project 邀请时会重新读取 Project 所属 Org，写入带 `(OrgId, ProjectId)` 复合上下文的 `project_memberships`，避免跨 Org project ID 重放。
 
+### SCIM 评估边界
+
+P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim-evaluation.md)：SCIM 应作为 vNext 的 Org-scoped inbound provisioning connector，负责企业用户同步与 group → role mapping，不授予平台级角色。用户以 email + 独立 `externalId` binding 幂等同步；deprovision 默认 suspend user 并撤销 refresh sessions；group 不能直接等于 role，必须由管理员显式配置到 Org / Project role，Project mapping 必须校验所属 Org。
+
 ## 设计要点速览
 
 - **多 Org 三层租户**：Org → Project → ApiKey，永不耦合

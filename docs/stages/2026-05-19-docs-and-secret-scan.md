@@ -584,6 +584,24 @@ node scripts/check-route-manifest.mjs
 node scripts/generate-route-types.mjs --check
 ```
 
+## P1.7 Identity / SCIM Evaluation
+
+本轮把 P1.7 中的 SCIM 评估从路线图 TODO 收敛为可执行 vNext 边界，长期文档落在 `docs/scim-evaluation.md`：
+
+- 结论：当前只完成 SCIM 2.0 评估，不声明已有 SCIM runtime endpoints；后续实现必须作为 Org-scoped inbound provisioning connector。
+- 用户同步：以 email 归一化匹配 `users.email`，`externalId` 进入独立 SCIM binding；新建用户不设置密码，默认走 SSO；deprovision 映射为 suspend user + revoke refresh sessions。
+- Group → role mapping：SCIM Group 不直接等同 Kooix role，必须通过管理员显式 mapping 投影到 Org / Project role；Project mapping 必须带 Org 上下文并校验 `projects.org_id`。
+- 安全边界：connector token 只存 hash，mutation 写 `scim.*` audit；SCIM 不授予 `PlatformRole`、不创建 Org / Project、不能撤销本地手工 Owner / Admin。
+- 差距清单：需要 vNext migration（connection / user link / group mapping / membership grants）、repo、route manifest、UI mapping 页、source-aware membership revoke。
+- 关键文档同步 `README.md`、`DESIGN.md`、`CHANGELOG.md`、`ROADMAP.md`、`docs/README.md`。
+
+阶段验证命令：
+
+```bash
+git diff --check
+rg -n "SCIM|scim|group → role|Session 管理" README.md DESIGN.md ROADMAP.md CHANGELOG.md docs
+```
+
 ## P1.7 Identity / Invitation Flow
 
 本轮把 P1.7 的邀请流从 schema TODO 落成 Org / Project 成员接入闭环：
