@@ -652,7 +652,7 @@ cargo run -p kgctl -- plugin registry package --id test-private --name "Test Pri
 本轮把 P1.8 的 Manifest package 规范从 registry JSON 打包能力补齐为目录形态规范与可验证样本：
 
 - 新增 `examples/manifest-packages/private-auth-field-map-sse/` 作为标准 package 样本，固定包含 `package.json`、`manifest.json`、`fixtures/`、`README.md`、`security.md`。
-- `fixtures/` 同时保留请求样本 `request.json`、非流式响应样本 `non-stream-response.json`、原始 SSE 样本 `stream.sse` 与 golden 回放文件 `private-auth-field-map-sse.fixture.json`。
+- `fixtures/` 同时保留请求样本 `request.json`、非流式响应样本 `non-stream-response.json`与包含 raw SSE/expected chunks 的 golden 回放文件 `private-auth-field-map-sse.fixture.json`。
 - `package.json` 记录 package metadata、兼容范围、签名状态与 contents 路径；`manifest.json` 与 registry 中同名官方 sample 保持 digest 一致。
 - `README.md` 说明接入顺序、secret slot 与上游路径；`security.md` 明确 secret 不落包、relative path、egress 边界、大小限制与 fixture 发布检查。
 - `kgctl plugin package lint <dir> --verify --json` 校验目录规范、manifest lint、README/security 必要声明、fixtures 存在性、fixture manifest 一致性与 SSE golden replay。
