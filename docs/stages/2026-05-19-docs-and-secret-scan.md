@@ -1226,3 +1226,45 @@ npm --prefix web test
 npm --prefix web run build
 npm --prefix web run bundle:budget
 ```
+
+## P2.3 Security hardening follow-up
+
+本轮把 P2.3 从路线项落成可验证的安全闭环：
+
+- 新增 `docs/threat-model.md`，覆盖 tenant isolation、API key leakage、malicious plugin manifest、SSRF、billing fraud 与 admin account takeover，并把缓解措施和验证命令绑定到具体实现。
+- 新增 `crates/gate-server/src/audit_redaction.rs`，统一脱敏 JSON / text 中的 password、secret、token、cookie、Authorization、Bearer、`sk-*` 与 query secret；`AppError` 上游错误输出接入同一 redaction pipeline。
+- `AuditEmitter::emit_change` 支持 actor subject、request_id、actor_ip、actor_user_agent、project_id、before/after diff 与 error_message；Admin audit 列表和详情页展示 request_id、trace metadata、Before / After。
+- Admin 高危操作增加 `X-Kooix-Confirm`：delete channel、rotate/revoke key、suspend user、disable group、pricing upsert/delete；前端 destructive modal 会要求输入对应确认短语。
+- `kgctl key rotate-master` 支持 dry-run、apply re-encrypt、verify 与 rollback plan，覆盖 `channel_keys.key_enc` 与 `identity_providers.client_secret_enc`。
+- `ROADMAP.md` P2.3 全部勾选，长期处置规则提炼到 `docs/security-runbook.md`，阶段性证据保留在本文。
+
+追加验证命令：
+
+```bash
+cargo check -p gate-server
+cargo check -p kgctl
+cargo test -p gate-server --test admin_users_e2e platform_admin_can_create_list_suspend_and_reset_password -- --nocapture
+cargo test -p kgctl key_rotate_master_dry_run_and_apply_verify -- --nocapture
+npm --prefix web run check
+npm --prefix web test -- --run src/tests/api.test.ts
+```
+
+## P2.5 Release assets follow-up
+
+本轮把 P2.5 发布资产从 TODO 收口为长期 runbook + 可执行 demo：
+
+- `RELEASE.md` 增加 release checklist：Rust / Web / scripts / gitleaks 双扫 / migration / demo / assets / workflow 全链路。
+- `.github/workflows/release.yml` 改为调用 `scripts/render-release-notes.mjs` 自动生成 GitHub Release notes，固定包含 changelog、Docker image tag、migration notes、known limitations 与 post-smoke。
+- 新增 `examples/demo/quickstart.sh`：`docker compose up -d --build`、首次 setup 或 admin login、创建 Provider preset channel、写 input/output pricing rules、创建 Project API key、发 chat、查 usage / billing。
+- `examples/admin/create-pricing-rule.sh` 自动带 `X-Kooix-Confirm: pricing:<model>:<dimension>`，与 P2.3 Admin 二次确认保持一致。
+- 新增 `docs/release-assets.md`，把 Dashboard、Channel wizard、Pricing rules、Request logs、Playground 截图与 60-90 秒短视频脚本固化为长期 checklist。
+- `examples/README.md`、`docs/README.md`、`CHANGELOG.md`、`ROADMAP.md` 同步入口和状态，避免完成态文档散落根目录。
+
+追加验证命令：
+
+```bash
+bash -n examples/demo/quickstart.sh examples/admin/create-pricing-rule.sh
+node scripts/render-release-notes.mjs v0.2.0
+rg -n "Release checklist|Demo script|Screenshot / video" RELEASE.md
+rg -n "release-assets|quickstart" docs/README.md examples/README.md ROADMAP.md CHANGELOG.md
+```

@@ -132,6 +132,88 @@ fn usage_storage_plan_mentions_request_log_projection_and_retention_helpers() {
         ));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn key_rotate_master_dry_run_and_apply_verify() {
+    let (_c, url) = start_pg().await;
+    let old_key = TEST_MASTER_KEY;
+    let new_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .unwrap();
+    gate_storage::run_migrations(&pool).await.unwrap();
+
+    let channel_id = uuid::Uuid::now_v7();
+    let channel_aad = gate_crypto::aad::channel_key(channel_id);
+    let old_sealer =
+        gate_crypto::Sealer::new(gate_crypto::EnvKms::from_b64(old_key, "old").unwrap());
+    let channel_secret = old_sealer
+        .seal(b"provider-secret", &channel_aad)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO channels (id, code, name, provider_type, base_url, config_enc, supported_models) \
+         VALUES ($1, 'rotate-test', 'Rotate Test', 'openai', 'https://api.example.com/v1', '\\x00'::bytea, ARRAY['gpt-4o-mini'])",
+    )
+    .bind(channel_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO channel_keys (channel_id, key_enc, key_fingerprint, label) \
+         VALUES ($1, $2, 'rotate-fingerprint', 'primary')",
+    )
+    .bind(channel_id)
+    .bind(&channel_secret)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let idp_id = uuid::Uuid::now_v7();
+    let idp_secret = old_sealer
+        .seal(b"idp-secret", &gate_crypto::aad::idp_secret(idp_id))
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO identity_providers (id, name, slug, issuer, client_id, client_secret_enc) \
+         VALUES ($1, 'Rotate IdP', 'rotate-idp', 'https://issuer.example.com', 'client', $2)",
+    )
+    .bind(idp_id)
+    .bind(&idp_secret)
+    .execute(&pool)
+    .await
+    .unwrap();
+    drop(pool);
+
+    let dry_url = url.clone();
+    tokio::task::spawn_blocking(move || {
+        kg().args(["key", "rotate-master", "--dry-run", "--verify"])
+            .env("KOOIX_DATABASE_URL", &dry_url)
+            .env("KOOIX_MASTER_KEY", old_key)
+            .env("KOOIX_NEW_MASTER_KEY", new_key)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("dry-run ok"));
+    })
+    .await
+    .unwrap();
+
+    let apply_url = url.clone();
+    tokio::task::spawn_blocking(move || {
+        kg().args(["key", "rotate-master", "--apply", "--verify"])
+            .env("KOOIX_DATABASE_URL", &apply_url)
+            .env("KOOIX_MASTER_KEY", old_key)
+            .env("KOOIX_NEW_MASTER_KEY", new_key)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("verify ok"));
+    })
+    .await
+    .unwrap();
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 2. admin create
 // ────────────────────────────────────────────────────────────────────────────

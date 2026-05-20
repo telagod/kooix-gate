@@ -41,6 +41,7 @@
 	const columns: TableColumn[] = [
 		{ id: 'ts', label: '时间', required: true },
 		{ id: 'actor', label: '操作者' },
+		{ id: 'request_id', label: 'Request ID' },
 		{ id: 'action', label: '动作', required: true },
 		{ id: 'resource_kind', label: '资源类型' },
 		{ id: 'resource_id', label: '资源 ID' },
@@ -186,6 +187,10 @@
 		expandedId = expandedId === id ? null : id;
 	}
 
+	function hasDetails(log: AuditLog): boolean {
+		return Boolean(log.before || log.after || log.request_id || log.actor_ip || log.actor_user_agent || log.error_message);
+	}
+
 	function toggleColumn(id: string) {
 		hiddenColumns = toggleColumnVisibility(columns, hiddenColumns, id);
 		persistTableState();
@@ -319,6 +324,9 @@
 								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('actor_kind')}>操作者{sortLabel('actor_kind')}</button>
 							</th>
 						{/if}
+						{#if isVisible('request_id')}
+							<th class={dataTemplate.th}>Request ID</th>
+						{/if}
 						{#if isVisible('action')}
 							<th class={dataTemplate.th}>
 								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('action')}>动作{sortLabel('action')}</button>
@@ -361,6 +369,9 @@
 								<span class={text.muted}>{log.actor_kind}/</span>{log.actor_id ? shortId(log.actor_id) : '—'}
 							</td>
 						{/if}
+						{#if isVisible('request_id')}
+							<td class={dataTemplate.tdMono}>{log.request_id ? shortId(log.request_id) : '—'}</td>
+						{/if}
 						{#if isVisible('action')}
 							<td class={dataTemplate.tdMonoStrong}>{log.action}</td>
 						{/if}
@@ -374,7 +385,7 @@
 							<td class="px-4 py-3"><Badge variant={outcomeVariant(log.outcome)}>{log.outcome}</Badge></td>
 						{/if}
 						<td class="px-4 py-3 text-right">
-							{#if log.after !== null}
+							{#if hasDetails(log)}
 								{#if expandedId === log.id}
 									<ChevronUp size={14} class={text.muted} />
 								{:else}
@@ -383,11 +394,33 @@
 							{/if}
 						</td>
 					</tr>
-					{#if expandedId === log.id && log.after !== null}
+					{#if expandedId === log.id && hasDetails(log)}
 						<tr class={dataTemplate.rowSelected}>
 							<td colspan={visibleColumns.length + 1} class="px-4 py-3">
-								<div class="mb-1 text-xs font-medium {text.muted}">After 变更后</div>
-								<pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.after, null, 2)}</pre>
+								<div class="grid gap-3 lg:grid-cols-3">
+									<div class="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+										<div class="mb-2 text-xs font-medium {text.muted}">Trace metadata</div>
+										<div class="space-y-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+											<div>request_id: {log.request_id ?? '—'}</div>
+											<div>ip: {log.actor_ip ?? '—'}</div>
+											<div class="break-all">ua: {log.actor_user_agent ?? '—'}</div>
+											<div>project_id: {log.project_id ?? '—'}</div>
+											{#if log.error_message}
+												<div class="text-red-600 dark:text-red-400">error: {log.error_message}</div>
+											{/if}
+										</div>
+									</div>
+									<div class="lg:col-span-2 grid gap-3 md:grid-cols-2">
+										<div>
+											<div class="mb-1 text-xs font-medium {text.muted}">Before 变更前</div>
+											<pre class="min-h-24 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.before ?? null, null, 2)}</pre>
+										</div>
+										<div>
+											<div class="mb-1 text-xs font-medium {text.muted}">After 变更后</div>
+											<pre class="min-h-24 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.after ?? null, null, 2)}</pre>
+										</div>
+									</div>
+								</div>
 							</td>
 						</tr>
 					{/if}

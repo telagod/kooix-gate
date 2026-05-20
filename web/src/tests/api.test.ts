@@ -216,17 +216,19 @@ describe('api module', () => {
 			dimension: 'input_tokens',
 			unit: 'per_million_tokens',
 			rate: 0.15
-		});
-		await deletePricingRule('prc_019e2c1ba7d17162842207e4b24f5f97');
+		}, 'pricing:gpt-4o-mini:input_tokens');
+		await deletePricingRule('prc_019e2c1ba7d17162842207e4b24f5f97', 'pricing:gpt-4o-mini:input_tokens');
 
 		expect(mockFetch.mock.calls[0][0]).toContain('/v1/admin/pricing-rules');
 		expect(mockFetch.mock.calls[0][0]).toContain('channel_id=019e2c1b-a7d1-7162-8422-07e4b24f5f98');
 		expect(mockFetch.mock.calls[0][0]).toContain('model=gpt-4o-mini');
 		expect(mockFetch.mock.calls[1][0]).toContain('/v1/admin/pricing-rules');
 		expect(mockFetch.mock.calls[1][1].method).toBe('POST');
+		expect(new Headers(mockFetch.mock.calls[1][1].headers).get('x-kooix-confirm')).toBe('pricing:gpt-4o-mini:input_tokens');
 		expect(JSON.parse(mockFetch.mock.calls[1][1].body).channel_id).toBe(channelId);
 		expect(mockFetch.mock.calls[2][0]).toContain('/v1/admin/pricing-rules/019e2c1b-a7d1-7162-8422-07e4b24f5f97');
 		expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
+		expect(new Headers(mockFetch.mock.calls[2][1].headers).get('x-kooix-confirm')).toBe('pricing:gpt-4o-mini:input_tokens');
 	});
 
 	it('exportBillingCsv returns blob on success', async () => {
@@ -260,6 +262,11 @@ describe('api module', () => {
 				ok: true,
 				status: 200,
 				json: async () => ({ id: 'usr_019e2c1ba7d17162842207e4b24f5f98', email: 'new@example.com', display_name: null, status: 'suspended', mfa_enabled: false, last_login_at: null, created_at: '2026-01-01T00:00:00Z' })
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ id: 'usr_019e2c1ba7d17162842207e4b24f5f98', email: 'new@example.com', display_name: null, status: 'suspended', mfa_enabled: false, last_login_at: null, created_at: '2026-01-01T00:00:00Z' })
 			});
 
 		const { createUser, updateUserStatus, resetUserPassword } = await loadApi();
@@ -277,6 +284,11 @@ describe('api module', () => {
 		expect(url).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/status');
 		expect(opts.method).toBe('PUT');
 		expect(JSON.parse(opts.body)).toEqual({ status: 'suspended' });
+
+		await updateUserStatus('usr_019e2c1ba7d17162842207e4b24f5f98', 'suspended', 'suspend:new@example.com');
+		expect(mockFetch).toHaveBeenCalledTimes(4);
+		[url, opts] = mockFetch.mock.calls[3];
+		expect(new Headers(opts.headers).get('x-kooix-confirm')).toBe('suspend:new@example.com');
 
 		[url, opts] = mockFetch.mock.calls[2];
 		expect(url).toContain('/v1/admin/users/019e2c1b-a7d1-7162-8422-07e4b24f5f98/password');

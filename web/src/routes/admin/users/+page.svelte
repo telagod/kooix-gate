@@ -78,6 +78,9 @@
 	let createErrors = $state<Record<string, string>>({});
 	let statusBusy = $state<Record<string, boolean>>({});
 	let passwordBusy = $state<Record<string, boolean>>({});
+	let statusConfirmTarget = $state<UserDetail | null>(null);
+	let statusConfirmation = $state('');
+	let pendingStatus = $state('');
 	let resetTarget = $state<UserDetail | null>(null);
 	let resetPasswordValue = $state('');
 	let resetPasswordError = $state('');
@@ -254,16 +257,34 @@
 			return;
 		}
 		const next = user.status === 'active' ? 'suspended' : 'active';
+		if (next === 'suspended') {
+			statusConfirmTarget = user;
+			pendingStatus = next;
+			statusConfirmation = '';
+			return;
+		}
+		await applyStatus(user, next);
+	}
+
+	async function applyStatus(user: UserDetail, next: string, confirmation?: string) {
 		statusBusy = { ...statusBusy, [user.id]: true };
 		try {
-			const updated = await updateUserStatus(user.id, next);
+			const updated = await updateUserStatus(user.id, next, confirmation);
 			users = users.map((u) => (u.id === updated.id ? updated : u));
 			actionSuccess = `${updated.email} 已切换为 ${updated.status}`;
+			statusConfirmTarget = null;
+			statusConfirmation = '';
+			pendingStatus = '';
 		} catch (err: any) {
 			actionError = err?.message ?? '操作失败';
 		} finally {
 			statusBusy = { ...statusBusy, [user.id]: false };
 		}
+	}
+
+	async function confirmStatusChange() {
+		if (!statusConfirmTarget || !pendingStatus) return;
+		await applyStatus(statusConfirmTarget, pendingStatus, statusConfirmation);
 	}
 
 	function openReset(user: UserDetail) {
@@ -620,6 +641,32 @@
 						<Button variant="ghost" onclick={() => (resetTarget = null)}>取消</Button>
 						<Button onclick={submitResetPassword} disabled={passwordBusy[resetTarget.id]}>
 							<Check size={14} />确认重置
+						</Button>
+					</div>
+				</Card>
+			</ModalFrame>
+		{/if}
+
+		{#if statusConfirmTarget}
+			{@const expectedStatusConfirmation = `suspend:${statusConfirmTarget.email}`}
+			<ModalFrame close={() => { statusConfirmTarget = null; statusConfirmation = ''; pendingStatus = ''; }} class="bg-zinc-950/40" panelClass="w-full max-w-md">
+				<Card padding="lg" class="w-full max-w-md">
+					<div class="mb-4 flex items-center gap-2">
+						<ShieldOff size={18} class={text.danger} />
+						<div>
+							<p class="font-semibold {text.primary}">停用用户</p>
+							<p class="text-xs {text.muted}">{statusConfirmTarget.email}</p>
+						</div>
+					</div>
+					<p class="mb-3 text-sm {text.secondary}">停用后该用户无法继续登录。请输入确认短语：</p>
+					<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedStatusConfirmation}</code>
+					<Field label="确认短语" for="user-status-confirm" required>
+						<Input id="user-status-confirm" bind:value={statusConfirmation} placeholder={expectedStatusConfirmation} class="font-mono" />
+					</Field>
+					<div class="mt-5 flex justify-end gap-2">
+						<Button variant="ghost" onclick={() => { statusConfirmTarget = null; statusConfirmation = ''; pendingStatus = ''; }}>取消</Button>
+						<Button variant="destructive" onclick={confirmStatusChange} disabled={statusBusy[statusConfirmTarget.id] || statusConfirmation.trim() !== expectedStatusConfirmation}>
+							<ShieldOff size={14} />确认停用
 						</Button>
 					</div>
 				</Card>

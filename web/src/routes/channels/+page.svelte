@@ -202,6 +202,7 @@
 
 	let deletingId = $state<string | null>(null);
 	let deleting = $state(false);
+	let deleteConfirmation = $state('');
 
 	let batchAction = $state<'enable' | 'disable' | 'delete' | null>(null);
 	let batchProcessing = $state(false);
@@ -1013,13 +1014,13 @@ data: {"payload":{"type":"message_stop"}}
 		if (!deletingId) return;
 		deleting = true;
 		try {
-			await deleteChannel(deletingId);
+			await deleteChannel(deletingId, deleteConfirmation);
 			deletingId = null;
+			deleteConfirmation = '';
 			showToast('Channel 已删除');
 			await loadChannels();
 		} catch (err: any) {
 			showToast(err?.message ?? '删除失败', 'err');
-			deletingId = null;
 		} finally {
 			deleting = false;
 		}
@@ -1147,13 +1148,19 @@ data: {"payload":{"type":"message_stop"}}
 
 <!-- Modal: Delete confirm -->
 {#if deletingId}
-	<ModalFrame close={() => { deletingId = null; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
+	{@const deletingChannel = channels.find((ch) => ch.id === deletingId)}
+	{@const expectedDeleteConfirmation = `delete:${deletingChannel?.code ?? ''}`}
+	<ModalFrame close={() => { deletingId = null; deleteConfirmation = ''; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
 		<Card class="p-6 max-w-sm w-full mx-4 animate-fade-in shadow-2xl">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认删除</h3>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">此操作将禁用该 channel 并软删除，无法恢复。</p>
+			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">此操作将禁用该 channel 并软删除，无法恢复。请输入确认短语：</p>
+			<div class="mb-4 space-y-2">
+				<code class="block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedDeleteConfirmation}</code>
+				<Input id="channel-delete-confirm" bind:value={deleteConfirmation} placeholder={expectedDeleteConfirmation} disabled={deleting} class="font-mono" />
+			</div>
 			<div class="flex gap-2 justify-end">
-				<Button variant="outline" onclick={() => (deletingId = null)} disabled={deleting}>取消</Button>
-				<Button variant="destructive" onclick={handleDelete} disabled={deleting}>
+				<Button variant="outline" onclick={() => { deletingId = null; deleteConfirmation = ''; }} disabled={deleting}>取消</Button>
+				<Button variant="destructive" onclick={handleDelete} disabled={deleting || deleteConfirmation.trim() !== expectedDeleteConfirmation}>
 					{deleting ? '删除中...' : '确认删除'}
 				</Button>
 			</div>

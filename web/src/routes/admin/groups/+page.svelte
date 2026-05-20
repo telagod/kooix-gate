@@ -46,6 +46,7 @@
 	// editing
 	let editing = $state(false);
 	let editForm = $state({ name: '', strategy: 'priority', description: '', fallback_group_id: null as string | null, enabled: true });
+	let editDisableConfirmation = $state('');
 
 	// create modal
 	let showCreate = $state(false);
@@ -53,6 +54,8 @@
 
 	// delete confirm
 	let deleteTarget = $state<ChannelGroup | null>(null);
+	let disableTarget = $state<ChannelGroup | null>(null);
+	let disableConfirmation = $state('');
 
 	// add channel modal
 	let showAddChannel = $state(false);
@@ -331,15 +334,22 @@
 				addToast('回退链路存在循环，请重新选择', 'error');
 				return;
 			}
+			const disablesCurrentGroup = detail?.group.enabled === true && editForm.enabled === false;
+			const expectedConfirmation = disablesCurrentGroup ? `disable:${detail?.group.name ?? ''}` : '';
+			if (disablesCurrentGroup && editDisableConfirmation.trim() !== expectedConfirmation) {
+				addToast('请输入正确的禁用确认短语', 'error');
+				return;
+			}
 			await updateGroup(selectedId, {
 				name: editForm.name,
 				strategy: editForm.strategy,
 				description: editForm.description,
 				fallback_group_id: editForm.fallback_group_id,
 				enabled: editForm.enabled,
-			});
+			}, disablesCurrentGroup ? editDisableConfirmation : undefined);
 			addToast('分组已更新', 'success');
 			editing = false;
+			editDisableConfirmation = '';
 			await loadGroups();
 			await loadDetail(selectedId);
 		} catch (e: any) {
@@ -364,6 +374,11 @@
 	}
 
 	async function toggleEnabled(group: ChannelGroup) {
+		if (group.enabled) {
+			disableTarget = group;
+			disableConfirmation = '';
+			return;
+		}
 		try {
 			await updateGroup(group.id, { enabled: !group.enabled });
 			group.enabled = !group.enabled;
@@ -373,9 +388,27 @@
 		}
 	}
 
+	async function confirmDisableGroup() {
+		if (!disableTarget) return;
+		try {
+			await updateGroup(disableTarget.id, { enabled: false }, disableConfirmation);
+			disableTarget.enabled = false;
+			groups = [...groups];
+			if (detail?.group.id === disableTarget.id) {
+				await loadDetail(disableTarget.id);
+			}
+			disableTarget = null;
+			disableConfirmation = '';
+			addToast('分组已禁用', 'success');
+		} catch (e: any) {
+			addToast(e.message || '禁用失败', 'error');
+		}
+	}
+
 	function startEdit() {
 		if (!detail) return;
 		const g = detail.group;
+		editDisableConfirmation = '';
 		editForm = {
 			name: g.name,
 			strategy: g.strategy,
@@ -583,6 +616,7 @@
 
 				{:else}
 					<!-- Edit form -->
+					{@const expectedEditDisableConfirmation = g.enabled && !editForm.enabled ? `disable:${g.name}` : ''}
 					<div class="space-y-4">
 							<Field label="名称" for="group-edit-name">
 								<Input id="group-edit-name" bind:value={editForm.name} />
@@ -609,16 +643,24 @@
 							</Field>
 							<div class="flex items-center gap-2">
 								<label for="group-edit-enabled" class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
-								<button id="group-edit-enabled" aria-pressed={editForm.enabled} aria-label="切换分组启用状态" onclick={() => { editForm.enabled = !editForm.enabled; }}
+								<button id="group-edit-enabled" aria-pressed={editForm.enabled} aria-label="切换分组启用状态" onclick={() => { editForm.enabled = !editForm.enabled; if (editForm.enabled) editDisableConfirmation = ''; }}
 									class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors
 										{editForm.enabled ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-600'}">
 								<span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform mt-0.5
 									{editForm.enabled ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}"></span>
 							</button>
 						</div>
+						{#if expectedEditDisableConfirmation}
+							<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+								<p class="text-xs font-medium text-amber-800 dark:text-amber-300">高危操作二次确认</p>
+								<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">保存时会禁用当前分组。请输入确认短语：</p>
+								<code class="mt-2 block rounded-md border border-amber-200 bg-white px-3 py-2 font-mono text-xs text-zinc-800 dark:border-amber-900/60 dark:bg-zinc-900 dark:text-zinc-200">{expectedEditDisableConfirmation}</code>
+								<Input id="group-edit-disable-confirm" bind:value={editDisableConfirmation} placeholder={expectedEditDisableConfirmation} class="mt-2 font-mono" />
+							</div>
+						{/if}
 						<div class="flex gap-2">
-								<Button onclick={handleUpdate}>保存</Button>
-								<Button variant="outline" onclick={() => { editing = false; }}>取消</Button>
+								<Button onclick={handleUpdate} disabled={Boolean(expectedEditDisableConfirmation) && editDisableConfirmation.trim() !== expectedEditDisableConfirmation}>保存</Button>
+								<Button variant="outline" onclick={() => { editing = false; editDisableConfirmation = ''; }}>取消</Button>
 							</div>
 						</div>
 				{/if}
@@ -943,6 +985,28 @@
 			<div class="px-6 pb-6 flex gap-2">
 				<Button variant="outline" class="flex-1" onclick={() => { deleteTarget = null; }}>取消</Button>
 				<Button variant="destructive" class="flex-1" onclick={handleDelete}>删除</Button>
+			</div>
+		</div>
+	</ModalFrame>
+{/if}
+
+<!-- ═══ Disable Confirm Modal ═══ -->
+{#if disableTarget}
+	{@const expectedDisableConfirmation = `disable:${disableTarget.name}`}
+	<ModalFrame close={() => { disableTarget = null; disableConfirmation = ''; }}>
+		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-sm">
+			<div class="p-6 text-center">
+				<div class="mx-auto w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+					<AlertTriangle class="w-6 h-6 text-amber-600 dark:text-amber-400" />
+				</div>
+				<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认禁用分组</h3>
+				<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">禁用后该分组不会继续承载新路由。请输入确认短语：</p>
+				<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedDisableConfirmation}</code>
+				<Input id="group-disable-confirm" bind:value={disableConfirmation} placeholder={expectedDisableConfirmation} class="font-mono text-left" />
+			</div>
+			<div class="px-6 pb-6 flex gap-2">
+				<Button variant="outline" class="flex-1" onclick={() => { disableTarget = null; disableConfirmation = ''; }}>取消</Button>
+				<Button variant="destructive" class="flex-1" onclick={confirmDisableGroup} disabled={disableConfirmation.trim() !== expectedDisableConfirmation}>禁用</Button>
 			</div>
 		</div>
 	</ModalFrame>

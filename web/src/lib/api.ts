@@ -84,6 +84,11 @@ async function apiFetch<T>(
 	return resp.json();
 }
 
+function confirmationHeaders(confirmation?: string): HeadersInit | undefined {
+	const value = confirmation?.trim();
+	return value ? { 'x-kooix-confirm': value } : undefined;
+}
+
 // ── System Status ─────────────────────────────────
 
 export interface SystemStatus {
@@ -375,8 +380,11 @@ export async function updateChannel(id: string, data: UpdateChannelRequest): Pro
 	});
 }
 
-export async function deleteChannel(id: string): Promise<void> {
-	return apiFetch(`/v1/admin/channels/${rawId(id)}`, { method: 'DELETE' });
+export async function deleteChannel(id: string, confirmation?: string): Promise<void> {
+	return apiFetch(`/v1/admin/channels/${rawId(id)}`, {
+		method: 'DELETE',
+		headers: confirmationHeaders(confirmation)
+	});
 }
 
 export async function drainChannel(id: string): Promise<ChannelDrainStatus> {
@@ -523,16 +531,21 @@ export async function createChannelKey(
 export async function rotateChannelKey(
 	channelId: string,
 	secret: string,
-	alias?: string
+	alias?: string,
+	confirmation?: string
 ): Promise<ChannelKeySummary> {
 	return apiFetch<ChannelKeySummary>(`/v1/admin/channels/${rawId(channelId)}/keys/rotate`, {
 		method: 'POST',
+		headers: confirmationHeaders(confirmation),
 		body: JSON.stringify({ secret, alias })
 	});
 }
 
-export async function revokeChannelKey(channelId: string, keyId: string): Promise<void> {
-	return apiFetch(`/v1/admin/channels/${rawId(channelId)}/keys/${rawId(keyId)}`, { method: 'DELETE' });
+export async function revokeChannelKey(channelId: string, keyId: string, confirmation?: string): Promise<void> {
+	return apiFetch(`/v1/admin/channels/${rawId(channelId)}/keys/${rawId(keyId)}`, {
+		method: 'DELETE',
+		headers: confirmationHeaders(confirmation)
+	});
 }
 
 // ── Admin Audit Logs ──────────────────────────────
@@ -542,12 +555,18 @@ export interface AuditLog {
 	ts: string;
 	actor_kind: string;
 	actor_id: string | null;
+	actor_ip: string | null;
+	actor_user_agent: string | null;
+	request_id: string | null;
 	action: string;
 	resource_kind: string;
 	resource_id: string | null;
 	org_id: string | null;
+	project_id: string | null;
 	outcome: string;
+	before: Record<string, unknown> | null;
 	after: Record<string, unknown> | null;
+	error_message: string | null;
 }
 
 export type AuditLogSortBy = 'ts' | 'actor_kind' | 'action' | 'resource_kind' | 'outcome';
@@ -1046,9 +1065,10 @@ export async function createUser(data: CreateUserInput): Promise<UserDetail> {
 	});
 }
 
-export async function updateUserStatus(id: string, status: string): Promise<UserDetail> {
+export async function updateUserStatus(id: string, status: string, confirmation?: string): Promise<UserDetail> {
 	return apiFetch<UserDetail>(`/v1/admin/users/${rawId(id)}/status`, {
 		method: 'PUT',
+		headers: confirmationHeaders(confirmation),
 		body: JSON.stringify({ status })
 	});
 }
@@ -1290,9 +1310,10 @@ export async function updateGroup(id: string, data: {
 	enabled?: boolean;
 	description?: string;
 	fallback_group_id?: string | null;
-}): Promise<ChannelGroup> {
+}, confirmation?: string): Promise<ChannelGroup> {
 	return apiFetch<ChannelGroup>(`/v1/admin/groups/${rawId(id)}`, {
 		method: 'PUT',
+		headers: confirmationHeaders(confirmation),
 		body: JSON.stringify(data)
 	});
 }
@@ -1841,13 +1862,17 @@ export async function listPricingRules(channelId?: string, model?: string): Prom
 	return apiFetch<PricingRule[]>(`/v1/admin/pricing-rules${q ? '?' + q : ''}`);
 }
 
-export async function upsertPricingRule(data: UpsertPricingRuleRequest): Promise<PricingRule> {
+export async function upsertPricingRule(data: UpsertPricingRuleRequest, confirmation?: string): Promise<PricingRule> {
 	return apiFetch<PricingRule>('/v1/admin/pricing-rules', {
 		method: 'POST',
+		headers: confirmationHeaders(confirmation),
 		body: JSON.stringify(data)
 	});
 }
 
-export async function deletePricingRule(id: string): Promise<void> {
-	await apiFetch(`/v1/admin/pricing-rules/${rawId(id)}`, { method: 'DELETE' });
+export async function deletePricingRule(id: string, confirmation?: string): Promise<void> {
+	await apiFetch(`/v1/admin/pricing-rules/${rawId(id)}`, {
+		method: 'DELETE',
+		headers: confirmationHeaders(confirmation)
+	});
 }

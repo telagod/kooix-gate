@@ -2,6 +2,9 @@
 
 本目录只放两类文档：长期有效的关键文档，以及已经完成的阶段性记录。根目录仍保留项目入口、设计、路线、变更和发布文档，避免完成态材料散落在根目录。
 
+- **关键文档**：当前开发、部署、排障和发布仍会反复引用的 source of truth。
+- **阶段性文档**：某一轮审计、迁移、验证或发布验尸的完成态证据；读者需要背景时再进入，不作为当前入口。
+
 ## 关键文档
 
 | 文档 | 用途 |
@@ -16,6 +19,8 @@
 | [plugin-manifest.md](./plugin-manifest.md) | HTTP Plugin manifest v1 schema、兼容升级、示例与安全约束。 |
 | [wasm-plugin-abi.md](./wasm-plugin-abi.md) | WASM Plugin ABI vNext 设计稿；覆盖 transform、secret access、determinism、资源限制与审计边界。 |
 | [scim-evaluation.md](./scim-evaluation.md) | P1.7 SCIM 2.0 用户同步与 group → role mapping 评估，定义 vNext 实现边界。 |
+| [threat-model.md](./threat-model.md) | P2.3 威胁模型：tenant isolation、secret leakage、plugin SSRF、billing fraud、admin takeover。 |
+| [release-assets.md](./release-assets.md) | P2.5 发布截图 / 短视频素材 checklist，覆盖 Dashboard、Channel wizard、Pricing、Request logs、Playground。 |
 | [security-runbook.md](./security-runbook.md) | 密钥、JWT、Channel key、Redis quota、Plugin 风险处置。 |
 | [observability-runbook.md](./observability-runbook.md) | Gateway、billing、worker 指标、PromQL 入口与 P1.9 事故 Runbook。 |
 

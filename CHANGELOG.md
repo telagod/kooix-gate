@@ -133,6 +133,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 邀请流落地：新增 org/project invitation create/list/revoke 与公开 preview/accept API，邀请 token 只存 SHA-256 hash，控制台在 Org / Project 页面可创建、复制、查看状态并撤销邀请，过期或已撤销邀请无法接受。
 - SCIM 2.0 评估完成：新增 `docs/scim-evaluation.md`，明确用户同步字段、deprovision 策略、Org-scoped group → role mapping、安全边界与 vNext migration / API / UI 差距；当前不声明已提供 SCIM runtime endpoints。
 
+### Added — P2.3 Security Hardening
+
+- 新增 `docs/threat-model.md`，覆盖 tenant isolation、API key leakage、malicious plugin manifest、SSRF、billing fraud 与 admin account takeover。
+- Admin 高危操作增加 `X-Kooix-Confirm` 二次确认：delete channel、rotate/revoke key、suspend user、change pricing、disable group。
+- Audit log 扩展 actor subject、request_id、IP、User-Agent、project_id、before/after diff 与 error_message，并在控制台详情页展示。
+- Secret redaction 接入 audit before/after 与 upstream error message，覆盖 password、secret、token、cookie、Authorization、Bearer、`sk-*` 与 query secret。
+- `kgctl key rotate-master` 支持 dry-run、apply re-encrypt、verify 与 rollback plan，覆盖 `channel_keys.key_enc` 与 `identity_providers.client_secret_enc`。
+
+### Added — P2.5 Release Assets
+
+- 新增 `examples/demo/quickstart.sh`：`docker compose up`、首次 setup / admin 登录、创建 Provider preset channel、定价规则、Project API key、chat、usage / billing 一条链。
+- 新增 `scripts/render-release-notes.mjs` 并接入 `.github/workflows/release.yml`，自动生成 changelog、Docker image tag、migration notes、known limitations 与 post-smoke。
+- `RELEASE.md` 固化全门禁、gitleaks 双扫、demo script、GitHub Release notes 与截图/短视频 checklist。
+- 新增 `docs/release-assets.md`，定义 Dashboard、Channel wizard、Pricing rules、Request logs、Playground 截图与 60-90 秒短视频脚本。
+
 ### Changed — Docs
 
 - 整理文档入口：新增 `docs/README.md` 与 `docs/stages/README.md`，把已完成的重构审计记录归入 `docs/stages/`，保留 active waivers 原路径供 CI / quality gate 使用。

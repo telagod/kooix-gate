@@ -15,6 +15,7 @@
 pub mod alerts;
 pub mod app;
 pub mod audit;
+pub mod audit_redaction;
 pub mod auth;
 pub mod billing_emit;
 pub mod channel_rate_limit;
@@ -30,6 +31,7 @@ pub mod metrics;
 pub mod middleware;
 pub mod modes;
 pub mod pg_loader;
+pub mod provider_error;
 pub mod route_manifest;
 pub mod routes;
 pub mod state;

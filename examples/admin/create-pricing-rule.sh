@@ -8,6 +8,7 @@ set -euo pipefail
 : "${UNIT:=per_million_tokens}"
 : "${RATE:=0.15}"
 : "${PRIORITY:=100}"
+: "${KOOIX_CONFIRM:=pricing:${MODEL}:${DIMENSION}}"
 
 jq -nc \
   --arg model "$MODEL" \
@@ -25,5 +26,6 @@ jq -nc \
     description: "example pricing rule"
   }' | curl -fsS -X POST "${KOOIX_BASE_URL%/}/v1/admin/pricing-rules" \
     -H "Authorization: Bearer ${KOOIX_ADMIN_TOKEN}" \
+    -H "X-Kooix-Confirm: ${KOOIX_CONFIRM}" \
     -H "Content-Type: application/json" \
     -d @- | jq .

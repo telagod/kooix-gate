@@ -1,6 +1,6 @@
 <!-- /channels/[channelId] — Channel 详情页：Overview + Keys + Models + Logs -->
 <script lang="ts">
-	import { shortId } from '$lib/id.js';
+	import { rawId, shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import {
@@ -69,11 +69,13 @@
 	let showRotate = $state(false);
 	let rotateSecret = $state('');
 	let rotateAlias = $state('');
+	let rotateConfirmation = $state('');
 	let rotating = $state(false);
 	let rotateError = $state('');
 
 	// Revoke
 	let revokingId = $state<string | null>(null);
+	let revokeConfirmation = $state('');
 	let revoking = $state(false);
 
 	// Toast
@@ -236,10 +238,11 @@
 		rotating = true;
 		rotateError = '';
 		try {
-			await rotateChannelKey(channelId, rotateSecret.trim(), rotateAlias.trim() || undefined);
+			await rotateChannelKey(channelId, rotateSecret.trim(), rotateAlias.trim() || undefined, rotateConfirmation);
 			showRotate = false;
 			rotateSecret = '';
 			rotateAlias = '';
+			rotateConfirmation = '';
 			showToast('Key 轮转成功');
 			await loadKeys();
 		} catch (err: any) {
@@ -253,13 +256,13 @@
 		if (!revokingId) return;
 		revoking = true;
 		try {
-			await revokeChannelKey(channelId, revokingId);
+			await revokeChannelKey(channelId, revokingId, revokeConfirmation);
 			keys = keys.filter(k => k.id !== revokingId);
 			revokingId = null;
+			revokeConfirmation = '';
 			showToast('Key 已撤销');
 		} catch (err: any) {
 			showToast(err?.message ?? '撤销失败', 'err');
-			revokingId = null;
 		} finally {
 			revoking = false;
 		}
@@ -294,13 +297,18 @@
 
 <!-- Revoke confirm -->
 {#if revokingId}
-	<ModalFrame close={() => { revokingId = null; }} class="z-40">
+	{@const expectedRevokeConfirmation = `revoke:${rawId(revokingId)}`}
+	<ModalFrame close={() => { revokingId = null; revokeConfirmation = ''; }} class="z-40">
 		<Card class="p-6 max-w-sm w-full mx-4">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认撤销</h3>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">撤销后此 Key 将立即失效。</p>
+			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">撤销后此 Key 将立即失效。请输入确认短语：</p>
+			<div class="mb-4 space-y-2">
+				<code class="block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedRevokeConfirmation}</code>
+				<Input id="revoke-confirm" bind:value={revokeConfirmation} disabled={revoking} placeholder={expectedRevokeConfirmation} class="font-mono" />
+			</div>
 			<div class="flex gap-2 justify-end">
-				<Button variant="outline" onclick={() => (revokingId = null)} disabled={revoking}>取消</Button>
-				<Button variant="destructive" onclick={handleRevoke} disabled={revoking}>
+				<Button variant="outline" onclick={() => { revokingId = null; revokeConfirmation = ''; }} disabled={revoking}>取消</Button>
+				<Button variant="destructive" onclick={handleRevoke} disabled={revoking || revokeConfirmation.trim() !== expectedRevokeConfirmation}>
 					{revoking ? '撤销中...' : '确认撤销'}
 				</Button>
 			</div>
@@ -339,7 +347,8 @@
 
 <!-- Rotate modal -->
 {#if showRotate}
-	<ModalFrame close={() => { showRotate = false; }} class="z-40">
+	{@const expectedRotateConfirmation = `rotate:${channelStats?.channel.code ?? ''}`}
+	<ModalFrame close={() => { showRotate = false; rotateConfirmation = ''; }} class="z-40">
 		<Card class="p-6 max-w-lg w-full mx-4">
 			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">轮转 Key</h3>
 			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
@@ -352,12 +361,16 @@
 				<Field label="别名" for="rk-alias">
 					<Input id="rk-alias" bind:value={rotateAlias} disabled={rotating} placeholder="prod-key-2" />
 				</Field>
+				<Field label="二次确认" for="rk-confirm" hint="轮转会禁用旧 healthy key；请输入下方短语。">
+					<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedRotateConfirmation}</code>
+					<Input id="rk-confirm" bind:value={rotateConfirmation} disabled={rotating} placeholder={expectedRotateConfirmation} class="font-mono" />
+				</Field>
 				{#if rotateError}
 					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{rotateError}</p>
 				{/if}
 				<div class="flex gap-2 justify-end">
 					<Button variant="outline" type="button" onclick={() => (showRotate = false)}>取消</Button>
-					<Button variant="destructive" type="submit" disabled={rotating || !rotateSecret.trim()}>
+					<Button variant="destructive" type="submit" disabled={rotating || !rotateSecret.trim() || rotateConfirmation.trim() !== expectedRotateConfirmation}>
 						{rotating ? '轮转中...' : '确认轮转'}
 					</Button>
 				</div>

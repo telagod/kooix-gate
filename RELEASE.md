@@ -11,16 +11,40 @@
   - `ghcr.io/telagod/kooix-gate:v0.2.0`
   - `ghcr.io/telagod/kooix-gate:latest`
 
+## Release checklist
+
+每次 release 必须把版本、迁移、镜像、demo、素材与回滚证据串成一条链：
+
+- [ ] `CHANGELOG.md` 有目标版本段，Unreleased 只保留下一轮内容。
+- [ ] `ROADMAP.md` 勾选已完成阶段，未完成项不伪装完成。
+- [ ] `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 通过。
+- [ ] `npm --prefix web run check`、`npm --prefix web test`、`npm --prefix web run build`、`npm --prefix web run bundle:budget` 通过。
+- [ ] `node scripts/quality-gate.mjs`、`node scripts/check-route-manifest.mjs`、`node scripts/generate-route-types.mjs --check`、`node scripts/perf-smoke.mjs` 通过。
+- [ ] gitleaks 双扫通过：Git 历史 / 当前工作树 + no-git 打包快照。
+- [ ] 涉及 migration 时先备份 DB，并跑 `kgctl migrate --dry-run` → `kgctl migrate` → `kgctl doctor`。
+- [ ] `examples/demo/quickstart.sh` 在 demo 环境跑通：compose up、setup/login、provider channel、chat、usage / billing。
+- [ ] `docs/release-assets.md` 的 Dashboard、Channel wizard、Pricing rules、Request logs、Playground 素材已复核且无 secret。
+- [ ] GitHub Actions CI / Docker / Release workflow 全绿，GHCR tag 和 GitHub Release 页面可见。
+
 ## 发布前检查
 
 ```bash
 git status --short
 cargo fmt --all -- --check
+cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cd web && npm run check && npm test && npm run build
-cd ..
 git diff --check
+npm --prefix web run check
+npm --prefix web test
+npm --prefix web run build
+npm --prefix web run bundle:budget
+node scripts/quality-gate.mjs
+node scripts/check-route-manifest.mjs
+node scripts/generate-route-types.mjs --check
+node scripts/perf-smoke.mjs
+gitleaks detect --source . --redact --verbose
+tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
 涉及 migration 时额外跑：
@@ -70,6 +94,22 @@ Tag push 会触发 `.github/workflows/docker.yml`，构建并推送 GHCR 镜像�
 
 ## GitHub Release
 
+Tag push 会触发 `.github/workflows/release.yml`，该 workflow 用 `scripts/render-release-notes.mjs` 自动生成 release notes。内容固定包含：
+
+- Changelog：从 `CHANGELOG.md` 抽取同名版本段，找不到时回退 Unreleased。
+- Docker image tag：`ghcr.io/telagod/kooix-gate:<tag>` 与 stable `latest` 说明。
+- Migration notes：`kgctl migrate --dry-run` / `migrate` / `doctor`。
+- Known limitations：forward-only migration、WASM ABI vNext、usage retention operator policy。
+- Post-release smoke：`kgctl doctor` + `kgctl smoke`。
+
+本地预览：
+
+```bash
+node scripts/render-release-notes.mjs v0.2.0 > /tmp/kooix-gate-v0.2.0-notes.md
+```
+
+手动创建 release 时同样复用该文件：
+
 ```bash
 gh release create v0.2.0 \
   --title "Kooix Gate v0.2.0" \
@@ -83,6 +123,36 @@ Release notes 至少包含：
 - Docker image tag。
 - Known limitations。
 - 回滚说明。
+
+## Demo script
+
+`examples/demo/quickstart.sh` 是发布素材与外部演示的可复现主链路：
+
+```bash
+export UPSTREAM_BASE_URL="https://api.openai.com/v1"
+export UPSTREAM_API_KEY="<provider-key>"
+export MODEL="gpt-4o-mini"
+examples/demo/quickstart.sh
+```
+
+脚本会执行：
+
+1. `docker compose up -d --build`。
+2. 首次 `/v1/setup` 或既有 admin 登录。
+3. 创建 OpenAI-compatible Provider preset channel、channel key、group，并绑定 Project default group。
+4. 创建 input/output token pricing rules。
+5. 创建 Project API key，发送一条 `/v1/chat/completions`。
+6. 查询 `/v1/usage` 与 `/v1/orgs/:org_id/billing/:month`。
+
+## Screenshot / video checklist
+
+素材复核以 `docs/release-assets.md` 为准，必备视角：
+
+- Dashboard。
+- Channel wizard。
+- Pricing rules。
+- Request logs / audit detail。
+- Playground。
 
 ## 回滚策略
 

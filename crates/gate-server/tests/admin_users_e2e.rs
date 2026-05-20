@@ -112,6 +112,36 @@ async fn json_req(
     (status, body)
 }
 
+async fn json_req_with_headers(
+    router: &axum::Router,
+    method: &str,
+    uri: &str,
+    token: &str,
+    body: Value,
+    headers: &[(&str, &str)],
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json");
+    for (key, value) in headers {
+        builder = builder.header(*key, *value);
+    }
+    let req = builder
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = router.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+    };
+    (status, body)
+}
+
 async fn empty_req(
     router: &axum::Router,
     method: &str,
@@ -209,12 +239,30 @@ async fn platform_admin_can_create_list_suspend_and_reset_password() {
             .any(|u| u["id"] == created["id"])
     );
 
-    let (status, suspended) = json_req(
+    let (status, body) = json_req(
         &f.router,
         "PUT",
         &format!("/v1/admin/users/{user_id}/status"),
         &token,
         json!({"status": "suspended"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body={body}");
+    assert_eq!(body["error"]["code"], "bad_request");
+
+    let request_id = Uuid::now_v7().to_string();
+    let (status, suspended) = json_req_with_headers(
+        &f.router,
+        "PUT",
+        &format!("/v1/admin/users/{user_id}/status"),
+        &token,
+        json!({"status": "suspended"}),
+        &[
+            ("x-kooix-confirm", "suspend:new.user@example.com"),
+            ("x-request-id", &request_id),
+            ("x-forwarded-for", "203.0.113.9, 10.0.0.1"),
+            ("user-agent", "admin-users-e2e/1.0"),
+        ],
     )
     .await;
     assert_eq!(status, StatusCode::OK, "body={suspended}");
@@ -235,6 +283,24 @@ async fn platform_admin_can_create_list_suspend_and_reset_password() {
     assert!(audit_actions.contains(&"user.create".to_string()));
     assert!(audit_actions.contains(&"user.update_status".to_string()));
     assert!(audit_actions.contains(&"user.reset_password".to_string()));
+
+    let status_audit = f
+        .audit
+        .all()
+        .into_iter()
+        .find(|r| r.action == "user.update_status")
+        .expect("status audit record");
+    assert!(status_audit.before.is_some(), "before snapshot required");
+    assert!(status_audit.after.is_some(), "after snapshot required");
+    assert_eq!(
+        status_audit.request_id.map(|v| v.to_string()),
+        Some(request_id)
+    );
+    assert_eq!(status_audit.actor_ip.as_deref(), Some("203.0.113.9"));
+    assert_eq!(
+        status_audit.actor_user_agent.as_deref(),
+        Some("admin-users-e2e/1.0")
+    );
 }
 
 async fn wait_audit_actions(audit: &InMemoryAuditRepo, min_actions: usize) -> Vec<String> {

@@ -574,7 +574,7 @@ cargo test -p gate-providers --all-targets
   - [x] filter
   - [x] table
   - [x] empty / loading / error
-- [ ] 表格能力统一：
+- [x] 表格能力统一：
   - [x] server-side pagination 基座（`table-state` + `/admin/audit` offset/page size）
   - [x] sort 基座（`/v1/admin/audit-logs` sort_by/sort_dir + UI 表头排序）
   - [x] column visibility 基座（列显隐持久化）
@@ -651,26 +651,26 @@ cargo test -p gate-providers --all-targets
 
 **目标**：默认安全，且安全决策有证据。
 
-- [ ] Threat model 文档：
+- [x] Threat model 文档：
   - tenant isolation
   - API key leakage
   - malicious plugin manifest
   - SSRF
   - billing fraud
   - admin account takeover
-- [ ] 细粒度 audit：
+- [x] 细粒度 audit：
   - before/after diff
   - actor subject
   - request_id
   - ip/user-agent
-- [ ] Secret redaction 全链路测试。
-- [ ] Admin 高危操作二次确认：
+- [x] Secret redaction 全链路测试。
+- [x] Admin 高危操作二次确认：
   - delete channel
   - rotate/revoke key
   - suspend user
   - change pricing
   - disable group
-- [ ] Master key rotation tool：
+- [x] Master key rotation tool：
   - dry-run
   - re-encrypt
   - verify
@@ -703,19 +703,19 @@ cargo test -p gate-providers --all-targets
 
 **目标**：每次 release 都能被外部用户理解和复现。
 
-- [ ] Release checklist 固化到 `RELEASE.md`。
-- [ ] GitHub Release 自动生成：
+- [x] Release checklist 固化到 `RELEASE.md`。
+- [x] GitHub Release 自动生成：
   - changelog
   - Docker image tag
   - migration notes
   - known limitations
-- [ ] Demo script：
+- [x] Demo script：
   - docker compose up
   - 创建 admin
   - 创建 provider preset channel
   - 发一条 chat
   - 看 usage / billing。
-- [ ] 截图与短视频：
+- [x] 截图与短视频：
   - Dashboard
   - Channel wizard
   - Pricing rules

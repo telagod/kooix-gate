@@ -38,9 +38,11 @@
 	let formDescription = $state('');
 	let formConditions = $state('{}');
 	let formSaving = $state(false);
+	let formConfirmation = $state('');
 	let usagePreview = $state<PricingUsagePreviewInput>({ ...DEFAULT_PRICING_USAGE_PREVIEW });
 
 	let deletingId = $state('');
+	let deleteConfirmation = $state('');
 
 	const dimensions = [
 		'input_tokens',
@@ -160,7 +162,7 @@
 				conditions: parsedConditions.value,
 				priority: Number(formPriority || 0),
 				description: formDescription || null
-			});
+			}, formConfirmation);
 			showForm = false;
 			resetWizard();
 			await reload();
@@ -173,13 +175,18 @@
 
 	async function handleDelete(id: string) {
 		deletingId = id;
+		deleteConfirmation = '';
+	}
+
+	async function confirmDelete() {
+		if (!deletingId) return;
 		try {
-			await deletePricingRule(id);
-			rules = rules.filter(r => r.id !== id);
+			await deletePricingRule(deletingId, deleteConfirmation);
+			rules = rules.filter(r => r.id !== deletingId);
+			deletingId = '';
+			deleteConfirmation = '';
 		} catch (err: any) {
 			error = err?.message ?? '删除失败';
-		} finally {
-			deletingId = '';
 		}
 	}
 
@@ -199,6 +206,7 @@
 		formPriority = '0';
 		formDescription = '';
 		formConditions = '{}';
+		formConfirmation = '';
 		usagePreview = { ...DEFAULT_PRICING_USAGE_PREVIEW };
 	}
 
@@ -254,6 +262,8 @@
 		const ch = channels.find(c => c.id === chId);
 		return ch ? ch.name || ch.code : shortId(chId);
 	}
+
+	let pricingConfirmation = $derived(`pricing:${formModel.trim()}:${formDimension}`);
 
 	let filterChannelOptions = $derived([
 		{ value: '', label: '全部渠道' },
@@ -585,11 +595,17 @@
 						{#if pricingWizardStep < 4}
 							<Button onclick={() => goWizardStep(pricingWizardStep + 1)} disabled={pricingWizardStep >= 2 && !canGoPreview}>下一步</Button>
 						{/if}
-						<Button onclick={handleSave} disabled={formSaving || !canGoPreview}>
+						<Button onclick={handleSave} disabled={formSaving || !canGoPreview || formConfirmation.trim() !== pricingConfirmation}>
 							{formSaving ? '保存中...' : '保存 Pricing rule'}
 						</Button>
 						<Button variant="outline" onclick={closeWizard}>取消</Button>
 					</div>
+				</div>
+				<div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+					<p class="text-xs font-medium text-amber-800 dark:text-amber-300">高危操作二次确认</p>
+					<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">保存 Pricing rule 会影响实时计费。请输入确认短语：</p>
+					<code class="mt-2 block rounded-md border border-amber-200 bg-white px-3 py-2 font-mono text-xs text-zinc-800 dark:border-amber-900/60 dark:bg-zinc-900 dark:text-zinc-200">{pricingConfirmation}</code>
+					<Input id="pricing-save-confirm" bind:value={formConfirmation} placeholder={pricingConfirmation} class="mt-2 font-mono" />
 				</div>
 			</div>
 		</Card>
@@ -648,3 +664,20 @@
 		<p class="text-xs text-zinc-500 dark:text-zinc-400 mt-2">{filteredRules.length} 条规则</p>
 	{/if}
 </PageShell>
+
+{#if deletingId}
+	{@const deletingRule = rules.find((rule) => rule.id === deletingId)}
+	{@const expectedDeleteConfirmation = deletingRule ? `pricing:${deletingRule.model}:${deletingRule.dimension}` : ''}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+		<Card class="w-full max-w-sm p-6">
+			<h3 class="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">删除 Pricing rule</h3>
+			<p class="mb-4 text-sm text-zinc-600 dark:text-zinc-300">删除后将立即影响命中的 usage 计费。请输入确认短语：</p>
+			<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedDeleteConfirmation}</code>
+			<Input id="pricing-delete-confirm" bind:value={deleteConfirmation} placeholder={expectedDeleteConfirmation} class="font-mono" />
+			<div class="mt-5 flex justify-end gap-2">
+				<Button variant="outline" onclick={() => { deletingId = ''; deleteConfirmation = ''; }}>取消</Button>
+				<Button variant="destructive" onclick={confirmDelete} disabled={deleteConfirmation.trim() !== expectedDeleteConfirmation}>删除</Button>
+			</div>
+		</Card>
+	</div>
+{/if}

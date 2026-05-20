@@ -17,6 +17,7 @@ use clap::{Args, Parser, Subcommand};
 
 mod admin;
 mod doctor;
+mod key_rotation;
 mod migrate;
 mod plugin;
 mod pricing;
@@ -111,6 +112,24 @@ enum KeyCmd {
     Master,
     /// 64 字节 JWT HS256 secret
     Jwt,
+    /// 轮换 envelope master key：dry-run / re-encrypt / verify
+    RotateMaster {
+        /// 旧 master key (base64 32B)；默认读 KOOIX_MASTER_KEY
+        #[arg(long, env = "KOOIX_MASTER_KEY")]
+        old_master_key: String,
+        /// 新 master key (base64 32B)；默认读 KOOIX_NEW_MASTER_KEY
+        #[arg(long, env = "KOOIX_NEW_MASTER_KEY")]
+        new_master_key: String,
+        /// 只解密校验并统计，不写库
+        #[arg(long)]
+        dry_run: bool,
+        /// 执行 re-encrypt 写库
+        #[arg(long)]
+        apply: bool,
+        /// 写库后用新 key 再解密验证；dry-run 时用旧 key 验证
+        #[arg(long)]
+        verify: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -415,6 +434,24 @@ fn main() {
             print_jwt();
             Ok(())
         }
+        Cmd::Key {
+            which:
+                KeyCmd::RotateMaster {
+                    old_master_key,
+                    new_master_key,
+                    dry_run,
+                    apply,
+                    verify,
+                },
+        } => run_async(key_rotation::rotate_master(
+            key_rotation::RotateMasterOpts {
+                old_master_key,
+                new_master_key,
+                dry_run,
+                apply,
+                verify,
+            },
+        )),
         Cmd::Env => {
             print_env();
             Ok(())

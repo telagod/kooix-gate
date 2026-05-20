@@ -48,6 +48,7 @@ kgctl smoke \
 | `init` | 一次性生成 master + jwt 两把密钥 | `kgctl init` |
 | `key master` | 仅生成 32B AES-256 KEK (base64) | `kgctl key master` |
 | `key jwt` | 仅生成 64B JWT HS256 secret (base64) | `kgctl key jwt` |
+| `key rotate-master` | 轮换 envelope master key，支持 dry-run / re-encrypt / verify | `kgctl key rotate-master --dry-run --verify` |
 | `env` | 打印所有部署 env 变量 + 必/可 + 说明 | `kgctl env` |
 | `migrate` | 连 `KOOIX_DATABASE_URL` 跑全部 sqlx 迁移 | `kgctl migrate` |
 | `migrate --dry-run` | 只列出待执行 migration，不写库 | `kgctl migrate --dry-run` |
@@ -69,6 +70,22 @@ kgctl smoke \
 | `plugin import` | 导入 / 校验 fixture，`--verify` 会重放 raw SSE 比对 expected chunks | `kgctl plugin import fixture.json --verify` |
 
 退出码：成功 0；任何步骤失败 1，标准错误用 ANSI 红色高亮原因。
+
+## Master key 轮换
+
+`KOOIX_MASTER_KEY` 保护 `channel_keys.key_enc` 与 `identity_providers.client_secret_enc`。计划轮换时先做 dry-run，再备份 DB，最后 apply + verify：
+
+```bash
+export KOOIX_DATABASE_URL=postgres://...
+export KOOIX_MASTER_KEY=<old-base64-32B>
+export KOOIX_NEW_MASTER_KEY=<new-base64-32B>
+
+kgctl key rotate-master --dry-run --verify
+# 做 PostgreSQL backup/snapshot
+kgctl key rotate-master --apply --verify
+```
+
+Rollback plan：apply 前保留 DB backup 与旧 key；verify 失败优先恢复 backup，或在服务未切新 key 前用 old/new 对调重新执行；verify 成功后再滚动重启所有实例并运行 `kgctl doctor`。
 
 ## HTTP 冒烟测试
 

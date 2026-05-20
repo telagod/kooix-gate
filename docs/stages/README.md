@@ -15,4 +15,4 @@
 | 文档 | 状态 | 用途 |
 | --- | --- | --- |
 | [2026-05-19-refactor-todo-audit.md](./2026-05-19-refactor-todo-audit.md) | implementation pass applied | Runtime / billing / DB / CI / observability 重构审计与完成证据。 |
-| [2026-05-19-docs-and-secret-scan.md](./2026-05-19-docs-and-secret-scan.md) | applied | 文档分层清理、gitleaks 本地安装复验、Plugin secret slots、P1.8/P1.9/P2.2 后续收口、request log 分区 / retention、SSE parser 压测与 Web bundle 预算证据。 |
+| [2026-05-19-docs-and-secret-scan.md](./2026-05-19-docs-and-secret-scan.md) | applied | 文档分层清理、gitleaks 本地安装复验、Plugin secret slots、P1.8/P1.9/P2.2 后续收口、P2.3 安全打磨、P2.5 发布资产与全门禁证据。 |

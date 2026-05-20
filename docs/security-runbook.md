@@ -10,6 +10,37 @@
 2. 若无法恢复：冻结新增请求，重新生成 master key，逐个重新录入所有 channel key 与 OIDC secret。
 3. 重新运行 `kgctl doctor`，抽样验证 channel 调用。
 
+## Master key 计划轮换
+
+`kgctl key rotate-master` 支持对 `channel_keys.key_enc` 与 `identity_providers.client_secret_enc` 做三段式轮换。
+
+执行链：
+
+```bash
+export KOOIX_DATABASE_URL=postgres://...
+export KOOIX_MASTER_KEY=<old-base64-32B>
+export KOOIX_NEW_MASTER_KEY=<new-base64-32B>
+
+# 1. 只读预检：旧 key 必须能解所有密文
+kgctl key rotate-master --dry-run --verify
+
+# 2. 做 PostgreSQL backup/snapshot，确认可恢复
+
+# 3. 写库重加密并用新 key 验证
+kgctl key rotate-master --apply --verify
+
+# 4. 切部署环境 KOOIX_MASTER_KEY=<new>，滚动重启全部 gate-server / worker
+kgctl doctor
+```
+
+回滚：
+
+1. `--apply` 前必须保留 DB backup/snapshot 与旧 master key。
+2. 若 verify 失败且服务尚未切新 key，优先恢复 backup；也可在无新写入窗口内用 old/new 对调重新执行一次。
+3. 若服务已切新 key 后发现业务异常，先暂停新增 secret 写入，恢复 backup，再恢复旧 `KOOIX_MASTER_KEY` 并重启。
+
+注意：轮换工具不会打印 plaintext secret；输出只包含统计、阶段结果和 rollback plan。
+
 ## JWT secret 轮换
 
 `KOOIX_JWT_SECRET` 是 primary signing key；`KOOIX_JWT_PREVIOUS_SECRETS` 是逗号分隔旧 key 验签窗口，只验签、不签发新 token。
@@ -35,6 +66,21 @@
 2. 在 Kooix Gate 控制台禁用对应 channel key 或 channel。
 3. 录入新 key，执行 health probe / smoke chat。
 4. 检查 request logs 中该 channel 的异常调用峰值与费用。
+
+## Admin 高危操作二次确认
+
+以下控制面变更需要 `x-kooix-confirm` header，控制台会显示确认短语：
+
+| 操作 | 确认短语 |
+| --- | --- |
+| 删除 Channel | `delete:<channel_code>` |
+| 轮转 Channel key | `rotate:<channel_code>` |
+| 撤销 Channel key | `revoke:<raw_key_uuid>` |
+| 停用用户 | `suspend:<email>` |
+| 禁用 Channel group | `disable:<group_name>` |
+| 新建 / 更新 / 删除 Pricing rule | `pricing:<model>:<dimension>` |
+
+失败会返回 `400 bad_request`，审计不会记录成功变更。成功后 audit log 记录 actor、request_id、IP、User-Agent、before/after diff；diff 会先经过 secret redaction。
 
 ## Redis quota 计数异常
 

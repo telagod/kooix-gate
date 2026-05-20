@@ -12,13 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract changelog
-        id: changelog
-        run: |
-          # Extract section for this version from CHANGELOG.md
-          VERSION="${GITHUB_REF_NAME#v}"
-          awk "/^## \[${VERSION}\]/{found=1;next} /^## \[/{found=0} found" CHANGELOG.md > /tmp/release-notes.md
+      - name: Render release notes
+        run: node scripts/render-release-notes.mjs "$GITHUB_REF_NAME" > /tmp/release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          name: Kooix Gate ${{ github.ref_name }}
           body_path: /tmp/release-notes.md
           generate_release_notes: false

@@ -1082,6 +1082,48 @@
       }
     },
     "/v1/admin/pricing-rules": {
+      "get": {
+        "summary": "List pricing rules",
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PricingRule"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
       "post": {
         "summary": "Create or update pricing rule",
         "responses": {
@@ -1120,6 +1162,77 @@
                 "$ref": "#/components/schemas/PricingRuleRequest"
               }
             }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Kooix-Confirm",
+            "in": "header",
+            "required": true,
+            "description": "High-risk confirmation phrase: pricing:<model>:<dimension>",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/pricing-rules/{id}": {
+      "delete": {
+        "summary": "Delete pricing rule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Kooix-Confirm",
+            "in": "header",
+            "required": true,
+            "description": "High-risk confirmation phrase: pricing:<model>:<dimension>",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }

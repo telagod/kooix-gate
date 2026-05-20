@@ -136,6 +136,10 @@
                 "value": "Bearer {{adminToken}}"
               },
               {
+                "key": "X-Kooix-Confirm",
+                "value": "pricing:{{model}}:input_tokens"
+              },
+              {
                 "key": "Content-Type",
                 "value": "application/json"
               }

@@ -14,15 +14,17 @@
 //! - POST   /channels/:id/keys/rotate — 轮转 key
 //! - DELETE /channels/:id/keys/:key_id — 撤销 key
 
+use crate::audit::{AuditChange, AuditRequestMeta};
 use crate::auth::Authed;
 use crate::error::{AppError, AppResult};
 use crate::flex_uuid::FlexUuid;
+use crate::middleware::KooixRequestId;
 use crate::routes::invitations::{
     invitation_token_hash, normalize_email, parse_org_invite_role, parse_project_invite_role,
 };
 use crate::state::AppState;
-use axum::extract::{Path, Query, State};
-use axum::{Json, Router, routing::get};
+use axum::extract::{Extension, Path, Query, State};
+use axum::{Json, Router, http::HeaderMap, routing::get};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use gate_auth::{require, require_user};
@@ -167,6 +169,8 @@ pub struct UpdateChannelRequest {
 pub struct BatchChannelRequest {
     pub ids: Vec<Uuid>,
 }
+
+const CONFIRM_HEADER: &str = "x-kooix-confirm";
 
 #[derive(Serialize)]
 pub struct BatchResult {
@@ -402,6 +406,109 @@ fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummary {
     }
 }
 
+fn channel_audit_snapshot(r: &gate_storage::ChannelRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": r.channel_id.to_string(),
+        "code": r.code,
+        "name": r.name,
+        "provider_type": r.provider_type,
+        "base_url": r.base_url,
+        "status": r.status,
+        "health": r.health,
+        "supported_models": r.supported_models,
+        "rpm_limit": r.rpm_limit,
+        "tpm_limit": r.tpm_limit,
+        "timeout_ms": r.timeout_ms,
+        "max_retries": r.max_retries,
+        "tags": r.tags,
+        "model_mapping": r.model_mapping,
+        "balance": r.balance,
+        "last_error": r.last_error,
+    })
+}
+
+fn key_audit_snapshot(k: &gate_storage::ChannelKeyRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": k.id.to_string(),
+        "channel_id": k.channel_id.to_string(),
+        "label": k.label,
+        "fingerprint": k.key_fingerprint,
+        "weight": k.weight,
+        "health": k.health,
+        "total_requests": k.total_requests,
+        "total_errors": k.total_errors,
+        "consecutive_errors": k.consecutive_errors,
+        "last_error_code": k.last_error_code,
+    })
+}
+
+fn group_audit_snapshot(
+    g: &gate_storage::ChannelGroupRecord,
+    channel_count: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": g.group_id.to_string(),
+        "name": g.name,
+        "description": g.description,
+        "strategy": g.strategy,
+        "enabled": g.enabled,
+        "fallback_group_id": g.fallback_group_id.map(|fb| fb.to_string()),
+        "channel_count": channel_count,
+    })
+}
+
+fn pricing_rule_audit_snapshot(r: &gate_billing::PricingRule) -> serde_json::Value {
+    serde_json::json!({
+        "id": r.id.to_string(),
+        "channel_id": r.channel_id.map(|c| gate_core::id::ChannelId::from(c).to_string()),
+        "model": r.model,
+        "dimension": r.dimension,
+        "unit": r.unit,
+        "rate": r.rate,
+        "conditions": r.conditions,
+        "effective_from": r.effective_from,
+        "effective_until": r.effective_until,
+        "priority": r.priority,
+        "description": r.description,
+    })
+}
+
+fn user_audit_snapshot(u: &gate_core::identity::User) -> serde_json::Value {
+    serde_json::json!({
+        "id": u.id.to_string(),
+        "email": u.email,
+        "display_name": u.display_name,
+        "status": format!("{:?}", u.status).to_lowercase(),
+        "mfa_enabled": u.mfa_enabled,
+        "last_login_at": u.last_login_at,
+    })
+}
+
+fn confirmation_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(CONFIRM_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+}
+
+fn require_confirmation(headers: &HeaderMap, expected: impl AsRef<str>) -> AppResult<()> {
+    let expected = expected.as_ref();
+    match confirmation_from_headers(headers) {
+        Some(actual) if actual == expected => Ok(()),
+        _ => Err(AppError::BadRequest(format!(
+            "confirmation required: set {CONFIRM_HEADER}: {expected}"
+        ))),
+    }
+}
+
+fn audit_meta(
+    request_id: Option<Extension<KooixRequestId>>,
+    headers: &HeaderMap,
+) -> AuditRequestMeta {
+    AuditRequestMeta::from_parts(request_id.map(|Extension(id)| id), headers, None)
+}
+
 fn channel_capabilities(r: &gate_storage::ChannelRecord) -> ProviderCapabilities {
     if is_plugin_provider(&r.provider_type) {
         return gate_providers::plugin_manifest(r.model_mapping.clone(), &r.base_url)
@@ -601,23 +708,25 @@ async fn update_channel(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
     Json(req): Json<UpdateChannelRequest>,
 ) -> AppResult<Json<ChannelSummary>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelUpdate, Scope::Platform);
 
     let channel_id = ChannelId::from(id.0);
-    if req.model_mapping.is_some() || req.base_url.is_some() {
-        let current = app.repos.channels.find_by_id(channel_id).await?;
-        if is_plugin_provider(&current.provider_type) {
-            let mapping = req
-                .model_mapping
-                .clone()
-                .unwrap_or_else(|| current.model_mapping.clone());
-            let base_url = req.base_url.as_deref().unwrap_or(&current.base_url);
-            gate_providers::validate_plugin_manifest(mapping, base_url)
-                .map_err(|e| AppError::BadRequest(e.to_string()))?;
-        }
+    let before = app.repos.channels.find_by_id(channel_id).await?;
+    if (req.model_mapping.is_some() || req.base_url.is_some())
+        && is_plugin_provider(&before.provider_type)
+    {
+        let mapping = req
+            .model_mapping
+            .clone()
+            .unwrap_or_else(|| before.model_mapping.clone());
+        let base_url = req.base_url.as_deref().unwrap_or(&before.base_url);
+        gate_providers::validate_plugin_manifest(mapping, base_url)
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
     }
     let record = app
         .repos
@@ -639,8 +748,15 @@ async fn update_channel(
         )
         .await?;
 
-    app.audit
-        .emit(&ctx, "channel.update", "channel", Some(*id), None);
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "channel.update",
+        resource_kind: "channel",
+        resource_id: Some(*id),
+        before: Some(channel_audit_snapshot(&before)),
+        after: Some(channel_audit_snapshot(&record)),
+    });
 
     Ok(Json(record_to_summary(record)))
 }
@@ -653,15 +769,31 @@ async fn delete_channel(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelDelete, Scope::Platform);
 
     let channel_id = ChannelId::from(id.0);
+    let before = app.repos.channels.find_by_id(channel_id).await?;
+    require_confirmation(&headers, format!("delete:{}", before.code))?;
     app.repos.channels.soft_delete(channel_id).await?;
 
-    app.audit
-        .emit(&ctx, "channel.delete", "channel", Some(*id), None);
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "channel.delete",
+        resource_kind: "channel",
+        resource_id: Some(*id),
+        before: Some(channel_audit_snapshot(&before)),
+        after: Some(serde_json::json!({
+            "id": before.channel_id.to_string(),
+            "code": before.code,
+            "deleted": true,
+            "status": "disabled",
+        })),
+    });
 
     Ok(Json(serde_json::json!({"deleted": true})))
 }
@@ -880,6 +1012,8 @@ async fn rotate_channel_key(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
     Json(req): Json<CreateKeyRequest>,
 ) -> AppResult<Json<ChannelKeySummary>> {
     require_user!(ctx);
@@ -897,7 +1031,9 @@ async fn rotate_channel_key(
     })?;
 
     let channel_id = ChannelId::from(id.0);
-    let _ = app.repos.channels.find_by_id(channel_id).await?;
+    let channel = app.repos.channels.find_by_id(channel_id).await?;
+    require_confirmation(&headers, format!("rotate:{}", channel.code))?;
+    let before_keys = app.repos.channel_keys.list_by_channel(channel_id).await?;
 
     let fingerprint = key_fingerprint(&req.secret);
     let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
@@ -915,13 +1051,24 @@ async fn rotate_channel_key(
         router.invalidate_channel_key_cache(channel_id);
     }
 
-    app.audit.emit(
-        &ctx,
-        "channel_key.rotate",
-        "channel_key",
-        Some(*key_id.as_uuid()),
-        Some(serde_json::json!({"channel_id": id.to_string()})),
-    );
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "channel_key.rotate",
+        resource_kind: "channel_key",
+        resource_id: Some(*key_id.as_uuid()),
+        before: Some(serde_json::json!({
+            "channel_id": channel_id.to_string(),
+            "channel_code": channel.code,
+            "keys": before_keys.iter().map(key_audit_snapshot).collect::<Vec<_>>(),
+        })),
+        after: Some(serde_json::json!({
+            "channel_id": channel_id.to_string(),
+            "new_key_id": key_id.to_string(),
+            "new_fingerprint": fingerprint,
+            "alias": req.alias,
+        })),
+    });
 
     Ok(Json(ChannelKeySummary {
         id: key_id.to_string(),
@@ -944,13 +1091,24 @@ async fn revoke_channel_key(
     State(app): State<AppState>,
     Path((id, key_id)): Path<(FlexUuid, FlexUuid)>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelKeyManage, Scope::Platform);
 
     // 验证 channel 存在
     let channel_id = ChannelId::from(id.0);
-    let _ = app.repos.channels.find_by_id(channel_id).await?;
+    let channel = app.repos.channels.find_by_id(channel_id).await?;
+    require_confirmation(&headers, format!("revoke:{}", key_id.0))?;
+    let before = app
+        .repos
+        .channel_keys
+        .list_by_channel(channel_id)
+        .await?
+        .into_iter()
+        .find(|k| *k.id.as_uuid() == key_id.0)
+        .ok_or(AppError::NotFound)?;
 
     let ck_id = ChannelKeyId::from(key_id.0);
     app.repos.channel_keys.revoke(ck_id).await?;
@@ -958,13 +1116,21 @@ async fn revoke_channel_key(
         router.invalidate_channel_key_cache(channel_id);
     }
 
-    app.audit.emit(
-        &ctx,
-        "channel_key.revoke",
-        "channel_key",
-        Some(*key_id),
-        Some(serde_json::json!({"channel_id": id.to_string()})),
-    );
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "channel_key.revoke",
+        resource_kind: "channel_key",
+        resource_id: Some(*key_id),
+        before: Some(key_audit_snapshot(&before)),
+        after: Some(serde_json::json!({
+            "id": key_id.0.to_string(),
+            "channel_id": channel_id.to_string(),
+            "channel_code": channel.code,
+            "revoked": true,
+            "health": "disabled",
+        })),
+    });
 
     Ok(Json(serde_json::json!({"revoked": true})))
 }
@@ -1063,12 +1229,18 @@ pub struct AuditLogView {
     pub ts: DateTime<Utc>,
     pub actor_kind: String,
     pub actor_id: Option<String>,
+    pub actor_ip: Option<String>,
+    pub actor_user_agent: Option<String>,
+    pub request_id: Option<String>,
     pub action: String,
     pub resource_kind: String,
     pub resource_id: Option<String>,
     pub org_id: Option<String>,
+    pub project_id: Option<String>,
     pub outcome: String,
+    pub before: Option<serde_json::Value>,
     pub after: Option<serde_json::Value>,
+    pub error_message: Option<String>,
 }
 
 async fn list_audit_logs(
@@ -1103,12 +1275,18 @@ async fn list_audit_logs(
                 ts: r.ts,
                 actor_kind: r.actor_kind,
                 actor_id: r.actor_id.map(|u| u.to_string()),
+                actor_ip: r.actor_ip,
+                actor_user_agent: r.actor_user_agent,
+                request_id: r.request_id.map(|u| u.to_string()),
                 action: r.action,
                 resource_kind: r.resource_kind,
                 resource_id: r.resource_id.map(|u| u.to_string()),
                 org_id: r.org_id.map(|u| u.to_string()),
+                project_id: r.project_id.map(|u| u.to_string()),
                 outcome: r.outcome,
+                before: r.before,
                 after: r.after,
+                error_message: r.error_message,
             })
             .collect(),
     ))
@@ -1367,6 +1545,8 @@ async fn update_user_status(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
     Json(req): Json<UpdateStatusRequest>,
 ) -> AppResult<Json<UserView>> {
     require_user!(ctx);
@@ -1381,15 +1561,21 @@ async fn update_user_status(
         ));
     }
 
+    let before = app.repos.users.find_by_id(user_id).await?;
+    if before.status != gate_core::identity::UserStatus::Suspended && req.status == "suspended" {
+        require_confirmation(&headers, format!("suspend:{}", before.email))?;
+    }
     let user = app.repos.users.update_status(user_id, &req.status).await?;
 
-    app.audit.emit(
-        &ctx,
-        "user.update_status",
-        "user",
-        Some(*id),
-        Some(serde_json::json!({"status": &req.status})),
-    );
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "user.update_status",
+        resource_kind: "user",
+        resource_id: Some(*id),
+        before: Some(user_audit_snapshot(&before)),
+        after: Some(user_audit_snapshot(&user)),
+    });
 
     Ok(Json(user_to_view(user)))
 }
@@ -2550,6 +2736,8 @@ async fn update_group(
     State(app): State<AppState>,
     Path(id): Path<FlexUuid>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
     Json(req): Json<UpdateGroupRequest>,
 ) -> AppResult<Json<GroupView>> {
     require_user!(ctx);
@@ -2560,6 +2748,11 @@ async fn update_group(
     }
 
     let gid = gate_core::id::ChannelGroupId::from(id.0);
+    let before = app.repos.channel_groups.find_by_id(gid).await?;
+    let before_count = group_channel_count(&app, gid).await?;
+    if before.enabled && req.enabled == Some(false) {
+        require_confirmation(&headers, format!("disable:{}", before.name))?;
+    }
 
     // Parse fallback_group_id: Option<Option<String>> -> Option<Option<ChannelGroupId>>
     let fallback: Option<Option<ChannelGroupId>> = match req.fallback_group_id {
@@ -2586,15 +2779,17 @@ async fn update_group(
             req.description.as_deref(),
         )
         .await?;
-    app.audit.emit(
-        &ctx,
-        "channel_group.update",
-        "channel_group",
-        Some(*id),
-        None,
-    );
-
     let bindings = app.repos.channel_groups.list_bindings(gid).await?;
+
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "channel_group.update",
+        resource_kind: "channel_group",
+        resource_id: Some(*id),
+        before: Some(group_audit_snapshot(&before, before_count)),
+        after: Some(group_audit_snapshot(&g, bindings.len() as i64)),
+    });
 
     Ok(Json(GroupView {
         id: g.group_id.to_string(),
@@ -3932,6 +4127,8 @@ struct UpsertPricingRuleRequest {
 async fn upsert_pricing_rule(
     State(app): State<AppState>,
     Authed(ctx): Authed,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
     Json(req): Json<UpsertPricingRuleRequest>,
 ) -> AppResult<Json<PricingRuleRow>> {
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
@@ -3939,9 +4136,20 @@ async fn upsert_pricing_rule(
         .pricing
         .as_ref()
         .ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+    let rule_id = req.id.unwrap_or_else(Uuid::now_v7);
+    require_confirmation(
+        &headers,
+        format!("pricing:{}:{}", req.model.trim(), req.dimension.trim()),
+    )?;
+    let before = pricing
+        .list_rules(None, None)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .into_iter()
+        .find(|r| r.id == rule_id);
 
     let rule = gate_billing::PricingRule {
-        id: req.id.unwrap_or_else(Uuid::now_v7),
+        id: rule_id,
         channel_id: req.channel_id,
         model: req.model,
         dimension: req.dimension,
@@ -3963,8 +4171,15 @@ async fn upsert_pricing_rule(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    app.audit
-        .emit(&ctx, "pricing_rule.upsert", "pricing_rule", None, None);
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "pricing_rule.upsert",
+        resource_kind: "pricing_rule",
+        resource_id: Some(saved.id),
+        before: before.as_ref().map(pricing_rule_audit_snapshot),
+        after: Some(pricing_rule_audit_snapshot(&saved)),
+    });
 
     Ok(Json(rule_to_row(&saved)))
 }
@@ -3973,12 +4188,25 @@ async fn delete_pricing_rule(
     State(app): State<AppState>,
     Authed(ctx): Authed,
     Path(id): Path<FlexUuid>,
+    headers: HeaderMap,
+    request_id: Option<Extension<KooixRequestId>>,
 ) -> AppResult<Json<serde_json::Value>> {
     require!(ctx, Permission::PlatformAdmin, Scope::Platform);
     let pricing = app
         .pricing
         .as_ref()
         .ok_or_else(|| AppError::Internal("pricing not configured".into()))?;
+    let before = pricing
+        .list_rules(None, None)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .into_iter()
+        .find(|r| r.id == *id)
+        .ok_or(AppError::NotFound)?;
+    require_confirmation(
+        &headers,
+        format!("pricing:{}:{}", before.model, before.dimension),
+    )?;
 
     let deleted = pricing
         .delete_rule(*id)
@@ -3989,8 +4217,18 @@ async fn delete_pricing_rule(
         return Err(AppError::NotFound);
     }
 
-    app.audit
-        .emit(&ctx, "pricing_rule.delete", "pricing_rule", None, None);
+    app.audit.emit_change(AuditChange {
+        ctx: &ctx,
+        meta: audit_meta(request_id, &headers),
+        action: "pricing_rule.delete",
+        resource_kind: "pricing_rule",
+        resource_id: Some(*id),
+        before: Some(pricing_rule_audit_snapshot(&before)),
+        after: Some(serde_json::json!({
+            "id": id.0.to_string(),
+            "deleted": true,
+        })),
+    });
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

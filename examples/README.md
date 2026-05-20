@@ -1,6 +1,6 @@
 # Kooix Gate Examples
 
-本目录是 P2.4 DX 示例入口，目标是让新用户 10 分钟内完成：配置上游 channel、创建 project API key、按 OpenAI-compatible 协议发起非流式/流式请求，并能补价格与 quota。
+本目录是 P2.4/P2.5 DX 与发布演示入口，目标是让新用户 10 分钟内完成：配置上游 channel、创建 project API key、按 OpenAI-compatible 协议发起非流式/流式请求，并能补价格、quota、usage / billing 验证。
 
 ## 环境变量
 
@@ -18,6 +18,19 @@ export MODEL="gpt-4o-mini"
 ```
 
 > `KOOIX_ADMIN_TOKEN` 是 `/v1/auth/login` 返回的 `access_token`。不要把真实 token/key 提交到仓库；示例里的 `<...>` 都是占位。
+> pricing 示例会自动发送 `X-Kooix-Confirm: pricing:<model>:<dimension>`，与 Admin 高危操作二次确认一致。
+
+## 一键 demo
+
+发布前或素材录制前可直接跑完整主链路：
+
+```bash
+export UPSTREAM_BASE_URL="https://api.openai.com/v1"
+export UPSTREAM_API_KEY="<provider-key>"
+examples/demo/quickstart.sh
+```
+
+脚本会执行 `docker compose up -d --build`、首次 `/v1/setup` 或既有 admin 登录、创建 Provider preset channel、写入 input/output pricing rules、创建 Project API key、发一条 chat，并读取 usage / billing。
 
 ## 快速顺序
 
@@ -35,6 +48,7 @@ export MODEL="gpt-4o-mini"
 
 | 文件 | 用途 |
 | --- | --- |
+| `demo/quickstart.sh` | P2.5 一键演示：compose up → setup/login → channel → pricing → API key → chat → usage/billing。 |
 | `node/openai-sdk-direct.mjs` | OpenAI SDK 直连 Kooix Gate `/v1/chat/completions`。 |
 | `curl/streaming-chat.sh` | `curl -N` 流式 SSE 请求。 |
 | `admin/create-provider-preset-channel.sh` | 创建 Provider preset channel、channel key、group、project default group。 |
