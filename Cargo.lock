@@ -1781,6 +1781,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "criterion",
  "csv",
  "figment",
  "fred",

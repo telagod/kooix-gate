@@ -1131,3 +1131,19 @@ rg -n "gateway_requests_total|gateway_request_duration_seconds|gateway_upstream_
 cargo test -p gate-providers router_channel_key_cache -- --nocapture
 cargo check -p gate-providers --benches
 ```
+
+### Hot path benchmarks follow-up
+
+- `crates/gate-server/benches/hot_paths.rs` 增加 `quota_check_hot_path` benchmark，覆盖：
+  - no quota + valid API key 的 middleware pass-through；
+  - rpm quota 无 body parse 路径；
+  - daily budget + model filter 的 body parse / model estimate 路径。
+- 同一 bench 增加 `request_log_enqueue_hot_path/billing_emit_inmemory_outbox`，覆盖 `emit_usage -> pricing lookup -> compute_cost -> InMemoryOutboxRepo::enqueue`，作为 request log enqueue 热路径基线。
+- `ROADMAP.md` 中 P2.2 `路由 hot path benchmark` 整项收口为完成；Usage/outbox batch insert 与 request log partition / retention 仍待后续单独斩。
+
+追加验证命令：
+
+```bash
+cargo check -p gate-server --benches
+cargo test -p gate-server middleware::quota::tests -- --nocapture
+```

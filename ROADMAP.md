@@ -617,11 +617,11 @@ cargo test -p gate-providers --all-targets
 
 **目标**：稳定承载高并发，不让计费和日志拖慢主链。
 
-- [ ] 路由 hot path benchmark：
+- [x] 路由 hot path benchmark：
   - [x] provider selection
   - [x] key decrypt cache
-  - quota check
-  - request log enqueue
+  - [x] quota check
+  - [x] request log enqueue
 - [x] Channel key 解密缓存：
   - [x] TTL
   - [x] revoke 失效

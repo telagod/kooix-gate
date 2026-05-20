@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P2.1 Quota wizard 落地：`/orgs/[orgId]/quotas` 新增 4 步向导（Scope、Model filter、RPM/TPM/Budget、Explain preview），一次生成多条 quota policy，并用后端 `explainQuota` 只读预览 would-deny。
 - P2.1 UI 文案统一：控制台高频页收敛为中文主文案，保留 Provider / Channel / API Key / SSO / OIDC / Redis / PG 等术语，并新增 `ui-copy.test.ts` 防止 wizard、telemetry 与状态标签回漂。
 - P2.2 ProviderRouter 增加 channel key 解密短缓存：`KOOIX_CHANNEL_KEY_CACHE_TTL_SECS` 默认 30s，控制面 create / rotate / revoke 与运行时 key failure 上报会显式失效对应 channel，外部 DB 直改最迟 TTL 后生效；`routing` Criterion bench 增加 key decrypt cache hit / disabled 对比。
+- P2.2 hot path benchmark 补齐：`gate-server` 新增 `hot_paths` Criterion bench，覆盖 quota middleware 的 no-quota / rpm / body-metered budget 路径，以及 billing/request-log outbox enqueue 路径。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。
