@@ -14,15 +14,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Keep GitHub-hosted runners on normal setup actions, but avoid unnecessary
+  # network/tool cache mutation on the local self-hosted runner. The self-hosted
+  # path exists only to bypass account billing/spending-limit outages and should
+  # use already installed toolchains.
+  # Remove repo variable KOOIX_CI_RUNNER to fall back to ubuntu-latest.
   check:
     name: Check + Clippy + Format
     runs-on: ${{ fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy, rustfmt
+      - name: Use preinstalled Rust toolchain
+        if: ${{ contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        run: |
+          rustup default "${RUST_TOOLCHAIN}"
+          rustc --version
+          cargo --version
+          cargo fmt --version
+          cargo clippy --version
       - uses: Swatinem/rust-cache@v2
         if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - run: git diff --check
@@ -40,8 +54,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Use preinstalled Rust toolchain
+        if: ${{ contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        run: |
+          rustup default "${RUST_TOOLCHAIN}"
+          rustc --version
+          cargo --version
       - uses: Swatinem/rust-cache@v2
         if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - run: cargo test --workspace
@@ -69,8 +90,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Use preinstalled Rust toolchain
+        if: ${{ contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        run: |
+          rustup default "${RUST_TOOLCHAIN}"
+          rustc --version
+          cargo --version
       - uses: Swatinem/rust-cache@v2
         if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - run: cargo run -p kgctl -- migrate --dry-run
@@ -91,8 +119,15 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Use preinstalled Rust toolchain
+        if: ${{ contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        run: |
+          rustup default "${RUST_TOOLCHAIN}"
+          rustc --version
+          cargo --version
       - uses: Swatinem/rust-cache@v2
         if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - name: Install cargo-audit
@@ -139,10 +174,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
+      - name: Use preinstalled Node.js
+        if: ${{ contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        run: |
+          node --version
+          npm --version
       - run: npm ci
       - run: npm run check
       - run: npm test

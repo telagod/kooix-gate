@@ -16,6 +16,7 @@ Last verified: 2026-05-20
 - 本机安装位置：`/home/telagod/.local/bin/gitleaks`
 - 版本：`8.30.1`
 - CI：`.github/workflows/ci.yml` 的 `Security Smoke` job 直接执行 gitleaks CLI 双扫，避免 self-hosted runner 卡在第三方 action setup；GitHub-hosted runner 缺少 gitleaks 时按版本下载。
+- CI runner：GitHub-hosted runner 若被 Billing / spending limit 阻断，可临时设置 repo variable `KOOIX_CI_RUNNER=["self-hosted","kooix-ci"]`。self-hosted 路径跳过 `rust-cache`、`dtolnay/rust-toolchain` 和 `actions/setup-node` cache，改用本机已安装 Rust / Node，避免 `static.rust-lang.org` 超时与 setup-node post cache-save 卡死；删除该 variable 即回退 `ubuntu-latest`。
 
 本地验收命令：
 
