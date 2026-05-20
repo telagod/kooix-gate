@@ -88,7 +88,8 @@ v1 固定以下分区：
 
 1. 若 channel key repo + crypto 已配置，读取该 channel 全部 active `channel_keys`，按 `label` 归一为 slot 后解密注入 plugin runtime。
 2. `primary` slot 保持旧行为：优先使用 label 为空、`primary` 或 `api_key` 的 active key；若不存在 primary，则使用当前权重最高的 active key 兼容旧数据。
-3. DB 无 active key、repo/crypto 未配置或本地开发时，回退 env：
+3. 解密后的 slot map 会在 `ProviderRouter` 内做短 TTL 缓存；`KOOIX_CHANNEL_KEY_CACHE_TTL_SECS` 默认 30s，设 0 可禁用。控制面 create / rotate / revoke channel key 后会显式失效对应 channel 的缓存；运行时 key failure 上报也会失效缓存，避免继续命中已进入 cooling_down 的 key；外部直接改 DB 时最迟 TTL 后生效。
+4. DB 无 active key、repo/crypto 未配置或本地开发时，回退 env：
    - 主密钥：`KOOIX_CH_<CHANNEL_CODE>_KEY`，再退到 `KOOIX_API_KEY`。
    - 非主 slot：`KOOIX_PLUGIN_SECRET_<SLOT>`，slot 会转成大写并把非字母数字替换为 `_`。
    - AWS 兼容 slot：`aws_secret_key` 回退 `AWS_SECRET_ACCESS_KEY`，`aws_session_token` 回退 `AWS_SESSION_TOKEN`。

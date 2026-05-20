@@ -1112,3 +1112,22 @@ cargo check --workspace
 cargo test -p gate-server --test perf_smoke -- --nocapture
 rg -n "gateway_requests_total|gateway_request_duration_seconds|gateway_upstream_errors_total|quota_denies_total|billing_outbox_lag_seconds|billing_settle_lag_seconds" crates docs ROADMAP.md CHANGELOG.md
 ```
+
+## P2.2 性能打磨 / Channel key decrypt cache
+
+本轮先斩 P2.2 中收益明确且回归面可控的一刀：ProviderRouter 热路径不再每次请求重复 `list_by_channel + EnvelopeKms::open`。
+
+- `ProviderRouter` 增加 channel key 解密结果短 TTL cache，缓存粒度为 `ChannelId -> primary/key_id/secret slots`。
+- TTL 由 `KOOIX_CHANNEL_KEY_CACHE_TTL_SECS` 控制，默认 30s；设置为 `0` 时禁用缓存，便于排障或极端轮换窗口。
+- 控制面 `create_channel_key`、`rotate_channel_key`、`revoke_channel_key` 成功后显式调用 `invalidate_channel_key_cache(channel_id)`，并 bump snapshot version，保证 admin 变更立即进入数据面。
+- 数据面 `report_failure` 成功更新 key health 后同步失效对应 channel cache，避免 failure circuit breaker 把 key 打入 `cooling_down` 后仍命中旧明文。
+- 外部直接改 DB 不会收到显式失效信号，按 TTL 自然刷新；生产应优先通过控制面轮换 / revoke。
+- `crates/gate-providers/benches/routing.rs` 增加 `channel_key_decrypt_cache/cache_hit_30s` 与 `cache_disabled` benchmark，对照 key decrypt hot path 成本；既有 provider selection strategy benchmark 继续保留。
+- 文档同步 `README.md`、`DESIGN.md`、`docs/plugin-manifest.md`、`CHANGELOG.md`、`ROADMAP.md`。
+
+阶段验证命令：
+
+```bash
+cargo test -p gate-providers router_channel_key_cache -- --nocapture
+cargo check -p gate-providers --benches
+```

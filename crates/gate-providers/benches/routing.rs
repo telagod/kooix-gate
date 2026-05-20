@@ -1,19 +1,21 @@
 //! Criterion micro-benchmarks for ProviderRouter hot paths.
 //!
 //! These benchmarks use InMemory repos (no I/O) to isolate CPU-bound routing
-//! logic: strategy selection, alias resolution, channel filtering.
+//! logic: strategy selection, alias resolution, channel filtering, decrypted
+//! channel key cache hit/miss cost.
 //!
 //! Run:  cargo bench --package gate-providers -- routing
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
-use gate_core::id::{ChannelGroupId, ChannelId, ProjectId};
+use gate_core::id::{ChannelGroupId, ChannelId, ChannelKeyId, ProjectId};
 use gate_providers::{InflightTracker, ProviderRouter};
 use gate_storage::{
-    ChannelGroupRecord, ChannelRecord, InMemoryChannelGroupRepo, InMemoryChannelRepo,
-    InMemoryModelAliasRepo, ModelAliasRecord,
+    ChannelGroupRecord, ChannelKeyRecord, ChannelRecord, InMemoryChannelGroupRepo,
+    InMemoryChannelKeyRepo, InMemoryChannelRepo, InMemoryModelAliasRepo, ModelAliasRecord,
 };
 use uuid::Uuid;
 
@@ -119,6 +121,71 @@ fn build_router(
     (project_id, router)
 }
 
+/// Build a router with one DB-backed encrypted channel key.
+fn build_router_with_channel_key_cache(
+    rt: &tokio::runtime::Runtime,
+    ttl: Duration,
+) -> (ProjectId, ProviderRouter) {
+    let project_id = ProjectId::from(Uuid::now_v7());
+    let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+    let channel_repo = Arc::new(InMemoryChannelRepo::new());
+    let group_repo = Arc::new(InMemoryChannelGroupRepo::new());
+
+    let now = Utc::now();
+    group_repo.seed_group(ChannelGroupRecord {
+        group_id,
+        name: "key-cache-group".to_string(),
+        description: String::new(),
+        strategy: "priority".to_string(),
+        fallback_group_id: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    });
+    group_repo.seed_default(project_id, group_id);
+
+    let channel = make_channel("key-cache-ch", vec!["gpt-4o".to_string()]);
+    let channel_id = channel.channel_id;
+    channel_repo.seed_channel(channel);
+    channel_repo.seed_binding(group_id, channel_id, 1, 100);
+
+    let kms =
+        gate_crypto::kms::EnvKms::from_b64(&gate_crypto::kms::generate_master_key_b64(), "bench")
+            .unwrap();
+    let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+    let aad = gate_crypto::aad::channel_key(*channel_id.as_uuid());
+    let key_enc = rt
+        .block_on(sealer.seal(b"sk-bench-channel-key-secret", &aad))
+        .unwrap();
+
+    let key_repo = Arc::new(InMemoryChannelKeyRepo::new());
+    key_repo.seed(ChannelKeyRecord {
+        id: ChannelKeyId::from(Uuid::now_v7()),
+        channel_id,
+        label: Some("primary".to_string()),
+        key_enc,
+        key_fingerprint: "fp-bench-channel-key".to_string(),
+        weight: 1,
+        health: "healthy".to_string(),
+        consecutive_errors: 0,
+        total_requests: 0,
+        total_errors: 0,
+        last_error_code: None,
+        last_error_at: None,
+        cooldown_until: None,
+        created_at: now,
+        updated_at: now,
+    });
+
+    let router = ProviderRouter::new(channel_repo, group_repo)
+        .with_channel_key_repo(key_repo)
+        .with_crypto(sealer)
+        .with_channel_key_cache_ttl(ttl);
+
+    (project_id, router)
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks
 // ---------------------------------------------------------------------------
@@ -206,6 +273,28 @@ fn bench_route_with_alias(c: &mut Criterion) {
     });
 }
 
+fn bench_channel_key_decrypt_cache(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut group = c.benchmark_group("channel_key_decrypt_cache");
+
+    for (name, ttl, warm_cache) in [
+        ("cache_hit_30s", Duration::from_secs(30), true),
+        ("cache_disabled", Duration::ZERO, false),
+    ] {
+        let (pid, router) = build_router_with_channel_key_cache(&rt, ttl);
+        if warm_cache {
+            rt.block_on(router.route(pid, "gpt-4o")).unwrap().unwrap();
+        }
+        group.bench_function(name, |b| {
+            b.to_async(&rt).iter(|| async {
+                black_box(router.route(pid, "gpt-4o").await.unwrap());
+            });
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_route_model_not_found(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -290,6 +379,7 @@ criterion_group!(
     bench_route_round_robin,
     bench_route_least_conn,
     bench_route_with_alias,
+    bench_channel_key_decrypt_cache,
     bench_route_model_not_found,
     bench_inflight_tracker,
 );

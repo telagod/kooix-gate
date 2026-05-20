@@ -382,7 +382,7 @@ cargo run -p kgctl -- init > deploy/secrets.env
 | 加密字段 | AAD 助手 | 防御目标 |
 |---|---|---|
 | `channels.config_enc` | `aad::channel_config(channel_id)` | DBA 把 A 渠道的配置挂到 B 渠道复用 |
-| `channel_keys.key_enc` | `aad::channel_key(channel_key_id)` | 把废弃 key 的密文搬回活跃位置 |
+| `channel_keys.key_enc` | `aad::channel_key(channel_id)` | 把 A 渠道的 key 密文搬到 B 渠道复用 |
 | `identity_providers.client_secret_enc` | `aad::idp_secret(provider_id)` | 把测试 IdP 的 secret 嫁接到生产 IdP |
 
 写入 / 读取必须用同一个 AAD。AAD 不需保密，写错时 AEAD 验证会直接 `AeadFailed`——肉眼可见的报错好过静默泄露。
@@ -421,6 +421,7 @@ KOOIX_JWT_PREVIOUS_SECRETS # optional comma-separated old JWT secrets for rotati
 KOOIX_DATABASE_URL  # postgres://...
 KOOIX_REDIS_URL     # redis://...
 KOOIX_PUBLIC_URL    # https://gate.example.com — OIDC redirect_uri 基底
+KOOIX_CHANNEL_KEY_CACHE_TTL_SECS # optional，channel key 解密缓存 TTL，默认 30s，0 禁用
 ```
 
 ---

@@ -847,6 +847,9 @@ async fn create_channel_key(
         .channel_keys
         .create(channel_id, &key_enc, &fingerprint, req.alias.as_deref())
         .await?;
+    if let Some(router) = &app.provider_router {
+        router.invalidate_channel_key_cache(channel_id);
+    }
 
     app.audit.emit(
         &ctx,
@@ -908,6 +911,9 @@ async fn rotate_channel_key(
         .channel_keys
         .rotate(channel_id, &key_enc, &fingerprint, req.alias.as_deref())
         .await?;
+    if let Some(router) = &app.provider_router {
+        router.invalidate_channel_key_cache(channel_id);
+    }
 
     app.audit.emit(
         &ctx,
@@ -948,6 +954,9 @@ async fn revoke_channel_key(
 
     let ck_id = ChannelKeyId::from(key_id.0);
     app.repos.channel_keys.revoke(ck_id).await?;
+    if let Some(router) = &app.provider_router {
+        router.invalidate_channel_key_cache(channel_id);
+    }
 
     app.audit.emit(
         &ctx,

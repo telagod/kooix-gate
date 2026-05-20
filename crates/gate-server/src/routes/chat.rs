@@ -579,8 +579,8 @@ pub(crate) async fn report_channel_failure(
     model: &str,
 ) {
     let failure = provider_failure_policy(error);
-    if let Some(key_id) = key_id
-        && let Err(e) = app
+    if let Some(key_id) = key_id {
+        match app
             .repos
             .channel_keys
             .report_failure(
@@ -590,8 +590,16 @@ pub(crate) async fn report_channel_failure(
                 failure.circuit_breaker_failures,
             )
             .await
-    {
-        tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "channel key failure report failed");
+        {
+            Ok(()) => {
+                if let (Some(router), Some(ch_uuid)) = (&app.provider_router, channel_id) {
+                    router.invalidate_channel_key_cache(ChannelId::from(ch_uuid));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(channel_key_id = %key_id.as_uuid(), error = %e, "channel key failure report failed");
+            }
+        }
     }
     if let (Some(m), Some(ch_uuid)) = (routed_metrics, channel_id) {
         let ch_id = ChannelId::from(ch_uuid);

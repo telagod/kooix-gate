@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// 单个候选 channel 在一次路由决策中的快照。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -990,9 +990,38 @@ fn resolve_model_mapping(mapping: &serde_json::Value, model: &str) -> String {
     model.to_string()
 }
 
+#[derive(Clone)]
+struct ResolvedChannelSecrets {
+    primary: String,
+    key_id: Option<ChannelKeyId>,
+    secrets: HashMap<String, String>,
+}
+
+impl ResolvedChannelSecrets {
+    fn into_parts(self) -> (String, Option<ChannelKeyId>, HashMap<String, String>) {
+        (self.primary, self.key_id, self.secrets)
+    }
+}
+
+struct CachedChannelSecrets {
+    resolved: ResolvedChannelSecrets,
+    expires_at: Instant,
+}
+
+const DEFAULT_CHANNEL_KEY_CACHE_TTL_SECS: u64 = 30;
+
+fn default_channel_key_cache_ttl() -> Duration {
+    std::env::var("KOOIX_CHANNEL_KEY_CACHE_TTL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_CHANNEL_KEY_CACHE_TTL_SECS))
+}
+
 /// 多 Provider 路由器。
 ///
-/// 持有 Repo 引用（Arc），每次请求惰性查询——无缓存（C1 阶段简单版）。
+/// 持有 Repo 引用（Arc），路由元数据仍惰性查询；channel key 明文只做短 TTL 缓存，
+/// 管理面 create / rotate / revoke 会显式失效，外部 DB 变更最迟 TTL 后生效。
 pub struct ProviderRouter {
     channel_repo: Arc<dyn ChannelRepo>,
     group_repo: Arc<dyn ChannelGroupRepo>,
@@ -1001,6 +1030,9 @@ pub struct ProviderRouter {
     channel_key_repo: Option<Arc<dyn ChannelKeyRepo>>,
     /// G1: 解密 channel key 的 envelope KMS。
     crypto: Option<Arc<EnvelopeKms>>,
+    /// P2.2: channel_keys 解密结果短 TTL 缓存，避免热路径重复 KMS unwrap。
+    channel_secret_cache: RwLock<HashMap<ChannelId, CachedChannelSecrets>>,
+    channel_secret_cache_ttl: Duration,
     /// round_robin 策略的全局计数器。
     rr_counter: AtomicU64,
     /// Deterministic canary gate counter. Avoids flaky RNG and keeps each bps
@@ -1029,6 +1061,8 @@ impl ProviderRouter {
             model_alias_repo: None,
             channel_key_repo: None,
             crypto: None,
+            channel_secret_cache: RwLock::new(HashMap::new()),
+            channel_secret_cache_ttl: default_channel_key_cache_ttl(),
             rr_counter: AtomicU64::new(0),
             canary_counter: AtomicU64::new(0),
             inflight: Arc::new(InflightTracker::new()),
@@ -1057,6 +1091,68 @@ impl ProviderRouter {
     pub fn with_crypto(mut self, kms: Arc<EnvelopeKms>) -> Self {
         self.crypto = Some(kms);
         self
+    }
+
+    /// 设置 channel key 解密缓存 TTL。
+    ///
+    /// `Duration::ZERO` 表示禁用缓存；生产默认由
+    /// `KOOIX_CHANNEL_KEY_CACHE_TTL_SECS` 控制，未设置为 30s。
+    pub fn with_channel_key_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.channel_secret_cache_ttl = ttl;
+        self
+    }
+
+    /// 显式失效某个 channel 的解密密钥缓存。
+    ///
+    /// create / rotate / revoke 路径调用该方法，保证控制面变更立即进入数据面。
+    pub fn invalidate_channel_key_cache(&self, channel_id: ChannelId) {
+        self.channel_secret_cache.write().remove(&channel_id);
+        self.bump_snapshot_version();
+    }
+
+    /// 清空全部 channel key 解密缓存（运维或测试场景）。
+    pub fn clear_channel_key_cache(&self) {
+        self.channel_secret_cache.write().clear();
+        self.bump_snapshot_version();
+    }
+
+    fn cached_channel_secrets(&self, channel_id: ChannelId) -> Option<ResolvedChannelSecrets> {
+        if self.channel_secret_cache_ttl.is_zero() {
+            return None;
+        }
+
+        let now = Instant::now();
+        {
+            let cache = self.channel_secret_cache.read();
+            match cache.get(&channel_id) {
+                Some(entry) if entry.expires_at > now => return Some(entry.resolved.clone()),
+                Some(_) => {}
+                None => return None,
+            }
+        }
+
+        let mut cache = self.channel_secret_cache.write();
+        if cache
+            .get(&channel_id)
+            .is_some_and(|entry| entry.expires_at <= now)
+        {
+            cache.remove(&channel_id);
+        }
+        None
+    }
+
+    fn store_channel_secrets(&self, channel_id: ChannelId, resolved: ResolvedChannelSecrets) {
+        if self.channel_secret_cache_ttl.is_zero() {
+            return;
+        }
+
+        self.channel_secret_cache.write().insert(
+            channel_id,
+            CachedChannelSecrets {
+                resolved,
+                expires_at: Instant::now() + self.channel_secret_cache_ttl,
+            },
+        );
     }
 
     /// 替换默认 ChannelMetrics（自定义 window_size / threshold）。
@@ -2359,6 +2455,9 @@ impl ProviderRouter {
     }
 
     async fn has_available_plugin_secret(&self, channel_id: ChannelId, channel_code: &str) -> bool {
+        if self.cached_channel_secrets(channel_id).is_some() {
+            return true;
+        }
         if let Some(repo) = &self.channel_key_repo {
             return match repo.find_active_for_channel(channel_id).await {
                 Ok(_) => true,
@@ -2384,6 +2483,10 @@ impl ProviderRouter {
         channel_id: ChannelId,
         channel_code: &str,
     ) -> ProviderResult<(String, Option<ChannelKeyId>, HashMap<String, String>)> {
+        if let Some(cached) = self.cached_channel_secrets(channel_id) {
+            return Ok(cached.into_parts());
+        }
+
         // 如果 repo 未配置，直接走 env
         let Some(repo) = &self.channel_key_repo else {
             let primary = resolve_api_key_for_channel(channel_code)?;
@@ -2475,7 +2578,13 @@ impl ProviderRouter {
         secrets
             .entry("primary".to_string())
             .or_insert_with(|| primary.clone());
-        Ok((primary, key_id, secrets))
+        let resolved = ResolvedChannelSecrets {
+            primary,
+            key_id,
+            secrets,
+        };
+        self.store_channel_secrets(channel_id, resolved.clone());
+        Ok(resolved.into_parts())
     }
 }
 
@@ -2997,7 +3106,85 @@ mod tests {
     // ---- G1: channel key resolution tests ----
 
     use gate_core::id::ChannelKeyId;
-    use gate_storage::{ChannelKeyRecord, InMemoryChannelKeyRepo};
+    use gate_storage::{ChannelKeyRecord, ChannelKeyRepo, DbResult, InMemoryChannelKeyRepo};
+    use std::sync::atomic::AtomicUsize;
+
+    struct CountingChannelKeyRepo {
+        inner: Arc<InMemoryChannelKeyRepo>,
+        list_calls: AtomicUsize,
+    }
+
+    impl CountingChannelKeyRepo {
+        fn new(inner: Arc<InMemoryChannelKeyRepo>) -> Self {
+            Self {
+                inner,
+                list_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn list_calls(&self) -> usize {
+            self.list_calls.load(Ordering::Relaxed)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ChannelKeyRepo for CountingChannelKeyRepo {
+        async fn find_active_for_channel(
+            &self,
+            channel_id: ChannelId,
+        ) -> DbResult<ChannelKeyRecord> {
+            self.inner.find_active_for_channel(channel_id).await
+        }
+
+        async fn list_by_channel(&self, channel_id: ChannelId) -> DbResult<Vec<ChannelKeyRecord>> {
+            self.list_calls.fetch_add(1, Ordering::Relaxed);
+            self.inner.list_by_channel(channel_id).await
+        }
+
+        async fn create(
+            &self,
+            channel_id: ChannelId,
+            key_enc: &[u8],
+            key_fingerprint: &str,
+            label: Option<&str>,
+        ) -> DbResult<ChannelKeyId> {
+            self.inner
+                .create(channel_id, key_enc, key_fingerprint, label)
+                .await
+        }
+
+        async fn rotate(
+            &self,
+            channel_id: ChannelId,
+            new_key_enc: &[u8],
+            new_fingerprint: &str,
+            label: Option<&str>,
+        ) -> DbResult<ChannelKeyId> {
+            self.inner
+                .rotate(channel_id, new_key_enc, new_fingerprint, label)
+                .await
+        }
+
+        async fn revoke(&self, key_id: ChannelKeyId) -> DbResult<()> {
+            self.inner.revoke(key_id).await
+        }
+
+        async fn report_success(&self, key_id: ChannelKeyId) -> DbResult<()> {
+            self.inner.report_success(key_id).await
+        }
+
+        async fn report_failure(
+            &self,
+            key_id: ChannelKeyId,
+            error_code: Option<i32>,
+            cooldown_secs: i64,
+            circuit_breaker_failures: u32,
+        ) -> DbResult<()> {
+            self.inner
+                .report_failure(key_id, error_code, cooldown_secs, circuit_breaker_failures)
+                .await
+        }
+    }
 
     fn make_channel_simple(code: &str) -> (ChannelId, ChannelRecord) {
         let id = ChannelId::from(Uuid::now_v7());
@@ -3170,6 +3357,252 @@ mod tests {
         assert!(
             key_id.is_some(),
             "key_id should be Some when resolved from DB"
+        );
+    }
+
+    #[tokio::test]
+    async fn router_channel_key_cache_avoids_repeated_repo_loads() {
+        use gate_crypto::kms::{EnvKms, generate_master_key_b64};
+
+        let (ch_id, ch_rec) = make_channel_simple("cache-ch");
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(gate_storage::ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let kms = EnvKms::from_b64(&generate_master_key_b64(), "test").unwrap();
+        let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+        let aad = gate_crypto::aad::channel_key(*ch_id.as_uuid());
+        let key_enc = sealer.seal(b"sk-cache-secret", &aad).await.unwrap();
+
+        let inner = Arc::new(InMemoryChannelKeyRepo::new());
+        inner.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("primary".to_string()),
+            key_enc,
+            key_fingerprint: "fp-cache-secret".to_string(),
+            weight: 1,
+            health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        let counting_repo = Arc::new(CountingChannelKeyRepo::new(inner));
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(counting_repo.clone())
+            .with_crypto(sealer)
+            .with_channel_key_cache_ttl(Duration::from_secs(60));
+
+        for _ in 0..3 {
+            let (resolved, key_id) = router
+                .resolve_key_for_channel(ch_id, "cache-ch")
+                .await
+                .unwrap();
+            assert_eq!(resolved, "sk-cache-secret");
+            assert!(key_id.is_some());
+        }
+
+        assert_eq!(
+            counting_repo.list_calls(),
+            1,
+            "subsequent resolves must hit the decrypted secret cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn router_channel_key_cache_ttl_zero_disables_cache() {
+        use gate_crypto::kms::{EnvKms, generate_master_key_b64};
+
+        let (ch_id, ch_rec) = make_channel_simple("no-cache-ch");
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(gate_storage::ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let kms = EnvKms::from_b64(&generate_master_key_b64(), "test").unwrap();
+        let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+        let aad = gate_crypto::aad::channel_key(*ch_id.as_uuid());
+        let key_enc = sealer.seal(b"sk-no-cache-secret", &aad).await.unwrap();
+
+        let inner = Arc::new(InMemoryChannelKeyRepo::new());
+        inner.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("primary".to_string()),
+            key_enc,
+            key_fingerprint: "fp-no-cache-secret".to_string(),
+            weight: 1,
+            health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        let counting_repo = Arc::new(CountingChannelKeyRepo::new(inner));
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(counting_repo.clone())
+            .with_crypto(sealer)
+            .with_channel_key_cache_ttl(Duration::ZERO);
+
+        for _ in 0..3 {
+            let (resolved, key_id) = router
+                .resolve_key_for_channel(ch_id, "no-cache-ch")
+                .await
+                .unwrap();
+            assert_eq!(resolved, "sk-no-cache-secret");
+            assert!(key_id.is_some());
+        }
+
+        assert_eq!(
+            counting_repo.list_calls(),
+            3,
+            "TTL=0 must bypass the decrypted secret cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn router_channel_key_cache_invalidation_reloads_rotated_secret() {
+        use gate_crypto::kms::{EnvKms, generate_master_key_b64};
+
+        ensure_test_api_key();
+        let (ch_id, ch_rec) = make_channel_simple("rotate-cache-ch");
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(gate_storage::ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let kms = EnvKms::from_b64(&generate_master_key_b64(), "test").unwrap();
+        let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+        let aad = gate_crypto::aad::channel_key(*ch_id.as_uuid());
+        let old_key_enc = sealer.seal(b"sk-old-cache-secret", &aad).await.unwrap();
+        let new_key_enc = sealer.seal(b"sk-new-cache-secret", &aad).await.unwrap();
+
+        let inner = Arc::new(InMemoryChannelKeyRepo::new());
+        inner.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("primary".to_string()),
+            key_enc: old_key_enc,
+            key_fingerprint: "fp-old-cache-secret".to_string(),
+            weight: 1,
+            health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        let counting_repo = Arc::new(CountingChannelKeyRepo::new(inner.clone()));
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(counting_repo.clone())
+            .with_crypto(sealer)
+            .with_channel_key_cache_ttl(Duration::from_secs(60));
+
+        let (old_secret, old_key_id) = router
+            .resolve_key_for_channel(ch_id, "rotate-cache-ch")
+            .await
+            .unwrap();
+        assert_eq!(old_secret, "sk-old-cache-secret");
+        let old_key_id = old_key_id.expect("old key id should come from DB");
+
+        inner.revoke(old_key_id).await.unwrap();
+
+        let (still_cached, _) = router
+            .resolve_key_for_channel(ch_id, "rotate-cache-ch")
+            .await
+            .unwrap();
+        assert_eq!(
+            still_cached, "sk-old-cache-secret",
+            "cache should hold a revoked value until explicit invalidation or TTL expiry"
+        );
+
+        router.invalidate_channel_key_cache(ch_id);
+        let (fallback_secret, fallback_key_id) = router
+            .resolve_key_for_channel(ch_id, "rotate-cache-ch")
+            .await
+            .unwrap();
+        assert_eq!(fallback_secret, "test-key-for-unit-tests");
+        assert!(
+            fallback_key_id.is_none(),
+            "revoked DB key should force env fallback after invalidation"
+        );
+
+        inner
+            .rotate(ch_id, &new_key_enc, "fp-new-cache-secret", Some("primary"))
+            .await
+            .unwrap();
+        router.invalidate_channel_key_cache(ch_id);
+        let (rotated_secret, rotated_key_id) = router
+            .resolve_key_for_channel(ch_id, "rotate-cache-ch")
+            .await
+            .unwrap();
+        assert_eq!(rotated_secret, "sk-new-cache-secret");
+        assert_ne!(rotated_key_id, Some(old_key_id));
+        assert_eq!(
+            counting_repo.list_calls(),
+            3,
+            "revoke and rotation invalidation should force fresh repo loads"
         );
     }
 

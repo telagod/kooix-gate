@@ -122,6 +122,8 @@ source .env
 export KOOIX_DATABASE_URL=postgres://postgres:devpass@localhost/kooix_gate
 export KOOIX_REDIS_URL=redis://localhost:6379/0
 export KOOIX_PUBLIC_URL=http://localhost:8080
+# 可选：ProviderRouter 解密后的 channel key 短缓存 TTL；0 表示禁用，默认 30s。
+export KOOIX_CHANNEL_KEY_CACHE_TTL_SECS=30
 
 kgctl migrate
 kgctl doctor    # 校验 env / JWT rotation window / migration / Redis Lua 全绿
