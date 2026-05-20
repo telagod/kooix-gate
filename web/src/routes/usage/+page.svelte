@@ -32,7 +32,7 @@
 
 	const chartModeOptions = [
 		{ value: 'cost', label: '花费' },
-		{ value: 'tokens', label: 'Tokens' }
+		{ value: 'tokens', label: 'Tokens 用量' }
 	];
 
 	onMount(async () => {
@@ -183,8 +183,8 @@
 	{:else if usage}
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 			<Stat title="总花费" value={formatCost(usage.total_cost_usd)} subtitle="USD · {usage.range}" />
-			<Stat title="Input Tokens" value={formatNum(usage.total_tokens_in)} subtitle="prompt 输入累计" />
-			<Stat title="Output Tokens" value={formatNum(usage.total_tokens_out)} subtitle="completion 输出累计" />
+			<Stat title="Input tokens 输入" value={formatNum(usage.total_tokens_in)} subtitle="prompt 输入累计" />
+			<Stat title="Output tokens 输出" value={formatNum(usage.total_tokens_out)} subtitle="completion 输出累计" />
 		</div>
 
 		<Card class="p-5">
@@ -194,7 +194,7 @@
 				</h2>
 				<div class="flex items-center gap-3">
 					<FilterPills bind:value={chartMode} options={chartModeOptions} />
-					<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{usage.series.length} buckets</p>
+					<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{usage.series.length} 个 buckets</p>
 				</div>
 			</div>
 

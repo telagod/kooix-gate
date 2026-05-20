@@ -433,9 +433,9 @@
 
 		<div class="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
 			<Card class="p-4">
-				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Keys</p>
+				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Keys 凭据</p>
 				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">{channelStats.keys_count}</p>
-				<p class="text-xs text-zinc-500 dark:text-zinc-400">{channelStats.keys_healthy} healthy</p>
+				<p class="text-xs text-zinc-500 dark:text-zinc-400">{channelStats.keys_healthy} healthy 健康</p>
 			</Card>
 			<Card class="p-4">
 				<p class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">总请求</p>
@@ -455,7 +455,7 @@
 
 		<DataToolbar class="mb-6 border-b border-zinc-200 pb-0 dark:border-zinc-700" rowClass="gap-6">
 			{#snippet controls()}
-				{#each [['overview', 'Overview'], ['keys', 'Keys'], ['models', '模型'], ['logs', '日志']] as [tab, label]}
+				{#each [['overview', 'Overview 总览'], ['keys', 'Keys 凭据'], ['models', '模型'], ['logs', '日志']] as [tab, label]}
 					<button
 						type="button"
 						onclick={() => switchTab(tab as typeof activeTab)}
@@ -524,12 +524,12 @@
 				<DataTable isEmpty={keys.length === 0} emptyColspan={isPlatformAdmin ? 8 : 7}>
 					{#snippet head()}
 						<tr>
-							<th class={dataTemplate.th}>Label</th>
-							<th class={dataTemplate.th}>Fingerprint</th>
-							<th class={cn(dataTemplate.th, 'text-center')}>Health</th>
-							<th class={cn(dataTemplate.th, 'text-right')}>Requests</th>
-							<th class={cn(dataTemplate.th, 'text-right')}>Errors</th>
-							<th class={cn(dataTemplate.th, 'text-right')}>Cooldown</th>
+							<th class={dataTemplate.th}>Label 标签</th>
+							<th class={dataTemplate.th}>Fingerprint 指纹</th>
+							<th class={cn(dataTemplate.th, 'text-center')}>Health 健康</th>
+							<th class={cn(dataTemplate.th, 'text-right')}>Requests 请求</th>
+							<th class={cn(dataTemplate.th, 'text-right')}>Errors 错误</th>
+							<th class={cn(dataTemplate.th, 'text-right')}>Cooldown 冷却</th>
 							<th class={dataTemplate.th}>创建时间</th>
 							{#if isPlatformAdmin}
 								<th class={cn(dataTemplate.th, 'text-right')}>操作</th>

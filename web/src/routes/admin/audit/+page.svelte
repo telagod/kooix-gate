@@ -47,7 +47,7 @@
 		{ id: 'outcome', label: '结果', required: true }
 	];
 	const defaultVisibleColumns = columns.map((column) => column.id);
-	const pageSizeOptions = PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / page` }));
+	const pageSizeOptions = PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / 页` }));
 	const sortOptions = [
 		{ value: 'ts', label: '时间' },
 		{ value: 'actor_kind', label: '操作者' },
@@ -56,8 +56,8 @@
 		{ value: 'outcome', label: '结果' }
 	];
 	const sortDirOptions = [
-		{ value: 'desc', label: 'Desc' },
-		{ value: 'asc', label: 'Asc' }
+		{ value: 'desc', label: 'Desc 降序' },
+		{ value: 'asc', label: 'Asc 升序' }
 	];
 
 	let logs = $state<AuditLog[]>([]);
@@ -386,7 +386,7 @@
 					{#if expandedId === log.id && log.after !== null}
 						<tr class={dataTemplate.rowSelected}>
 							<td colspan={visibleColumns.length + 1} class="px-4 py-3">
-								<div class="mb-1 text-xs font-medium {text.muted}">After</div>
+								<div class="mb-1 text-xs font-medium {text.muted}">After 变更后</div>
 								<pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.after, null, 2)}</pre>
 							</td>
 						</tr>
@@ -396,7 +396,7 @@
 
 			<div class={dataTemplate.pagination}>
 				<span class="text-xs">
-					第 {currentPage} 页 · 显示 {logs.length} 条 · sort {sortBy}/{sortDir}
+					第 {currentPage} 页 · 显示 {logs.length} 条 · 排序 {sortBy}/{sortDir}
 					{#if refreshing}<span class="ml-2 text-zinc-400">加载中...</span>{/if}
 				</span>
 				<div class="flex gap-2">

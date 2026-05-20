@@ -79,15 +79,15 @@
 		{ step: 1, label: '模型与 Channel', hint: '选择生效范围' },
 		{ step: 2, label: '计费维度', hint: '设置 dimension / unit / rate' },
 		{ step: 3, label: '价格预览', hint: '核对 rule 与匹配规则' },
-		{ step: 4, label: 'Usage Cost', hint: '模拟一条请求成本' }
+		{ step: 4, label: 'Usage cost 模拟', hint: '模拟一条请求成本' }
 	];
 	const conditionTemplates = [
 		{ label: '空条件', value: '{}' },
-		{ label: 'Cache TTL', value: '{\\n  \"cache_ttl\": \"ephemeral\"\\n}' },
-		{ label: 'Image size', value: '{\\n  \"quality\": \"hd\",\\n  \"size\": \"1024x1024\"\\n}' },
-		{ label: 'Audio seconds', value: '{\\n  \"deployment_type\": \"realtime\"\\n}' },
-		{ label: 'Batch', value: '{\\n  \"batch\": true\\n}' },
-		{ label: 'Region', value: '{\\n  \"region\": \"us-east-1\"\\n}' }
+		{ label: '缓存 TTL', value: '{\\n  \"cache_ttl\": \"ephemeral\"\\n}' },
+		{ label: '图片尺寸', value: '{\\n  \"quality\": \"hd\",\\n  \"size\": \"1024x1024\"\\n}' },
+		{ label: '音频场景', value: '{\\n  \"deployment_type\": \"realtime\"\\n}' },
+		{ label: 'Batch 请求', value: '{\\n  \"batch\": true\\n}' },
+		{ label: 'Region 区域', value: '{\\n  \"region\": \"us-east-1\"\\n}' }
 	];
 
 	let parsedConditions = $derived(parseConditions(formConditions));
@@ -301,13 +301,13 @@
 			<div class="border-b border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
 				<div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 					<div>
-						<h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Pricing wizard</h3>
+						<h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Pricing wizard 向导</h3>
 						<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">从模型选择、计费维度、价格预览到 usage cost 模拟，一次写入可复核 rule。</p>
 					</div>
 					<div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
 						<Calculator size={14} />
 						<span class="font-mono">{formatMicrosUsd(pricingPreview.costMicros)}</span>
-						<span>estimated cost</span>
+						<span>预估 cost</span>
 					</div>
 				</div>
 				<div class="mt-4 grid gap-2 md:grid-cols-4">
@@ -369,7 +369,7 @@
 							<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">生效范围</p>
 							<div class="mt-3 space-y-3 text-sm">
 								<div class="flex items-center justify-between gap-4">
-									<span class="text-zinc-500 dark:text-zinc-400">Model</span>
+									<span class="text-zinc-500 dark:text-zinc-400">模型</span>
 									<span class="font-mono text-zinc-900 dark:text-zinc-100">{formModel || '未选择'}</span>
 								</div>
 								<div class="flex items-center justify-between gap-4">
@@ -430,7 +430,7 @@
 				{:else if pricingWizardStep === 3}
 					<div class="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-							<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Rule preview</p>
+							<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Rule 预览</p>
 							<dl class="mt-3 grid grid-cols-2 gap-3 text-sm">
 								<div>
 									<dt class="text-xs text-zinc-500 dark:text-zinc-400">Model</dt>
@@ -441,16 +441,16 @@
 									<dd class="mt-1 text-zinc-900 dark:text-zinc-100">{selectedChannelLabel}</dd>
 								</div>
 								<div>
-									<dt class="text-xs text-zinc-500 dark:text-zinc-400">Dimension</dt>
+									<dt class="text-xs text-zinc-500 dark:text-zinc-400">计费维度</dt>
 									<dd class="mt-1 font-mono text-zinc-900 dark:text-zinc-100">{formDimension}</dd>
 								</div>
 								<div>
-									<dt class="text-xs text-zinc-500 dark:text-zinc-400">Unit / Rate</dt>
+									<dt class="text-xs text-zinc-500 dark:text-zinc-400">单位 / 费率</dt>
 									<dd class="mt-1 font-mono text-zinc-900 dark:text-zinc-100">{formUnit} × {formRate || '—'}</dd>
 								</div>
 							</dl>
 							<div class="mt-4 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-								<p class="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Conditions</p>
+								<p class="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Conditions 条件</p>
 								<pre class="overflow-auto text-xs text-zinc-700 dark:text-zinc-300">{JSON.stringify(parsedConditions.value, null, 2)}</pre>
 							</div>
 						</div>
@@ -466,7 +466,7 @@
 									<p class="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100">{previewRules.length}</p>
 								</div>
 								<div class="rounded-xl border border-zinc-200 p-3 dark:border-zinc-700">
-									<p class="text-xs text-zinc-500 dark:text-zinc-400">预估 Cost</p>
+									<p class="text-xs text-zinc-500 dark:text-zinc-400">预估 cost</p>
 									<p class="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100">{formatMicrosUsd(pricingPreview.costMicros)}</p>
 								</div>
 							</div>
@@ -474,10 +474,10 @@
 								{#snippet head()}
 									<tr>
 										<th class={dataTemplate.th}>来源</th>
-										<th class={dataTemplate.th}>Dimension</th>
+										<th class={dataTemplate.th}>维度</th>
 										<th class={cn(dataTemplate.th, 'text-right')}>数量</th>
-										<th class={cn(dataTemplate.th, 'text-right')}>Rate</th>
-										<th class={cn(dataTemplate.th, 'text-right')}>Cost</th>
+										<th class={cn(dataTemplate.th, 'text-right')}>费率</th>
+										<th class={cn(dataTemplate.th, 'text-right')}>成本</th>
 									</tr>
 								{/snippet}
 								{#snippet empty()}
@@ -500,49 +500,49 @@
 					<div class="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
 						<div class="space-y-4">
 							<div class="grid gap-3 md:grid-cols-3">
-								<Field label="Prompt tokens" for="usage-prompt">
+								<Field label="Prompt tokens 输入" for="usage-prompt">
 									<Input id="usage-prompt" type="number" min="0" value={usagePreview.prompt_tokens} oninput={(event) => setUsageNumber('prompt_tokens', event.currentTarget.value)} />
 								</Field>
-								<Field label="Completion tokens" for="usage-completion">
+								<Field label="Completion tokens 输出" for="usage-completion">
 									<Input id="usage-completion" type="number" min="0" value={usagePreview.completion_tokens} oninput={(event) => setUsageNumber('completion_tokens', event.currentTarget.value)} />
 								</Field>
-								<Field label="Cached tokens" for="usage-cached">
+								<Field label="Cached tokens 缓存" for="usage-cached">
 									<Input id="usage-cached" type="number" min="0" value={usagePreview.cached_tokens} oninput={(event) => setUsageNumber('cached_tokens', event.currentTarget.value)} />
 								</Field>
-								<Field label="Reasoning tokens" for="usage-reasoning">
+								<Field label="Reasoning tokens 推理" for="usage-reasoning">
 									<Input id="usage-reasoning" type="number" min="0" value={usagePreview.reasoning_tokens} oninput={(event) => setUsageNumber('reasoning_tokens', event.currentTarget.value)} />
 								</Field>
-								<Field label="Images generated" for="usage-images">
+								<Field label="生成图片数" for="usage-images">
 									<Input id="usage-images" type="number" min="0" value={usagePreview.images_generated} oninput={(event) => setUsageNumber('images_generated', event.currentTarget.value)} />
 								</Field>
-								<Field label="Search count" for="usage-search">
+								<Field label="搜索次数" for="usage-search">
 									<Input id="usage-search" type="number" min="0" value={usagePreview.search_count} oninput={(event) => setUsageNumber('search_count', event.currentTarget.value)} />
 								</Field>
-								<Field label="Audio minutes" for="usage-audio-minutes">
+								<Field label="音频分钟数" for="usage-audio-minutes">
 									<Input id="usage-audio-minutes" type="number" min="0" step="0.01" value={usagePreview.audio_minutes} oninput={(event) => setUsageNumber('audio_minutes', event.currentTarget.value)} />
 								</Field>
-								<Field label="TTS characters" for="usage-tts">
+								<Field label="TTS 字符数" for="usage-tts">
 									<Input id="usage-tts" type="number" min="0" value={usagePreview.tts_characters} oninput={(event) => setUsageNumber('tts_characters', event.currentTarget.value)} />
 								</Field>
-								<Field label="Video seconds" for="usage-video">
+								<Field label="视频秒数" for="usage-video">
 									<Input id="usage-video" type="number" min="0" step="0.01" value={usagePreview.video_seconds} oninput={(event) => setUsageNumber('video_seconds', event.currentTarget.value)} />
 								</Field>
-								<Field label="Image quality" for="usage-quality">
+								<Field label="图片质量" for="usage-quality">
 									<Input id="usage-quality" placeholder="hd" value={usagePreview.image_quality ?? ''} oninput={(event) => setUsageText('image_quality', event.currentTarget.value)} />
 								</Field>
-								<Field label="Image size" for="usage-size">
+								<Field label="图片尺寸" for="usage-size">
 									<Input id="usage-size" placeholder="1024x1024" value={usagePreview.image_size ?? ''} oninput={(event) => setUsageText('image_size', event.currentTarget.value)} />
 								</Field>
-								<Field label="Region" for="usage-region">
+								<Field label="Region 区域" for="usage-region">
 									<Input id="usage-region" placeholder="us-east-1" value={usagePreview.region ?? ''} oninput={(event) => setUsageText('region', event.currentTarget.value)} />
 								</Field>
 								<Field label="Cache TTL" for="usage-cache-ttl">
 									<Input id="usage-cache-ttl" placeholder="ephemeral" value={usagePreview.cache_ttl ?? ''} oninput={(event) => setUsageText('cache_ttl', event.currentTarget.value)} />
 								</Field>
-								<Field label="Deployment type" for="usage-deployment">
+								<Field label="Deployment type 部署类型" for="usage-deployment">
 									<Input id="usage-deployment" placeholder="realtime" value={usagePreview.deployment_type ?? ''} oninput={(event) => setUsageText('deployment_type', event.currentTarget.value)} />
 								</Field>
-								<Field label="Context length" for="usage-context">
+								<Field label="上下文长度" for="usage-context">
 									<Input id="usage-context" type="number" min="0" value={usagePreview.context_length} oninput={(event) => setUsageNumber('context_length', event.currentTarget.value)} />
 								</Field>
 							</div>
@@ -553,7 +553,7 @@
 						</div>
 
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-							<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Usage cost simulation</p>
+							<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Usage cost 模拟</p>
 							<p class="mt-2 font-mono text-3xl font-semibold text-zinc-900 dark:text-zinc-100">{formatMicrosUsd(pricingPreview.costMicros)}</p>
 							<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{pricingPreview.costMicros.toLocaleString()} micros，含草稿 rule 与当前匹配规则。</p>
 							<div class="mt-4 space-y-2">

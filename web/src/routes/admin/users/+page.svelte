@@ -64,7 +64,7 @@
 		{ id: 'actions', label: '操作', required: true }
 	];
 	const defaultVisibleColumns = columns.map((column) => column.id);
-	const pageSizeOptions = PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / page` }));
+	const pageSizeOptions = PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / 页` }));
 
 	let users = $state<UserDetail[]>([]);
 	let loading = $state(true);
@@ -94,9 +94,9 @@
 	let hiddenColumns = $state<string[]>([]);
 
 	const statusOptions = [
-		{ value: 'active', label: 'Active' },
-		{ value: 'suspended', label: 'Suspended' },
-		{ value: 'pending_verification', label: 'Pending verification' }
+		{ value: 'active', label: 'Active 启用' },
+		{ value: 'suspended', label: 'Suspended 停用' },
+		{ value: 'pending_verification', label: 'Pending verification 待验证' }
 	];
 
 	let filteredUsers = $derived(
@@ -399,15 +399,15 @@
 	{:else}
 		<div class="mb-4 grid gap-3 md:grid-cols-3">
 			<Card padding="md">
-				<p class="text-xs uppercase tracking-wider {text.muted}">Total</p>
+				<p class="text-xs uppercase tracking-wider {text.muted}">总用户</p>
 				<p class="mt-1 text-2xl font-semibold {text.primary}">{users.length}</p>
 			</Card>
 			<Card padding="md" variant="success">
-				<p class="text-xs uppercase tracking-wider {text.success}">Active</p>
+				<p class="text-xs uppercase tracking-wider {text.success}">Active 启用</p>
 				<p class="mt-1 text-2xl font-semibold {text.primary}">{activeCount}</p>
 			</Card>
 			<Card padding="md" variant={suspendedCount > 0 ? 'danger' : 'default'}>
-				<p class="text-xs uppercase tracking-wider {suspendedCount > 0 ? text.danger : text.muted}">Suspended</p>
+				<p class="text-xs uppercase tracking-wider {suspendedCount > 0 ? text.danger : text.muted}">Suspended 停用</p>
 				<p class="mt-1 text-2xl font-semibold {text.primary}">{suspendedCount}</p>
 			</Card>
 		</div>
@@ -457,7 +457,7 @@
 				<Select
 					class="w-52"
 					bind:value={statusFilter}
-					options={[{ value: 'all', label: 'All status' }, ...statusOptions]}
+					options={[{ value: 'all', label: '全部状态' }, ...statusOptions]}
 					onchange={handleFilterChange}
 					size="sm"
 				/>
@@ -594,7 +594,7 @@
 
 		<div class={dataTemplate.pagination}>
 			<span class="text-xs">
-				第 {currentPage} 页 · 当前页 {filteredUsers.length}/{users.length} 条 · page size {pageSizeNumber}
+				第 {currentPage} 页 · 当前页 {filteredUsers.length}/{users.length} 条 · 每页 {pageSizeNumber} 条
 				{#if refreshing}<span class="ml-2 text-zinc-400">加载中...</span>{/if}
 			</span>
 			<div class="flex gap-2">
@@ -633,7 +633,7 @@
 						<div class="flex items-center gap-2">
 							<MonitorSmartphone size={18} class={text.secondary} />
 							<div>
-								<p class="font-semibold {text.primary}">活跃 refresh sessions</p>
+								<p class="font-semibold {text.primary}">活跃 refresh sessions 会话</p>
 								<p class="text-xs {text.muted}">{sessionTarget.email} · 撤销后仅阻断后续 refresh，已签发 access token 会自然过期。</p>
 							</div>
 						</div>
@@ -658,12 +658,12 @@
 							{/each}
 						</div>
 					{:else if sessions.length === 0}
-						<StatePanel title="暂无活跃 session" description="该用户没有可继续 refresh 的登录态。" icon={MonitorSmartphone} />
+						<StatePanel title="暂无活跃 session 会话" description="该用户没有可继续 refresh 的登录态。" icon={MonitorSmartphone} />
 					{:else}
 						<DataTable class="mb-0">
 							{#snippet head()}
 								<tr>
-									<th class={dataTemplate.th}>Session</th>
+									<th class={dataTemplate.th}>Session 会话</th>
 									<th class={dataTemplate.th}>IP / UA</th>
 									<th class={dataTemplate.th}>最后使用</th>
 									<th class={dataTemplate.th}>过期</th>
@@ -676,12 +676,12 @@
 									<td class="px-4 py-3">
 										<div class="font-mono text-xs {text.primary}">{session.id}</div>
 										{#if session.current}
-											<Badge variant="admin">Current</Badge>
+											<Badge variant="admin">当前</Badge>
 										{/if}
 									</td>
 									<td class="px-4 py-3">
 										<div class="font-mono text-xs {text.primary}">{session.ip ?? '—'}</div>
-										<div class="mt-1 max-w-md truncate text-xs {text.muted}">{session.user_agent ?? 'unknown user agent'}</div>
+										<div class="mt-1 max-w-md truncate text-xs {text.muted}">{session.user_agent ?? '未知 User-Agent'}</div>
 									</td>
 									<td class={dataTemplate.td}>{fmtDateTime(session.last_used_at)}</td>
 									<td class={dataTemplate.td}>{fmtDateTime(session.expires_at)}</td>

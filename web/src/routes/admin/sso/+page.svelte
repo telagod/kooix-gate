@@ -246,7 +246,7 @@
 	}
 </script>
 
-<PageShell title="SSO Provider" description="管理 OIDC Provider、邮箱 allowlist、auto-join 与 redirect policy" icon={KeyRound} max="wide">
+<PageShell title="SSO Provider 管理" description="管理 OIDC Provider、邮箱 allowlist、auto-join 与 redirect policy 策略" icon={KeyRound} max="wide">
 	{#snippet actions()}
 		<Button variant="outline" onclick={loadProviders} disabled={refreshing || loading}>
 			<RefreshCcw size={14} class={refreshing ? 'animate-spin' : ''} />
@@ -263,15 +263,15 @@
 
 	<div class="mb-4 grid gap-3 md:grid-cols-3">
 		<Card padding="md">
-			<p class="text-xs uppercase tracking-wider {text.muted}">Providers</p>
+			<p class="text-xs uppercase tracking-wider {text.muted}">Provider 数</p>
 			<p class="mt-1 text-2xl font-semibold {text.primary}">{providers.length}</p>
 		</Card>
 		<Card padding="md" variant="success">
-			<p class="text-xs uppercase tracking-wider {text.success}">Enabled</p>
+			<p class="text-xs uppercase tracking-wider {text.success}">已启用</p>
 			<p class="mt-1 text-2xl font-semibold {text.primary}">{enabledCount}</p>
 		</Card>
 		<Card padding="md">
-			<p class="text-xs uppercase tracking-wider {text.muted}">Allowlist Domains</p>
+			<p class="text-xs uppercase tracking-wider {text.muted}">Allowlist 域名</p>
 			<p class="mt-1 text-2xl font-semibold {text.primary}">{domainCount}</p>
 		</Card>
 	</div>
@@ -295,8 +295,8 @@
 					{/snippet}
 
 					{#snippet badges()}
-						<Badge>{filteredProviders.length} / {providers.length} providers</Badge>
-						<Badge variant="success">{enabledCount} enabled</Badge>
+						<Badge>{filteredProviders.length} / {providers.length} Provider</Badge>
+						<Badge variant="success">{enabledCount} 已启用</Badge>
 					{/snippet}
 				</DataToolbar>
 			</Card>
@@ -314,7 +314,7 @@
 							<th class={dataTemplate.th}>Provider</th>
 							<th class={dataTemplate.th}>Issuer</th>
 							<th class={dataTemplate.th}>Allowlist</th>
-							<th class={dataTemplate.th}>Redirect Policy</th>
+							<th class={dataTemplate.th}>Redirect policy</th>
 							<th class={dataTemplate.th}>JIT</th>
 							<th class={dataTemplate.th}>状态</th>
 							<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
@@ -410,16 +410,16 @@
 						<input type="checkbox" bind:checked={form.auto_create_users} class="h-4 w-4 accent-zinc-900 dark:accent-zinc-100" />
 						<span class={text.secondary}>自动创建用户</span>
 					</label>
-					<Field label="Auto-join role" for="idp-role"><Select id="idp-role" bind:value={form.auto_join_org_role} options={roleOptions} /></Field>
+					<Field label="Auto-join role 自动加入角色" for="idp-role"><Select id="idp-role" bind:value={form.auto_join_org_role} options={roleOptions} /></Field>
 				</div>
 
 				<div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-					<div class="mb-3 flex items-center gap-2"><ShieldCheck size={15} class={text.secondary} /><p class="text-sm font-medium {text.primary}">Redirect policy</p></div>
+					<div class="mb-3 flex items-center gap-2"><ShieldCheck size={15} class={text.secondary} /><p class="text-sm font-medium {text.primary}">Redirect policy 跳转策略</p></div>
 					<label class="mb-3 flex items-center gap-2 text-sm {text.secondary}">
 						<input type="checkbox" bind:checked={form.allow_relative} class="h-4 w-4 accent-zinc-900 dark:accent-zinc-100" />
 						允许相对路径 redirect_to（如 /orgs）
 					</label>
-					<Field label="Allowed origins" for="idp-origins" hint="绝对跳转只允许这些 origin；每行一个。">
+					<Field label="Allowed origins 允许来源" for="idp-origins" hint="绝对跳转只允许这些 origin；每行一个。">
 						<Textarea id="idp-origins" rows={3} bind:value={form.allowedOriginsText} placeholder="https://console.example.com" />
 					</Field>
 				</div>

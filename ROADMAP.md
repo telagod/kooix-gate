@@ -609,9 +609,9 @@ cargo test -p gate-providers --all-targets
   - [x] 选择 model filter
   - [x] 输入 rpm/tpm/budget
   - [x] explain 预览。
-- [ ] UI 文案统一：
-  - 中文为主
-  - Provider / Channel / API Key 等术语保留英文。
+- [x] UI 文案统一：
+  - [x] 中文为主
+  - [x] Provider / Channel / API Key 等术语保留英文。
 
 ### P2.2 性能打磨
 

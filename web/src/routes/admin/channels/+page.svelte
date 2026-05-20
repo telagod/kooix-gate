@@ -39,7 +39,7 @@
 		return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
 	});
 
-	// Recent errors
+	// 最近错误
 	let recentErrors = $derived(
 		channels
 			.filter(c => c.last_error)
@@ -195,18 +195,18 @@
 	{:else if error}
 		<StatePanel title="渠道加载失败" description={error} icon={Cable} variant="danger" />
 	{:else}
-		<!-- Stats cards -->
+		<!-- 统计卡片 -->
 		<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
 			<Stat title="总渠道" value={String(totalCount)} />
-			<Stat title="Active" value={String(activeCount)} subtitle="{drainingCount} draining · {disabledCount} disabled" />
-			<Stat title="Draining" value={String(drainingCount)} class="border-amber-200 dark:border-amber-900" />
-			<Stat title="Healthy" value={String(healthyCount)} class="border-green-200 dark:border-green-900" />
-			<Stat title="Degraded" value={String(degradedCount)} class="border-amber-200 dark:border-amber-900" />
-			<Stat title="Unhealthy" value={String(unhealthyCount)} class="border-red-200 dark:border-red-900" />
-			<Stat title="Providers" value={String(byProvider.length)} />
+			<Stat title="Active 状态" value={String(activeCount)} subtitle="{drainingCount} draining · {disabledCount} disabled" />
+			<Stat title="Draining 排空" value={String(drainingCount)} class="border-amber-200 dark:border-amber-900" />
+			<Stat title="Healthy 健康" value={String(healthyCount)} class="border-green-200 dark:border-green-900" />
+			<Stat title="Degraded 降级" value={String(degradedCount)} class="border-amber-200 dark:border-amber-900" />
+			<Stat title="Unhealthy 异常" value={String(unhealthyCount)} class="border-red-200 dark:border-red-900" />
+			<Stat title="Provider 数" value={String(byProvider.length)} />
 		</div>
 
-		<!-- Provider health map -->
+		<!-- Provider 健康分布 -->
 		<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Provider 健康分布</h2>
 		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
 			{#each byProvider as [provider, stats]}
@@ -235,7 +235,7 @@
 			{/each}
 		</div>
 
-		<!-- Recent errors -->
+		<!-- 最近错误 -->
 		{#if recentErrors.length > 0}
 			<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">最近错误 TOP 5</h2>
 			<DataTable class="mb-8">
@@ -261,7 +261,7 @@
 			</DataTable>
 		{/if}
 
-		<!-- Quick links -->
+		<!-- 快捷入口 -->
 		<div class="flex gap-4">
 			<a href="/channels" class="text-sm text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 underline">渠道列表 →</a>
 			<a href="/admin/groups" class="text-sm text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 underline">分组管理 →</a>

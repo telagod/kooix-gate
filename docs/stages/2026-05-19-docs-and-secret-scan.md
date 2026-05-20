@@ -389,6 +389,25 @@ npm --prefix web run check
 npm --prefix web test -- quota-api.test.ts quota-wizard.test.ts
 ```
 
+## P2.1 Frontend UX / UI copy unification
+
+本轮把 P2.1 最后一项 “UI 文案统一” 收口，原则是用户可见主文案中文优先，同时保留 Provider / Channel / API Key / SSO / OIDC / Redis / PG / Tokens / Model 等产品与协议术语：
+
+- `/admin/pricing` 的 Pricing wizard、usage cost 模拟、conditions 模板、usage sample 字段统一为中文主干 + 英文术语。
+- `/orgs/[orgId]/quotas` 的 Quota wizard、scope/model filter/limits/explain、would-deny/pass、summary cards 与 explain 结果表统一中英混排口径。
+- `/admin/channels`、`/channels/[channelId]` 的健康统计、Key 面板、tab 与 key table 表头补齐中文语义。
+- `/admin/audit`、`/admin/requests`、`/usage/requests`、`/admin/incidents` 的 telemetry 标签统一为中文主干，保留 Request ID / TTFB / Metadata / Upstream errors 等排障术语。
+- `/admin/users`、`/admin/sso`、`/usage`、Project API Key 页收敛 status、session、Provider、Key、Token 等显眼标签。
+- 新增 `web/src/tests/ui-copy.test.ts`，静态锁定 wizard、telemetry 与状态文案，防止后续回退成纯英文标签。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test -- ui-copy.test.ts
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

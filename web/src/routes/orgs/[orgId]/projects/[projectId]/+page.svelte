@@ -33,8 +33,8 @@
 	let newTarget = $state('');
 
 	const statusOptions = [
-		{ value: 'active', label: 'Active' },
-		{ value: 'archived', label: 'Archived' }
+		{ value: 'active', label: 'Active 启用' },
+		{ value: 'archived', label: 'Archived 归档' }
 	];
 
 	onMount(async () => {
@@ -175,7 +175,7 @@
 			<div class="flex items-center justify-between mb-4">
 				<div class="flex items-center gap-2">
 					<Key size={16} class="text-zinc-400" />
-					<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">API Keys</h2>
+					<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">API Keys 凭据</h2>
 				</div>
 				<span class="text-xs text-zinc-600 dark:text-zinc-300">{keys.filter(k => !k.revoked).length} 活跃</span>
 			</div>

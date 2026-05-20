@@ -207,31 +207,31 @@
 				<div class="mb-3 flex items-center justify-between">
 					<div class="flex items-center gap-2">
 						<XCircle size={16} class={topChannelErrors > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-400'} />
-						<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Top failing</p>
+						<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Top failing 最高失败</p>
 					</div>
 					<Badge variant={topChannelErrors > 0 ? 'danger' : 'default'}>{fmt(topChannelErrors)}</Badge>
 				</div>
 				<p class="text-3xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">{fmtPct(topChannelRequests > 0 ? topChannelErrors / topChannelRequests : 0)}</p>
-				<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">最高失败率 · {fmt(topChannelRequests)} requests</p>
+				<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">最高失败率 · {fmt(topChannelRequests)} 次请求</p>
 			</Card>
 
 			<Card class="p-4">
 				<div class="mb-3 flex items-center justify-between">
 					<div class="flex items-center gap-2">
 						<DatabaseZap size={16} class={quotaTotal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-400'} />
-						<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Quota deny</p>
+						<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Quota deny 配额拒绝</p>
 					</div>
 					<Badge variant={quotaTotal > 0 ? 'warning' : 'default'}>{fmt(quotaTotal)}</Badge>
 				</div>
 				<p class="text-3xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">{fmt(quotaTotal)}</p>
-				<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">runtime-local snapshot</p>
+				<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">runtime-local 快照</p>
 			</Card>
 
 			<Card class="p-4">
 				<div class="mb-3 flex items-center justify-between">
 					<div class="flex items-center gap-2">
 						<Activity size={16} class={totalClassified + runtimeUpstreamTotal > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-400'} />
-						<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Upstream errors</p>
+						<p class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Upstream errors 上游错误</p>
 					</div>
 					<Badge variant={totalClassified + runtimeUpstreamTotal > 0 ? 'danger' : 'default'}>{fmt(totalClassified)}</Badge>
 				</div>
@@ -332,7 +332,7 @@
 
 		<div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
 			<Card class="p-4">
-				<h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Top failing channels</h2>
+				<h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Top failing channels 失败渠道</h2>
 				<p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">按错误数、错误率和最近错误时间排序。</p>
 				{#if summary.top_failing_channels.length === 0}
 					<div class="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">暂无失败渠道。</div>
@@ -341,16 +341,16 @@
 						{#snippet head()}
 							<tr>
 								<th class={dataTemplate.th}>Channel</th>
-								<th class={dataTemplate.th}>Errors</th>
-								<th class={dataTemplate.th}>Rate</th>
-								<th class={dataTemplate.th}>Last</th>
+								<th class={dataTemplate.th}>错误数</th>
+								<th class={dataTemplate.th}>错误率</th>
+								<th class={dataTemplate.th}>最近一次</th>
 							</tr>
 						{/snippet}
 
 						{#each summary.top_failing_channels as row}
 							<tr class={dataTemplate.row}>
 								<td class="px-4 py-3">
-									<p class="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">{row.channel_name ?? 'Fallback / Unknown'}</p>
+									<p class="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">{row.channel_name ?? 'Fallback / Unknown 未知'}</p>
 									<p class="mt-0.5 truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{row.provider_type ?? 'unknown'} · {row.channel_id ? shortId(row.channel_id) : 'no-channel'}</p>
 								</td>
 								<td class="px-4 py-3">
@@ -374,7 +374,7 @@
 			</Card>
 
 			<Card class="p-4">
-				<h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Quota deny top</h2>
+				<h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Quota deny top 配额拒绝</h2>
 				<p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">来自 `quota_denies_total` 同步维护的运行时快照。</p>
 				{#if summary.quota_denies_top.length === 0}
 					<div class="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">暂无配额拒绝。</div>

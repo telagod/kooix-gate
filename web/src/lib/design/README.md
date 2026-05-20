@@ -53,6 +53,7 @@
 - 表格状态基座在 `src/lib/table-state.ts`；server-side pagination / sort / column visibility / saved filters 不要在 route 内重复造 localStorage key 与 normalize 逻辑。
 - Pricing wizard 的 cost preview 逻辑集中在 `src/lib/pricing-preview.ts`；页面只负责采集 Model / Channel / usage sample，不要在 Svelte route 内重复实现 `compute_cost` 镜像。
 - Quota wizard 的 request/preview 纯逻辑集中在 `src/lib/quota-wizard.ts`；页面负责 wizard 状态、后端 explain 调用与保存，不要把 rpm/tpm/budget request 组装散落到 route 中。
+- UI 文案保持中文主干，Provider / Channel / API Key / SSO / OIDC / Redis / PG 等术语保留英文；关键 wizard、telemetry 与状态文案由 `src/tests/ui-copy.test.ts` 锁定，新增页面不要回退到纯英文标签。
 
 ## 美学约束
 

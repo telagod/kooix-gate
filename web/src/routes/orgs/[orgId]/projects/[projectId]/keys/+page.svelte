@@ -165,7 +165,7 @@
 {/if}
 
 <PageShell
-	title="API Keys"
+	title="API Keys 凭据"
 	description={`Project: ${shortId(projectId)} · 明文 Key 仅在创建时显示一次。`}
 	eyebrow={`组织 / ${shortId(orgId)} / 项目`}
 	icon={KeyRound}
@@ -239,7 +239,7 @@
 					{copied ? '已复制' : '复制'}
 				</Button>
 			</div>
-			<p class="mt-2 text-xs text-green-700 dark:text-green-400">Name: {createdKey.name} | Prefix: {createdKey.prefix}</p>
+			<p class="mt-2 text-xs text-green-700 dark:text-green-400">Name 名称: {createdKey.name} | Prefix 前缀: {createdKey.prefix}</p>
 			<div class="mt-3 flex justify-end">
 				<Button variant="outline" size="sm" onclick={dismissCreated}>我已保存，关闭</Button>
 			</div>
@@ -247,9 +247,9 @@
 	{/if}
 
 	{#if loading}
-		<StatePanel title="正在读取 API Keys" description="吾正在拉取当前 Project 的 Key 列表。" icon={KeyRound} />
+		<StatePanel title="正在读取 API Keys 凭据" description="吾正在拉取当前 Project 的 Key 列表。" icon={KeyRound} />
 	{:else if error}
-		<StatePanel title="API Keys 加载失败" description={error} icon={KeyRound} variant="danger">
+		<StatePanel title="API Keys 凭据加载失败" description={error} icon={KeyRound} variant="danger">
 			{#snippet actions()}
 				<Button variant="outline" onclick={loadKeys}>重试</Button>
 			{/snippet}
@@ -259,7 +259,7 @@
 			{#snippet head()}
 				<tr>
 					<th class={dataTemplate.th}>名称</th>
-					<th class={dataTemplate.th}>Key</th>
+					<th class={dataTemplate.th}>Key 前缀</th>
 					<th class={dataTemplate.th}>创建时间</th>
 					<th class={dataTemplate.th}>最后使用</th>
 					<th class={dataTemplate.th}>状态</th>

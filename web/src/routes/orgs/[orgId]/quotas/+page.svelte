@@ -519,7 +519,7 @@
 			<div class="border-b border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
 				<div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 					<div>
-						<p class="text-xs font-semibold uppercase tracking-widest {text.muted}">Quota wizard</p>
+						<p class="text-xs font-semibold uppercase tracking-widest {text.muted}">Quota wizard 向导</p>
 						<h3 class="mt-1 text-lg font-semibold {text.primary}">新建配额策略</h3>
 						<p class="mt-1 text-sm {text.secondary}">按 scope、model filter、rpm/tpm/budget 一次生成多条 policy，并先跑 explain 预览。</p>
 					</div>
@@ -527,10 +527,10 @@
 				</div>
 				<div class="mt-4 grid gap-2 md:grid-cols-4">
 					{#each [
-						{ step: 1, label: 'Scope', hint: '选择作用域' },
-						{ step: 2, label: 'Model filter', hint: '限定模型' },
-						{ step: 3, label: 'Limits', hint: '输入 rpm/tpm/budget' },
-						{ step: 4, label: 'Explain', hint: '预览 would-deny' }
+						{ step: 1, label: 'Scope 作用域', hint: '选择作用域' },
+						{ step: 2, label: 'Model filter 模型过滤', hint: '限定模型' },
+						{ step: 3, label: 'Limits 限额', hint: '输入 rpm/tpm/budget' },
+						{ step: 4, label: 'Explain 预览', hint: '预览 would-deny' }
 					] as item}
 						<button
 							type="button"
@@ -560,11 +560,11 @@
 						<div class="space-y-4">
 							<div class="grid gap-3 md:grid-cols-2">
 								<div>
-									<label for="qw-scope-kind" class="mb-1 block text-sm font-medium {text.secondary}">Scope</label>
+									<label for="qw-scope-kind" class="mb-1 block text-sm font-medium {text.secondary}">Scope 作用域</label>
 									<Select id="qw-scope-kind" value={wizardDraft.scopeKind} options={scopeOptions} onchange={(event) => updateWizard('scopeKind', event.currentTarget.value)} />
 								</div>
 								<div>
-									<label for="qw-mode" class="mb-1 block text-sm font-medium {text.secondary}">Mode</label>
+									<label for="qw-mode" class="mb-1 block text-sm font-medium {text.secondary}">Mode 模式</label>
 									<Select id="qw-mode" value={wizardDraft.mode} options={modeOptions} onchange={(event) => updateWizard('mode', event.currentTarget.value as QuotaWizardDraft['mode'])} />
 								</div>
 							</div>
@@ -575,10 +575,10 @@
 							</div>
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">Scope preview</p>
+							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">Scope 预览</p>
 							<div class="mt-3 space-y-3 text-sm">
 								<div class="flex items-center justify-between gap-3">
-									<span class={text.muted}>Kind</span>
+									<span class={text.muted}>类型</span>
 									<span class="font-mono {text.primary}">{wizardDraft.scopeKind}</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
@@ -612,7 +612,7 @@
 							</div>
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">Filter effect</p>
+							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">过滤效果</p>
 							<p class="mt-3 text-sm {text.secondary}">
 								{#if wizardDraft.modelFilter.trim()}
 									只匹配 <span class="font-mono {text.primary}">{wizardDraft.modelFilter.trim()}</span>。
@@ -635,36 +635,36 @@
 									<Input id="qw-tpm" type="number" min="0" placeholder="120000" value={wizardDraft.tpmLimit} oninput={(event) => updateWizard('tpmLimit', event.currentTarget.value)} />
 								</div>
 								<div>
-									<label for="qw-budget" class="mb-1 block text-sm font-medium {text.secondary}">Budget USD</label>
+									<label for="qw-budget" class="mb-1 block text-sm font-medium {text.secondary}">Budget USD 预算</label>
 									<Input id="qw-budget" type="number" min="0" step="0.01" placeholder="25" value={wizardDraft.budgetUsd} oninput={(event) => updateWizard('budgetUsd', event.currentTarget.value)} />
 								</div>
 							</div>
 							<div class="grid gap-3 md:grid-cols-3">
 								<div>
-									<label for="qw-budget-dim" class="mb-1 block text-sm font-medium {text.secondary}">Budget window</label>
+									<label for="qw-budget-dim" class="mb-1 block text-sm font-medium {text.secondary}">Budget window 周期</label>
 									<Select
 										id="qw-budget-dim"
 										value={wizardDraft.budgetDimension}
 										options={[
-											{ value: 'daily_budget_usd', label: 'Daily budget' },
-											{ value: 'monthly_budget_usd', label: 'Monthly budget' },
-											{ value: 'lifetime_budget_usd', label: 'Lifetime budget' }
+											{ value: 'daily_budget_usd', label: 'Daily budget 日预算' },
+											{ value: 'monthly_budget_usd', label: 'Monthly budget 月预算' },
+											{ value: 'lifetime_budget_usd', label: 'Lifetime budget 终身预算' }
 										]}
 										onchange={(event) => updateWizard('budgetDimension', event.currentTarget.value)}
 									/>
 								</div>
 								<div>
-									<label for="qw-est-tokens" class="mb-1 block text-sm font-medium {text.secondary}">Estimated tokens</label>
+									<label for="qw-est-tokens" class="mb-1 block text-sm font-medium {text.secondary}">Estimated tokens 预估 tokens</label>
 									<Input id="qw-est-tokens" type="number" min="0" value={wizardDraft.estimatedTokens} oninput={(event) => updateWizard('estimatedTokens', event.currentTarget.value)} />
 								</div>
 								<div>
-									<label for="qw-est-cost" class="mb-1 block text-sm font-medium {text.secondary}">Estimated cost micros</label>
+									<label for="qw-est-cost" class="mb-1 block text-sm font-medium {text.secondary}">Estimated cost micros 预估成本 micros</label>
 									<Input id="qw-est-cost" type="number" min="0" value={wizardDraft.estimatedCostMicros} oninput={(event) => updateWizard('estimatedCostMicros', event.currentTarget.value)} />
 								</div>
 							</div>
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">Local preview</p>
+							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">本地预览</p>
 							{#if wizardPreviewRows.length === 0}
 								<p class="mt-3 text-sm {text.muted}">至少输入 rpm、tpm、budget 中的一项。</p>
 							{:else}
@@ -673,12 +673,12 @@
 										<div class="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
 											<div class="flex items-center justify-between gap-3">
 												<span class="font-mono text-xs {text.primary}">{row.dimension}</span>
-												<Badge variant={row.wouldDeny ? 'danger' : 'success'}>{row.wouldDeny ? 'would deny' : 'pass'}</Badge>
+												<Badge variant={row.wouldDeny ? 'danger' : 'success'}>{row.wouldDeny ? 'would deny 拦截' : 'pass 放行'}</Badge>
 											</div>
 											<div class="mt-2 grid grid-cols-3 gap-2 text-[11px] {text.muted}">
-												<span>limit <b class={text.primary}>{formatWizardLimit(row)}</b></span>
-												<span>est <b class={text.primary}>{formatWizardEstimate(row)}</b></span>
-												<span>left <b class={text.primary}>{formatWizardEstimate({ ...row, estimated: row.remaining })}</b></span>
+												<span>限额 <b class={text.primary}>{formatWizardLimit(row)}</b></span>
+												<span>预估 <b class={text.primary}>{formatWizardEstimate(row)}</b></span>
+												<span>剩余 <b class={text.primary}>{formatWizardEstimate({ ...row, estimated: row.remaining })}</b></span>
 											</div>
 										</div>
 									{/each}
@@ -689,7 +689,7 @@
 				{:else}
 					<div class="grid gap-4 lg:grid-cols-[360px_1fr]">
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">Requests to save</p>
+							<p class="text-xs font-semibold uppercase tracking-wider {text.muted}">待保存请求</p>
 							<div class="mt-3 space-y-2">
 								{#each wizardRequests as req}
 									<div class="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
@@ -714,12 +714,12 @@
 								<DataTable isEmpty={wizardExplainRules.length === 0} emptyColspan={6}>
 									{#snippet head()}
 										<tr>
-											<th class={dataTemplate.th}>Dimension</th>
-											<th class={dataTemplate.th}>Mode</th>
-											<th class={cn(dataTemplate.th, 'text-right')}>Used</th>
-											<th class={cn(dataTemplate.th, 'text-right')}>Estimated</th>
-											<th class={cn(dataTemplate.th, 'text-right')}>Remaining</th>
-											<th class={dataTemplate.th}>Result</th>
+											<th class={dataTemplate.th}>维度</th>
+											<th class={dataTemplate.th}>Mode 模式</th>
+											<th class={cn(dataTemplate.th, 'text-right')}>已用</th>
+											<th class={cn(dataTemplate.th, 'text-right')}>预估</th>
+											<th class={cn(dataTemplate.th, 'text-right')}>剩余</th>
+											<th class={dataTemplate.th}>结果</th>
 										</tr>
 									{/snippet}
 									{#each wizardExplainRules as rule}
@@ -730,7 +730,7 @@
 											<td class={cn(dataTemplate.tdMono, 'text-right')}>{formatNumber(rule.estimated)}</td>
 											<td class={cn(dataTemplate.tdMono, 'text-right')}>{formatNumber(rule.remaining)}</td>
 											<td class={dataTemplate.td}>
-												<Badge variant={rule.would_deny ? 'danger' : rule.mode === 'dry_run' ? 'warning' : 'success'}>{rule.would_deny ? 'would deny' : 'pass'}</Badge>
+												<Badge variant={rule.would_deny ? 'danger' : rule.mode === 'dry_run' ? 'warning' : 'success'}>{rule.would_deny ? 'would deny 拦截' : 'pass 放行'}</Badge>
 											</td>
 										</tr>
 									{/each}
@@ -790,10 +790,10 @@
 	{/snippet}
 
 	<div class="mb-6 grid gap-3 md:grid-cols-4">
-		<Card padding="md"><p class="text-xs {text.muted}">Rules</p><p class="mt-2 text-2xl font-semibold {text.primary}">{summary.total}</p></Card>
+		<Card padding="md"><p class="text-xs {text.muted}">规则数</p><p class="mt-2 text-2xl font-semibold {text.primary}">{summary.total}</p></Card>
 		<Card padding="md"><p class="text-xs {text.muted}">Enforce</p><p class="mt-2 text-2xl font-semibold {text.primary}">{summary.enforce}</p></Card>
 		<Card padding="md"><p class="text-xs {text.muted}">Dry-run</p><p class="mt-2 text-2xl font-semibold {text.warning}">{summary.dryRun}</p></Card>
-		<Card padding="md"><p class="text-xs {text.muted}">Model scoped</p><p class="mt-2 text-2xl font-semibold {text.primary}">{summary.models}</p></Card>
+		<Card padding="md"><p class="text-xs {text.muted}">模型限定</p><p class="mt-2 text-2xl font-semibold {text.primary}">{summary.models}</p></Card>
 	</div>
 
 	<DataToolbar badgesVisible={hasActiveFilters}>
@@ -850,7 +850,7 @@
 										<th class={dataTemplate.th}>限额</th>
 										<th class={dataTemplate.th}>Scope</th>
 										<th class={dataTemplate.th}>Model</th>
-										<th class={dataTemplate.th}>Mode</th>
+										<th class={dataTemplate.th}>Mode 模式</th>
 										<th class={dataTemplate.th}>窗口</th>
 										<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
 									</tr>
@@ -889,7 +889,7 @@
 			</div>
 
 			<div class="space-y-6">
-				<SectionCard title="Quota explain" description="不写入计数，只解释当前请求会命中哪些规则。" icon={Search}>
+				<SectionCard title="Quota explain 预览" description="不写入计数，只解释当前请求会命中哪些规则。" icon={Search}>
 					<form onsubmit={handleExplain} class="space-y-3">
 						<div class="grid grid-cols-2 gap-3">
 							<Select bind:value={explainScopeKind} options={scopeOptions} />
@@ -898,9 +898,9 @@
 						<Input placeholder="scope UUID / typed ID" bind:value={explainScopeId} />
 						<div class="grid grid-cols-2 gap-3">
 							<Input placeholder="model，例如 gpt-4o-mini" bind:value={explainModel} />
-							<Input type="number" placeholder="estimated tokens" bind:value={explainTokens} />
+							<Input type="number" placeholder="预估 tokens" bind:value={explainTokens} />
 						</div>
-						<Input type="number" placeholder="estimated cost micros" bind:value={explainCostMicros} />
+						<Input type="number" placeholder="预估成本 micros" bind:value={explainCostMicros} />
 						{#if explainError}<Alert variant="danger">{explainError}</Alert>{/if}
 						<Button type="submit" disabled={explaining} class="w-full">
 							<Search size={16} />
@@ -917,9 +917,9 @@
 										<Badge variant={rule.would_deny ? 'danger' : rule.mode === 'dry_run' ? 'warning' : 'success'}>{rule.would_deny ? 'would deny' : rule.mode}</Badge>
 									</div>
 									<div class="mt-2 grid grid-cols-3 gap-2 text-xs">
-										<span class={text.muted}>used <b class={text.primary}>{formatNumber(rule.current_used)}</b></span>
-										<span class={text.muted}>est <b class={text.primary}>{formatNumber(rule.estimated)}</b></span>
-										<span class={text.muted}>left <b class={text.primary}>{formatNumber(rule.remaining)}</b></span>
+										<span class={text.muted}>已用 <b class={text.primary}>{formatNumber(rule.current_used)}</b></span>
+										<span class={text.muted}>预估 <b class={text.primary}>{formatNumber(rule.estimated)}</b></span>
+										<span class={text.muted}>剩余 <b class={text.primary}>{formatNumber(rule.remaining)}</b></span>
 									</div>
 									<p class="mt-2 font-mono text-[11px] {text.muted}">{shortId(rule.quota_id)} · reset {formatReset(rule)}</p>
 								</div>

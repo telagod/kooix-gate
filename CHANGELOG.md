@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P2.1 `/admin/channels` 推广仪表盘模板：渠道仪表盘改用 `PageShell` / `StatePanel`，最近错误 TOP 5 迁到 `DataTable`，保留导入/导出、Provider 健康分布与 quick links，模板审计缺口清零。
 - P2.1 Pricing wizard 落地：`/admin/pricing` 新增 4 步向导（Model / Channel、dimension / unit / rate、价格预览、usage cost 模拟），前端 `pricing-preview` helper 镜像 `gate-billing::compute_cost` 的 token、image condition、batch / region multiplier 语义并补单测。
 - P2.1 Quota wizard 落地：`/orgs/[orgId]/quotas` 新增 4 步向导（Scope、Model filter、RPM/TPM/Budget、Explain preview），一次生成多条 quota policy，并用后端 `explainQuota` 只读预览 would-deny。
+- P2.1 UI 文案统一：控制台高频页收敛为中文主文案，保留 Provider / Channel / API Key / SSO / OIDC / Redis / PG 等术语，并新增 `ui-copy.test.ts` 防止 wizard、telemetry 与状态标签回漂。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。
