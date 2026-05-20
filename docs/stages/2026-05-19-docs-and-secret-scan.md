@@ -234,6 +234,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / project detail shell rollout
+
+本轮继续按 P2.1 “表格能力统一”清理 `/orgs/[orgId]/projects/[projectId]` 的最后一个 `/orgs/*` 模板缺口：
+
+- Project 设置页从手写 H1 / header 迁到共享 `PageShell`，标题、项目 slug、组织短 ID 与 Project 短 ID 统一由模板呈现。
+- loading / error 状态改用 `StatePanel`，保留 Project 设置、Project invite、API Key quick create 与模型别名增删链路。
+- 页面新增模板 actions：返回 Project 列表与跳转专用 API Keys 页；URL 继续通过 `rawId()` 使用后端接受的裸 UUID。
+- 模板审计快照：25 个 route page，`/orgs/[orgId]/projects/[projectId]` gaps 清零，pages_with_gaps 从 6 降到 5。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

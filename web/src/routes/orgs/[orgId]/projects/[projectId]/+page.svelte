@@ -1,12 +1,15 @@
 <script lang="ts">
-	import { shortId } from '$lib/id.js';
+	import { rawId, shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { getMe, getProject, updateProject, listKeys, createKey, revokeKey, listModelAliases, upsertModelAlias, deleteModelAlias } from '$lib/api.js';
+	import { getProject, updateProject, listKeys, createKey, revokeKey, listModelAliases, upsertModelAlias, deleteModelAlias } from '$lib/api.js';
 	import type { Project, ApiKey, CreateKeyResponse, ModelAlias } from '$lib/api.js';
 	import { Button, Card, Field, Input, Select } from '$lib/components/ui';
 	import InvitationPanel from '$lib/components/InvitationPanel.svelte';
-	import { Settings, Key, Plus, Trash2, Copy, Check, ArrowRight } from 'lucide-svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import { Settings, Key, Plus, Trash2, Copy, Check, ArrowRight, ArrowLeft } from 'lucide-svelte';
 
 	let orgId = $derived($page.params.orgId ?? '');
 	let projectId = $derived($page.params.projectId ?? '');
@@ -118,20 +121,29 @@
 	}
 </script>
 
-<div class="px-6 py-6">
-	{#if loading}
-		<div class="space-y-4">
-			<div class="h-8 w-48 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse"></div>
-			<div class="h-32 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse"></div>
-		</div>
-	{:else if error && !project}
-		<Card class="p-6">
-			<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-		</Card>
-	{:else if project}
-		<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-1">{project.name}</h1>
-		<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-6 font-mono">{project.slug} · {shortId(projectId)}...</p>
+<PageShell
+	title={project?.name ?? '项目设置'}
+	description={project ? `${project.slug} · ${shortId(projectId)}` : `Project: ${shortId(projectId)}`}
+	eyebrow={`组织 / ${shortId(orgId)} / 项目`}
+	icon={Settings}
+	max="wide"
+>
+	{#snippet actions()}
+		<Button variant="outline" size="sm" onclick={() => goto(`/orgs/${rawId(orgId)}/projects`)}>
+			<ArrowLeft size={14} />
+			项目列表
+		</Button>
+		<Button variant="outline" size="sm" onclick={() => goto(`/orgs/${rawId(orgId)}/projects/${rawId(projectId)}/keys`)}>
+			<Key size={14} />
+			API Keys
+		</Button>
+	{/snippet}
 
+	{#if loading}
+		<StatePanel title="正在读取项目设置" description="吾正在拉取 Project 设置、API Keys 与模型别名。" icon={Settings} />
+	{:else if error && !project}
+		<StatePanel title="项目加载失败" description={error} icon={Settings} variant="danger" />
+	{:else if project}
 		<!-- Settings -->
 		<Card class="p-5 mb-6">
 			<div class="flex items-center gap-2 mb-4">
@@ -256,4 +268,4 @@
 			{/if}
 		</Card>
 	{/if}
-</div>
+</PageShell>

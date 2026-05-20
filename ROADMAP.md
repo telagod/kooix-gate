@@ -584,8 +584,9 @@ cargo test -p gate-providers --all-targets
   - [x] 推广到 `/orgs/[orgId]/quotas`（`DataToolbar` 筛选 + `DataTable` 分组表格）
   - [x] 推广到 `/orgs/[orgId]/billing`（`PageShell` / `DataToolbar` / `DataTable`）
   - [x] 推广到 `/orgs/[orgId]/projects`（`PageShell` / `DataTable`）
+  - [x] 推广到 `/orgs/[orgId]/projects/[projectId]`（`PageShell` / `StatePanel`）
   - [x] 推广到 `/orgs/[orgId]/projects/[projectId]/keys`（`PageShell` / `DataTable` / `ModalFrame`）
-  - [ ] 继续推广到剩余数据页（`/orgs/*`）
+  - [ ] 继续推广到剩余模板缺口（`/admin/channels`、`/admin/groups`、`/admin/sso`、`/usage`、`/setup`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest
   - 选择 auth strategy 并填写 secret slot
