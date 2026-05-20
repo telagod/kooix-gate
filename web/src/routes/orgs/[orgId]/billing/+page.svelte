@@ -3,6 +3,7 @@
 	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { CreditCard, Download, FileJson, RefreshCw } from 'lucide-svelte';
 	import {
 		getMonthlyBill,
 		exportBillingCsv,
@@ -12,9 +13,17 @@
 		transitionBillingInvoice
 	} from '$lib/api.js';
 	import type { MonthlyBill, QuotaAlert } from '$lib/api.js';
+	import Alert from '$lib/components/ui/Alert.svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import Select from '$lib/components/ui/Select.svelte';
 	import Stat from '$lib/components/Stat.svelte';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import { cn, dataTemplate, text, type BadgeVariant } from '$lib/design';
 
 	let orgId = $derived($page.params.orgId ?? '');
 
@@ -176,6 +185,17 @@
 		return m[status] ?? status;
 	}
 
+	function invoiceStatusVariant(status: string): BadgeVariant {
+		const m: Record<string, BadgeVariant> = {
+			draft: 'default',
+			closed: 'warning',
+			exported: 'admin',
+			paid: 'success',
+			waived: 'warning'
+		};
+		return m[status] ?? 'default';
+	}
+
 	function canClose(): boolean {
 		return bill?.invoice.status === 'draft';
 	}
@@ -189,276 +209,255 @@
 	}
 </script>
 
-<div>
-	<!-- 面包屑 -->
-	<div class="px-6 py-6">
-		<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-1">组织 / {shortId(orgId)}... / 账单</p>
-		<!-- 标题行 -->
-		<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
-			<div>
-				<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">月账单</h1>
-				<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">按月查看费用明细，支持 CSV / JSON digest 与 invoice 状态机。</p>
-			</div>
-
-			<div class="flex items-center gap-3 flex-wrap">
-				<!-- 月份选择器 -->
-				<select
+<PageShell
+	title="月账单"
+	description="按月查看费用明细，支持 CSV / JSON digest 与 invoice 状态机。"
+	eyebrow={`组织 / ${shortId(orgId)}`}
+	icon={CreditCard}
+	max="full"
+>
+	<DataToolbar class="mb-6" badgesVisible={!!lastDigest}>
+		{#snippet query()}
+			<div class="flex items-center gap-2">
+				<span class="text-xs font-medium {text.muted}">账期</span>
+				<Select
 					bind:value={selectedMonth}
+					options={monthOptions}
 					onchange={handleMonthChange}
 					disabled={loading}
-					class="flex h-10 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-300 disabled:opacity-50"
-				>
-					{#each monthOptions as opt}
-						<option value={opt.value}>{opt.label}</option>
-					{/each}
-				</select>
-
-				<!-- CSV 导出 -->
-				<Button onclick={handleExport} disabled={exporting || loading} variant="outline">
-					{exporting ? '导出中...' : '导出 CSV'}
-				</Button>
-				<Button onclick={handleExportJson} disabled={exportingJson || loading} variant="outline">
-					{exportingJson ? '导出中...' : '导出 JSON'}
-				</Button>
+					size="sm"
+					class="w-44"
+				/>
 			</div>
+		{/snippet}
+
+		{#snippet actions()}
+			<Button variant="outline" size="sm" onclick={loadAll} disabled={loading}>
+				<RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+				刷新
+			</Button>
+			<Button variant="outline" size="sm" onclick={handleExport} disabled={exporting || loading}>
+				<Download size={14} />
+				{exporting ? '导出中...' : '导出 CSV'}
+			</Button>
+			<Button variant="outline" size="sm" onclick={handleExportJson} disabled={exportingJson || loading}>
+				<FileJson size={14} />
+				{exportingJson ? '导出中...' : '导出 JSON'}
+			</Button>
+		{/snippet}
+
+		{#snippet badges()}
+			<Badge class="max-w-full break-all font-mono">导出摘要：{lastDigest}</Badge>
+		{/snippet}
+	</DataToolbar>
+
+	{#if exportError}
+		<Alert variant="danger" class="mb-4">{exportError}</Alert>
+	{/if}
+
+	{#if loading}
+		<StatePanel
+			title="正在读取账单"
+			description="吾正在并行拉取本月 invoice、ledger 聚合与 quota alerts。"
+			icon={RefreshCw}
+			class="mb-6"
+		/>
+	{:else if error}
+		<StatePanel title="账单加载失败" description={error} icon={CreditCard} variant="danger" class="mb-6">
+			{#snippet actions()}
+				<Button variant="outline" onclick={loadAll}>重试</Button>
+			{/snippet}
+		</StatePanel>
+	{:else if bill}
+		<Card padding="md" class="mb-6">
+			<div class="flex flex-wrap items-start justify-between gap-4">
+				<div class="min-w-0">
+					<p class="mb-2 text-xs font-semibold uppercase tracking-wider {text.muted}">
+						Invoice State
+					</p>
+					<div class="flex flex-wrap items-center gap-3">
+						<Badge variant={invoiceStatusVariant(bill.invoice.status)}>
+							{invoiceStatusLabel(bill.invoice.status)}
+						</Badge>
+						<span class="text-xs {text.muted}">
+							{bill.invoice.month} · {fmtCost(bill.invoice.total_cost_usd)} · {fmtNum(bill.invoice.total_cost_micros)} micros
+						</span>
+					</div>
+					{#if bill.invoice.export_digest}
+						<p class="mt-2 break-all font-mono text-xs {text.muted}">
+							export_digest: {bill.invoice.export_digest}
+						</p>
+					{/if}
+				</div>
+				<div class="flex flex-wrap items-center gap-2">
+					<Button onclick={() => handleInvoiceTransition('closed')} disabled={!canClose() || !!transitioning} variant="outline" size="sm">
+						{transitioning === 'closed' ? 'Closing...' : 'Close'}
+					</Button>
+					<Button onclick={() => handleInvoiceTransition('exported')} disabled={!canExport() || !!transitioning} variant="outline" size="sm">
+						{transitioning === 'exported' ? 'Exporting...' : 'Mark Exported'}
+					</Button>
+					<Button onclick={() => handleInvoiceTransition('paid')} disabled={!canSettle() || !!transitioning} size="sm">
+						{transitioning === 'paid' ? 'Paying...' : 'Paid'}
+					</Button>
+					<Button onclick={() => handleInvoiceTransition('waived')} disabled={!canSettle() || !!transitioning} variant="outline" size="sm">
+						{transitioning === 'waived' ? 'Waiving...' : 'Waive'}
+					</Button>
+				</div>
+			</div>
+		</Card>
+
+		<div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+			<Stat title="总费用" value={fmtCost(bill.total_cost_usd)} subtitle="USD · {bill.month}" />
+			<Stat title="总请求" value={fmtNum(bill.total_requests)} subtitle="本月请求次数" />
+			<Stat title="输入 Tokens" value={fmtNum(bill.total_tokens_in)} subtitle="prompt 输入累计" />
+			<Stat title="输出 Tokens" value={fmtNum(bill.total_tokens_out)} subtitle="completion 输出累计" />
 		</div>
 
-		{#if exportError}
-			<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2 mb-4">{exportError}</p>
-		{/if}
-		{#if lastDigest}
-			<p class="text-xs font-mono text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 rounded-md px-3 py-2 mb-4 break-all">
-				导出摘要：{lastDigest}
-			</p>
-		{/if}
+		<div class="mb-8">
+			<h2 class="mb-3 text-sm font-semibold uppercase tracking-wider {text.secondary}">
+				按项目分解
+			</h2>
+			<DataTable isEmpty={bill.breakdown_by_project.length === 0} emptyColspan={3} class="mb-0">
+				{#snippet head()}
+					<tr>
+						<th class={dataTemplate.th}>Project ID</th>
+						<th class={cn(dataTemplate.th, 'text-right')}>费用 (USD)</th>
+						<th class={cn(dataTemplate.th, 'text-right')}>请求次数</th>
+					</tr>
+				{/snippet}
 
-		{#if loading}
-			<p class="text-zinc-600 dark:text-zinc-300">加载中...</p>
-		{:else if error}
-			<Card class="p-6">
-				<p class="text-red-600 dark:text-red-400 text-sm">{error}</p>
-			</Card>
-		{:else if bill}
-			<Card class="p-4 mb-6">
-				<div class="flex items-start justify-between gap-4 flex-wrap">
-					<div>
-						<p class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
-							Invoice State
-						</p>
-						<div class="flex items-center gap-3 flex-wrap">
-							<span class="inline-flex items-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-								{invoiceStatusLabel(bill.invoice.status)}
-							</span>
-							<span class="text-xs text-zinc-500 dark:text-zinc-400">
-								{bill.invoice.month} · {fmtCost(bill.invoice.total_cost_usd)} · {fmtNum(bill.invoice.total_cost_micros)} micros
-							</span>
-						</div>
-						{#if bill.invoice.export_digest}
-							<p class="mt-2 text-xs font-mono text-zinc-600 dark:text-zinc-400 break-all">
-								export_digest: {bill.invoice.export_digest}
-							</p>
-						{/if}
-					</div>
-					<div class="flex items-center gap-2 flex-wrap">
-						<Button onclick={() => handleInvoiceTransition('closed')} disabled={!canClose() || !!transitioning} variant="outline" size="sm">
-							{transitioning === 'closed' ? 'Closing...' : 'Close'}
-						</Button>
-						<Button onclick={() => handleInvoiceTransition('exported')} disabled={!canExport() || !!transitioning} variant="outline" size="sm">
-							{transitioning === 'exported' ? 'Exporting...' : 'Mark Exported'}
-						</Button>
-						<Button onclick={() => handleInvoiceTransition('paid')} disabled={!canSettle() || !!transitioning} size="sm">
-							{transitioning === 'paid' ? 'Paying...' : 'Paid'}
-						</Button>
-						<Button onclick={() => handleInvoiceTransition('waived')} disabled={!canSettle() || !!transitioning} variant="outline" size="sm">
-							{transitioning === 'waived' ? 'Waiving...' : 'Waive'}
-						</Button>
+				{#snippet empty()}
+					本月无项目用量记录。
+				{/snippet}
+
+				{#each bill.breakdown_by_project as row}
+					<tr class={dataTemplate.row}>
+						<td class={dataTemplate.tdMono}>{row.project_id}</td>
+						<td class={cn(dataTemplate.tdMonoStrong, 'text-right')}>{fmtCost(row.cost_usd)}</td>
+						<td class={cn(dataTemplate.tdMono, 'text-right')}>{fmtNum(row.requests)}</td>
+					</tr>
+				{/each}
+			</DataTable>
+		</div>
+
+		<div class="mb-8">
+			<h2 class="mb-3 text-sm font-semibold uppercase tracking-wider {text.secondary}">
+				按模型分解
+			</h2>
+			<DataTable isEmpty={bill.breakdown_by_model.length === 0} emptyColspan={5} class="mb-0">
+				{#snippet head()}
+					<tr>
+						<th class={dataTemplate.th}>模型</th>
+						<th class={cn(dataTemplate.th, 'text-right')}>费用 (USD)</th>
+						<th class={cn(dataTemplate.th, 'text-right')}>输入 Tokens</th>
+						<th class={cn(dataTemplate.th, 'text-right')}>输出 Tokens</th>
+						<th class={cn(dataTemplate.th, 'text-right')}>请求次数</th>
+					</tr>
+				{/snippet}
+
+				{#snippet empty()}
+					本月无模型用量记录。
+				{/snippet}
+
+				{#each bill.breakdown_by_model as row}
+					<tr class={dataTemplate.row}>
+						<td class={dataTemplate.tdStrong}>{row.model}</td>
+						<td class={cn(dataTemplate.tdMonoStrong, 'text-right')}>{fmtCost(row.cost_usd)}</td>
+						<td class={cn(dataTemplate.tdMono, 'text-right')}>{fmtNum(row.tokens_in)}</td>
+						<td class={cn(dataTemplate.tdMono, 'text-right')}>{fmtNum(row.tokens_out)}</td>
+						<td class={cn(dataTemplate.tdMono, 'text-right')}>{fmtNum(row.requests)}</td>
+					</tr>
+				{/each}
+			</DataTable>
+		</div>
+	{/if}
+
+	{#if !loading && alerts.length > 0}
+		<div class="mb-6">
+			<h2 class="mb-3 text-sm font-semibold uppercase tracking-wider {text.secondary}">
+				配额告警
+			</h2>
+
+			{#if exceeded.length > 0}
+				<div class="mb-4">
+					<p class="mb-2 text-xs font-semibold uppercase tracking-wider {text.danger}">
+						已超限 ({exceeded.length})
+					</p>
+					<div class="space-y-2">
+						{#each exceeded as alert}
+							<Card variant="danger" class="px-4 py-3">
+								<div class="flex flex-wrap items-center justify-between gap-4">
+									<div class="flex flex-wrap items-center gap-3">
+										<Badge variant="danger">超限</Badge>
+										<span class="text-sm font-medium text-red-900 dark:text-red-300">{alert.dimension}</span>
+										<span class="text-xs {text.danger}">{scopeLabel(alert.scope_kind)}</span>
+										<span class="font-mono text-xs {text.danger}">{shortId(alert.scope_id)}…</span>
+									</div>
+									<div class="flex items-center gap-4 text-xs tabular-nums {text.danger}">
+										<span>当前：<strong>{alert.current_used}</strong></span>
+										<span>限额：<strong>{alert.limit_value}</strong></span>
+										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
+									</div>
+								</div>
+							</Card>
+						{/each}
 					</div>
 				</div>
-			</Card>
+			{/if}
 
-			<!-- ── 统计卡片 ── -->
-			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-				<Stat
-					title="总费用"
-					value={fmtCost(bill.total_cost_usd)}
-					subtitle="USD · {bill.month}"
-				/>
-				<Stat
-					title="总请求"
-					value={fmtNum(bill.total_requests)}
-					subtitle="本月请求次数"
-				/>
-				<Stat
-					title="输入 Tokens"
-					value={fmtNum(bill.total_tokens_in)}
-					subtitle="prompt 输入累计"
-				/>
-				<Stat
-					title="输出 Tokens"
-					value={fmtNum(bill.total_tokens_out)}
-					subtitle="completion 输出累计"
-				/>
-			</div>
-
-			<!-- ── 按项目分解 ── -->
-			<div class="mb-8">
-				<h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-3">
-					按项目分解
-				</h2>
-				{#if bill.breakdown_by_project.length === 0}
-					<Card class="p-4">
-						<p class="text-sm text-zinc-600 dark:text-zinc-300">本月无项目用量记录。</p>
-					</Card>
-				{:else}
-					<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-						<table class="w-full text-sm">
-							<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
-								<tr>
-									<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Project ID</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">费用 (USD)</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">请求次数</th>
-								</tr>
-							</thead>
-							<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-								{#each bill.breakdown_by_project as row}
-									<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-										<td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.project_id}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-900 dark:text-zinc-100">{fmtCost(row.cost_usd)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.requests)}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-			</div>
-
-			<!-- ── 按模型分解 ── -->
-			<div class="mb-8">
-				<h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-3">
-					按模型分解
-				</h2>
-				{#if bill.breakdown_by_model.length === 0}
-					<Card class="p-4">
-						<p class="text-sm text-zinc-600 dark:text-zinc-300">本月无模型用量记录。</p>
-					</Card>
-				{:else}
-					<div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-						<table class="w-full text-sm">
-							<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
-								<tr>
-									<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">模型</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">费用 (USD)</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">输入 Tokens</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">输出 Tokens</th>
-									<th class="px-4 py-3 text-right font-medium text-zinc-600 dark:text-zinc-400">请求次数</th>
-								</tr>
-							</thead>
-							<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-								{#each bill.breakdown_by_model as row}
-									<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-										<td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{row.model}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-900 dark:text-zinc-100">{fmtCost(row.cost_usd)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.tokens_in)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.tokens_out)}</td>
-										<td class="px-4 py-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{fmtNum(row.requests)}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		<!-- ── 配额告警区域（独立于账单，始终尝试渲染） ── -->
-		{#if !loading && alerts.length > 0}
-			<div class="mb-6">
-				<h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-3">
-					配额告警
-				</h2>
-
-				{#if exceeded.length > 0}
-					<div class="mb-4">
-						<p class="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider mb-2">
-							已超限 ({exceeded.length})
-						</p>
-						<div class="space-y-2">
-							{#each exceeded as alert}
-								<div class="rounded-lg border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/20 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-									<div class="flex items-center gap-3">
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
-											超限
-										</span>
-										<span class="text-sm font-medium text-red-900 dark:text-red-300">{alert.dimension}</span>
-										<span class="text-xs text-red-600 dark:text-red-400">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-red-500 dark:text-red-400">{shortId(alert.scope_id)}…</span>
+			{#if approaching.length > 0}
+				<div>
+					<p class="mb-2 text-xs font-semibold uppercase tracking-wider {text.warning}">
+						接近限额 ({approaching.length})
+					</p>
+					<div class="space-y-2">
+						{#each approaching as alert}
+							<Card variant="warning" class="px-4 py-3">
+								<div class="flex flex-wrap items-center justify-between gap-4">
+									<div class="flex flex-wrap items-center gap-3">
+										<Badge variant="warning">接近</Badge>
+										<span class="text-sm font-medium text-amber-900 dark:text-amber-300">{alert.dimension}</span>
+										<span class="text-xs {text.warning}">{scopeLabel(alert.scope_kind)}</span>
+										<span class="font-mono text-xs {text.warning}">{shortId(alert.scope_id)}…</span>
 									</div>
-									<div class="flex items-center gap-4 text-xs text-red-700 dark:text-red-400 tabular-nums">
+									<div class="flex items-center gap-4 text-xs tabular-nums {text.warning}">
 										<span>当前：<strong>{alert.current_used}</strong></span>
 										<span>限额：<strong>{alert.limit_value}</strong></span>
 										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
 									</div>
 								</div>
-							{/each}
-						</div>
+							</Card>
+						{/each}
 					</div>
-				{/if}
+				</div>
+			{/if}
 
-				{#if approaching.length > 0}
-					<div>
-						<p class="text-xs font-semibold text-yellow-600 dark:text-yellow-400 uppercase tracking-wider mb-2">
-							接近限额 ({approaching.length})
-						</p>
-						<div class="space-y-2">
-							{#each approaching as alert}
-								<div class="rounded-lg border border-yellow-200 dark:border-yellow-700 bg-yellow-50 dark:bg-amber-900/20 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-									<div class="flex items-center gap-3">
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 dark:bg-amber-900/30 text-yellow-700 dark:text-amber-400">
-											接近
-										</span>
-										<span class="text-sm font-medium text-yellow-900 dark:text-amber-300">{alert.dimension}</span>
-										<span class="text-xs text-yellow-600 dark:text-amber-400">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-yellow-500 dark:text-amber-400">{shortId(alert.scope_id)}…</span>
+			{#if watch.length > 0}
+				<div class="mt-4">
+					<p class="mb-2 text-xs font-semibold uppercase tracking-wider {text.muted}">
+						预算观察 ({watch.length})
+					</p>
+					<div class="space-y-2">
+						{#each watch as alert}
+							<Card variant="subtle" class="px-4 py-3">
+								<div class="flex flex-wrap items-center justify-between gap-4">
+									<div class="flex flex-wrap items-center gap-3">
+										<Badge>50%</Badge>
+										<span class="text-sm font-medium {text.primary}">{alert.dimension}</span>
+										<span class="text-xs {text.secondary}">{scopeLabel(alert.scope_kind)}</span>
+										<span class="font-mono text-xs {text.muted}">{shortId(alert.scope_id)}…</span>
 									</div>
-									<div class="flex items-center gap-4 text-xs text-yellow-700 dark:text-amber-400 tabular-nums">
+									<div class="flex items-center gap-4 text-xs tabular-nums {text.secondary}">
 										<span>当前：<strong>{alert.current_used}</strong></span>
 										<span>限额：<strong>{alert.limit_value}</strong></span>
 										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
 									</div>
 								</div>
-							{/each}
-						</div>
+							</Card>
+						{/each}
 					</div>
-				{/if}
-
-				{#if watch.length > 0}
-					<div class="mt-4">
-						<p class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2">
-							预算观察 ({watch.length})
-						</p>
-						<div class="space-y-2">
-							{#each watch as alert}
-								<div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-									<div class="flex items-center gap-3">
-										<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-											50%
-										</span>
-										<span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{alert.dimension}</span>
-										<span class="text-xs text-zinc-600 dark:text-zinc-400">{scopeLabel(alert.scope_kind)}</span>
-										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{shortId(alert.scope_id)}…</span>
-									</div>
-									<div class="flex items-center gap-4 text-xs text-zinc-700 dark:text-zinc-300 tabular-nums">
-										<span>当前：<strong>{alert.current_used}</strong></span>
-										<span>限额：<strong>{alert.limit_value}</strong></span>
-										<span class="font-bold">{alert.percent.toFixed(1)}%</span>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
-</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+</PageShell>

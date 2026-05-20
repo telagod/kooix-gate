@@ -179,6 +179,24 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / org billing table rollout
+
+本轮继续按 P2.1 “表格能力统一”推广到 `/orgs/[orgId]/billing`：
+
+- 月账单页从手写 breadcrumb / header 迁到共享 `PageShell`，标题、说明、组织短 ID 与 icon 节奏统一。
+- 月份选择、刷新、CSV / JSON 导出与 digest 展示收敛到 `DataToolbar`，保留原有导出文件名、JSON digest 与 invoice exported 前置校验。
+- Project / Model 两组 breakdown 从 native table 迁到共享 `DataTable`，空态走模板 `empty` snippet；loading / error 改用 `StatePanel`。
+- Quota alerts 保留 watch / approaching / exceeded 三段语义，只收敛到共享 `Card` / `Badge` / `text` token。
+- 模板审计快照：25 个 route page，`/orgs/[orgId]/billing` gaps 清零，pages_with_gaps 从 9 降到 8。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

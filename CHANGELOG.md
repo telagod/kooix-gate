@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P2.1 `/admin/users` 推广表格模板与状态基座：用户列表和 session 面板改用 `DataToolbar` / `DataTable` / `ModalFrame`，支持 page size、列显隐与搜索/状态筛选持久化，模板审计缺口降至 11 页。
 - P2.1 `/admin/incidents` 推广表格模板：Top failing channels 从 native table 迁到 `DataTable`，事故中心模板审计缺口清零，整体缺口降至 10 页。
 - P2.1 `/orgs/[orgId]/quotas` 推广数据页模板：新增 `DataToolbar` 搜索/scope/mode 筛选与 active badges，分组 quota 表格改用 `DataTable`，模板审计缺口降至 9 页。
+- P2.1 `/orgs/[orgId]/billing` 推广数据页模板：月账单页改用 `PageShell` / `DataToolbar` / `DataTable` / `StatePanel`，保留 CSV/JSON digest 导出、invoice 状态机与 quota alerts，模板审计缺口降至 8 页。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。
