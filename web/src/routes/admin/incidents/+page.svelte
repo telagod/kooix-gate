@@ -13,6 +13,7 @@
 	} from '$lib/api.js';
 	import { shortId } from '$lib/id.js';
 	import { Badge, Button, Card, Select } from '$lib/components/ui';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { cn, dataTemplate } from '$lib/design';
@@ -336,42 +337,39 @@
 				{#if summary.top_failing_channels.length === 0}
 					<div class="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">暂无失败渠道。</div>
 				{:else}
-					<div class="mt-4 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-						<table class={dataTemplate.table}>
-							<thead class={dataTemplate.head}>
-								<tr>
-									<th class={dataTemplate.th}>Channel</th>
-									<th class={dataTemplate.th}>Errors</th>
-									<th class={dataTemplate.th}>Rate</th>
-									<th class={dataTemplate.th}>Last</th>
-								</tr>
-							</thead>
-							<tbody class={dataTemplate.body}>
-								{#each summary.top_failing_channels as row}
-									<tr class={dataTemplate.row}>
-										<td class="px-4 py-3">
-											<p class="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">{row.channel_name ?? 'Fallback / Unknown'}</p>
-											<p class="mt-0.5 truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{row.provider_type ?? 'unknown'} · {row.channel_id ? shortId(row.channel_id) : 'no-channel'}</p>
-										</td>
-										<td class="px-4 py-3">
-											<div class="mb-1 flex items-center justify-between gap-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">
-												<span>{fmt(row.errors)}</span>
-												<span class="text-zinc-400">/{fmt(row.requests)}</span>
-												</div>
-												<div class="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-													<div class="h-full rounded-full bg-red-600 dark:bg-red-500" style={`width: ${(row.errors / maxTopFailingErrors * 100).toFixed(1)}%`}></div>
-												</div>
-										</td>
-										<td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{fmtPct(row.error_rate)}</td>
-										<td class="px-4 py-3">
-											<p class="font-mono text-xs text-zinc-700 dark:text-zinc-300">{row.last_error_code ?? '—'}</p>
-											<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{formatDate(row.last_error_at)}</p>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<DataTable class="mb-0 mt-4">
+						{#snippet head()}
+							<tr>
+								<th class={dataTemplate.th}>Channel</th>
+								<th class={dataTemplate.th}>Errors</th>
+								<th class={dataTemplate.th}>Rate</th>
+								<th class={dataTemplate.th}>Last</th>
+							</tr>
+						{/snippet}
+
+						{#each summary.top_failing_channels as row}
+							<tr class={dataTemplate.row}>
+								<td class="px-4 py-3">
+									<p class="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">{row.channel_name ?? 'Fallback / Unknown'}</p>
+									<p class="mt-0.5 truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{row.provider_type ?? 'unknown'} · {row.channel_id ? shortId(row.channel_id) : 'no-channel'}</p>
+								</td>
+								<td class="px-4 py-3">
+									<div class="mb-1 flex items-center justify-between gap-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+										<span>{fmt(row.errors)}</span>
+										<span class="text-zinc-400">/{fmt(row.requests)}</span>
+									</div>
+									<div class="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+										<div class="h-full rounded-full bg-red-600 dark:bg-red-500" style={`width: ${(row.errors / maxTopFailingErrors * 100).toFixed(1)}%`}></div>
+									</div>
+								</td>
+								<td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{fmtPct(row.error_rate)}</td>
+								<td class="px-4 py-3">
+									<p class="font-mono text-xs text-zinc-700 dark:text-zinc-300">{row.last_error_code ?? '—'}</p>
+									<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{formatDate(row.last_error_at)}</p>
+								</td>
+							</tr>
+						{/each}
+					</DataTable>
 				{/if}
 			</Card>
 

@@ -146,6 +146,22 @@ npm --prefix web test -- table-state.test.ts
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / admin incidents table rollout
+
+本轮继续按 P2.1 “表格能力统一”推广到 `/admin/incidents`：
+
+- 事故中心 `Top failing channels` 从 native table 迁到共享 `DataTable`，保留错误数比例条、错误率和最近错误信息。
+- `/admin/incidents` 不引入额外后端查询参数，只收敛展示层模板，避免把事故摘要页误改成分页列表页。
+- 模板审计快照：25 个 route page，`/admin/incidents` gaps 清零，pages_with_gaps 从 11 降到 10。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
