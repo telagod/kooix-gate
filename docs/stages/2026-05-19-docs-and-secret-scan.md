@@ -15,7 +15,7 @@ Last verified: 2026-05-20
 
 - 本机安装位置：`/home/telagod/.local/bin/gitleaks`
 - 版本：`8.30.1`
-- CI：`.github/workflows/ci.yml` 的 `Security Smoke` job 已使用 `gitleaks/gitleaks-action@v2`。
+- CI：`.github/workflows/ci.yml` 的 `Security Smoke` job 直接执行 gitleaks CLI 双扫，避免 self-hosted runner 卡在第三方 action setup；GitHub-hosted runner 缺少 gitleaks 时按版本下载。
 
 本地验收命令：
 

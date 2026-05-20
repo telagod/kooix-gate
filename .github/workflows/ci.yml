@@ -88,16 +88,47 @@ jobs:
     runs-on: ${{ fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
         if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
-      - uses: taiki-e/install-action@cargo-audit
+      - name: Install cargo-audit
+        run: |
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked
+          fi
       - run: cargo audit --ignore RUSTSEC-2023-0071
-      - uses: gitleaks/gitleaks-action@v2
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          if command -v gitleaks >/dev/null 2>&1; then
+            gitleaks version
+            exit 0
+          fi
+          if [ -x "$HOME/.local/bin/gitleaks" ]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            "$HOME/.local/bin/gitleaks" version
+            exit 0
+          fi
+          mkdir -p "$HOME/.local/bin" /tmp/gitleaks
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks/gitleaks.tar.gz
+          tar -C /tmp/gitleaks -xzf /tmp/gitleaks/gitleaks.tar.gz gitleaks
+          install -m 0755 /tmp/gitleaks/gitleaks "$HOME/.local/bin/gitleaks"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gitleaks" version
+      - name: Secret scan
+        run: |
+          gitleaks detect --source . --redact --verbose
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf -
+          gitleaks detect --source "$tmp" --no-git --redact --verbose
 
   web:
     name: Web Build
