@@ -24,6 +24,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - run: git diff --check
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -42,6 +43,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - run: cargo test --workspace
         env:
           KOOIX_TEST_PG_TAG: "17-alpine"
@@ -70,6 +72,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - run: cargo run -p kgctl -- migrate --dry-run
         env:
           KOOIX_DATABASE_URL: postgres://postgres:postgres@localhost:5432/kooix_ci
@@ -89,6 +92,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit --ignore RUSTSEC-2023-0071
       - uses: gitleaks/gitleaks-action@v2
