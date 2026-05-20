@@ -583,6 +583,7 @@ cargo test -p gate-providers --all-targets
   - [x] 推广到 `/admin/incidents`（Top failing channels 改用 `DataTable`）
   - [x] 推广到 `/orgs/[orgId]/quotas`（`DataToolbar` 筛选 + `DataTable` 分组表格）
   - [x] 推广到 `/orgs/[orgId]/billing`（`PageShell` / `DataToolbar` / `DataTable`）
+  - [x] 推广到 `/orgs/[orgId]/projects`（`PageShell` / `DataTable`）
   - [ ] 继续推广到剩余数据页（`/orgs/*`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest

@@ -197,6 +197,24 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / org projects table rollout
+
+本轮继续按 P2.1 “表格能力统一”推广到 `/orgs/[orgId]/projects`：
+
+- Project 列表页从手写 breadcrumb / H1 迁到共享 `PageShell`，保留账单、配额管理与创建项目三个入口动作。
+- 新建 Project 表单改用 `Card` / `Field` / `Alert` / icon button 节奏，继续保留 name + slug 必填和后端错误回显。
+- Project 列表从 native table 迁到共享 `DataTable`，状态显示改用 `Badge`，空态、loading、error 改用 `StatePanel` / template empty snippet。
+- Org invite 面板继续复用 `InvitationPanel`，不改变邀请 token 创建、复制、撤销链路。
+- 模板审计快照：25 个 route page，`/orgs/[orgId]/projects` gaps 清零，pages_with_gaps 从 8 降到 7。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
