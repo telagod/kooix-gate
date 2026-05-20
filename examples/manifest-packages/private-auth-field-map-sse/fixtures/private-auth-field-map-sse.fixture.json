@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "base_url": "https://api.example.com/v1",
+  "model": "native",
+  "manifest": {
+    "plugin": {
+      "request": {
+        "body": {
+          "limit": "{{max_tokens}}",
+          "messages": "{{messages}}",
+          "modelName": "{{model}}",
+          "prompt": "{{last_user_message}}",
+          "stream": "{{stream}}",
+          "temperature": "{{temperature}}"
+        },
+        "chat_path": "/private/chat/{{model}}",
+        "headers": {
+          "Authorization": null,
+          "X-Api-Key": "{{api_key}}",
+          "X-Model": "{{model}}"
+        }
+      },
+      "response": {
+        "content_path": "result.text",
+        "finish_reason_path": "result.finish",
+        "id_path": "request.id",
+        "model_path": "result.model",
+        "openai_compatible": false,
+        "usage": {
+          "cached_tokens_path": "usage.cache_read",
+          "completion_tokens_path": "usage.output",
+          "prompt_tokens_path": "usage.input",
+          "total_tokens_path": "usage.total"
+        }
+      },
+      "security": {
+        "allow_absolute_chat_path": false,
+        "max_request_bytes": 1048576,
+        "max_response_bytes": 8388608,
+        "max_sse_event_bytes": 1048576
+      },
+      "stream": {
+        "content_path": "token",
+        "done": [
+          "[DONE]",
+          "EOF"
+        ],
+        "event_path": "payload",
+        "finish_reason_path": "reason",
+        "id_path": "rid",
+        "model_path": "model_name",
+        "openai_compatible": false,
+        "role_path": "speaker",
+        "usage": {
+          "completion_tokens_path": "usage.out",
+          "prompt_tokens_path": "usage.in"
+        }
+      }
+    }
+  },
+  "response_sample": {
+    "request": {
+      "id": "req_001"
+    },
+    "result": {
+      "finish": "stop",
+      "model": "native",
+      "text": "hello"
+    },
+    "usage": {
+      "cache_read": 1,
+      "input": 3,
+      "output": 2,
+      "total": 5
+    }
+  },
+  "raw_sse": "event: token\ndata: {\"payload\":{\"rid\":\"r1\",\"model_name\":\"native\",\"speaker\":\"assistant\"}}\n\ndata: {\"payload\":{\"token\":\"he\"}}\n\ndata: {\"payload\":{\"token\":\"llo\"}}\n\ndata: {\"payload\":{\"reason\":\"done\",\"usage\":{\"in\":3,\"out\":2}}}\n\ndata: EOF\n\n",
+  "expected_chunks": [
+    {
+      "id": "r1",
+      "model": "native",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant"
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "r1",
+      "model": "native",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "he"
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "r1",
+      "model": "native",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "llo"
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "r1",
+      "model": "native",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 3,
+        "completion_tokens": 2,
+        "total_tokens": 5,
+        "cached_tokens": 0
+      }
+    }
+  ]
+}

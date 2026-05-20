@@ -1,0 +1,9 @@
+{
+  "model": "native",
+  "messages": [
+    { "role": "user", "content": "hello" }
+  ],
+  "stream": true,
+  "max_tokens": 8,
+  "temperature": 0
+}

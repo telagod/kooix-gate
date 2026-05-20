@@ -97,6 +97,54 @@ struct ManifestPackage {
     security: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PackageManifest {
+    schema_version: u8,
+    id: String,
+    name: String,
+    version: String,
+    author: String,
+    source: RegistrySource,
+    #[serde(default)]
+    homepage: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    description: Option<String>,
+    compatibility: RegistryCompatibility,
+    signature: RegistrySignature,
+    contents: PackageContents,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PackageContents {
+    manifest: String,
+    readme: String,
+    security: String,
+    fixtures: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackageLintReport {
+    id: String,
+    version: String,
+    manifest: String,
+    readme: String,
+    security: String,
+    fixtures_dir: String,
+    fixtures: Vec<String>,
+    sha256: String,
+    verified: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PackageLintInput {
+    pub root: String,
+    pub verify: bool,
+    pub json: bool,
+    pub base_url: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct RegistryPackageInput {
     pub id: String,
@@ -191,6 +239,23 @@ pub fn registry_list(root: Option<String>, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn package_lint(input: PackageLintInput) -> anyhow::Result<()> {
+    let report = lint_package_dir(&input)?;
+    if input.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "plugin package ok: {}@{} ({} fixture(s), sha256 {}, verified={})",
+            report.id,
+            report.version,
+            report.fixtures.len(),
+            report.sha256,
+            report.verified
+        );
+    }
+    Ok(())
+}
+
 pub fn registry_package(input: RegistryPackageInput) -> anyhow::Result<()> {
     let manifest_input = fs::read_to_string(&input.manifest_path)
         .with_context(|| format!("read {}", input.manifest_path))?;
@@ -259,6 +324,122 @@ pub fn registry_package(input: RegistryPackageInput) -> anyhow::Result<()> {
     };
     write_output(Some(input.output), &serde_json::to_string_pretty(&package)?)?;
     Ok(())
+}
+
+fn lint_package_dir(input: &PackageLintInput) -> anyhow::Result<PackageLintReport> {
+    let root = Path::new(&input.root);
+    if !root.is_dir() {
+        bail!("package root must be a directory: {}", root.display());
+    }
+
+    let package_path = root.join("package.json");
+    let package_value = read_json_file(&package_path.to_string_lossy())?;
+    let package: PackageManifest = serde_json::from_value(package_value).with_context(|| {
+        format!(
+            "{} must be a manifest package spec JSON",
+            package_path.display()
+        )
+    })?;
+    if package.schema_version != PACKAGE_SCHEMA_VERSION {
+        bail!(
+            "unsupported package schema_version: {}",
+            package.schema_version
+        );
+    }
+    validate_registry_id(&package.id)?;
+    validate_version(&package.version, "version")?;
+    validate_compatibility(&package.compatibility, &package.id)?;
+    validate_signature(&package.signature, &package.id, true)?;
+
+    let manifest_rel = validate_named_relative_path(&package.contents.manifest, "manifest.json")?;
+    let readme_rel = validate_named_relative_path(&package.contents.readme, "README.md")?;
+    let security_rel = validate_named_relative_path(&package.contents.security, "security.md")?;
+    let fixtures_rel = validate_relative_dir_path(&package.contents.fixtures, "fixtures")?;
+
+    let manifest_path = root.join(manifest_rel);
+    let readme_path = root.join(readme_rel);
+    let security_path = root.join(security_rel);
+    let fixtures_dir = root.join(fixtures_rel);
+
+    let manifest = read_json_file(&manifest_path.to_string_lossy())?;
+    gate_providers::validate_plugin_manifest(manifest.clone(), &input.base_url)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let sha256 = manifest_digest(&manifest)?;
+
+    ensure_markdown_contains(&readme_path, &package.id, "README.md")?;
+    ensure_markdown_contains(&security_path, "Security", "security.md")?;
+    ensure_markdown_contains(&security_path, "secret", "security.md")?;
+
+    if !fixtures_dir.is_dir() {
+        bail!(
+            "fixtures path must be a directory: {}",
+            fixtures_dir.display()
+        );
+    }
+    let fixtures = load_package_fixtures(&fixtures_dir)?;
+    if fixtures.is_empty() {
+        bail!("package fixtures/ must contain at least one *.fixture.json file");
+    }
+    for fixture in &fixtures {
+        validate_fixture(&fixture.fixture)?;
+        if fixture.fixture.manifest != manifest {
+            bail!(
+                "fixture {} manifest must match package manifest.json",
+                fixture.path.display()
+            );
+        }
+        if input.verify {
+            verify_fixture_replay(&fixture.fixture)
+                .with_context(|| format!("verify {}", fixture.path.display()))?;
+        }
+    }
+
+    Ok(PackageLintReport {
+        id: package.id,
+        version: package.version,
+        manifest: path_for_registry(&manifest_path, &input.root),
+        readme: path_for_registry(&readme_path, &input.root),
+        security: path_for_registry(&security_path, &input.root),
+        fixtures_dir: path_for_registry(&fixtures_dir, &input.root),
+        fixtures: fixtures
+            .into_iter()
+            .map(|fixture| path_for_registry(&fixture.path, &input.root))
+            .collect(),
+        sha256,
+        verified: input.verify,
+    })
+}
+
+struct LoadedPackageFixture {
+    path: PathBuf,
+    fixture: PluginFixture,
+}
+
+fn load_package_fixtures(fixtures_dir: &Path) -> anyhow::Result<Vec<LoadedPackageFixture>> {
+    let mut paths = Vec::new();
+    for entry in
+        fs::read_dir(fixtures_dir).with_context(|| format!("read {}", fixtures_dir.display()))?
+    {
+        let path = entry?.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".fixture.json"))
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let input =
+                fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            let fixture: PluginFixture = serde_json::from_str(&input)
+                .with_context(|| format!("{} must be a plugin fixture JSON", path.display()))?;
+            Ok(LoadedPackageFixture { path, fixture })
+        })
+        .collect()
 }
 
 pub fn registry_import(input: RegistryImportInput) -> anyhow::Result<()> {
@@ -547,21 +728,45 @@ fn validate_signature(
 }
 
 fn validate_relative_manifest_path(path: &str) -> anyhow::Result<&Path> {
+    validate_named_relative_path(path, "manifest.json")
+}
+
+fn validate_named_relative_path<'a>(path: &'a str, file_name: &str) -> anyhow::Result<&'a Path> {
     let rel = Path::new(path);
     if rel.as_os_str().is_empty() || rel.is_absolute() {
-        bail!("manifest_path must be a non-empty relative file path");
+        bail!("{file_name} path must be a non-empty relative file path");
     }
     if !matches!(
         rel.file_name().and_then(|name| name.to_str()),
-        Some("manifest.json")
+        Some(name) if name == file_name
     ) {
-        bail!("manifest_path must point to manifest.json");
+        bail!("{file_name} path must point to {file_name}");
     }
     let clean = rel
         .components()
         .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
     if !clean {
-        bail!("manifest_path must not contain prefixes, roots, or '..'");
+        bail!("{file_name} path must not contain prefixes, roots, or '..'");
+    }
+    Ok(rel)
+}
+
+fn validate_relative_dir_path<'a>(path: &'a str, dir_name: &str) -> anyhow::Result<&'a Path> {
+    let rel = Path::new(path);
+    if rel.as_os_str().is_empty() || rel.is_absolute() {
+        bail!("{dir_name} path must be a non-empty relative directory path");
+    }
+    if !matches!(
+        rel.file_name().and_then(|name| name.to_str()),
+        Some(name) if name == dir_name
+    ) {
+        bail!("{dir_name} path must point to {dir_name}/");
+    }
+    let clean = rel
+        .components()
+        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+    if !clean {
+        bail!("{dir_name} path must not contain prefixes, roots, or '..'");
     }
     Ok(rel)
 }
@@ -597,20 +802,8 @@ fn validate_package(
     if verify {
         for fixture in &package.fixtures {
             validate_fixture(fixture)?;
-            if let (Some(raw), Some(expected)) = (&fixture.raw_sse, &fixture.expected_chunks) {
-                let actual = gate_providers::replay_plugin_sse(
-                    fixture.manifest.clone(),
-                    &fixture.base_url,
-                    raw.as_bytes(),
-                    &fixture.model,
-                )
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let actual_json = normalize_replay_chunks(serde_json::to_value(&actual)?);
-                let expected_json = normalize_replay_chunks(serde_json::to_value(expected)?);
-                if actual_json != expected_json {
-                    bail!("package fixture replay mismatch for {}", entry.id);
-                }
-            }
+            verify_fixture_replay(fixture)
+                .with_context(|| format!("verify package fixture for {}", entry.id))?;
         }
     }
     Ok(())
@@ -622,6 +815,40 @@ fn validate_fixture(fixture: &PluginFixture) -> anyhow::Result<()> {
     }
     gate_providers::validate_plugin_manifest(fixture.manifest.clone(), &fixture.base_url)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    Ok(())
+}
+
+fn verify_fixture_replay(fixture: &PluginFixture) -> anyhow::Result<()> {
+    let Some(raw) = &fixture.raw_sse else {
+        bail!("fixture has no raw_sse to verify");
+    };
+    let Some(expected) = &fixture.expected_chunks else {
+        bail!("fixture has no expected_chunks to verify");
+    };
+    let actual = gate_providers::replay_plugin_sse(
+        fixture.manifest.clone(),
+        &fixture.base_url,
+        raw.as_bytes(),
+        &fixture.model,
+    )
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let actual_json = normalize_replay_chunks(serde_json::to_value(&actual)?);
+    let expected_json = normalize_replay_chunks(serde_json::to_value(expected)?);
+    if actual_json != expected_json {
+        bail!(
+            "plugin fixture replay mismatch: expected {} chunks, got {} chunks",
+            expected.len(),
+            actual.len()
+        );
+    }
+    Ok(())
+}
+
+fn ensure_markdown_contains(path: &Path, needle: &str, label: &str) -> anyhow::Result<()> {
+    let content = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    if !content.to_lowercase().contains(&needle.to_lowercase()) {
+        bail!("{label} must mention {needle}");
+    }
     Ok(())
 }
 

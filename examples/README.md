@@ -43,6 +43,7 @@ export MODEL="gpt-4o-mini"
 | `manifests/openai-compatible.json` | 最小 OpenAI-compatible HTTP Plugin manifest。 |
 | `manifests/private-auth-field-map-sse.json` | 私有 auth、字段映射、SSE normalizer 示例。 |
 | `manifest-registry/registry.json` | 官方/社区 manifest registry 索引，记录 preset/sample 的版本、作者、sha256、签名与兼容范围。 |
+| `manifest-packages/private-auth-field-map-sse/` | P1.8 manifest package 目录规范样本，包含 `manifest.json`、`fixtures/`、`README.md`、`security.md`。 |
 | `openapi/kooix-gate.openapi.json` | 轻量 OpenAPI spec，覆盖入门/运营高频接口。 |
 | `collections/postman/kooix-gate.postman_collection.json` | Postman collection。 |
 | `collections/bruno/Kooix_Gate/` | Bruno collection。 |

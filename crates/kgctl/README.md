@@ -103,6 +103,7 @@ KOOIX_PLUGIN_TEST_API_KEY='<provider-key>' \
 kgctl plugin replay manifest.json --sse sample.sse --base-url https://api.example.com/v1 --model replay-model
 kgctl plugin export manifest.json --sse sample.sse -o fixture.json --base-url https://api.example.com/v1 --model replay-model
 kgctl plugin import fixture.json --verify
+kgctl plugin package lint examples/manifest-packages/private-auth-field-map-sse --verify --json
 kgctl plugin registry list --json
 kgctl plugin registry package --id my-private --name "My Private API" --version 1.0.0 --author team \
   --manifest manifest.json -o package.json --tag private --description "private provider"
@@ -112,7 +113,7 @@ kgctl plugin registry export --root examples/manifest-registry --include-private
 
 `plugin replay` 只做本地归一化：读取 manifest 与 raw SSE fixture，输出 OpenAI-compatible `ChatStreamChunk[]`，用于调试私有 `event:` 分流、`done_path`、tool call delta 与 usage 末帧映射。
 
-`plugin export/import` 是 golden fixture 链路：`export` 会把 manifest、可选 non-stream response sample、raw SSE 与 replay 后的 `expected_chunks` 固化到 JSON；后续升级 schema 或 normalizer 时用 `plugin import --verify` 回放比对，避免私有协议映射漂移。
+`plugin export/import` 是 golden fixture 链路：`export` 会把 manifest、可选 non-stream response sample、raw SSE 与 replay 后的 `expected_chunks` 固化到 JSON；后续升级 schema 或 normalizer 时用 `plugin import --verify` 回放比对，避免私有协议映射漂移。`plugin package lint` 校验目录形态 package，要求 `manifest.json`、`fixtures/*.fixture.json`、`README.md` 与 `security.md` 齐备，`--verify` 会回放 fixture。
 
 `plugin registry` 是 P1.8 manifest registry 链路：`examples/manifest-registry/registry.json` 固化官方 preset、社区 sample 的 id、version、author、sha256、signature kind、兼容范围与 manifest 路径；`package` 把私有 manifest + README/security/fixtures 打包，`import` 写入 private namespace，`export` 默认隐藏 private entries，只有 `--include-private` 才导出。
 

@@ -758,6 +758,35 @@ fn plugin_registry_lists_packages_and_imports_private_manifest() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn plugin_package_lints_directory_spec_with_fixtures() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let package_root = repo_root.join("examples/manifest-packages/private-auth-field-map-sse");
+
+    kg().args([
+        "plugin",
+        "package",
+        "lint",
+        package_root.to_str().unwrap(),
+        "--verify",
+        "--json",
+        "--base-url",
+        "https://api.example.com/v1",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"manifest\": \"manifest.json\""))
+    .stdout(predicate::str::contains("\"readme\": \"README.md\""))
+    .stdout(predicate::str::contains("\"security\": \"security.md\""))
+    .stdout(predicate::str::contains(
+        "fixtures/private-auth-field-map-sse.fixture.json",
+    ))
+    .stdout(predicate::str::contains("\"verified\": true"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn plugin_test_posts_to_mock_upstream() {
     let server = MockServer::start().await;

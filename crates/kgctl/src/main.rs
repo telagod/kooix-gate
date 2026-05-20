@@ -262,10 +262,33 @@ enum PluginCmd {
         #[arg(short, long)]
         output: Option<String>,
     },
+    /// Manifest package 目录规范工具
+    Package {
+        #[command(subcommand)]
+        sub: Box<PluginPackageCmd>,
+    },
     /// Manifest registry / package 工具
     Registry {
         #[command(subcommand)]
         sub: Box<PluginRegistryCmd>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PluginPackageCmd {
+    /// 校验 package 目录：manifest.json / fixtures / README.md / security.md
+    Lint {
+        /// package 根目录
+        root: String,
+        /// 回放 fixtures/*.fixture.json 中的 golden SSE
+        #[arg(long)]
+        verify: bool,
+        /// 输出 JSON 摘要
+        #[arg(long)]
+        json: bool,
+        /// 用于 manifest lint 与 SSE replay 的 base URL
+        #[arg(long, default_value = "https://example.com")]
+        base_url: String,
     },
 }
 
@@ -492,6 +515,19 @@ fn main() {
                 verify,
                 output,
             } => plugin::import_fixture(fixture, verify, output),
+            PluginCmd::Package { sub } => match *sub {
+                PluginPackageCmd::Lint {
+                    root,
+                    verify,
+                    json,
+                    base_url,
+                } => plugin::package_lint(plugin::PackageLintInput {
+                    root,
+                    verify,
+                    json,
+                    base_url,
+                }),
+            },
             PluginCmd::Registry { sub } => match *sub {
                 PluginRegistryCmd::List { root, json } => plugin::registry_list(root, json),
                 PluginRegistryCmd::Package(args) => {

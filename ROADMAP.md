@@ -512,11 +512,11 @@ cargo test -p gate-providers --all-targets
   - [x] 社区 manifest。
   - [x] 私有 manifest 导入/导出。
   - [x] 版本、作者、签名、兼容范围。
-- [ ] Manifest package 规范：
-  - `manifest.json`。
-  - `fixtures/` 请求、响应、SSE 样本。
-  - `README.md` 接入说明。
-  - `security.md` 风险声明。
+- [x] Manifest package 规范：
+  - [x] `manifest.json`。
+  - [x] `fixtures/` 请求、响应、SSE 样本。
+  - [x] `README.md` 接入说明。
+  - [x] `security.md` 风险声明。
 - [ ] Plugin sandbox 安全边界产品化：
   - SSRF denylist / allowlist。
   - DNS rebind 防护。

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "private-auth-field-map-sse",
+  "name": "Private auth + field-map SSE",
+  "version": "1.0.0",
+  "author": "Kooix Gate maintainers",
+  "source": "official",
+  "homepage": "https://github.com/telagod/kooix-gate",
+  "tags": ["official", "private-api", "sse", "field-map"],
+  "description": "Directory-form manifest package with manifest.json, fixtures, README.md and security.md.",
+  "compatibility": {
+    "min_gate_version": "0.2.0",
+    "max_gate_version": null,
+    "manifest_schema": 1
+  },
+  "signature": {
+    "kind": "unsigned",
+    "value": null
+  },
+  "contents": {
+    "manifest": "manifest.json",
+    "fixtures": "fixtures",
+    "readme": "README.md",
+    "security": "security.md"
+  }
+}

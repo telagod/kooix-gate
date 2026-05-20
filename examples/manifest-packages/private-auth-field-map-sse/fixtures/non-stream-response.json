@@ -1,0 +1,5 @@
+{
+  "request": { "id": "req_001" },
+  "result": { "model": "native", "text": "hello", "finish": "stop" },
+  "usage": { "input": 3, "output": 2, "total": 5, "cache_read": 1 }
+}

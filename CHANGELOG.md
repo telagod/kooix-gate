@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider capability matrix 落地：编译期 Provider 与 runtime plugin preset 共享 `ProviderCapabilities`（chat / streaming / tools / embeddings / image / audio / vision / json_mode / batch），Admin Channel / Group binding API 返回 capability，chat route 会按 stream/tools/vision/JSON mode 跳过不满足能力的 channel。
 - Provider preset 增加 capability 默认值与 Base URL 建议；OpenAI-compatible 变体补齐 `vllm`、`lm_studio`、`ollama_openai`、`localai`、`xinference`。
 - Manifest registry 落地：新增 `examples/manifest-registry/registry.json` 官方/社区索引，记录 preset/sample 的 id、version、author、sha256、signature 与兼容范围；`kgctl plugin registry list|package|import|export` 支持官方/社区/私有 manifest 包导入导出，private entries 默认不导出。
+- Manifest package 目录规范落地：新增 `examples/manifest-packages/private-auth-field-map-sse/` 样本，固定 `manifest.json`、`fixtures/` 请求/响应/SSE 样本、`README.md` 与 `security.md`，并增加 `kgctl plugin package lint --verify` 校验/回放。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。
