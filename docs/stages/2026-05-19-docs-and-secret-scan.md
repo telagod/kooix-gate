@@ -303,6 +303,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / admin groups template rollout
+
+本轮继续按 P2.1 “表格能力统一”清理 `/admin/groups` 的控制台模板缺口：
+
+- 渠道分组页从手写 header / H1 迁到共享 `PageShell`，页面说明集中展示 group/fallback/canary 职责。
+- 顶层加载失败与空状态改用 `StatePanel`，保留分组卡片、启停 switch、fallback chain、编辑表单、删除确认与添加渠道 modal 行为。
+- Canary 对比表与绑定渠道列表从 native table 迁到共享 `DataTable`，统一表头、边框、hover 与空态审计信号。
+- 模板审计快照：25 个 route page，`/admin/groups` gaps 清零，pages_with_gaps 从 2 降到 1。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

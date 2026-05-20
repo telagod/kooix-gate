@@ -2,7 +2,7 @@
 	import { shortId } from '$lib/id.js';
 	import { onMount } from 'svelte';
 	import {
-		getMe, listGroups, createGroup, updateGroup, deleteGroup,
+		listGroups, createGroup, updateGroup, deleteGroup,
 		getGroupDetail, listGroupBindings, addGroupBinding,
 		updateGroupBinding, removeGroupBinding, listAdminChannels
 	} from '$lib/api.js';
@@ -11,10 +11,14 @@
 	import type { ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
 	import { addToast } from '$lib/stores/toast.js';
 	import { Button, Field, Input, Select, Skeleton, Textarea } from '$lib/components/ui';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
 	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import { cn, dataTemplate } from '$lib/design';
 	import {
 		Layers, Plus, Trash2, Pencil, X, ChevronRight, Search,
-		ToggleLeft, ToggleRight, ArrowRight, AlertTriangle, Check, RefreshCw
+		ArrowRight, AlertTriangle, Check
 	} from 'lucide-svelte';
 
 	// ── Strategy metadata ──
@@ -77,14 +81,6 @@
 
 	function strategyBadgeClass(_color: string) {
 		return 'bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200';
-	}
-
-	function healthDot(bindings: GroupBinding[]): string {
-		if (!bindings || bindings.length === 0) return 'bg-gray-300 dark:bg-gray-600';
-		const healthy = bindings.filter(b => (b.channel_health ?? 'healthy') === 'healthy').length;
-		if (healthy === bindings.length) return 'bg-green-500';
-		if (healthy > 0) return 'bg-yellow-500';
-		return 'bg-red-500';
 	}
 
 	function groupName(id: string | null | undefined): string {
@@ -454,18 +450,17 @@
 
 <svelte:head><title>渠道分组管理 | Kooix Gate</title></svelte:head>
 
-<div class="px-6 py-6 space-y-6">
-
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<Layers class="w-6 h-6 text-zinc-500" />
-			<h1 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">渠道分组管理</h1>
-		</div>
-		<button onclick={() => { showCreate = true; }} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-colors">
-			<Plus class="w-4 h-4" /> 新建分组
-		</button>
-	</div>
+<PageShell
+	title="渠道分组管理"
+	description={`管理 Provider group、fallback chain 与 canary binding · ${groups.length} groups`}
+	icon={Layers}
+	max="full"
+>
+	{#snippet actions()}
+		<Button onclick={() => { showCreate = true; }}>
+			<Plus size={14} /> 新建分组
+		</Button>
+	{/snippet}
 
 	<!-- Loading -->
 	{#if loading}
@@ -478,13 +473,10 @@
 		</div>
 
 	{:else if error}
-		<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300">{error}</div>
+		<StatePanel title="分组加载失败" description={error} icon={Layers} variant="danger" />
 
 	{:else if groups.length === 0}
-		<div class="text-center py-16">
-			<Layers class="w-12 h-12 mx-auto text-zinc-300 dark:text-zinc-600 mb-3" />
-			<p class="text-zinc-600 dark:text-zinc-300 mb-4">还没有分组，点击右上角创建</p>
-		</div>
+		<StatePanel title="暂无渠道分组" description="还没有分组，点击右上角创建。" icon={Layers} />
 
 	{:else}
 
@@ -652,46 +644,43 @@
 							暂无 Canary binding；编辑渠道后把 Canary 设置为 1%-5% 即可开始小流量验证。
 						</p>
 					{:else}
-						<div class="overflow-x-auto">
-							<table class="w-full text-sm">
-								<thead>
-									<tr class="border-b border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
-										<th class="py-2 pr-3 text-left font-medium">渠道</th>
-										<th class="py-2 px-3 text-left font-medium">流量</th>
-										<th class="py-2 px-3 text-right font-medium">请求</th>
-										<th class="py-2 px-3 text-right font-medium">错误率</th>
-										<th class="py-2 px-3 text-right font-medium">延迟</th>
-										<th class="py-2 pl-3 text-right font-medium">平均成本</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each canaryOnly as row (row.channel_id)}
-										<tr class="border-b border-zinc-100 dark:border-zinc-800">
-											<td class="py-2.5 pr-3">
-												<div class="font-medium text-zinc-900 dark:text-zinc-100">{row.channel_name}</div>
-												<div class="text-xs text-zinc-600 dark:text-zinc-400">{row.channel_code}</div>
-											</td>
-											<td class="py-2.5 px-3">
-												<span class="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-medium text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">{formatCanaryPercent(row.canary_percent_bps)}</span>
-											</td>
-											<td class="py-2.5 px-3 text-right font-mono text-zinc-700 dark:text-zinc-300">{formatNumber(row.requests)}</td>
-											<td class="py-2.5 px-3 text-right">
-												<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatPercent(row.error_rate)}</div>
-												<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedPercentDelta(metricDelta(row, baseline, 'error_rate'))}</div>
-											</td>
-											<td class="py-2.5 px-3 text-right">
-												<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatMaybeMs(row.avg_latency_ms)}</div>
-												<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedNumberDelta(metricDelta(row, baseline, 'avg_latency_ms'), 'ms')}</div>
-											</td>
-											<td class="py-2.5 pl-3 text-right">
-												<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatMaybeMicros(row.avg_cost_micros)}</div>
-												<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedNumberDelta(metricDelta(row, baseline, 'avg_cost_micros'), 'µ')}</div>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+						<DataTable class="mb-0">
+							{#snippet head()}
+								<tr>
+									<th class={dataTemplate.th}>渠道</th>
+									<th class={dataTemplate.th}>流量</th>
+									<th class={cn(dataTemplate.th, 'text-right')}>请求</th>
+									<th class={cn(dataTemplate.th, 'text-right')}>错误率</th>
+									<th class={cn(dataTemplate.th, 'text-right')}>延迟</th>
+									<th class={cn(dataTemplate.th, 'text-right')}>平均成本</th>
+								</tr>
+							{/snippet}
+
+							{#each canaryOnly as row (row.channel_id)}
+								<tr class={dataTemplate.row}>
+									<td class={dataTemplate.tdStrong}>
+										<div class="font-medium">{row.channel_name}</div>
+										<div class="text-xs text-zinc-600 dark:text-zinc-400">{row.channel_code}</div>
+									</td>
+									<td class={dataTemplate.td}>
+										<span class="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-medium text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">{formatCanaryPercent(row.canary_percent_bps)}</span>
+									</td>
+									<td class={cn(dataTemplate.tdMono, 'text-right')}>{formatNumber(row.requests)}</td>
+									<td class={cn(dataTemplate.td, 'text-right')}>
+										<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatPercent(row.error_rate)}</div>
+										<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedPercentDelta(metricDelta(row, baseline, 'error_rate'))}</div>
+									</td>
+									<td class={cn(dataTemplate.td, 'text-right')}>
+										<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatMaybeMs(row.avg_latency_ms)}</div>
+										<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedNumberDelta(metricDelta(row, baseline, 'avg_latency_ms'), 'ms')}</div>
+									</td>
+									<td class={cn(dataTemplate.td, 'text-right')}>
+										<div class="font-mono text-zinc-900 dark:text-zinc-100">{formatMaybeMicros(row.avg_cost_micros)}</div>
+										<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{formatSignedNumberDelta(metricDelta(row, baseline, 'avg_cost_micros'), 'µ')}</div>
+									</td>
+								</tr>
+							{/each}
+						</DataTable>
 						<p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
 							下方小字为相对 baseline 的差值；负值代表错误率 / 延迟 / 成本低于 baseline。
 						</p>
@@ -789,100 +778,97 @@
 				{#if detail.bindings.length === 0}
 					<p class="text-center text-sm text-zinc-600 dark:text-zinc-300 py-8">暂无渠道，点击上方按钮添加</p>
 				{:else}
-					<div class="overflow-x-auto">
-						<table class="w-full text-sm">
-							<thead>
-								<tr class="border-b border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">
-									<th class="text-left py-2 px-2 font-medium">状态</th>
-									<th class="text-left py-2 px-2 font-medium">渠道</th>
-									<th class="text-left py-2 px-2 font-medium">类型</th>
-									<th class="text-left py-2 px-2 font-medium">优先级</th>
-									<th class="text-left py-2 px-2 font-medium">权重</th>
-									<th class="text-left py-2 px-2 font-medium">Canary</th>
-									<th class="text-left py-2 px-2 font-medium">模型过滤</th>
-									<th class="text-right py-2 px-2 font-medium">操作</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each detail.bindings as b (b.channel_id)}
-									{@const health = b.channel_health ?? 'healthy'}
-									{@const isEditing = editingBindingId === b.channel_id}
-									<tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
-										<td class="py-2.5 px-2">
-											<span class="inline-block w-2.5 h-2.5 rounded-full {health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}" title={health}></span>
-										</td>
-										<td class="py-2.5 px-2">
-											<div class="font-medium text-zinc-900 dark:text-zinc-100">{b.channel_name}</div>
-											<div class="text-xs text-zinc-600 dark:text-zinc-300">{b.channel_code}</div>
-										</td>
-										<td class="py-2.5 px-2">
-											<div class="space-y-1">
-												<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(b.provider_type)}">
-													{b.provider_type}
-												</span>
-												<div class="flex max-w-44 flex-wrap gap-1">
-													{#each capabilityList(bindingCapabilities(b)).slice(0, 3) as cap}
-														<span class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
-													{/each}
-													{#if capabilityList(bindingCapabilities(b)).length > 3}
-														<span class="rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">+{capabilityList(bindingCapabilities(b)).length - 3}</span>
-													{/if}
-												</div>
-											</div>
-										</td>
-										<td class="py-2.5 px-2">
-											{#if isEditing}
-												<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
-											{:else}
-												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.priority}</button>
+					<DataTable class="mb-0">
+						{#snippet head()}
+							<tr>
+								<th class={dataTemplate.th}>状态</th>
+								<th class={dataTemplate.th}>渠道</th>
+								<th class={dataTemplate.th}>类型</th>
+								<th class={dataTemplate.th}>优先级</th>
+								<th class={dataTemplate.th}>权重</th>
+								<th class={dataTemplate.th}>Canary</th>
+								<th class={dataTemplate.th}>模型过滤</th>
+								<th class={cn(dataTemplate.th, 'text-right')}>操作</th>
+							</tr>
+						{/snippet}
+
+						{#each detail.bindings as b (b.channel_id)}
+							{@const health = b.channel_health ?? 'healthy'}
+							{@const isEditing = editingBindingId === b.channel_id}
+							<tr class={dataTemplate.row}>
+								<td class={dataTemplate.td}>
+									<span class="inline-block w-2.5 h-2.5 rounded-full {health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}" title={health}></span>
+								</td>
+								<td class={dataTemplate.tdStrong}>
+									<div class="font-medium">{b.channel_name}</div>
+									<div class="text-xs text-zinc-600 dark:text-zinc-300">{b.channel_code}</div>
+								</td>
+								<td class={dataTemplate.td}>
+									<div class="space-y-1">
+										<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(b.provider_type)}">
+											{b.provider_type}
+										</span>
+										<div class="flex max-w-44 flex-wrap gap-1">
+											{#each capabilityList(bindingCapabilities(b)).slice(0, 3) as cap}
+												<span class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
+											{/each}
+											{#if capabilityList(bindingCapabilities(b)).length > 3}
+												<span class="rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">+{capabilityList(bindingCapabilities(b)).length - 3}</span>
 											{/if}
-										</td>
-										<td class="py-2.5 px-2">
-											{#if isEditing}
-												<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
-											{:else}
-												<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.weight}</button>
+										</div>
+									</div>
+								</td>
+								<td class={dataTemplate.td}>
+									{#if isEditing}
+										<input type="number" bind:value={editBindingPriority} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
+									{:else}
+										<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.priority}</button>
+									{/if}
+								</td>
+								<td class={dataTemplate.td}>
+									{#if isEditing}
+										<input type="number" bind:value={editBindingWeight} class="w-16 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
+									{:else}
+										<button onclick={() => startEditBinding(b)} class="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer font-mono">{b.weight}</button>
+									{/if}
+								</td>
+								<td class={dataTemplate.td}>
+									{#if isEditing}
+										<input type="number" min="1" max="5" step="0.5" placeholder="关闭" bind:value={editBindingCanaryPercent} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
+									{:else if b.canary_percent_bps !== null && b.canary_percent_bps !== undefined}
+										<button onclick={() => startEditBinding(b)} class="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+											{formatCanaryPercent(b.canary_percent_bps)}
+										</button>
+									{:else}
+										<button onclick={() => startEditBinding(b)} class="text-xs text-zinc-500 dark:text-zinc-400">关闭</button>
+									{/if}
+								</td>
+								<td class={dataTemplate.td}>
+									{#if b.model_filter && b.model_filter.length > 0}
+										<div class="flex flex-wrap gap-1">
+											{#each b.model_filter.slice(0, 3) as m}
+												<span class="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-xs text-zinc-600 dark:text-zinc-300">{m}</span>
+											{/each}
+											{#if b.model_filter.length > 3}
+												<span class="text-xs text-zinc-600 dark:text-zinc-300">+{b.model_filter.length - 3}</span>
 											{/if}
-										</td>
-										<td class="py-2.5 px-2">
-											{#if isEditing}
-												<input type="number" min="1" max="5" step="0.5" placeholder="关闭" bind:value={editBindingCanaryPercent} class="w-20 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100" />
-											{:else if b.canary_percent_bps !== null && b.canary_percent_bps !== undefined}
-												<button onclick={() => startEditBinding(b)} class="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-													{formatCanaryPercent(b.canary_percent_bps)}
-												</button>
-											{:else}
-												<button onclick={() => startEditBinding(b)} class="text-xs text-zinc-500 dark:text-zinc-400">关闭</button>
-											{/if}
-										</td>
-										<td class="py-2.5 px-2">
-											{#if b.model_filter && b.model_filter.length > 0}
-												<div class="flex flex-wrap gap-1">
-													{#each b.model_filter.slice(0, 3) as m}
-														<span class="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-xs text-zinc-600 dark:text-zinc-300">{m}</span>
-													{/each}
-													{#if b.model_filter.length > 3}
-														<span class="text-xs text-zinc-600 dark:text-zinc-300">+{b.model_filter.length - 3}</span>
-													{/if}
-												</div>
-											{:else}
-												<span class="text-xs text-zinc-600 dark:text-zinc-300">全部</span>
-											{/if}
-										</td>
-										<td class="py-2.5 px-2 text-right">
-											{#if isEditing}
-												<button onclick={saveBinding} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300"><Check class="w-4 h-4" /></button>
-												<button onclick={() => { editingBindingId = null; }} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500"><X class="w-4 h-4" /></button>
-											{:else}
-												<button onclick={() => startEditBinding(b)} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500" title="编辑"><Pencil class="w-3.5 h-3.5" /></button>
-												<button onclick={() => handleRemoveBinding(b.channel_id)} class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500" title="移除"><Trash2 class="w-3.5 h-3.5" /></button>
-											{/if}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+										</div>
+									{:else}
+										<span class="text-xs text-zinc-600 dark:text-zinc-300">全部</span>
+									{/if}
+								</td>
+								<td class={cn(dataTemplate.td, 'text-right')}>
+									{#if isEditing}
+										<button onclick={saveBinding} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300"><Check class="w-4 h-4" /></button>
+										<button onclick={() => { editingBindingId = null; }} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500"><X class="w-4 h-4" /></button>
+									{:else}
+										<button onclick={() => startEditBinding(b)} class="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500" title="编辑"><Pencil class="w-3.5 h-3.5" /></button>
+										<button onclick={() => handleRemoveBinding(b.channel_id)} class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500" title="移除"><Trash2 class="w-3.5 h-3.5" /></button>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					</DataTable>
 				{/if}
 
 				<!-- Project references -->
@@ -894,7 +880,7 @@
 			</div>
 		</div>
 	{/if}
-</div>
+</PageShell>
 
 <!-- ═══ Create Group Modal ═══ -->
 {#if showCreate}

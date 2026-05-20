@@ -589,7 +589,8 @@ cargo test -p gate-providers --all-targets
   - [x] 推广到 `/admin/sso`（`DataToolbar` 搜索 + active badges）
   - [x] 推广到 `/usage`（`PageShell` / `DataToolbar` / `StatePanel`）
   - [x] 推广到 `/setup`（`AuthFrame`）
-  - [ ] 继续推广到剩余模板缺口（`/admin/channels`、`/admin/groups`）
+  - [x] 推广到 `/admin/groups`（`PageShell` / `DataTable`）
+  - [ ] 继续推广到剩余模板缺口（`/admin/channels`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest
   - 选择 auth strategy 并填写 secret slot
