@@ -579,7 +579,8 @@ cargo test -p gate-providers --all-targets
   - [x] sort 基座（`/v1/admin/audit-logs` sort_by/sort_dir + UI 表头排序）
   - [x] column visibility 基座（列显隐持久化）
   - [x] saved filters 基座（table state localStorage 持久化）
-  - [ ] 推广到剩余数据页（`/admin/users`、`/admin/incidents`、`/orgs/*`）
+  - [x] 推广到 `/admin/users`（`DataToolbar` / `DataTable` / column visibility / saved filters）
+  - [ ] 继续推广到剩余数据页（`/admin/incidents`、`/orgs/*`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest
   - 选择 auth strategy 并填写 secret slot

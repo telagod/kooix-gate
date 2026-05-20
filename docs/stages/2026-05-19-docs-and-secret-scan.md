@@ -127,6 +127,25 @@ npm --prefix web test -- table-state.test.ts
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / admin users table rollout
+
+本轮继续按 P2.1 “表格能力统一”推广到 `/admin/users`，不改后端查询契约：
+
+- `/admin/users` 用户列表从手写 toolbar / native table 迁到 `DataToolbar` 与 `DataTable`。
+- 列表状态接入 `web/src/lib/table-state.ts`：page size、column visibility、搜索词、状态筛选统一 localStorage 持久化。
+- 用户列表补齐列显隐控制，`email` / `status` / `actions` 作为 required columns 不允许隐藏。
+- reset password 与 session 面板改用 `ModalFrame`；session 内表格同步改用 `DataTable`，避免页面继续保留 native table。
+- 模板审计快照：25 个 route page，`/admin/users` gaps 清零，pages_with_gaps 从 12 降到 11。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test -- table-state.test.ts
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

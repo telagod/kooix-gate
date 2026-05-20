@@ -12,12 +12,17 @@
 	} from '$lib/api.js';
 	import type { UserDetail, UserSession } from '$lib/api.js';
 	import { Alert, Badge, Button, Card, Field, Input, Select, Skeleton } from '$lib/components/ui';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
+	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
 	import {
 		Check,
+		Eye,
+		EyeOff,
 		KeyRound,
 		LogOut,
 		MonitorSmartphone,
@@ -29,6 +34,37 @@
 		UserPlus,
 		Users
 	} from 'lucide-svelte';
+	import {
+		currentPageFromOffset,
+		hiddenColumnsFromVisible,
+		loadTableState,
+		normalizePageSize,
+		saveTableState,
+		toggleColumnVisibility,
+		visibleColumnsFromHidden
+	} from '$lib/table-state.js';
+	import type { TableColumn } from '$lib/table-state.js';
+
+	type UserTableFilters = {
+		search: string;
+		status: string;
+	};
+
+	const TABLE_KEY = 'admin-users';
+	const PAGE_SIZES = [25, 50, 100, 200] as const;
+	const DEFAULT_PAGE_SIZE = 50;
+	const USER_STATUS_FILTERS = ['all', 'active', 'suspended', 'pending_verification'] as const;
+	const columns: TableColumn[] = [
+		{ id: 'email', label: '邮箱', required: true },
+		{ id: 'display_name', label: '昵称' },
+		{ id: 'status', label: '状态', required: true },
+		{ id: 'mfa', label: 'MFA' },
+		{ id: 'last_login_at', label: '最后登录' },
+		{ id: 'created_at', label: '注册时间' },
+		{ id: 'actions', label: '操作', required: true }
+	];
+	const defaultVisibleColumns = columns.map((column) => column.id);
+	const pageSizeOptions = PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / page` }));
 
 	let users = $state<UserDetail[]>([]);
 	let loading = $state(true);
@@ -55,18 +91,12 @@
 	let statusFilter = $state('all');
 	let limit = $state('50');
 	let offset = $state(0);
+	let hiddenColumns = $state<string[]>([]);
 
 	const statusOptions = [
 		{ value: 'active', label: 'Active' },
 		{ value: 'suspended', label: 'Suspended' },
 		{ value: 'pending_verification', label: 'Pending verification' }
-	];
-
-	const limitOptions = [
-		{ value: '25', label: '25 / page' },
-		{ value: '50', label: '50 / page' },
-		{ value: '100', label: '100 / page' },
-		{ value: '200', label: '200 / page' }
 	];
 
 	let filteredUsers = $derived(
@@ -84,10 +114,47 @@
 
 	let activeCount = $derived(users.filter((user) => user.status === 'active').length);
 	let suspendedCount = $derived(users.filter((user) => user.status === 'suspended').length);
+	let visibleColumns = $derived(visibleColumnsFromHidden(columns, hiddenColumns));
+	let pageSizeNumber = $derived(normalizePageSize(Number(limit), PAGE_SIZES, DEFAULT_PAGE_SIZE));
+	let currentPage = $derived(currentPageFromOffset(offset, pageSizeNumber));
+	let hasPrev = $derived(offset > 0);
+	let hasNext = $derived(users.length === pageSizeNumber);
+	let hasHiddenColumns = $derived(hiddenColumns.length > 0);
+	let hasActiveFilters = $derived(search.trim() !== '' || statusFilter !== 'all');
 
 	onMount(async () => {
+		const saved = loadTableState<UserTableFilters>(TABLE_KEY, {
+			pageSize: DEFAULT_PAGE_SIZE,
+			sortBy: 'created_at',
+			sortDir: 'desc',
+			visibleColumns: defaultVisibleColumns,
+			filters: {
+				search: '',
+				status: 'all'
+			}
+		});
+		limit = String(normalizePageSize(saved.pageSize, PAGE_SIZES, DEFAULT_PAGE_SIZE));
+		hiddenColumns = hiddenColumnsFromVisible(columns, saved.visibleColumns);
+		search = typeof saved.filters.search === 'string' ? saved.filters.search : '';
+		statusFilter = USER_STATUS_FILTERS.includes(saved.filters.status as (typeof USER_STATUS_FILTERS)[number])
+			? saved.filters.status
+			: 'all';
+
 		await boot();
 	});
+
+	function persistTableState() {
+		saveTableState<UserTableFilters>(TABLE_KEY, {
+			pageSize: pageSizeNumber,
+			sortBy: 'created_at',
+			sortDir: 'desc',
+			visibleColumns: visibleColumns.map((column) => column.id),
+			filters: {
+				search,
+				status: statusFilter
+			}
+		});
+	}
 
 	async function boot() {
 		try {
@@ -110,12 +177,41 @@
 		refreshing = true;
 		try {
 			offset = Math.max(0, nextOffset);
-			users = await listUsers(Number(limit), offset);
+			users = await listUsers(pageSizeNumber, offset);
+			persistTableState();
 		} catch (err: any) {
 			actionError = err?.message ?? '刷新失败';
 		} finally {
 			refreshing = false;
 		}
+	}
+
+	async function handlePageSizeChange() {
+		limit = String(normalizePageSize(Number(limit), PAGE_SIZES, DEFAULT_PAGE_SIZE));
+		await refreshUsers(0);
+	}
+
+	function handleFilterChange() {
+		persistTableState();
+	}
+
+	async function prevPage() {
+		if (!hasPrev) return;
+		await refreshUsers(Math.max(0, offset - pageSizeNumber));
+	}
+
+	async function nextPage() {
+		if (!hasNext) return;
+		await refreshUsers(offset + pageSizeNumber);
+	}
+
+	function toggleColumn(id: string) {
+		hiddenColumns = toggleColumnVisibility(columns, hiddenColumns, id);
+		persistTableState();
+	}
+
+	function isVisible(id: string): boolean {
+		return visibleColumns.some((column) => column.id === id);
 	}
 
 	function validateCreate(): boolean {
@@ -346,82 +442,169 @@
 			</form>
 		</Card>
 
-		<Card padding="sm" class="mb-4">
-			<div class={dataTemplate.toolbarRow}>
-				<div class="relative min-w-[220px] flex-1">
-					<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-					<Input class="pl-9" placeholder="搜索邮箱 / 昵称 / ID" bind:value={search} />
-				</div>
-				<Select class="w-52" bind:value={statusFilter} options={[{ value: 'all', label: 'All status' }, ...statusOptions]} />
-				<Select class="w-36" bind:value={limit} options={limitOptions} onchange={() => refreshUsers(0)} />
-				<div class="flex items-center gap-2">
-					<Button variant="outline" size="sm" disabled={offset === 0 || refreshing} onclick={() => refreshUsers(Math.max(0, offset - Number(limit)))}>上一页</Button>
-					<Button variant="outline" size="sm" disabled={users.length < Number(limit) || refreshing} onclick={() => refreshUsers(offset + Number(limit))}>下一页</Button>
-				</div>
-			</div>
-		</Card>
+		<DataToolbar badgesVisible={hasActiveFilters || hasHiddenColumns}>
+			{#snippet query()}
+				<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+				<Input
+					class="pl-9"
+					placeholder="搜索邮箱 / 昵称 / ID"
+					bind:value={search}
+					oninput={handleFilterChange}
+				/>
+			{/snippet}
 
-		{#if users.length === 0}
-			<StatePanel title="暂无用户" description="先创建一个平台账户再继续分配组织成员。" icon={Users} />
-		{:else if filteredUsers.length === 0}
-			<StatePanel title="无匹配用户" description="换个搜索词或状态过滤。" icon={Search} />
-		{:else}
-			<Card class="overflow-x-auto" padding="none">
-				<table class={dataTemplate.table}>
-					<thead class={dataTemplate.head}>
-						<tr>
-							<th class={dataTemplate.th}>邮箱</th>
-							<th class={dataTemplate.th}>昵称</th>
-							<th class={dataTemplate.th}>状态</th>
-							<th class={dataTemplate.th}>MFA</th>
-							<th class={dataTemplate.th}>最后登录</th>
-							<th class={dataTemplate.th}>注册时间</th>
-							<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
-						</tr>
-					</thead>
-					<tbody class={dataTemplate.body}>
-						{#each filteredUsers as user}
-							<tr class={dataTemplate.row}>
-								<td class="px-4 py-3">
-									<div class="font-mono text-xs {text.primary}">{user.email}</div>
-									<div class="mt-1 font-mono text-[11px] {text.muted}">{user.id}</div>
-								</td>
-								<td class={dataTemplate.td}>{user.display_name ?? '—'}</td>
-								<td class="px-4 py-3"><Badge variant={statusVariant(user.status)}>{user.status}</Badge></td>
-								<td class={dataTemplate.td}>{user.mfa_enabled ? '是' : '否'}</td>
-								<td class={dataTemplate.td}>{fmtDate(user.last_login_at)}</td>
-								<td class={dataTemplate.td}>{fmtDate(user.created_at)}</td>
-								<td class="px-4 py-3">
-									<div class="flex justify-end gap-2">
-										<Button
-											variant={user.status === 'active' ? 'outline' : 'default'}
-											size="sm"
-											disabled={statusBusy[user.id] || (user.id === currentUserId && user.status === 'active')}
-											onclick={() => toggleStatus(user)}
-										>
-											{#if user.status === 'active'}
-												<ShieldOff size={12} />停用
-											{:else}
-												<ShieldCheck size={12} />启用
-											{/if}
-										</Button>
-										<Button variant="outline" size="sm" disabled={passwordBusy[user.id]} onclick={() => openReset(user)}>
-											<KeyRound size={12} />重置密码
-										</Button>
-										<Button variant="outline" size="sm" onclick={() => openSessions(user)}>
-											<MonitorSmartphone size={12} />Sessions
-										</Button>
-									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</Card>
-		{/if}
+			{#snippet controls()}
+				<Select
+					class="w-52"
+					bind:value={statusFilter}
+					options={[{ value: 'all', label: 'All status' }, ...statusOptions]}
+					onchange={handleFilterChange}
+					size="sm"
+				/>
+				<Select class="w-36" bind:value={limit} options={pageSizeOptions} onchange={handlePageSizeChange} size="sm" />
+			{/snippet}
+
+			{#snippet actions()}
+				<div class="flex flex-wrap items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900">
+					{#each columns as column}
+						<Button
+							variant={isVisible(column.id) ? 'outline' : 'ghost'}
+							size="sm"
+							disabled={column.required}
+							onclick={() => toggleColumn(column.id)}
+							class="h-7 px-2"
+						>
+							{#if isVisible(column.id)}
+								<Eye size={12} />
+							{:else}
+								<EyeOff size={12} />
+							{/if}
+							{column.label}
+						</Button>
+					{/each}
+				</div>
+			{/snippet}
+
+			{#snippet badges()}
+				{#if search.trim()}
+					<Badge>搜索：{search.trim()}</Badge>
+				{/if}
+				{#if statusFilter !== 'all'}
+					<Badge>状态：{statusFilter}</Badge>
+				{/if}
+				{#if hasHiddenColumns}
+					<Badge>隐藏列：{hiddenColumns.length}</Badge>
+				{/if}
+				<Badge>已保存筛选</Badge>
+			{/snippet}
+		</DataToolbar>
+
+		<DataTable
+			isEmpty={users.length === 0 || filteredUsers.length === 0}
+			emptyColspan={visibleColumns.length}
+		>
+			{#snippet head()}
+				<tr>
+					{#if isVisible('email')}
+						<th class={dataTemplate.th}>邮箱</th>
+					{/if}
+					{#if isVisible('display_name')}
+						<th class={dataTemplate.th}>昵称</th>
+					{/if}
+					{#if isVisible('status')}
+						<th class={dataTemplate.th}>状态</th>
+					{/if}
+					{#if isVisible('mfa')}
+						<th class={dataTemplate.th}>MFA</th>
+					{/if}
+					{#if isVisible('last_login_at')}
+						<th class={dataTemplate.th}>最后登录</th>
+					{/if}
+					{#if isVisible('created_at')}
+						<th class={dataTemplate.th}>注册时间</th>
+					{/if}
+					{#if isVisible('actions')}
+						<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
+					{/if}
+				</tr>
+			{/snippet}
+
+			{#snippet empty()}
+				<div class="flex flex-col items-center gap-2 py-4">
+					{#if users.length === 0}
+						<Users size={28} class={text.disabled} />
+						<p>暂无用户，先创建一个平台账户再继续分配组织成员。</p>
+					{:else}
+						<Search size={28} class={text.disabled} />
+						<p>无匹配用户，换个搜索词或状态过滤。</p>
+					{/if}
+				</div>
+			{/snippet}
+
+			{#each filteredUsers as user}
+				<tr class={dataTemplate.row}>
+					{#if isVisible('email')}
+						<td class="px-4 py-3">
+							<div class="font-mono text-xs {text.primary}">{user.email}</div>
+							<div class="mt-1 font-mono text-[11px] {text.muted}">{user.id}</div>
+						</td>
+					{/if}
+					{#if isVisible('display_name')}
+						<td class={dataTemplate.td}>{user.display_name ?? '—'}</td>
+					{/if}
+					{#if isVisible('status')}
+						<td class="px-4 py-3"><Badge variant={statusVariant(user.status)}>{user.status}</Badge></td>
+					{/if}
+					{#if isVisible('mfa')}
+						<td class={dataTemplate.td}>{user.mfa_enabled ? '是' : '否'}</td>
+					{/if}
+					{#if isVisible('last_login_at')}
+						<td class={dataTemplate.td}>{fmtDate(user.last_login_at)}</td>
+					{/if}
+					{#if isVisible('created_at')}
+						<td class={dataTemplate.td}>{fmtDate(user.created_at)}</td>
+					{/if}
+					{#if isVisible('actions')}
+						<td class="px-4 py-3">
+							<div class="flex justify-end gap-2">
+								<Button
+									variant={user.status === 'active' ? 'outline' : 'default'}
+									size="sm"
+									disabled={statusBusy[user.id] || (user.id === currentUserId && user.status === 'active')}
+									onclick={() => toggleStatus(user)}
+								>
+									{#if user.status === 'active'}
+										<ShieldOff size={12} />停用
+									{:else}
+										<ShieldCheck size={12} />启用
+									{/if}
+								</Button>
+								<Button variant="outline" size="sm" disabled={passwordBusy[user.id]} onclick={() => openReset(user)}>
+									<KeyRound size={12} />重置密码
+								</Button>
+								<Button variant="outline" size="sm" onclick={() => openSessions(user)}>
+									<MonitorSmartphone size={12} />Sessions
+								</Button>
+							</div>
+						</td>
+					{/if}
+				</tr>
+			{/each}
+		</DataTable>
+
+		<div class={dataTemplate.pagination}>
+			<span class="text-xs">
+				第 {currentPage} 页 · 当前页 {filteredUsers.length}/{users.length} 条 · page size {pageSizeNumber}
+				{#if refreshing}<span class="ml-2 text-zinc-400">加载中...</span>{/if}
+			</span>
+			<div class="flex gap-2">
+				<Button variant="outline" size="sm" disabled={!hasPrev || refreshing} onclick={prevPage}>上一页</Button>
+				<Button variant="outline" size="sm" disabled={!hasNext || refreshing} onclick={nextPage}>下一页</Button>
+			</div>
+		</div>
 
 		{#if resetTarget}
-			<div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-4" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) resetTarget = null; }}>
+			<ModalFrame close={() => (resetTarget = null)} class="bg-zinc-950/40" panelClass="w-full max-w-md">
 				<Card padding="lg" class="w-full max-w-md">
 					<div class="mb-4 flex items-center gap-2">
 						<KeyRound size={18} class={text.secondary} />
@@ -440,11 +623,11 @@
 						</Button>
 					</div>
 				</Card>
-			</div>
+			</ModalFrame>
 		{/if}
 
 		{#if sessionTarget}
-			<div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-4" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) sessionTarget = null; }}>
+			<ModalFrame close={() => (sessionTarget = null)} class="bg-zinc-950/40" panelClass="w-full max-w-4xl">
 				<Card padding="lg" class="max-h-[85vh] w-full max-w-4xl overflow-y-auto">
 					<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 						<div class="flex items-center gap-2">
@@ -477,49 +660,46 @@
 					{:else if sessions.length === 0}
 						<StatePanel title="暂无活跃 session" description="该用户没有可继续 refresh 的登录态。" icon={MonitorSmartphone} />
 					{:else}
-						<div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-							<table class={dataTemplate.table}>
-								<thead class={dataTemplate.head}>
-									<tr>
-										<th class={dataTemplate.th}>Session</th>
-										<th class={dataTemplate.th}>IP / UA</th>
-										<th class={dataTemplate.th}>最后使用</th>
-										<th class={dataTemplate.th}>过期</th>
-										<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
-									</tr>
-								</thead>
-								<tbody class={dataTemplate.body}>
-									{#each sessions as session}
-										<tr class={dataTemplate.row}>
-											<td class="px-4 py-3">
-												<div class="font-mono text-xs {text.primary}">{session.id}</div>
-												{#if session.current}
-													<Badge variant="admin">Current</Badge>
-												{/if}
-											</td>
-											<td class="px-4 py-3">
-												<div class="font-mono text-xs {text.primary}">{session.ip ?? '—'}</div>
-												<div class="mt-1 max-w-md truncate text-xs {text.muted}">{session.user_agent ?? 'unknown user agent'}</div>
-											</td>
-											<td class={dataTemplate.td}>{fmtDateTime(session.last_used_at)}</td>
-											<td class={dataTemplate.td}>{fmtDateTime(session.expires_at)}</td>
-											<td class="px-4 py-3 text-right">
-												<Button variant="destructive" size="sm" onclick={() => revokeSession(session)} disabled={sessionBusy[session.id]}>
-													<LogOut size={12} />撤销
-												</Button>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+						<DataTable class="mb-0">
+							{#snippet head()}
+								<tr>
+									<th class={dataTemplate.th}>Session</th>
+									<th class={dataTemplate.th}>IP / UA</th>
+									<th class={dataTemplate.th}>最后使用</th>
+									<th class={dataTemplate.th}>过期</th>
+									<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
+								</tr>
+							{/snippet}
+
+							{#each sessions as session}
+								<tr class={dataTemplate.row}>
+									<td class="px-4 py-3">
+										<div class="font-mono text-xs {text.primary}">{session.id}</div>
+										{#if session.current}
+											<Badge variant="admin">Current</Badge>
+										{/if}
+									</td>
+									<td class="px-4 py-3">
+										<div class="font-mono text-xs {text.primary}">{session.ip ?? '—'}</div>
+										<div class="mt-1 max-w-md truncate text-xs {text.muted}">{session.user_agent ?? 'unknown user agent'}</div>
+									</td>
+									<td class={dataTemplate.td}>{fmtDateTime(session.last_used_at)}</td>
+									<td class={dataTemplate.td}>{fmtDateTime(session.expires_at)}</td>
+									<td class="px-4 py-3 text-right">
+										<Button variant="destructive" size="sm" onclick={() => revokeSession(session)} disabled={sessionBusy[session.id]}>
+											<LogOut size={12} />撤销
+										</Button>
+									</td>
+								</tr>
+							{/each}
+						</DataTable>
 					{/if}
 
 					<div class="mt-5 flex justify-end">
 						<Button variant="ghost" onclick={() => (sessionTarget = null)}>关闭</Button>
 					</div>
 				</Card>
-			</div>
+			</ModalFrame>
 		{/if}
 	{/if}
 </PageShell>
