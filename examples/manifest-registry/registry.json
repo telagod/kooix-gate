@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "name": "Kooix Gate official manifest registry",
+  "description": "Curated HTTP Plugin manifest registry for official presets and examples. Community/private packages can be imported with kgctl plugin registry import.",
+  "entries": [
+    {
+      "id": "openai-compatible",
+      "name": "OpenAI-compatible preset",
+      "version": "1.0.0",
+      "author": "Kooix Gate maintainers",
+      "source": "official",
+      "manifest_path": "official/openai-compatible/1.0.0/manifest.json",
+      "sha256": "39272db4c23bc2d1fbb643913a23176948c9b4dd0e50b5c2bf1ffe314788b4e0",
+      "compatibility": {
+        "min_gate_version": "0.2.0",
+        "max_gate_version": null,
+        "manifest_schema": 1
+      },
+      "signature": {
+        "kind": "unsigned",
+        "value": null
+      },
+      "homepage": "https://github.com/telagod/kooix-gate",
+      "tags": [
+        "official",
+        "preset",
+        "openai-compatible"
+      ],
+      "description": "Minimal official preset package for OpenAI-compatible HTTP Plugin channels."
+    },
+    {
+      "id": "openai-compatible-lite",
+      "name": "OpenAI-compatible Lite",
+      "version": "1.0.0",
+      "author": "Kooix Gate community",
+      "source": "community",
+      "manifest_path": "community/openai-compatible-lite/1.0.0/manifest.json",
+      "sha256": "471ebac292e7787c4b6ece10e5cf6fb969a01daafa33f16b95ade0b2acfafca0",
+      "compatibility": {
+        "min_gate_version": "0.2.0",
+        "max_gate_version": null,
+        "manifest_schema": 1
+      },
+      "signature": {
+        "kind": "unsigned",
+        "value": null
+      },
+      "homepage": "https://github.com/telagod/kooix-gate",
+      "tags": [
+        "community",
+        "openai-compatible",
+        "lite"
+      ],
+      "description": "Community sample manifest showing a minimal v1 OpenAI-compatible mapping with explicit capabilities."
+    },
+    {
+      "id": "private-auth-field-map-sse",
+      "name": "Private auth + field-map SSE",
+      "version": "1.0.0",
+      "author": "Kooix Gate maintainers",
+      "source": "official",
+      "manifest_path": "official/private-auth-field-map-sse/1.0.0/manifest.json",
+      "sha256": "acd71a60ee2fc41db0f3a6bb6d35213c98cdd6f35f480b0121a3abc0ce9b670d",
+      "compatibility": {
+        "min_gate_version": "0.2.0",
+        "max_gate_version": null,
+        "manifest_schema": 1
+      },
+      "signature": {
+        "kind": "unsigned",
+        "value": null
+      },
+      "homepage": "https://github.com/telagod/kooix-gate",
+      "tags": [
+        "official",
+        "private-api",
+        "sse",
+        "field-map"
+      ],
+      "description": "Official sample for private auth headers, non-stream field mapping and raw SSE token frames."
+    }
+  ]
+}

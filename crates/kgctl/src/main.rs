@@ -13,7 +13,7 @@
 //!   kgctl seed-pricing       写入主流模型默认定价（幂等）
 //!   kgctl usage-storage plan 输出 usage 热表分区 / Timescale dry-run DDL
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 mod admin;
 mod doctor;
@@ -101,7 +101,7 @@ enum Cmd {
     /// HTTP Plugin manifest 工具
     Plugin {
         #[command(subcommand)]
-        sub: PluginCmd,
+        sub: Box<PluginCmd>,
     },
 }
 
@@ -262,6 +262,116 @@ enum PluginCmd {
         #[arg(short, long)]
         output: Option<String>,
     },
+    /// Manifest registry / package 工具
+    Registry {
+        #[command(subcommand)]
+        sub: Box<PluginRegistryCmd>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PluginRegistryCmd {
+    /// 列出 registry entries，默认读取 examples/manifest-registry
+    List {
+        /// registry 根目录，需包含 registry.json
+        #[arg(long)]
+        root: Option<String>,
+        /// 输出 JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// 把 manifest + README/security/fixtures 打包成可导入 package JSON
+    Package(Box<PluginRegistryPackageArgs>),
+    /// 导入 package 到私有 registry
+    Import {
+        /// package JSON 路径
+        package: String,
+        /// registry 根目录
+        #[arg(long, default_value = "examples/manifest-registry")]
+        root: String,
+        /// 私有 namespace
+        #[arg(long, default_value = "local")]
+        namespace: String,
+        /// 回放 package fixtures
+        #[arg(long)]
+        verify: bool,
+        /// 允许导入 unsigned package
+        #[arg(long)]
+        allow_unsigned: bool,
+        /// 用于 manifest lint 的 base URL
+        #[arg(long, default_value = "https://example.com")]
+        base_url: String,
+    },
+    /// 导出 registry index，可选择是否包含 private entries
+    Export {
+        /// registry 根目录
+        #[arg(long, default_value = "examples/manifest-registry")]
+        root: String,
+        /// 输出 registry JSON；不传或 - 写 stdout
+        #[arg(short, long)]
+        output: Option<String>,
+        /// 包含 private entries
+        #[arg(long)]
+        include_private: bool,
+    },
+}
+
+#[derive(Args)]
+struct PluginRegistryPackageArgs {
+    /// registry id，使用小写 [a-z0-9_-]
+    #[arg(long)]
+    id: String,
+    /// 展示名
+    #[arg(long)]
+    name: String,
+    /// package version，MAJOR.MINOR.PATCH
+    #[arg(long)]
+    version: String,
+    /// author / maintainer
+    #[arg(long)]
+    author: String,
+    /// official / community / private
+    #[arg(long, default_value = "private")]
+    source: String,
+    /// manifest.json 路径
+    #[arg(long)]
+    manifest: String,
+    /// 输出 package JSON 路径
+    #[arg(short, long)]
+    output: String,
+    /// README.md 路径；不传则生成占位说明
+    #[arg(long)]
+    readme: Option<String>,
+    /// security.md 路径；不传则生成占位风险说明
+    #[arg(long)]
+    security: Option<String>,
+    /// 可重复传入 fixture JSON
+    #[arg(long = "fixture")]
+    fixtures: Vec<String>,
+    /// 兼容的最小 Kooix Gate 版本
+    #[arg(long, default_value = "0.2.0")]
+    min_gate_version: String,
+    /// 兼容的最大 Kooix Gate 版本
+    #[arg(long)]
+    max_gate_version: Option<String>,
+    /// unsigned / cosign / minisign / sigstore_bundle
+    #[arg(long, default_value = "unsigned")]
+    signature_kind: String,
+    /// 签名值或签名 bundle 引用
+    #[arg(long)]
+    signature: Option<String>,
+    /// 项目主页
+    #[arg(long)]
+    homepage: Option<String>,
+    /// 标签，可重复
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    /// 描述
+    #[arg(long)]
+    description: Option<String>,
+    /// 用于 preset 展开与绝对路径校验的 base URL
+    #[arg(long, default_value = "https://example.com")]
+    base_url: String,
 }
 
 fn main() {
@@ -349,7 +459,7 @@ fn main() {
             };
             usage_storage::plan(kind, months_ahead, retention_months)
         }
-        Cmd::Plugin { sub } => match sub {
+        Cmd::Plugin { sub } => match *sub {
             PluginCmd::Schema => plugin::schema(),
             PluginCmd::Lint { path, base_url } => plugin::lint(path, base_url),
             PluginCmd::Replay {
@@ -382,6 +492,55 @@ fn main() {
                 verify,
                 output,
             } => plugin::import_fixture(fixture, verify, output),
+            PluginCmd::Registry { sub } => match *sub {
+                PluginRegistryCmd::List { root, json } => plugin::registry_list(root, json),
+                PluginRegistryCmd::Package(args) => {
+                    plugin::registry_package(plugin::RegistryPackageInput {
+                        id: args.id,
+                        name: args.name,
+                        version: args.version,
+                        author: args.author,
+                        source: args.source,
+                        manifest_path: args.manifest,
+                        output: args.output,
+                        readme_path: args.readme,
+                        security_path: args.security,
+                        fixture_paths: args.fixtures,
+                        min_gate_version: args.min_gate_version,
+                        max_gate_version: args.max_gate_version,
+                        signature_kind: args.signature_kind,
+                        signature_value: args.signature,
+                        homepage: args.homepage,
+                        tags: args.tags,
+                        description: args.description,
+                        base_url: args.base_url,
+                    })
+                }
+                PluginRegistryCmd::Import {
+                    package,
+                    root,
+                    namespace,
+                    verify,
+                    allow_unsigned,
+                    base_url,
+                } => plugin::registry_import(plugin::RegistryImportInput {
+                    package_path: package,
+                    registry_root: root,
+                    private_namespace: namespace,
+                    verify,
+                    allow_unsigned,
+                    base_url,
+                }),
+                PluginRegistryCmd::Export {
+                    root,
+                    output,
+                    include_private,
+                } => plugin::registry_export(plugin::RegistryExportInput {
+                    registry_root: root,
+                    output,
+                    include_private,
+                }),
+            },
         },
     };
 

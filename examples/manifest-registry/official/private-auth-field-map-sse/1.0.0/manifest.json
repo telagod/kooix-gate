@@ -1,0 +1,53 @@
+{
+  "plugin": {
+    "request": {
+      "chat_path": "/private/chat/{{model}}",
+      "headers": {
+        "Authorization": null,
+        "X-Api-Key": "{{api_key}}",
+        "X-Model": "{{model}}"
+      },
+      "body": {
+        "modelName": "{{model}}",
+        "prompt": "{{last_user_message}}",
+        "messages": "{{messages}}",
+        "stream": "{{stream}}",
+        "limit": "{{max_tokens}}",
+        "temperature": "{{temperature}}"
+      }
+    },
+    "response": {
+      "openai_compatible": false,
+      "id_path": "request.id",
+      "model_path": "result.model",
+      "content_path": "result.text",
+      "finish_reason_path": "result.finish",
+      "usage": {
+        "prompt_tokens_path": "usage.input",
+        "completion_tokens_path": "usage.output",
+        "total_tokens_path": "usage.total",
+        "cached_tokens_path": "usage.cache_read"
+      }
+    },
+    "stream": {
+      "openai_compatible": false,
+      "event_path": "payload",
+      "id_path": "rid",
+      "model_path": "model_name",
+      "role_path": "speaker",
+      "content_path": "token",
+      "finish_reason_path": "reason",
+      "done": ["[DONE]", "EOF"],
+      "usage": {
+        "prompt_tokens_path": "usage.in",
+        "completion_tokens_path": "usage.out"
+      }
+    },
+    "security": {
+      "max_request_bytes": 1048576,
+      "max_response_bytes": 8388608,
+      "max_sse_event_bytes": 1048576,
+      "allow_absolute_chat_path": false
+    }
+  }
+}

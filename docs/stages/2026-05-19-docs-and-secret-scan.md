@@ -624,3 +624,25 @@ npm --prefix web run check
 node scripts/check-route-manifest.mjs
 node scripts/generate-route-types.mjs --check
 ```
+
+## P1.8 Plugin Ecosystem / Manifest Registry
+
+本轮把 P1.8 的 Manifest registry 首项从路线图 TODO 落成可导入/导出的注册表边界：
+
+- 新增 `examples/manifest-registry/registry.json`，把官方 `openai-compatible` / `private-auth-field-map-sse` 与社区 `openai-compatible-lite` manifest 样本登记为 registry entries。
+- 每条 entry 固定 `id`、`name`、`version`、`author`、`source`、`manifest_path`、`sha256`、`signature.kind/value` 与 `compatibility.min_gate_version/max_gate_version/manifest_schema`。
+- `kgctl plugin registry list` 默认读取官方/社区 registry，支持 `--json` 输出给后续 UI / automation 使用。
+- `kgctl plugin registry package` 可把私有 manifest、README、security.md 与可选 fixtures 打成 package JSON，记录版本、作者、签名、兼容范围与 manifest digest。
+- `kgctl plugin registry import` 把 package 导入 private namespace，写入 `private/<namespace>/<id>/<version>/manifest.json` / `README.md` / `security.md` / `fixtures/`，并更新 registry index；unsigned package 必须显式 `--allow-unsigned`。
+- `kgctl plugin registry export` 默认隐藏 private entries，只有 `--include-private` 才导出私有索引，避免内部 provider 元数据误外发。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`docs/plugin-manifest.md`、`crates/kgctl/README.md`、`examples/README.md`、`docs/README.md`。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo check -p kgctl
+cargo test -p kgctl plugin_registry
+cargo run -p kgctl -- plugin registry list --json
+cargo run -p kgctl -- plugin registry package --id test-private --name "Test Private" --version 1.0.0 --author tester --manifest examples/manifests/openai-compatible.json -o /tmp/package.json
+```

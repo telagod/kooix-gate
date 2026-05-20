@@ -538,6 +538,7 @@ Replay harness：
 - API：`POST /v1/admin/plugin-manifest/replay`
 - CLI：`kgctl plugin replay manifest.json --sse sample.sse --base-url https://api.example.com --model replay-model`
 - CLI fixture：`kgctl plugin export manifest.json --sse sample.sse -o fixture.json` 生成 golden；`kgctl plugin import fixture.json --verify` 回放比对 `expected_chunks`。
+- CLI registry：`kgctl plugin registry list|package|import|export` 管理 manifest registry。官方/社区入口在 `examples/manifest-registry/registry.json`；每条 entry 固定 `id/version/author/source/manifest_path/sha256/signature/compatibility`。私有包导入写入 `private/<namespace>/<id>/<version>/`，`registry export` 默认不导出 private entries。
 - CLI test：`kgctl plugin test manifest.json --base-url https://api.example.com --model replay-model` 发一次 non-stream chat，验证 request / response mapping。
 - UI：Channel 创建抽屉提供 7 步 builder：preset/custom → auth → request mapping → response sample 点选字段 → raw SSE replay → probe/test 参数 → 保存并可自动加入 group。编辑抽屉保留 manifest + auth + SSE replay preview。
 
@@ -582,6 +583,6 @@ v0.2.0 必须遵守：
 
 - `cargo test -p gate-providers plugin`：request template、preset、Azure path、Anthropic adapter、自定义 SSE mapper、绝对 URL/内网 host 拒绝、header 模板白名单、request body size limit。
 - `cargo test -p gate-providers sse`：共享 SSE decoder 的分片、多行 data、CRLF/LF 行为。
-- `cargo test -p kgctl plugin_`：CLI schema/lint/test/replay/export/import golden fixture。
+- `cargo test -p kgctl plugin_`：CLI schema/lint/test/replay/export/import golden fixture 与 registry package/import/export。
 - `cargo test -p gate-server --test channel_plugin_e2e`：manifest replay → channel create → group binding 控制面闭环。
 - `cd web && npm test -- plugin-presets`：前端 preset、auth、builder draft、response path suggestion 与 manifest 生成。

@@ -507,11 +507,11 @@ cargo test -p gate-providers --all-targets
 
 **目标**：HTTP Plugin 成为稳定扩展面后，再把生态和更强扩展能力打开。
 
-- [ ] Manifest registry：
-  - 官方 preset。
-  - 社区 manifest。
-  - 私有 manifest 导入/导出。
-  - 版本、作者、签名、兼容范围。
+- [x] Manifest registry：
+  - [x] 官方 preset。
+  - [x] 社区 manifest。
+  - [x] 私有 manifest 导入/导出。
+  - [x] 版本、作者、签名、兼容范围。
 - [ ] Manifest package 规范：
   - `manifest.json`。
   - `fixtures/` 请求、响应、SSE 样本。

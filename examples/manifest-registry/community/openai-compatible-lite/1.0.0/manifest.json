@@ -1,0 +1,53 @@
+{
+  "plugin": {
+    "version": 1,
+    "metadata": {
+      "name": "OpenAI-compatible Lite",
+      "vendor": "community",
+      "homepage": "https://github.com/telagod/kooix-gate",
+      "owner": "Kooix Gate community",
+      "tags": [
+        "community",
+        "openai-compatible",
+        "lite"
+      ]
+    },
+    "capabilities": {
+      "chat": true,
+      "streaming": true,
+      "tools": false,
+      "embeddings": false,
+      "image": false,
+      "audio": false,
+      "vision": false,
+      "json_mode": true,
+      "batch": false
+    },
+    "auth": {
+      "strategy": "bearer",
+      "secret_slot": "primary"
+    },
+    "request": {
+      "path": "/chat/completions",
+      "body": {
+        "model": "{{model}}",
+        "messages": "{{messages}}",
+        "stream": "{{stream}}",
+        "temperature": "{{temperature}}",
+        "max_tokens": "{{max_tokens}}"
+      }
+    },
+    "response": {
+      "openai_compatible": true
+    },
+    "stream": {
+      "openai_compatible": true
+    },
+    "security": {
+      "max_request_bytes": 1048576,
+      "max_response_bytes": 8388608,
+      "max_sse_event_bytes": 1048576,
+      "allow_absolute_chat_path": false
+    }
+  }
+}

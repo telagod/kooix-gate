@@ -637,6 +637,127 @@ data: {"payload":{"type":"message_stop"}}
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn plugin_registry_lists_packages_and_imports_private_manifest() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let official_registry = repo_root.join("examples/manifest-registry");
+
+    kg().args([
+        "plugin",
+        "registry",
+        "list",
+        "--root",
+        official_registry.to_str().unwrap(),
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("openai-compatible"))
+    .stdout(predicate::str::contains("openai-compatible-lite"))
+    .stdout(predicate::str::contains("\"source\": \"community\""))
+    .stdout(predicate::str::contains("sha256"))
+    .stdout(predicate::str::contains("min_gate_version"));
+
+    let dir = std::env::temp_dir().join(format!("kgctl-plugin-registry-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let package_path = dir.join("package.json");
+    let registry_root = dir.join("registry");
+    let manifest_path = repo_root.join("examples/manifests/openai-compatible.json");
+
+    kg().args([
+        "plugin",
+        "registry",
+        "package",
+        "--id",
+        "test-private",
+        "--name",
+        "Test Private",
+        "--version",
+        "1.0.0",
+        "--author",
+        "tester",
+        "--manifest",
+        manifest_path.to_str().unwrap(),
+        "--output",
+        package_path.to_str().unwrap(),
+        "--tag",
+        "private",
+        "--description",
+        "test package",
+        "--base-url",
+        "https://api.example.com/v1",
+    ])
+    .assert()
+    .success();
+
+    let package = std::fs::read_to_string(&package_path).unwrap();
+    assert!(package.contains("\"schema_version\": 1"));
+    assert!(package.contains("\"source\": \"private\""));
+    assert!(package.contains("\"sha256\""));
+
+    kg().args([
+        "plugin",
+        "registry",
+        "import",
+        package_path.to_str().unwrap(),
+        "--root",
+        registry_root.to_str().unwrap(),
+        "--base-url",
+        "https://api.example.com/v1",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "unsigned package requires --allow-unsigned",
+    ));
+
+    kg().args([
+        "plugin",
+        "registry",
+        "import",
+        package_path.to_str().unwrap(),
+        "--root",
+        registry_root.to_str().unwrap(),
+        "--allow-unsigned",
+        "--base-url",
+        "https://api.example.com/v1",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("plugin registry import ok"));
+
+    kg().args([
+        "plugin",
+        "registry",
+        "export",
+        "--root",
+        registry_root.to_str().unwrap(),
+        "--include-private",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("test-private"))
+    .stdout(predicate::str::contains(
+        "private/local/test-private/1.0.0/manifest.json",
+    ));
+
+    kg().args([
+        "plugin",
+        "registry",
+        "export",
+        "--root",
+        registry_root.to_str().unwrap(),
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"entries\": []"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn plugin_test_posts_to_mock_upstream() {
     let server = MockServer::start().await;

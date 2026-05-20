@@ -27,6 +27,7 @@
 | [crates/kgctl/README.md](../crates/kgctl/README.md) | `kgctl` 部署 / 运维 CLI 使用说明。 |
 | [bench/README.md](../bench/README.md) | 50k rpm 负载测试与 mock upstream 说明。 |
 | [examples/README.md](../examples/README.md) | SDK、curl、Postman、Bruno、OpenAPI、Terraform、Helm 示例入口。 |
+| [examples/manifest-registry/registry.json](../examples/manifest-registry/registry.json) | 官方/社区 HTTP Plugin manifest registry 索引，可用 `kgctl plugin registry` 导入私有包。 |
 
 ## 阶段性文档
 
