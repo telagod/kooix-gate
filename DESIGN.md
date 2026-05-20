@@ -14,6 +14,126 @@
 
 ---
 
+## 0.1 文档目标与对齐原则
+
+这份文档不是仓库流水账，而是让新读者在 5 分钟内确认四件事：
+
+1. 这个项目解决什么问题；
+2. 运行时怎么分层；
+3. 请求如何穿过边界；
+4. 哪些文件是 source of truth。
+
+对齐优秀项目的方式，不是堆术语，而是把入口、架构、运行手册和阶段证据分开：
+
+- README：第一屏讲清楚定位、能力、快速启动。
+- DESIGN：讲清楚领域模型、运行时边界、关键请求流。
+- docs/README：只做文档索引，不承载实现细节。
+- docs/stages：只放已经完成的一次性审计 / 收口证据。
+- RELEASE / runbook：只写部署、回滚、故障处置。
+
+---
+
+## 0.2 系统架构总览
+
+```mermaid
+flowchart LR
+  subgraph Client["客户端 / 控制台 / SDK"]
+    Browser["Web Console"]
+    SDK["SDK / curl / Bruno"]
+  end
+
+  subgraph Server["gate-server（单一部署单元）"]
+    HTTP["HTTP bootstrap\nmain.rs"]
+    Mode["RuntimeMode\nmodes.rs"]
+    Router["Router + Middleware\napp.rs / routes/mod.rs"]
+    Gateway["Gateway plane\nchat / embeddings / images / audio / responses / models"]
+    Control["Control plane\nme / settings / projects / api_keys / channels / quotas / billing / admin"]
+    Worker["Worker plane\noutbox consumer / pricing sync / health check / inflight sweeper"]
+    State["AppState + Repos\nstate.rs"]
+  end
+
+  subgraph Data["数据与外部依赖"]
+    PG[(PostgreSQL)]
+    Redis[(Redis)]
+    Providers[(9 Providers + HTTP Plugin)]
+    OIDC[(OIDC Providers)]
+    Observability[(Prometheus / OTLP)]
+  end
+
+  Browser --> Control
+  Browser --> Gateway
+  SDK --> Gateway
+  SDK --> Control
+
+  HTTP --> Mode --> Router
+  Router --> State
+  Router --> Gateway
+  Router --> Control
+  Mode --> Worker
+
+  Gateway --> PG
+  Gateway --> Redis
+  Gateway --> Providers
+  Gateway --> Observability
+
+  Control --> PG
+  Control --> Redis
+  Control --> OIDC
+  Control --> Observability
+
+  Worker --> PG
+  Worker --> Redis
+  Worker --> Observability
+```
+
+### 0.2.1 Runtime mode 对照
+
+| mode | HTTP 服务 | gateway 路由 | control 路由 | worker jobs |
+|---|---|---|---|---|
+| `all` | 是 | 是 | 是 | 是 |
+| `gateway` | 是 | 是 | 否 | 否 |
+| `controlplane` | 是 | 否 | 是 | 否 |
+| `worker` | 否 | 否 | 否 | 是 |
+
+### 0.2.2 代码映射
+
+| 职责 | 文件 |
+|---|---|
+| 启动 / 载入配置 / 连接 DB / 拉起服务 | `crates/gate-server/src/main.rs` |
+| Runtime mode 选择 | `crates/gate-server/src/modes.rs` |
+| Router 组装 | `crates/gate-server/src/app.rs`、`crates/gate-server/src/routes/mod.rs` |
+| 共享运行态 | `crates/gate-server/src/state.rs` |
+| 热路径协议契约 | `crates/gate-server/src/gateway.rs` |
+| 后台任务 | `crates/gate-server/src/worker.rs` |
+
+### 0.2.3 热路径请求流
+
+```mermaid
+sequenceDiagram
+  participant C as Client / SDK
+  participant H as gate-server HTTP
+  participant A as Auth + RBAC + RLS
+  participant R as ProviderRouter
+  participant U as Upstream Provider
+  participant O as Outbox / Billing
+  participant W as Worker
+  participant P as PostgreSQL
+  participant X as Redis
+
+  C->>H: POST /v1/chat/completions
+  H->>A: auth / quota / rate limit / scope
+  A-->>H: allow or deny
+  H->>R: resolve model / channel / preset
+  R->>U: stream / non-stream request
+  U-->>H: chunks + final usage
+  H->>O: enqueue usage / audit / billing event
+  O-->>W: async consume
+  W->>P: write projections / ledger / rollups
+  W->>X: reclaim inflight / sync counters
+```
+
+---
+
 ## 1. 领域模型
 
 ```
