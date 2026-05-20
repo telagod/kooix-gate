@@ -85,6 +85,26 @@ git diff --check
 rg -n "上游全挂|Redis 不可用|Postgres 慢查询|pricing sync 失败|outbox backlog|Incident runbooks" docs/observability-runbook.md ROADMAP.md CHANGELOG.md
 ```
 
+## P2.1 Frontend UX / template consistency audit
+
+本轮先把 P2.1 “全页面套模板一致性审计”做成可重复执行的证据，而不是只靠人工印象：
+
+- 新增 `scripts/audit-page-templates.mjs`，扫描全部 `web/src/routes/**/+page.svelte`。
+- 审计维度覆盖 P2.1 子项：header shell、toolbar、filter、table、empty / loading / error 状态。
+- 脚本区分公共首页 / 登录 / 初始化 / 邀请接受 / Playground 这类例外 shell，避免把全屏画布或公开页误判为控制台页。
+- 当前快照：25 个 route page，13 个仍有模板化缺口；缺口集中在旧控制台页的 `PageShell` / `DataTable` / `DataToolbar` 迁移。
+- `web/README.md` 记录审计命令；`ROADMAP.md` 将审计子项勾选，后续 P2.1 继续按该清单逐页迁移表格能力与 wizard。
+
+阶段验证命令：
+
+```bash
+node scripts/audit-page-templates.mjs
+node scripts/audit-page-templates.mjs --json
+node scripts/audit-page-templates.mjs --fail-on-gaps
+```
+
+`--fail-on-gaps` 当前预期非零，用于后续缺口清零后接入 CI。
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

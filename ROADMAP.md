@@ -568,12 +568,12 @@ cargo test -p gate-providers --all-targets
 
 **目标**：控制台像产品，不像内部工具。
 
-- [ ] 全页面套模板一致性审计：
-  - header
-  - toolbar
-  - filter
-  - table
-  - empty / loading / error
+- [x] 全页面套模板一致性审计：
+  - [x] header
+  - [x] toolbar
+  - [x] filter
+  - [x] table
+  - [x] empty / loading / error
 - [ ] 表格能力统一：
   - server-side pagination
   - sort

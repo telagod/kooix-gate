@@ -55,6 +55,15 @@ pnpm build
 新页面优先使用模板，避免在 route 内复制基础按钮、输入框、卡片长 class。详细规范见 `src/lib/design/README.md`。
 当前前端质量门禁：`npm run check` 必须保持 `0 errors / 0 warnings`；`npm run build` 不应输出大 chunk、Rolldown plugin timings 或 adapter-node d3 circular warnings。数据页优先复用 `DataToolbar` / `FilterPanel` / `DataTable`，再写页面特有业务单元格。
 
+模板一致性审计：
+
+```bash
+node ../scripts/audit-page-templates.mjs
+node ../scripts/audit-page-templates.mjs --json
+```
+
+审计覆盖所有 `src/routes/**/+page.svelte`，输出 header shell、toolbar / filter、table 模板、empty / loading / error 状态与缺口；`--fail-on-gaps` 可在后续迁移完成后接入 CI。
+
 ## 构建 warning 约束
 
 - Markdown 渲染只注册少量 `highlight.js/lib/core` 语言，避免全量 `highlight.js` 打出超大 chunk。
