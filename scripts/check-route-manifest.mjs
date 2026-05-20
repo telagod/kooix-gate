@@ -32,6 +32,7 @@ for (const route of routes) {
 const dataPlane = new Set([
   '/v1/models',
   '/v1/chat/completions',
+  '/v1/responses',
   '/v1/embeddings',
   '/v1/images/generations',
   '/v1/audio/speech',

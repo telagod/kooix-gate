@@ -115,7 +115,18 @@
 - `/v1/auth/logout` 撤销当前 session，平台管理员可通过 `/v1/admin/users/:id/sessions` 查看用户活跃 session，并用 DELETE 撤销单个或全部 session。
 - 撤销 session 只阻断后续 refresh；已签发 access token 继续自然过期。正常 JWT secret 轮换走 `JwtRing` 窗口；需要立即作废 access token 时，应 emergency 切换 primary secret、清空 previous secrets，并撤销相关 session，或后续引入 access-token denylist。
 
-### 2.5 权限检查门面
+### 2.5 SSO Provider 管理
+
+`identity_providers` 是平台级 / Org 级 OIDC 配置源。当前控制台先开放平台级管理面：
+
+- Admin API：`GET/POST /v1/admin/identity-providers`、`PUT/DELETE /v1/admin/identity-providers/:id`、`POST /discover`，全部要求 `Permission::PlatformAdmin`。
+- 公开登录入口：`GET /v1/auth/sso/providers` 只暴露 enabled 平台级 Provider 的 `name/slug`，前端 `/login` 不再硬编码 Google。
+- `client_secret` 只在创建或显式轮换时提交；服务端用 `EnvelopeKms::seal` + `aad::idp_secret(provider_id)` 加密，API response 与 audit 均不返回明文 / 密文。
+- OIDC discovery 使用 no-redirect HTTP client 验证 `issuer`、`authorization_endpoint`、`token_endpoint`、`jwks_uri`，issuer 不一致直接拒绝。
+- `metadata.redirect_policy` 是 SSO redirect 边界：相对路径由 `allow_relative` 控制；绝对 URL 只允许命中 `allowed_origins`，`javascript:`、scheme-relative URL 与未配置 origin 的外站跳转一律拒绝。
+- JIT provisioning 仍由 `auto_create_users`、`email_domain_allowlist`、`auto_join_org_role` 三项共同约束；allowlist 不匹配时在创建 / 绑定用户前拒绝。
+
+### 2.6 权限检查门面
 
 所有路由强制走：
 

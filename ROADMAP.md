@@ -489,11 +489,11 @@ cargo test -p gate-providers --all-targets
   - org invite
   - project invite
   - 过期 / 撤销
-- [ ] SSO provider UI 完整化：
-  - OIDC discovery
-  - allowlist
-  - auto-join role
-  - redirect policy
+- [x] SSO provider UI 完整化：
+  - [x] OIDC discovery
+  - [x] allowlist
+  - [x] auto-join role
+  - [x] redirect policy
 - [ ] SCIM 评估：
   - 用户同步
   - group → role mapping

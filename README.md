@@ -162,6 +162,17 @@ curl http://localhost:8080/v1/chat/completions \
 
 安全边界：所有 `/v1/admin/users*` mutation 必须通过 `Permission::PlatformAdmin`；`login` 与 `refresh` 都会检查用户当前状态，非 `active` 用户无法获得新 token。refresh token 只以 SHA-256 hash 落 `user_sessions`，每次 refresh 成功都会轮转并拒绝旧 token 重放。关键 mutation 写入 audit action：`user.create`、`user.update_status`、`user.reset_password`、`user_session.revoke`、`user_session.revoke_all`。
 
+### SSO Provider 管理
+
+平台管理员控制台提供 `/admin/sso`，对应 API：
+
+- `GET/POST /v1/admin/identity-providers`
+- `PUT/DELETE /v1/admin/identity-providers/:id`
+- `POST /v1/admin/identity-providers/discover`
+- `GET /v1/auth/sso/providers`（公开，仅返回 enabled 平台级 Provider 的 `name/slug`）
+
+OIDC `client_secret` 使用 `KOOIX_MASTER_KEY` 派生的 envelope encryption 加密，AAD 绑定 `identity_providers.id`，API 与 audit 都不回显明文或密文。Provider 配置支持 OIDC discovery、邮箱域 allowlist、JIT auto-create、auto-join role 与 redirect policy；SSO `redirect_to` 默认只允许相对路径，绝对 URL 必须命中 Provider 的 `allowed_origins`。
+
 ## 设计要点速览
 
 - **多 Org 三层租户**：Org → Project → ApiKey，永不耦合

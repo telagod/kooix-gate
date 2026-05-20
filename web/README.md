@@ -74,6 +74,7 @@ pnpm build
 | `/channels/[channelId]` | Channel 详情、key、健康状态、统计与调试信息 |
 | `/admin/pricing` | Platform admin 定价规则管理，支持 global / channel-specific rules |
 | `/admin/users` | Platform admin 用户生命周期管理：创建、停用/启用、重置密码、查看 / 撤销 refresh sessions |
+| `/admin/sso` | Platform admin SSO Provider 管理：OIDC discovery、allowlist、auto-join role、redirect policy |
 | `/admin/requests` / `/usage/requests` | 请求日志与使用明细过滤页 |
 
 ## API ID 约定

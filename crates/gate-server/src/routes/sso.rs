@@ -58,6 +58,12 @@ pub struct StartResponse {
     pub state: String,
 }
 
+#[derive(Serialize)]
+pub struct PublicSsoProviderView {
+    pub name: String,
+    pub slug: String,
+}
+
 #[derive(Deserialize)]
 pub struct CallbackQuery {
     pub code: String,
@@ -184,6 +190,7 @@ impl OidcClient for RealOidcClient {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/auth/sso/providers", get(list_public_providers))
         .route("/auth/sso/:slug/start", get(start))
         .route("/auth/sso/callback", get(callback))
 }
@@ -194,6 +201,22 @@ pub fn router() -> Router<AppState> {
 
 const STATE_TTL_MIN: i64 = 10;
 const STATE_BYTES: usize = 32;
+
+async fn list_public_providers(
+    State(app): State<AppState>,
+) -> AppResult<Json<Vec<PublicSsoProviderView>>> {
+    let providers = app.repos.identity_providers.list(100, 0).await?;
+    Ok(Json(
+        providers
+            .into_iter()
+            .filter(|p| p.enabled && p.org_id.is_none())
+            .map(|p| PublicSsoProviderView {
+                name: p.name,
+                slug: p.slug,
+            })
+            .collect(),
+    ))
+}
 
 /// 平台级 IdP 启动登录。Org 级的 SSO start 走带 `X-Kooix-Org` 的同一路由
 /// （未来扩展），目前先支持平台级。
@@ -212,6 +235,7 @@ async fn start(
     if !idp.enabled {
         return Err(AppError::NotFound);
     }
+    validate_redirect_to(&idp, q.redirect_to.as_deref())?;
 
     let client_secret = decrypt_client_secret(&app, &idp).await?;
     let redirect_uri = callback_redirect_uri(&app);
@@ -289,6 +313,7 @@ async fn callback(
     if !idp.enabled {
         return Err(AppError::NotFound);
     }
+    validate_redirect_to(&idp, state_rec.redirect_to.as_deref())?;
 
     let client_secret = decrypt_client_secret(&app, &idp).await?;
     let redirect_uri = callback_redirect_uri(&app);
@@ -418,6 +443,7 @@ async fn callback(
 
     // 有 redirect_to → 302 把 token 通过 fragment 带回（避免落 referer/log）
     if let Some(target) = state_rec.redirect_to {
+        validate_redirect_to(&idp, Some(&target))?;
         let url = format!(
             "{target}#access_token={access_token}&refresh_token={refresh_token}&expires_at={}",
             urlencoding::encode_owned(expires_at.to_rfc3339())
@@ -526,6 +552,92 @@ fn parse_role(s: &str) -> OrgRole {
     }
 }
 
+fn validate_redirect_to(idp: &IdentityProviderRecord, redirect_to: Option<&str>) -> AppResult<()> {
+    let Some(target) = redirect_to.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+    let policy = RedirectPolicy::from_metadata(&idp.metadata);
+    if redirect_allowed(target, &policy) {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(
+            "redirect_to not allowed by IdP redirect policy".into(),
+        ))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RedirectPolicy {
+    allow_relative: bool,
+    allowed_origins: Vec<String>,
+}
+
+impl RedirectPolicy {
+    fn from_metadata(metadata: &serde_json::Value) -> Self {
+        let obj = metadata.get("redirect_policy").unwrap_or(metadata);
+        let allow_relative = obj
+            .get("allow_relative")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let allowed_origins = obj
+            .get("allowed_origins")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .filter_map(normalize_origin)
+            .collect();
+        Self {
+            allow_relative,
+            allowed_origins,
+        }
+    }
+}
+
+fn redirect_allowed(target: &str, policy: &RedirectPolicy) -> bool {
+    if target.starts_with('/') && !target.starts_with("//") {
+        return policy.allow_relative;
+    }
+    let Some(origin) = origin_of_url(target) else {
+        return false;
+    };
+    policy
+        .allowed_origins
+        .iter()
+        .any(|allowed| allowed == &origin)
+}
+
+fn origin_of_url(raw: &str) -> Option<String> {
+    let (scheme, rest) = raw.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "https" && scheme != "http" {
+        return None;
+    }
+    let host_port = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if host_port.is_empty() || host_port.contains('@') {
+        return None;
+    }
+    Some(format!("{scheme}://{host_port}"))
+}
+
+fn normalize_origin(raw: &str) -> Option<String> {
+    origin_of_url(raw.trim())
+        .or_else(|| {
+            let trimmed = raw.trim().trim_end_matches('/').to_ascii_lowercase();
+            if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+                Some(trimmed)
+            } else {
+                None
+            }
+        })
+        .map(|origin| origin.trim_end_matches('/').to_string())
+}
+
 fn generate_state_token() -> String {
     let mut buf = [0u8; STATE_BYTES];
     rand::thread_rng().fill_bytes(&mut buf);
@@ -585,5 +697,47 @@ mod urlencoding {
                 _ => format!("%{b:02X}"),
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn idp_with_policy(metadata: serde_json::Value) -> IdentityProviderRecord {
+        IdentityProviderRecord {
+            id: Uuid::now_v7(),
+            org_id: None,
+            name: "test".into(),
+            slug: "test".into(),
+            issuer: "https://idp.example.com".into(),
+            client_id: "client".into(),
+            client_secret_enc: vec![],
+            scopes: vec!["openid".into()],
+            email_claim: "email".into(),
+            name_claim: "name".into(),
+            subject_claim: "sub".into(),
+            auto_create_users: true,
+            auto_join_org_role: None,
+            email_domain_allowlist: vec![],
+            enabled: true,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn redirect_policy_allows_relative_and_configured_origins_only() {
+        let idp = idp_with_policy(serde_json::json!({
+            "redirect_policy": {
+                "allow_relative": true,
+                "allowed_origins": ["https://console.example.com/app"]
+            }
+        }));
+
+        assert!(validate_redirect_to(&idp, Some("/orgs")).is_ok());
+        assert!(validate_redirect_to(&idp, Some("https://console.example.com/done")).is_ok());
+        assert!(validate_redirect_to(&idp, Some("https://evil.example.com/done")).is_err());
+        assert!(validate_redirect_to(&idp, Some("//evil.example.com")).is_err());
+        assert!(validate_redirect_to(&idp, Some("javascript:alert(1)")).is_err());
     }
 }

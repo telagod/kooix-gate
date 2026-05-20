@@ -139,6 +139,11 @@ export interface SsoStartResponse {
 	state: string;
 }
 
+export interface PublicSsoProvider {
+	name: string;
+	slug: string;
+}
+
 export async function login(email: string, password: string): Promise<LoginResult> {
 	return apiFetch<LoginResult>('/v1/auth/login', {
 		method: 'POST',
@@ -162,6 +167,12 @@ export async function logout(): Promise<void> {
 export async function ssoStart(slug: string, redirectTo?: string): Promise<SsoStartResponse> {
 	const params = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
 	return apiFetch<SsoStartResponse>(`/v1/auth/sso/${slug}/start${params}`, {
+		skipAuth: true
+	});
+}
+
+export async function listPublicSsoProviders(): Promise<PublicSsoProvider[]> {
+	return apiFetch<PublicSsoProvider[]>('/v1/auth/sso/providers', {
 		skipAuth: true
 	});
 }
@@ -930,6 +941,105 @@ export async function revokeUserSession(id: string, sessionId: string): Promise<
 export async function revokeUserSessions(id: string): Promise<{ revoked: number }> {
 	return apiFetch<{ revoked: number }>(`/v1/admin/users/${rawId(id)}/sessions`, {
 		method: 'DELETE'
+	});
+}
+
+// ── Admin SSO / Identity Providers ───────────────
+
+export interface RedirectPolicy {
+	allow_relative: boolean;
+	allowed_origins: string[];
+}
+
+export interface IdentityProvider {
+	id: string;
+	org_id: string | null;
+	name: string;
+	slug: string;
+	issuer: string;
+	client_id: string;
+	scopes: string[];
+	email_claim: string;
+	name_claim: string;
+	subject_claim: string;
+	auto_create_users: boolean;
+	auto_join_org_role: string | null;
+	email_domain_allowlist: string[];
+	enabled: boolean;
+	redirect_policy: RedirectPolicy;
+}
+
+export interface CreateIdentityProviderRequest {
+	name: string;
+	slug: string;
+	issuer: string;
+	client_id: string;
+	client_secret: string;
+	org_id?: string | null;
+	scopes?: string[];
+	email_claim?: string;
+	name_claim?: string;
+	subject_claim?: string;
+	auto_create_users?: boolean;
+	auto_join_org_role?: string | null;
+	email_domain_allowlist?: string[];
+	enabled?: boolean;
+	redirect_policy?: RedirectPolicy;
+}
+
+export interface UpdateIdentityProviderRequest {
+	name?: string;
+	slug?: string;
+	issuer?: string;
+	client_id?: string;
+	client_secret?: string;
+	org_id?: string | null;
+	scopes?: string[];
+	email_claim?: string;
+	name_claim?: string;
+	subject_claim?: string;
+	auto_create_users?: boolean;
+	auto_join_org_role?: string | null;
+	email_domain_allowlist?: string[];
+	enabled?: boolean;
+	redirect_policy?: RedirectPolicy;
+}
+
+export interface OidcDiscoveryResponse {
+	issuer: string;
+	authorization_endpoint: string;
+	token_endpoint: string;
+	jwks_uri: string;
+	scopes_supported: string[];
+}
+
+export async function listIdentityProviders(limit = 100, offset = 0): Promise<IdentityProvider[]> {
+	const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+	return apiFetch<IdentityProvider[]>(`/v1/admin/identity-providers?${params}`);
+}
+
+export async function createIdentityProvider(data: CreateIdentityProviderRequest): Promise<IdentityProvider> {
+	return apiFetch<IdentityProvider>('/v1/admin/identity-providers', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function updateIdentityProvider(id: string, data: UpdateIdentityProviderRequest): Promise<IdentityProvider> {
+	return apiFetch<IdentityProvider>(`/v1/admin/identity-providers/${rawId(id)}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function deleteIdentityProvider(id: string): Promise<void> {
+	await apiFetch(`/v1/admin/identity-providers/${rawId(id)}`, { method: 'DELETE' });
+}
+
+export async function discoverIdentityProvider(issuer: string): Promise<OidcDiscoveryResponse> {
+	return apiFetch<OidcDiscoveryResponse>('/v1/admin/identity-providers/discover', {
+		method: 'POST',
+		body: JSON.stringify({ issuer })
 	});
 }
 

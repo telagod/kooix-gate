@@ -559,3 +559,27 @@ cargo test -p gate-auth jwt
 cargo test -p gate-server --test auth_flow me_
 cargo test -p kgctl --test cli doctor
 ```
+
+## P1.7 Identity / SSO Provider UI
+
+本轮把 P1.7 的 SSO provider UI 完整化落成控制面能力：
+
+- `IdentityProviderRepo` 补齐 list/create/update/soft_delete，`IdentityProviderRecord` 显式暴露 `metadata`，用于保存 `redirect_policy`。
+- Admin API 新增 `GET/POST /v1/admin/identity-providers`、`PUT/DELETE /v1/admin/identity-providers/:id`、`POST /v1/admin/identity-providers/discover`，全部要求 `Permission::PlatformAdmin`，并写入 `identity_provider.*` audit。
+- `client_secret` 创建 / 轮换时用 `EnvelopeKms` 加密，AAD 固定 `gate_crypto::aad::idp_secret(provider_id)`；API response 与 audit 不回显明文或密文。
+- 公开 `GET /v1/auth/sso/providers` 只返回 enabled 平台级 Provider 的 `name/slug`；登录页改为动态展示 SSO 入口，不再硬编码 `google`。
+- 控制台新增 `/admin/sso`：支持 OIDC discovery、邮箱域 allowlist、claim mapping、JIT auto-create、auto-join role、enabled 切换与 redirect policy 编辑。
+- SSO start/callback 增加 redirect policy enforcement：相对路径由 `allow_relative` 控制；绝对 URL 必须命中 `allowed_origins`；scheme-relative URL、`javascript:` 与未授权 origin 返回 `bad_request`。
+- Route manifest 与生成的 `web/src/lib/api/route-manifest.ts` 同步新增 SSO 管理/公开路由，并补回此前已服务但未列入 manifest 的 channel drain 运维路由。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo test -p gate-storage identity
+cargo test -p gate-server --test sso_admin_e2e
+cargo test -p gate-server --test sso_flow
+npm --prefix web run check
+node scripts/check-route-manifest.mjs
+node scripts/generate-route-types.mjs --check
+```

@@ -20,6 +20,7 @@
 		ClipboardList,
 		Users,
 		MessageSquare,
+		KeyRound,
 		Settings,
 		Sun,
 		Moon,
@@ -54,6 +55,7 @@
 		if (pattern === '/channels') return currentPath === '/channels' || currentPath.startsWith('/channels/');
 		if (pattern === '/admin/channels') return currentPath === '/admin/channels';
 		if (pattern === '/admin/users') return currentPath.startsWith('/admin/users');
+		if (pattern === '/admin/sso') return currentPath.startsWith('/admin/sso');
 		if (pattern === '/admin/groups') return currentPath.startsWith('/admin/groups');
 		if (pattern === '/admin/audit') return currentPath.startsWith('/admin/audit');
 		if (pattern === '/admin/requests') return currentPath.startsWith('/admin/requests');
@@ -186,6 +188,10 @@
 				<a href="/admin/users" class={linkCls('/admin/users')} title={collapsed ? '用户管理' : ''}>
 					<Users size={iconSize} />
 					{#if !collapsed}<span class="truncate">用户管理</span>{/if}
+				</a>
+				<a href="/admin/sso" class={linkCls('/admin/sso')} title={collapsed ? 'SSO' : ''}>
+					<KeyRound size={iconSize} />
+					{#if !collapsed}<span class="truncate">SSO</span>{/if}
 				</a>
 				<a href="/admin/audit" class={linkCls('/admin/audit')} title={collapsed ? '审计日志' : ''}>
 					<ClipboardList size={iconSize} />

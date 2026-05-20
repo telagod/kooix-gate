@@ -27,9 +27,9 @@ pub use repo::channel_latency::{
     ChannelLatencyRepo, InMemoryChannelLatencyRepo, PgChannelLatencyRepo,
 };
 pub use repo::identity::{
-    IdentityProviderRecord, IdentityProviderRepo, InMemoryIdentityProviderRepo,
-    InMemoryOidcStateRepo, InMemoryUserIdentityRepo, OidcStateRecord, OidcStateRepo,
-    PgIdentityProviderRepo, PgOidcStateRepo, PgUserIdentityRepo, UserIdentityRecord,
+    IdentityProviderCreate, IdentityProviderRecord, IdentityProviderRepo, IdentityProviderUpdate,
+    InMemoryIdentityProviderRepo, InMemoryOidcStateRepo, InMemoryUserIdentityRepo, OidcStateRecord,
+    OidcStateRepo, PgIdentityProviderRepo, PgOidcStateRepo, PgUserIdentityRepo, UserIdentityRecord,
     UserIdentityRepo,
 };
 pub use repo::inflight::{

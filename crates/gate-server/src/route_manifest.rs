@@ -57,6 +57,7 @@ pub const ROUTES: &[RouteMeta] = &[
     route!("POST", "/v1/auth/login", Public, CONTROL_PLANE),
     route!("POST", "/v1/auth/refresh", Public, CONTROL_PLANE),
     route!("POST", "/v1/auth/logout", User, CONTROL_PLANE),
+    route!("GET", "/v1/auth/sso/providers", Public, CONTROL_PLANE),
     route!("GET", "/v1/auth/sso/:slug/start", Public, CONTROL_PLANE),
     route!("GET", "/v1/auth/sso/callback", Public, CONTROL_PLANE),
     route!("GET", "/v1/me", User, CONTROL_PLANE),
@@ -199,6 +200,24 @@ pub const ROUTES: &[RouteMeta] = &[
     ),
     route!(
         "POST",
+        "/v1/admin/channels/:id/drain",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/admin/channels/:id/drain-status",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/channels/:id/disable-when-idle",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
         "/v1/admin/channels/batch-enable",
         PlatformAdmin,
         CONTROL_PLANE
@@ -301,6 +320,36 @@ pub const ROUTES: &[RouteMeta] = &[
     route!(
         "DELETE",
         "/v1/admin/users/:id/sessions/:session_id",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/identity-providers/discover",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/admin/identity-providers",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/identity-providers",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "PUT",
+        "/v1/admin/identity-providers/:id",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "DELETE",
+        "/v1/admin/identity-providers/:id",
         PlatformAdmin,
         CONTROL_PLANE
     ),

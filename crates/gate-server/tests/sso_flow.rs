@@ -201,6 +201,7 @@ fn sample_idp(org_id: Option<OrgId>) -> IdentityProviderRecord {
         auto_join_org_role: None,
         email_domain_allowlist: vec![],
         enabled: true,
+        metadata: serde_json::json!({}),
     }
 }
 
@@ -463,14 +464,21 @@ async fn callback_rejects_suspended_existing_user() {
 
 #[tokio::test]
 async fn callback_redirect_to_emits_302_with_fragment() {
-    let idp = sample_idp(None);
+    let mut idp = sample_idp(None);
+    idp.metadata = serde_json::json!({
+        "redirect_policy": {
+            "allow_relative": true,
+            "allowed_origins": ["https://app.test"]
+        }
+    });
     let (f, _) = build_fixture(sample_identity("a@b.c", "sub-redir"), idp).await;
 
-    let (_, body, _) = get(
+    let (status, body, _) = get(
         &f.router,
         "/v1/auth/sso/stub/start?redirect_to=https://app.test/done",
     )
     .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
     let state = body["state"].as_str().unwrap();
 
     let url = format!("/v1/auth/sso/callback?code=c&state={state}");
@@ -486,6 +494,26 @@ async fn callback_redirect_to_emits_302_with_fragment() {
     assert!(loc.contains("&refresh_token="));
     // 防缓存
     assert_eq!(resp.headers().get("cache-control").unwrap(), "no-store");
+}
+
+#[tokio::test]
+async fn start_rejects_redirect_to_outside_policy() {
+    let mut idp = sample_idp(None);
+    idp.metadata = serde_json::json!({
+        "redirect_policy": {
+            "allow_relative": true,
+            "allowed_origins": ["https://app.test"]
+        }
+    });
+    let (f, _) = build_fixture(sample_identity("a@b.c", "sub-redir"), idp).await;
+
+    let (status, body, _) = get(
+        &f.router,
+        "/v1/auth/sso/stub/start?redirect_to=https://evil.test/done",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body={body}");
+    assert_eq!(body["error"]["code"], "bad_request");
 }
 
 #[tokio::test]

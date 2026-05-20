@@ -2,19 +2,22 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { login, ssoStart, getSystemStatus } from '$lib/api.js';
+	import { login, ssoStart, getSystemStatus, listPublicSsoProviders } from '$lib/api.js';
+	import type { PublicSsoProvider } from '$lib/api.js';
 	import { saveTokens, currentUser } from '$lib/auth.js';
 	import { Button, Input } from '$lib/components/ui';
 	import AuthFrame from '$lib/components/templates/AuthFrame.svelte';
 	import { authTemplate } from '$lib/design';
 	import { theme, toggleTheme } from '$lib/stores/theme';
-	import { Sun, Moon, Monitor } from 'lucide-svelte';
+	import { Sun, Moon, Monitor, KeyRound } from 'lucide-svelte';
 
 	let email = $state('');
 	let password = $state('');
 	let error = $state('');
 	let loading = $state(false);
 	let ssoLoading = $state(false);
+	let activeSsoSlug = $state('');
+	let ssoProviders = $state<PublicSsoProvider[]>([]);
 	let ready = $state(false);
 
 	onMount(async () => {
@@ -26,6 +29,11 @@
 			}
 		} catch {
 			// 后端不可达，继续显示登录页
+		}
+		try {
+			ssoProviders = await listPublicSsoProviders();
+		} catch {
+			ssoProviders = [];
 		}
 		ready = true;
 	});
@@ -55,21 +63,23 @@
 		}
 	}
 
-	async function handleSso() {
+	async function handleSso(provider: PublicSsoProvider) {
 		ssoLoading = true;
+		activeSsoSlug = provider.slug;
 		error = '';
 		try {
 			const redirectTo =
 				typeof window !== 'undefined' ? `${window.location.origin}/orgs` : undefined;
-			const { authorize_url } = await ssoStart('google', redirectTo);
+			const { authorize_url } = await ssoStart(provider.slug, redirectTo);
 			window.location.href = authorize_url;
 		} catch (err: any) {
 			if (err?.status === 404) {
-				error = 'SSO 未配置（找不到 google IdP）';
+				error = `SSO 未配置（找不到 ${provider.slug} IdP）`;
 			} else {
 				error = err?.message ?? 'SSO 启动失败';
 			}
 			ssoLoading = false;
+			activeSsoSlug = '';
 		}
 	}
 </script>
@@ -124,19 +134,26 @@
 		</Button>
 	</form>
 
-	<div class="my-6 flex items-center gap-3">
-		<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
-		<span class="text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">或</span>
-		<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
-	</div>
+	{#if ssoProviders.length > 0}
+		<div class="my-6 flex items-center gap-3">
+			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
+			<span class="text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">或</span>
+			<div class="flex-1 h-px bg-zinc-200 dark:bg-zinc-700"></div>
+		</div>
 
-	<Button
-		variant="outline"
-		class="w-full"
-		disabled={loading || ssoLoading}
-		onclick={handleSso}
-	>
-		{ssoLoading ? '正在跳转...' : '使用 Google SSO 登录'}
-	</Button>
+		<div class="space-y-2">
+			{#each ssoProviders as provider}
+				<Button
+					variant="outline"
+					class="w-full"
+					disabled={loading || ssoLoading}
+					onclick={() => handleSso(provider)}
+				>
+					<KeyRound size={15} />
+					{ssoLoading && activeSsoSlug === provider.slug ? '正在跳转...' : `使用 ${provider.name} SSO 登录`}
+				</Button>
+			{/each}
+		</div>
+	{/if}
 </AuthFrame>
 {/if}
