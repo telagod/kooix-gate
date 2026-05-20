@@ -562,6 +562,77 @@ async fn seed_pg_usage_fixture(pool: &sqlx::PgPool, h: &DataPlaneHarness) {
     .unwrap();
 }
 
+async fn assert_request_log_projection(
+    pool: &sqlx::PgPool,
+    request_id: Uuid,
+    h: &DataPlaneHarness,
+    model: &str,
+    tokens_in: i32,
+    tokens_out: i32,
+) {
+    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
+
+    let projected_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM request_log_events WHERE request_id = $1")
+            .bind(request_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        projected_count, 1,
+        "request_log_events partitioned projection must receive committed request"
+    );
+
+    let partition_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pg_inherits WHERE inhparent = 'request_log_events'::regclass",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert!(
+        partition_count >= 1,
+        "request_log_events should have current/future monthly partitions"
+    );
+
+    let repo = PgRequestLogRepo::new(pool.clone());
+    let partitions = repo.ensure_partitions(1).await.unwrap();
+    assert!(
+        !partitions.is_empty(),
+        "request log partition helper should report ensured partitions"
+    );
+    assert_eq!(
+        repo.prune_partitions(120, true).await.unwrap(),
+        0,
+        "fresh partitions should not be dropped in dry-run retention"
+    );
+    assert_eq!(
+        repo.prune_details(3650).await.unwrap(),
+        0,
+        "fresh details retention should not delete rows"
+    );
+
+    let record = repo.find_by_request_id(request_id).await.unwrap();
+    assert_eq!(record.model_actual, model);
+    assert_eq!(record.tokens_in, tokens_in);
+    assert_eq!(record.tokens_out, tokens_out);
+    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+
+    let page = repo
+        .list(
+            &gate_storage::RequestFilter {
+                org_id: Some(*h.org_id.as_uuid()),
+                search: Some(request_id.to_string()),
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.data.len(), 1);
+    assert_eq!(page.data[0].request_id, request_id);
+}
+
 /// 等 spawn 出去的 emit_usage task 跑完。简单 sleep 几次让 tokio 调度。
 async fn yield_for_emit() {
     for _ in 0..20 {
@@ -714,15 +785,7 @@ async fn images_apikey_emits_usage_event() {
         "image event must commit request_events"
     );
 
-    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
-    let record = PgRequestLogRepo::new(pool.clone())
-        .find_by_request_id(expected_request_id)
-        .await
-        .unwrap();
-    assert_eq!(record.model_actual, "dall-e-3");
-    assert_eq!(record.tokens_in, 0);
-    assert_eq!(record.tokens_out, 0);
-    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+    assert_request_log_projection(&pool, expected_request_id, &h, "dall-e-3", 0, 0).await;
 }
 
 #[tokio::test]
@@ -822,15 +885,7 @@ async fn audio_speech_apikey_emits_usage_event() {
         "audio speech event must commit request_events"
     );
 
-    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
-    let record = PgRequestLogRepo::new(pool.clone())
-        .find_by_request_id(expected_request_id)
-        .await
-        .unwrap();
-    assert_eq!(record.model_actual, "tts-1");
-    assert_eq!(record.tokens_in, 0);
-    assert_eq!(record.tokens_out, 0);
-    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+    assert_request_log_projection(&pool, expected_request_id, &h, "tts-1", 0, 0).await;
 }
 
 #[tokio::test]
@@ -943,15 +998,7 @@ abc123\r\n\
         "audio transcription event must commit request_events"
     );
 
-    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
-    let record = PgRequestLogRepo::new(pool.clone())
-        .find_by_request_id(expected_request_id)
-        .await
-        .unwrap();
-    assert_eq!(record.model_actual, "whisper-1");
-    assert_eq!(record.tokens_in, 0);
-    assert_eq!(record.tokens_out, 0);
-    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+    assert_request_log_projection(&pool, expected_request_id, &h, "whisper-1", 0, 0).await;
 }
 
 #[tokio::test]
@@ -1043,15 +1090,15 @@ async fn embeddings_apikey_emits_usage_event() {
         "embedding event must commit request_events"
     );
 
-    use gate_storage::{PgRequestLogRepo, RequestLogRepo};
-    let record = PgRequestLogRepo::new(pool.clone())
-        .find_by_request_id(expected_request_id)
-        .await
-        .unwrap();
-    assert_eq!(record.model_actual, "text-embedding-3-small");
-    assert_eq!(record.tokens_in, 1000);
-    assert_eq!(record.tokens_out, 0);
-    assert_eq!(record.channel_id, Some(*h.channel_id.as_uuid()));
+    assert_request_log_projection(
+        &pool,
+        expected_request_id,
+        &h,
+        "text-embedding-3-small",
+        1000,
+        0,
+    )
+    .await;
 }
 
 #[tokio::test]

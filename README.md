@@ -73,7 +73,7 @@ kooix-gate/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）
 │   ├── gate-crypto/            # Envelope encryption + KMS 抽象
 │   ├── gate-storage/           # PostgreSQL Repository (Pg + InMemory)
-│   │   └── migrations/         # 25 SQL 文件，含 RLS / pricing_rules / inflight recovery
+│   │   └── migrations/         # 34 SQL 文件，含 RLS / pricing_rules / inflight recovery / request log retention
 │   ├── gate-auth/              # Password / JWT / API Key / OIDC / AuthContext
 │   ├── gate-cache/             # Redis Lua（rate limit + quota）
 │   ├── gate-providers/         # Provider trait + 9 adapters + ProviderRouter
@@ -213,7 +213,7 @@ P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim
 ## 测试
 
 ```bash
-# 全量（当前 277 Rust test list entries：272 unit/integration + 5 doctest，含 testcontainers 集成测试，需要 Docker）
+# 全量（当前 285 Rust test list entries：280 unit/integration + 5 doctest，含 testcontainers 集成测试，需要 Docker）
 cargo test --workspace
 
 # 仅快速 unit（无 Docker）

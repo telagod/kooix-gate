@@ -108,6 +108,30 @@ async fn migrate_dry_run_after_apply_says_no_pending() {
     .unwrap();
 }
 
+#[test]
+fn usage_storage_plan_mentions_request_log_projection_and_retention_helpers() {
+    kg().args(["usage-storage", "plan", "--partition"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("request_log_events"))
+        .stdout(predicate::str::contains(
+            "kooix_ensure_request_log_partitions",
+        ))
+        .stdout(predicate::str::contains(
+            "kooix_prune_request_log_partitions",
+        ));
+
+    kg().args(["usage-storage", "plan", "--timescale"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "create_hypertable('request_log_events'",
+        ))
+        .stdout(predicate::str::contains(
+            "add_retention_policy('request_log_events'",
+        ));
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 2. admin create
 // ────────────────────────────────────────────────────────────────────────────

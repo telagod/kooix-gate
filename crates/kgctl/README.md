@@ -59,8 +59,8 @@ kgctl smoke \
 | `pricing list` | 列出 `pricing_rules`，可按 model / channel 过滤 | `kgctl pricing list --model gpt-4o-mini` |
 | `pricing set` | 新建一条 global 或 channel-specific 定价规则 | `kgctl pricing set --model gpt-4o-mini --dimension input_tokens --unit per_million --rate 0.15` |
 | `pricing delete` | 删除指定定价规则 | `kgctl pricing delete --id <uuid>` |
-| `usage-storage plan` | 输出普通 PG 月分区 dry-run SQL | `kgctl usage-storage plan --partition` |
-| `usage-storage plan --timescale` | 输出 Timescale hypertable/compression/retention dry-run SQL | `kgctl usage-storage plan --timescale` |
+| `usage-storage plan` | 输出普通 PG `request_log_events` 月分区 + retention dry-run SQL | `kgctl usage-storage plan --partition` |
+| `usage-storage plan --timescale` | 输出 `request_events` / `request_log_events` / `usage_records` Timescale hypertable/compression/retention dry-run SQL | `kgctl usage-storage plan --timescale` |
 | `plugin schema` | 输出 HTTP Plugin manifest v1 JSON Schema | `kgctl plugin schema` |
 | `plugin lint` | 校验 manifest JSON | `kgctl plugin lint manifest.json --base-url https://api.example.com` |
 | `plugin test` | 用 manifest 发一次 non-stream chat，验证 request / response mapping | `kgctl plugin test manifest.json --base-url https://api.example.com --model replay-model` |

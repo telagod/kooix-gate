@@ -31,8 +31,8 @@ sum(rate(quota_denies_total[5m])) by (dimension, scope_kind, mode)
 
 平台管理员可从控制台 `/admin/incidents` 或 API `GET /v1/admin/incidents?org_id=<uuid>&hours=24` 查看事故摘要：
 
-- `recent_errors`：近窗口最近错误，来自 `request_events`，缺表时回退 `usage_records`。
-- `top_failing_channels`：按错误数 / 错误率 / 最近错误时间排序的失败 channel，关联 `channels.name/provider_type`。
+- `recent_errors`：近窗口最近错误，优先来自按月分区的 `request_log_events` read projection，缺表时回退 `request_events` / `usage_records`。
+- `top_failing_channels`：按错误数 / 错误率 / 最近错误时间排序的失败 channel，优先读 `request_log_events` 并关联 `channels.name/provider_type`。
 - `quota_denies_top`：与 `quota_denies_total` 同步维护的 process-local runtime snapshot，自服务启动后累计。
 - `upstream_error_classes`：持久化请求里的 `401 auth`、`429 rate limit`、`5xx`、其它 `4xx` 与 unknown 分类。
 - `upstream_errors_runtime_top`：与 `gateway_upstream_errors_total` 同步维护的 process-local runtime snapshot，自服务启动后累计。
@@ -466,7 +466,7 @@ GROUP BY relation, mode, granted
 ORDER BY COUNT(*) DESC;
 ```
 
-- 对疑似慢读模型使用 `EXPLAIN (ANALYZE, BUFFERS)`；优先看 `request_events`、`usage_hourly_rollups`、`channel_latency_samples`、`outbox_events`、`billing_ledger_events`。
+- 对疑似慢读模型使用 `EXPLAIN (ANALYZE, BUFFERS)`；优先看 `request_log_events`、`request_events`、`usage_hourly_rollups`、`channel_latency_samples`、`outbox_events`、`billing_ledger_events`。
 - 部署前后跑：
 
   ```bash
@@ -478,6 +478,16 @@ ORDER BY COUNT(*) DESC;
 
 - P95 `gateway_stage_duration_seconds` 回落，`billing_outbox_lag_seconds` / `usage_rollup_lag_seconds` 不再持续增长。
 - 慢 SQL 修复后补索引或 retention / partition 策略，避免只靠重启止痛。
+- 请求日志 retention 优先 dry-run：
+
+  ```sql
+  SELECT kooix_ensure_request_log_partitions(3);
+  SELECT * FROM kooix_prune_request_log_partitions(18, TRUE);
+  -- 审核 candidate 后再执行：
+  -- SELECT * FROM kooix_prune_request_log_partitions(18, FALSE);
+  SELECT kooix_prune_request_log_details(540);
+  ```
+
 - 若做过手工 cancel / terminate，把相关 request_id 与 ledger 对账一次，确认没有半落库事件。
 
 ### pricing sync 失败

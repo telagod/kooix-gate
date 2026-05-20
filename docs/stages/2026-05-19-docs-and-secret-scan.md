@@ -1164,3 +1164,25 @@ cargo fmt --all
 cargo test -p gate-billing --test outbox_consumer -- --nocapture
 cargo check -p gate-billing --all-targets
 ```
+
+### Request log partition / retention follow-up
+
+- 新增 migration `20260520000007_request_log_partition_retention.sql`：`request_log_events` 作为按 `ts` 月分区的 request log read projection，保留 `(ts, request_id)` 主键与 org/project/api_key/channel/group/model/status 索引。
+- `request_events` 继续作为 canonical idempotency / settlement table；`request_events_log_projection_insert` trigger 在新 canonical row 写入后自动投影到 `request_log_events`，避免破坏 `UNIQUE(idempotency_key)` 语义。
+- 新增 helpers：
+  - `kooix_ensure_request_log_partition(for_ts)`
+  - `kooix_ensure_request_log_partitions(months_ahead)`
+  - `kooix_prune_request_log_partitions(retention_months, dry_run)`
+  - `kooix_prune_request_log_details(retention_days)`
+- `PgRequestLogRepo` 的 list / filter options / incident summary 优先读 `request_log_events`，缺表时回退 `request_events`，再回退 legacy `usage_records`；详情仍 left join `request_event_details`。
+- `kgctl usage-storage plan --partition` 更新为输出 `request_log_events` 分区与 retention helper dry-run；`--timescale` 覆盖 `request_events` / `request_log_events` / `usage_records`。
+- `billing_e2e` 的 embeddings/images/audio PG commit 验证新增 `request_log_events` 投影、分区存在、repo list/find 与 retention helper dry-run 覆盖。
+- `ROADMAP.md` 中 P2.2 `Request log 分区 / retention` 收口为完成。
+
+追加验证命令：
+
+```bash
+cargo test -p gate-storage --test pg_repo -- --nocapture
+cargo test -p gate-server --test billing_e2e embeddings_apikey_emits_usage_event -- --nocapture
+cargo test -p kgctl usage_storage_plan_mentions_request_log_projection_and_retention_helpers -- --nocapture
+```

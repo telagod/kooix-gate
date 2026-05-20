@@ -303,10 +303,12 @@ Channel 级 `health` 由所有 key 状态聚合：
 
 ### 5.1 PostgreSQL 单实例 vs 集群
 
-- 3000 用户、5w rpm 的写入主要在 `usage_records`（21 亿行/月）
+- 3000 用户、5w rpm 的写入主要在 `request_events` / `request_log_events` / `usage_records`（月级十亿行）
 - **配置类表**（users / projects / channels …）QPS 很低，单实例几十年都跑得动
 - v0.2.0 migration 默认在普通 PostgreSQL 15+ 上运行；TimescaleDB 不作为启动硬依赖。
-- 生产高吞吐（5w rpm 级别）建议把 `usage_records` 升级为 TimescaleDB hypertable，按天分块 + 7 天压缩 + 90 天保留；无 TimescaleDB 时降级为普通表，依靠既有索引与归档策略控制体量。
+- `request_events` 保留 canonical idempotency / settlement 语义；`request_log_events` 是按月 range partition 的请求日志 read projection，由 `request_events` insert trigger 自动投影，列表 / 筛选 / incident summary 优先读该分区表。
+- `kooix_ensure_request_log_partitions(months_ahead)` 预建当前 + 未来分区；`kooix_prune_request_log_partitions(retention_months, dry_run)` 与 `kooix_prune_request_log_details(retention_days)` 提供可审计 retention。
+- 生产高吞吐（5w rpm 级别）可选 TimescaleDB profile：`request_events` / `request_log_events` / `usage_records` 按时间转 hypertable，配合 compression + retention；普通 PostgreSQL 路径默认可运行。
 
 ### 5.2 Row-Level Security 兜底
 

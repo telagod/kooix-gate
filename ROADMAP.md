@@ -2,7 +2,7 @@
 
 > 先收口，后补全，最后打磨。主轴是 **渠道插件化**：用 manifest 直接吃下私有协议、认证差异、SSE 格式、字段映射与 usage 归一，形成 Kooix Gate 真正的竞争力。
 
-## 当前基线（2026-05-18）
+## 当前基线（2026-05-20）
 
 `main` 已具备可用网关底盘：
 
@@ -17,7 +17,7 @@
 - typed ID API response + `FlexUuid` path 兼容。
 - SvelteKit 控制台：Channel、Group、Pricing、Quota、Usage、Requests、Billing、SSO、Users 等管理面。
 - 前端设计模板：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等。
-- CI：Rust fmt / clippy / check / tests + Web build；当前文档记录 277 Rust test list entries（272 unit/integration + 5 doctest）+ 55 web tests。
+- CI：Rust fmt / clippy / check / tests + Web build；当前文档记录 285 Rust test list entries（280 unit/integration + 5 doctest）+ 85 web tests。
 
 ## 战略主线：渠道插件化
 
@@ -77,7 +77,7 @@ awk '/^## \[0.2.0\]/{flag=1} /^## \[0.1.5\]/{flag=0} flag' CHANGELOG.md | rg 'TO
 
 **目标**：数据库从空库迁移、旧库迁移、测试库迁移都可重复执行。
 
-- [x] 全量验证 25 个 migration 空库可跑通。
+- [x] 全量验证 34 个 migration 空库可跑通。
 - [x] 验证 v0.1.5 数据库升级到 v0.2.0：
   - `pricing_rules` 旧数据迁移。
   - `inflight_requests.quota_keys` / `estimated_micros` 默认值正确。
@@ -631,7 +631,12 @@ cargo test -p gate-providers --all-targets
   - [x] usage/request_events/rollups/ledger batch settlement
   - [x] outbox mark done batch
   - [x] duplicate idempotency key safe path。
-- [ ] Request log 分区 / retention。
+- [x] Request log 分区 / retention：
+  - [x] `request_log_events` 月分区投影
+  - [x] `request_events` trigger 自动投影
+  - [x] 当前 + 未来分区 helper
+  - [x] retention dry-run / apply helper
+  - [x] request log read path 优先读分区投影。
 - [ ] SSE parser 压测：
   - 小帧多
   - 大帧

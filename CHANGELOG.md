@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P2.2 ProviderRouter 增加 channel key 解密短缓存：`KOOIX_CHANNEL_KEY_CACHE_TTL_SECS` 默认 30s，控制面 create / rotate / revoke 与运行时 key failure 上报会显式失效对应 channel，外部 DB 直改最迟 TTL 后生效；`routing` Criterion bench 增加 key decrypt cache hit / disabled 对比。
 - P2.2 hot path benchmark 补齐：`gate-server` 新增 `hot_paths` Criterion bench，覆盖 quota middleware 的 no-quota / rpm / body-metered budget 路径，以及 billing/request-log outbox enqueue 路径。
 - P2.2 Usage/outbox 批量写入落地：`OutboxRepo` 增加 `enqueue_batch` / `mark_done_batch`，billing consumer 会批量写 `request_events`、`usage_records`、hourly/daily rollups 与 `billing_ledger_events.actual_settle`，duplicate `idempotency_key` 只结算一次但重复 outbox row 会被标记完成。
+- P2.2 Request log 分区 / retention 落地：新增 `request_log_events` 月分区 read projection、`request_events` insert trigger、分区预建 helper 与 dry-run/apply retention helper；request log list/filter/incidents 优先读分区投影，`request_events` 继续保留幂等结算源语义。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。

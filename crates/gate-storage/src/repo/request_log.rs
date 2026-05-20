@@ -163,6 +163,18 @@ pub trait RequestLogRepo: Send + Sync + 'static {
 
     async fn incident_summary(&self, org_id: Option<Uuid>, hours: i64)
     -> DbResult<IncidentSummary>;
+
+    async fn ensure_partitions(&self, _months_ahead: i32) -> DbResult<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    async fn prune_partitions(&self, _retention_months: i32, _dry_run: bool) -> DbResult<u64> {
+        Ok(0)
+    }
+
+    async fn prune_details(&self, _retention_days: i32) -> DbResult<u64> {
+        Ok(0)
+    }
 }
 
 pub struct PgRequestLogRepo {
@@ -199,10 +211,14 @@ const EVENT_COLS: &str = "ts, request_id, org_id, project_id, api_key_id, user_i
     tokens_in, tokens_out, tokens_cached, cost_usd::float8 AS cost_f64, \
     latency_ms, ttfb_ms, status, error_code, retries, NULL::inet AS client_ip, NULL::jsonb AS metadata";
 
+const REQUEST_LOG_COLS: &str = EVENT_COLS;
+
 const EVENT_DETAIL_COLS: &str = "e.ts, e.request_id, e.org_id, e.project_id, e.api_key_id, e.user_id, \
     e.channel_id, e.channel_key_id, e.group_id, e.model_requested, e.model_actual, e.stream, \
     e.tokens_in, e.tokens_out, e.tokens_cached, e.cost_usd::float8 AS cost_f64, \
     e.latency_ms, e.ttfb_ms, e.status, e.error_code, e.retries, d.client_ip, d.metadata";
+
+const REQUEST_LOG_DETAIL_COLS: &str = EVENT_DETAIL_COLS;
 
 fn table_exists_sql(table: &str) -> String {
     format!(
@@ -249,7 +265,39 @@ fn row_to_record(r: &sqlx::postgres::PgRow) -> DbResult<RequestRecord> {
 
 impl PgRequestLogRepo {
     fn source_for_incidents(source: &str) -> &'static str {
-        if source == "request_events" {
+        match source {
+            "request_log_events" => "request_log_events",
+            "request_events" => "request_events",
+            _ => "usage_records",
+        }
+    }
+
+    async fn list_source(&self) -> (&'static str, &'static str) {
+        if table_exists(&self.pool, "request_log_events")
+            .await
+            .unwrap_or(false)
+        {
+            ("request_log_events", REQUEST_LOG_COLS)
+        } else if table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false)
+        {
+            ("request_events", EVENT_COLS)
+        } else {
+            ("usage_records", USAGE_COLS)
+        }
+    }
+
+    async fn compact_source(&self) -> &'static str {
+        if table_exists(&self.pool, "request_log_events")
+            .await
+            .unwrap_or(false)
+        {
+            "request_log_events"
+        } else if table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false)
+        {
             "request_events"
         } else {
             "usage_records"
@@ -317,13 +365,14 @@ impl PgRequestLogRepo {
             0.0
         };
 
+        let compact_source = self.compact_source().await;
         let events_org_filter = if org_id.is_some() {
             "AND org_id = $2"
         } else {
             ""
         };
         let errors_sql = format!(
-            "SELECT {EVENT_COLS} FROM request_events
+            "SELECT {EVENT_COLS} FROM {compact_source}
              WHERE status >= 400 AND ts >= NOW() - make_interval(hours => $1::int) {events_org_filter}
              ORDER BY ts DESC
              LIMIT 5"
@@ -358,6 +407,7 @@ impl PgRequestLogRepo {
         &self,
         org_id: Option<Uuid>,
         hours: i64,
+        compact_source: &str,
     ) -> DbResult<FilterOptions> {
         let org_filter = if org_id.is_some() {
             "AND e.org_id = $2"
@@ -367,7 +417,7 @@ impl PgRequestLogRepo {
 
         let models_sql = format!(
             "SELECT DISTINCT e.model_actual AS model \
-             FROM request_events e \
+             FROM {compact_source} e \
              WHERE e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
              ORDER BY model"
         );
@@ -383,7 +433,7 @@ impl PgRequestLogRepo {
 
         let channels_sql = format!(
             "SELECT DISTINCT e.channel_id AS id, c.name AS label \
-             FROM request_events e \
+             FROM {compact_source} e \
              LEFT JOIN channels c ON c.id = e.channel_id \
              WHERE e.channel_id IS NOT NULL AND e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
              ORDER BY label NULLS LAST"
@@ -403,7 +453,7 @@ impl PgRequestLogRepo {
 
         let projects_sql = format!(
             "SELECT DISTINCT e.project_id AS id, p.name AS label \
-             FROM request_events e \
+             FROM {compact_source} e \
              LEFT JOIN projects p ON p.id = e.project_id \
              WHERE e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
              ORDER BY label NULLS LAST"
@@ -423,7 +473,7 @@ impl PgRequestLogRepo {
 
         let errors_sql = format!(
             "SELECT DISTINCT e.error_code \
-             FROM request_events e \
+             FROM {compact_source} e \
              WHERE e.error_code IS NOT NULL AND e.ts >= NOW() - make_interval(hours => $1::int) {org_filter} \
              ORDER BY e.error_code"
         );
@@ -452,7 +502,7 @@ impl PgRequestLogRepo {
         hours: i64,
     ) -> DbResult<IncidentSummary> {
         let table = Self::source_for_incidents(source);
-        let alias = if table == "request_events" { "e" } else { "u" };
+        let alias = if table == "usage_records" { "u" } else { "e" };
         let org_filter = if org_id.is_some() {
             format!("AND {alias}.org_id = $2")
         } else {
@@ -561,14 +611,7 @@ impl RequestLogRepo for PgRequestLogRepo {
     ) -> DbResult<RequestPage> {
         let limit = limit.clamp(1, 100);
         let fetch_limit = limit + 1;
-        let use_events = table_exists(&self.pool, "request_events")
-            .await
-            .unwrap_or(false);
-        let (from_sql, cols) = if use_events {
-            ("request_events", EVENT_COLS)
-        } else {
-            ("usage_records", USAGE_COLS)
-        };
+        let (from_sql, cols) = self.list_source().await;
 
         let mut conditions = vec!["1=1".to_string()];
         let mut bind_idx = 0u32;
@@ -849,10 +892,19 @@ impl RequestLogRepo for PgRequestLogRepo {
     }
 
     async fn find_by_request_id(&self, request_id: Uuid) -> DbResult<RequestRecord> {
-        let use_events = table_exists(&self.pool, "request_events")
+        let sql = if table_exists(&self.pool, "request_log_events")
             .await
-            .unwrap_or(false);
-        let sql = if use_events {
+            .unwrap_or(false)
+        {
+            format!(
+                "SELECT {REQUEST_LOG_DETAIL_COLS} FROM request_log_events e \
+                 LEFT JOIN request_event_details d ON d.request_id = e.request_id \
+                 WHERE e.request_id = $1 LIMIT 1"
+            )
+        } else if table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false)
+        {
             format!(
                 "SELECT {EVENT_DETAIL_COLS} FROM request_events e \
                  LEFT JOIN request_event_details d ON d.request_id = e.request_id \
@@ -995,11 +1047,11 @@ impl RequestLogRepo for PgRequestLogRepo {
 
     async fn filter_options(&self, org_id: Option<Uuid>, hours: i64) -> DbResult<FilterOptions> {
         let hours = hours.clamp(1, 720);
-        if table_exists(&self.pool, "request_events")
-            .await
-            .unwrap_or(false)
-        {
-            return self.filter_options_from_events(org_id, hours).await;
+        let compact_source = self.compact_source().await;
+        if compact_source != "usage_records" {
+            return self
+                .filter_options_from_events(org_id, hours, compact_source)
+                .await;
         }
         let org_filter = if org_id.is_some() {
             "AND org_id = $2"
@@ -1093,16 +1145,57 @@ impl RequestLogRepo for PgRequestLogRepo {
         hours: i64,
     ) -> DbResult<IncidentSummary> {
         let hours = hours.clamp(1, 720);
-        if table_exists(&self.pool, "request_events")
+        let source = self.compact_source().await;
+        self.incident_summary_from_source(source, org_id, hours)
+            .await
+    }
+
+    async fn ensure_partitions(&self, months_ahead: i32) -> DbResult<Vec<String>> {
+        if !table_exists(&self.pool, "request_log_events")
             .await
             .unwrap_or(false)
         {
-            return self
-                .incident_summary_from_source("request_events", org_id, hours)
-                .await;
+            return Ok(Vec::new());
         }
-        self.incident_summary_from_source("usage_records", org_id, hours)
+        let partitions = sqlx::query_scalar::<_, String>(
+            "SELECT partition_name FROM kooix_ensure_request_log_partitions($1)",
+        )
+        .bind(months_ahead.clamp(0, 24))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(partitions)
+    }
+
+    async fn prune_partitions(&self, retention_months: i32, dry_run: bool) -> DbResult<u64> {
+        if !table_exists(&self.pool, "request_log_events")
             .await
+            .unwrap_or(false)
+        {
+            return Ok(0);
+        }
+        let rows = sqlx::query("SELECT dropped FROM kooix_prune_request_log_partitions($1, $2)")
+            .bind(retention_months.clamp(1, 120))
+            .bind(dry_run)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .filter(|row| row.try_get::<bool, _>("dropped").unwrap_or(false))
+            .count() as u64)
+    }
+
+    async fn prune_details(&self, retention_days: i32) -> DbResult<u64> {
+        if !table_exists(&self.pool, "request_event_details")
+            .await
+            .unwrap_or(false)
+        {
+            return Ok(0);
+        }
+        let deleted = sqlx::query_scalar::<_, i64>("SELECT kooix_prune_request_log_details($1)")
+            .bind(retention_days.clamp(1, 3650))
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(deleted.max(0) as u64)
     }
 }
 

@@ -29,26 +29,19 @@ fn print_partition_plan(months_ahead: u32, retention_months: u32) {
     );
     println!();
     println!("BEGIN;");
-    println!(
-        "-- 1) Keep existing tables online and create partitioned successors in a controlled migration."
-    );
-    println!(
-        "--    Example shown for request_events; repeat same pattern for usage_records if legacy hot reads remain."
-    );
-    println!(
-        "CREATE TABLE IF NOT EXISTS request_events_partitioned (LIKE request_events INCLUDING ALL) PARTITION BY RANGE (ts);"
-    );
-    println!(
-        "CREATE TABLE IF NOT EXISTS usage_records_partitioned (LIKE usage_records INCLUDING ALL) PARTITION BY RANGE (ts);"
-    );
+    println!("-- 1) Ensure the partitioned request-log projection and future partitions.");
+    println!("SELECT kooix_ensure_request_log_partitions({months_ahead});");
     println!();
-    println!("-- 2) Create this month + future monthly partitions.");
+    println!("-- 2) Equivalent manual DDL shape if you need DBA-reviewed SQL.");
+    println!(
+        "CREATE TABLE IF NOT EXISTS request_log_events (LIKE request_events INCLUDING DEFAULTS INCLUDING COMMENTS) PARTITION BY RANGE (ts);"
+    );
     println!("DO $$");
     println!("DECLARE");
-    println!("  base_month date := date_trunc('month', now())::date;");
+    println!("  base_month timestamptz := date_trunc('month', now());");
     println!("  i int;");
-    println!("  part_start date;");
-    println!("  part_end date;");
+    println!("  part_start timestamptz;");
+    println!("  part_end timestamptz;");
     println!("  suffix text;");
     println!("BEGIN");
     println!("  FOR i IN 0..{months_ahead} LOOP");
@@ -56,27 +49,18 @@ fn print_partition_plan(months_ahead: u32, retention_months: u32) {
     println!("    part_end := (part_start + interval '1 month')::date;");
     println!("    suffix := to_char(part_start, 'YYYY_MM');");
     println!(
-        "    EXECUTE format('CREATE TABLE IF NOT EXISTS request_events_%s PARTITION OF request_events_partitioned FOR VALUES FROM (%L) TO (%L)', suffix, part_start, part_end);"
-    );
-    println!(
-        "    EXECUTE format('CREATE TABLE IF NOT EXISTS usage_records_%s PARTITION OF usage_records_partitioned FOR VALUES FROM (%L) TO (%L)', suffix, part_start, part_end);"
+        "    EXECUTE format('CREATE TABLE IF NOT EXISTS request_log_events_%s PARTITION OF request_log_events FOR VALUES FROM (%L) TO (%L)', suffix, part_start, part_end);"
     );
     println!("  END LOOP;");
     println!("END $$;");
     println!();
+    println!("-- 3) Retention dry-run query: inspect partitions older than retention window.");
+    println!("SELECT * FROM kooix_prune_request_log_partitions({retention_months}, TRUE);");
+    println!("-- Apply after review:");
+    println!("-- SELECT * FROM kooix_prune_request_log_partitions({retention_months}, FALSE);");
     println!(
-        "-- 3) Retention dry-run query: inspect partitions older than retention window before dropping."
-    );
-    println!("SELECT inhrelid::regclass AS candidate_partition");
-    println!("FROM pg_inherits");
-    println!(
-        "WHERE inhparent IN ('request_events_partitioned'::regclass, 'usage_records_partitioned'::regclass)"
-    );
-    println!(
-        "  AND regexp_replace(inhrelid::regclass::text, '^.*_(\\\\d{{4}}_\\\\d{{2}})$', '\\\\1') <"
-    );
-    println!(
-        "      to_char(date_trunc('month', now()) - interval '{retention_months} months', 'YYYY_MM');"
+        "-- SELECT kooix_prune_request_log_details({});",
+        retention_months * 31
     );
     println!("COMMIT;");
 }
@@ -89,9 +73,15 @@ fn print_timescale_plan(retention_months: u32) {
     println!("BEGIN;");
     println!("CREATE EXTENSION IF NOT EXISTS timescaledb;");
     println!("SELECT create_hypertable('request_events', by_range('ts'), if_not_exists => TRUE);");
+    println!(
+        "SELECT create_hypertable('request_log_events', by_range('ts'), if_not_exists => TRUE);"
+    );
     println!("SELECT create_hypertable('usage_records', by_range('ts'), if_not_exists => TRUE);");
     println!(
         "ALTER TABLE request_events SET (timescaledb.compress, timescaledb.compress_segmentby = 'org_id,project_id,model_actual');"
+    );
+    println!(
+        "ALTER TABLE request_log_events SET (timescaledb.compress, timescaledb.compress_segmentby = 'org_id,project_id,model_actual');"
     );
     println!(
         "ALTER TABLE usage_records SET (timescaledb.compress, timescaledb.compress_segmentby = 'org_id,project_id,model_actual');"
@@ -100,10 +90,16 @@ fn print_timescale_plan(retention_months: u32) {
         "SELECT add_compression_policy('request_events', INTERVAL '7 days', if_not_exists => TRUE);"
     );
     println!(
+        "SELECT add_compression_policy('request_log_events', INTERVAL '7 days', if_not_exists => TRUE);"
+    );
+    println!(
         "SELECT add_compression_policy('usage_records', INTERVAL '7 days', if_not_exists => TRUE);"
     );
     println!(
         "SELECT add_retention_policy('request_events', INTERVAL '{retention_months} months', if_not_exists => TRUE);"
+    );
+    println!(
+        "SELECT add_retention_policy('request_log_events', INTERVAL '{retention_months} months', if_not_exists => TRUE);"
     );
     println!(
         "SELECT add_retention_policy('usage_records', INTERVAL '{retention_months} months', if_not_exists => TRUE);"
