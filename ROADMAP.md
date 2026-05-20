@@ -642,10 +642,10 @@ cargo test -p gate-providers --all-targets
   - [x] 大帧
   - [x] 分片 UTF-8
   - [x] 长连接取消。
-- [ ] Web bundle 预算：
-  - route-level splitting
-  - flow editor lazy load
-  - markdown highlighter lazy load。
+- [x] Web bundle 预算：
+  - [x] route-level splitting
+  - [x] flow editor lazy load
+  - [x] markdown highlighter lazy load。
 
 ### P2.3 安全打磨
 

@@ -1206,3 +1206,23 @@ cargo test -p gate-providers sse::tests -- --nocapture
 cargo check -p gate-providers --benches
 cargo bench --package gate-providers --bench sse -- --sample-size 10
 ```
+
+### Web bundle budget follow-up
+
+- `web/src/routes/playground/+page.svelte` 改为轻量 loading / error shell；`@xyflow/svelte`、节点组件与 Flow editor 状态逻辑迁入 `web/src/lib/components/playground/FlowEditor.svelte`，仅进入 Playground 后 dynamic import。
+- `web/src/lib/components/ui/MarkdownRenderer.svelte` 改为先渲染 escaped plain text fallback，再在客户端 dynamic import `marked`、`highlight.js/lib/core` 与少量语言包；普通控制台 route 不再静态携带 markdown highlighter。
+- `web/scripts/check-bundle-budget.mjs` 从“单文件不超过 750 KiB”升级为同时验证：
+  - SvelteKit app entry dynamic-import route nodes，覆盖 route-level splitting；
+  - Playground route node dynamic-import `FlowEditor`，且静态 imports 不含 Flow editor chunk；
+  - `MarkdownRenderer` chunk dynamic-import `marked` 与 `highlight.js`，且静态 imports 不含 markdown parser/highlighter。
+- 本轮 build 后客户端 manifest 证据：Playground route chunk 约 2.6 KiB，dynamic import `src/lib/components/playground/FlowEditor.svelte`；FlowEditor chunk 约 204 KiB；MarkdownRenderer dynamic imports 包含 `marked` + 15 个 `highlight.js` core/language chunks。
+- `ROADMAP.md` 中 P2.2 `Web bundle 预算` 收口为完成，关键变更记录在 `CHANGELOG.md` / `web/README.md`；阶段证据继续追加在本文。
+
+追加验证命令：
+
+```bash
+npm --prefix web run check
+npm --prefix web test
+npm --prefix web run build
+npm --prefix web run bundle:budget
+```

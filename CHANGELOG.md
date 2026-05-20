@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - P2.2 Usage/outbox 批量写入落地：`OutboxRepo` 增加 `enqueue_batch` / `mark_done_batch`，billing consumer 会批量写 `request_events`、`usage_records`、hourly/daily rollups 与 `billing_ledger_events.actual_settle`，duplicate `idempotency_key` 只结算一次但重复 outbox row 会被标记完成。
 - P2.2 Request log 分区 / retention 落地：新增 `request_log_events` 月分区 read projection、`request_events` insert trigger、分区预建 helper 与 dry-run/apply retention helper；request log list/filter/incidents 优先读分区投影，`request_events` 继续保留幂等结算源语义。
 - P2.2 SSE parser 压测补齐：`gate-providers` 新增 `sse` Criterion bench，覆盖小帧多、大帧、分片 UTF-8 与长连接取消；共享 `SseLineDecoder` 增加对应单测，避免流式 parser 边界回漂。
+- P2.2 Web bundle 预算收口：Playground route 只保留轻量 shell 并动态加载 `FlowEditor`，MarkdownRenderer 仅在客户端按需动态加载 `marked` 与 `highlight.js` 语言包，`web/scripts/check-bundle-budget.mjs` 现在同时验证 route-level splitting、Flow editor lazy load 与 markdown highlighter lazy load。
 - Channel 控制台新增 capability chips、Base URL 建议与不可用能力提示；创建/编辑 plugin preset 时 manifest 自动写入完整 capability 默认值。
 - `/v1/models` 现在只聚合 active + healthy channel，并在每个 model 上返回所有可用 channel capability 的 union，帮助 OpenAI-compatible 客户端在迁移前判断 streaming/tools/embeddings/image/audio/vision/json mode 能力。
 - `/v1/embeddings` 现在走 ProviderRouter 的 embedding channel 路由，贯通 model alias / channel model mapping、`channel_id`、channel key success/failure 上报与 least_conn inflight release。
