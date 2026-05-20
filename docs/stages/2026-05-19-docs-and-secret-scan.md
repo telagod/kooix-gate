@@ -666,3 +666,26 @@ cargo check -p kgctl
 cargo test -p kgctl plugin_package -- --nocapture
 cargo run -p kgctl -- plugin package lint examples/manifest-packages/private-auth-field-map-sse --verify --json
 ```
+
+## P1.8 Plugin Ecosystem / Plugin Sandbox Boundary
+
+本轮把 P1.8 的 Plugin sandbox 安全边界从字段/建议收敛为运行时强制边界：
+
+- `security.outbound_allowlist` 产品化为 origin allowlist；为空时走默认 denylist，非空时 base URL、绝对 path 与 OAuth token URL 都必须命中 allowlist。
+- 绝对 `request.path/chat_path` 仍默认禁用；显式启用时必须同时声明 `security.permissions.absolute_urls=true`，并继续拒绝 localhost、private/link-local/metadata host。
+- OAuth client credentials 需要 `security.permissions.oauth_client_credentials=true`；`permissions.secret_slots` 非空时会校验 auth 实际使用的 secret slot 已声明。
+- 自定义 reqwest DNS resolver 会拒绝解析结果里的内网/metadata IP；响应返回后再校验 `remote_addr`，补上 DNS rebinding / 运行时漂移防护。
+- `header_redaction` 与默认敏感头合并，支持 redacted probe/debug request；网络错误 URL 会脱敏 key/token/secret/password query。
+- `request.timeout_ms` 覆盖 channel timeout 并限制在 1..600000 ms；request body、response body 与 SSE event size limit 保持硬上限并补测试覆盖。
+- 样本 manifest、registry manifest 与 directory package fixture 均补齐 `outbound_allowlist`、`header_redaction`、`permissions` 字段，并刷新 registry/package digest。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`DESIGN.md`、`docs/plugin-manifest.md`、`docs/security-runbook.md` 与 package `security.md`。
+
+阶段验证命令：
+
+```bash
+cargo fmt --all
+cargo test -p gate-providers plugin -- --nocapture
+cargo test -p gate-providers custom_provider -- --nocapture
+cargo test -p kgctl plugin_ -- --nocapture
+cargo run -p kgctl -- plugin package lint examples/manifest-packages/private-auth-field-map-sse --verify --json
+```

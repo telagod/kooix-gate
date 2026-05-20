@@ -856,6 +856,7 @@ async fn plugin_test_posts_to_mock_upstream() {
         "--max-tokens",
         "1",
     ])
+    .env("KOOIX_PLUGIN_ALLOW_LOCALHOST", "1")
     .assert()
     .success()
     .stdout(predicate::str::contains("mapped ok"))

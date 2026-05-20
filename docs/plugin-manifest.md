@@ -547,12 +547,23 @@ Replay harness：
 
 ## Security options
 
-`security` 分区用于 v0.2.0 的最小运行时护栏：
+`security` 分区用于 v0.2.0+ 的运行时护栏：
 
 ```json
 {
   "plugin": {
+    "request": {
+      "timeout_ms": 30000
+    },
     "security": {
+      "outbound_allowlist": ["https://api.example.com"],
+      "header_redaction": ["authorization", "api-key", "x-api-key"],
+      "permissions": {
+        "outbound_http": true,
+        "absolute_urls": false,
+        "oauth_client_credentials": false,
+        "secret_slots": ["primary"]
+      },
       "max_request_bytes": 1048576,
       "max_response_bytes": 8388608,
       "max_sse_event_bytes": 1048576,
@@ -562,10 +573,16 @@ Replay harness：
 }
 ```
 
+- `outbound_allowlist` 是 origin allowlist；为空表示只使用默认 denylist，非空时 base URL、绝对 path 与 OAuth token URL 都必须命中。条目只允许 `http/https` origin（如 `https://api.example.com`），不接受 path/query/fragment。
+- 默认 denylist 拒绝 `localhost`、link-local、private IP、unspecified/broadcast IP、`metadata`、`metadata.google.internal` 与 `169.254.169.254`；绝对 URL 与 OAuth token URL 走该 denylist。
+- DNS rebind 防护在两层执行：自定义 reqwest DNS resolver 会拒绝解析结果里的内网/metadata IP；响应返回后再检查 `remote_addr`，防止连接目标漂移。
+- `header_redaction` 合并默认敏感头（`authorization`、`api-key`、`x-api-key`、cookie、AWS session token 等），用于 probe/debug 输出；query 中包含 key/token/secret/password 的参数在网络错误 URL 中脱敏。
+- `permissions.outbound_http` 默认 `true`，关掉会拒绝加载 HTTP plugin；`allow_absolute_chat_path=true` 必须同时声明 `permissions.absolute_urls=true`；`auth.strategy=oauth_client_credentials` 必须声明 `permissions.oauth_client_credentials=true`；`permissions.secret_slots` 非空时会校验所有被 auth 使用的 slot 已声明。
+- `request.timeout_ms` 可覆盖 channel timeout，合法范围 1..600000 ms。
 - `max_request_bytes` 默认 1 MiB，硬上限 16 MiB。
-- `max_response_bytes` 默认 8 MiB，硬上限 64 MiB；非流式响应按实际 body 校验，流式响应先按 `content-length` 提前拒绝。
+- `max_response_bytes` 默认 8 MiB，硬上限 64 MiB；非流式响应按实际 body 校验，流式响应先按 `content-length` 提前拒绝并累计 bytes。
 - `max_sse_event_bytes` 默认 1 MiB，硬上限 4 MiB。
-- `allow_absolute_chat_path` 默认 `false`。即使显式打开，仍拒绝 `localhost`、link-local、private IP、unspecified/broadcast IP、`metadata`、`metadata.google.internal` 等目标；生产环境仍建议用 egress firewall/allowlist 兜底 DNS rebinding 与运行时解析漂移。
+- `allow_absolute_chat_path` 默认 `false`。即使显式打开，仍会套用 denylist、allowlist 与 DNS rebind 防护。
 
 ## 安全边界
 
@@ -573,16 +590,16 @@ v0.2.0 必须遵守：
 
 - Manifest 不保存明文密钥，只能引用 `channel_keys.label` / env fallback 注入的 secret slot。
 - Header / path / body 模板只使用白名单变量，未知变量直接拒绝加载。
-- `request.chat_path` 默认不接受绝对 URL；显式打开时仍拒绝内网与 metadata host。
+- `request.chat_path` 默认不接受绝对 URL；显式打开时必须声明 `permissions.absolute_urls=true`，且仍拒绝内网、metadata host 与 DNS rebind。
 - request body、response body 与单个 SSE event 都有大小上限。
-- 私有 URL / header / body 都视为不可信配置，发布前需要人工 review；生产环境建议通过网络层限制出站访问，避免 DNS rebinding 或代理绕过。
-- 不在日志、request log、audit 中写出 `api_key`、secret header 或 Bearer token。
+- 私有 URL / header / body 都视为不可信配置，发布前需要人工 review；生产环境仍建议用网络层 egress firewall 作为 runtime allowlist 外的兜底。
+- 不在日志、request log、audit 中写出 `api_key`、secret header、Bearer token 或 query secret；probe/debug 输出必须使用 redacted headers / URL。
 
-后续计划补齐：signed manifest package、跨版本 fixture 批量回放与更细粒度出站 allowlist。
+后续计划补齐：signed manifest package、跨版本 fixture 批量回放与 WASM ABI 资源审计。
 
 ## 当前测试覆盖
 
-- `cargo test -p gate-providers plugin`：request template、preset、Azure path、Anthropic adapter、自定义 SSE mapper、绝对 URL/内网 host 拒绝、header 模板白名单、request body size limit。
+- `cargo test -p gate-providers plugin` / `cargo test -p gate-providers custom_provider`：request template、preset、Azure path、Anthropic adapter、自定义 SSE mapper、绝对 URL/内网 host 拒绝、outbound allowlist、DNS rebind guard、header/query redaction、OAuth permission、request body size limit。
 - `cargo test -p gate-providers sse`：共享 SSE decoder 的分片、多行 data、CRLF/LF 行为。
 - `cargo test -p kgctl plugin_`：CLI schema/lint/test/replay/export/import golden fixture、directory package lint 与 registry package/import/export。
 - `cargo test -p gate-server --test channel_plugin_e2e`：manifest replay → channel create → group binding 控制面闭环。

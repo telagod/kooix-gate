@@ -517,13 +517,13 @@ cargo test -p gate-providers --all-targets
   - [x] `fixtures/` 请求、响应、SSE 样本。
   - [x] `README.md` 接入说明。
   - [x] `security.md` 风险声明。
-- [ ] Plugin sandbox 安全边界产品化：
-  - SSRF denylist / allowlist。
-  - DNS rebind 防护。
-  - header redaction。
-  - request / response size limit。
-  - timeout / retry / circuit breaker。
-  - manifest 权限声明。
+- [x] Plugin sandbox 安全边界产品化：
+  - [x] SSRF denylist / allowlist。
+  - [x] DNS rebind 防护。
+  - [x] header redaction。
+  - [x] request / response size limit。
+  - [x] timeout / retry / circuit breaker。
+  - [x] manifest 权限声明。
 - [ ] WASM 插件 ABI 设计稿只做 vNext：
   - request transform。
   - response transform。

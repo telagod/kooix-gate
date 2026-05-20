@@ -279,10 +279,10 @@ Channel 级 `health` 由所有 key 状态聚合：
 `provider_type=plugin|custom|http|http_plugin` 走运行时 HTTP plugin adapter，不需要重新编译 provider crate。插件 manifest 存在 `channels.model_mapping.plugin`（复用已暴露 JSONB 配置面，密钥仍走 `channel_keys` / env 回退）：
 
 - `preset.provider`：主流 Provider 预设，当前覆盖 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse`；预设负责默认 path、headers、request adapter、response/SSE mapper。
-- `request.chat_path`：默认必须是相对 `base_url` 的 path，支持模板变量；Azure 预设用 `{{model}}` 展开 deployment path。绝对 URL 需要显式 `security.allow_absolute_chat_path=true`，且仍会拒绝 localhost、link-local、private IP 与 metadata host。
+- `request.chat_path`：默认必须是相对 `base_url` 的 path，支持模板变量；Azure 预设用 `{{model}}` 展开 deployment path。绝对 URL 需要显式 `security.allow_absolute_chat_path=true` 与 `security.permissions.absolute_urls=true`，且仍会拒绝 localhost、link-local、private IP、metadata host 与 DNS rebind。
 - `request.headers`：支持 `{{api_key}}` 等模板变量，未声明 Authorization 时默认 Bearer；设为 `null` 可显式禁用默认 Bearer。
 - `request.body`：JSON 模板，支持 `{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{max_tokens}}` 等变量；整段占位会保留原 JSON 类型。
-- `security.*`：限制 request body、response body、SSE event 大小；header/path/body 模板分域白名单校验，manifest 作为不可信配置处理。
+- `security.*`：限制 request body、response body、SSE event 大小与 request timeout；`outbound_allowlist` 强制 origin allowlist；header/path/body 模板分域白名单校验，manifest 作为不可信配置处理。
 - `response.*_path`：把私有非流式响应抽成 `ChatResponse`。
 - `stream.*_path`：共享 SSE decoder 先处理 CRLF/LF、注释、多行 data、分片，再按 path 抽 token / finish_reason / usage，归一成 `ChatStreamChunk`；OpenAI-compatible 预设自动注入 `stream_options.include_usage=true`。
 

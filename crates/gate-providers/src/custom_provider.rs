@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -47,6 +47,7 @@ struct AwsSigv4Signature {
 #[derive(Clone)]
 pub struct CustomHttpProvider {
     client: reqwest::Client,
+    sandbox: Arc<PluginHttpSandbox>,
     base_url: String,
     secrets: Arc<HashMap<String, String>>,
     manifest: Arc<PluginManifest>,
@@ -79,6 +80,17 @@ pub struct PluginProbeRequest {
     pub max_cost_micros: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RedactedPluginProbeRequest {
+    pub method: Method,
+    pub url: String,
+    pub headers: HeaderMap,
+    pub body: Option<Vec<u8>>,
+    pub model: String,
+    pub success_status: Vec<u16>,
+    pub max_cost_micros: Option<i64>,
+}
+
 impl CustomHttpProvider {
     pub fn new_with_opts(
         base_url: impl Into<String>,
@@ -102,13 +114,22 @@ impl CustomHttpProvider {
     ) -> ProviderResult<Self> {
         let base_url = base_url.into().trim_end_matches('/').to_string();
         let manifest = PluginManifest::from_value(manifest, &base_url)?;
+        let sandbox = Arc::new(PluginHttpSandbox::new(&manifest)?);
+        sandbox.validate_endpoint(&base_url, EndpointKind::BaseUrl)?;
+        if manifest.auth.strategy == AuthStrategy::OauthClientCredentials {
+            sandbox.validate_endpoint(&manifest.auth.oauth.token_url, EndpointKind::OauthToken)?;
+        }
+        let timeout_ms = manifest.request.timeout_ms.unwrap_or(opts.timeout_ms);
         let client = reqwest::Client::builder()
             .connect_timeout(opts.connect_timeout())
-            .timeout(opts.timeout_duration())
+            .timeout(std::time::Duration::from_millis(timeout_ms))
+            .dns_resolver(Arc::new(SandboxDnsResolver::new(sandbox.clone())))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| ProviderError::Config(e.to_string()))?;
         Ok(Self {
             client,
+            sandbox,
             base_url,
             secrets: Arc::new(normalize_secret_slots(secrets)),
             manifest: Arc::new(manifest),
@@ -184,6 +205,18 @@ impl CustomHttpProvider {
         })
     }
 
+    pub fn redacted_probe_request(&self, probe: &PluginProbeRequest) -> RedactedPluginProbeRequest {
+        RedactedPluginProbeRequest {
+            method: probe.method.clone(),
+            url: self.sandbox.redact_url(&probe.url),
+            headers: self.sandbox.redact_headers(&probe.headers),
+            body: probe.body.clone(),
+            model: probe.model.clone(),
+            success_status: probe.success_status.clone(),
+            max_cost_micros: probe.max_cost_micros,
+        }
+    }
+
     fn endpoint_url_for(&self, req: &ChatRequest) -> ProviderResult<String> {
         let ctx = self.request_context_for(req)?;
         self.endpoint_url_with_context(&ctx)
@@ -211,11 +244,13 @@ impl CustomHttpProvider {
                         .into(),
                 ));
             }
-            validate_http_endpoint(&rendered, true)?;
+            self.sandbox
+                .validate_endpoint(&rendered, EndpointKind::AbsolutePath)?;
             return self.url_with_query(rendered, ctx);
         }
         let endpoint = format!("{}{}", self.base_url, slash_path(&rendered));
-        validate_http_endpoint(&endpoint, false)?;
+        self.sandbox
+            .validate_endpoint(&endpoint, EndpointKind::BaseUrl)?;
         self.url_with_query(endpoint, ctx)
     }
 
@@ -229,11 +264,13 @@ impl CustomHttpProvider {
                         .into(),
                 ));
             }
-            validate_http_endpoint(&rendered, true)?;
+            self.sandbox
+                .validate_endpoint(&rendered, EndpointKind::AbsolutePath)?;
             return self.url_with_query(rendered, ctx);
         }
         let endpoint = format!("{}{}", self.base_url, slash_path(&rendered));
-        validate_http_endpoint(&endpoint, false)?;
+        self.sandbox
+            .validate_endpoint(&endpoint, EndpointKind::BaseUrl)?;
         self.url_with_query(endpoint, ctx)
     }
 
@@ -458,6 +495,8 @@ impl CustomHttpProvider {
         now: chrono::DateTime<chrono::Utc>,
     ) -> ProviderResult<CachedOauthToken> {
         let oauth = &self.manifest.auth.oauth;
+        self.sandbox
+            .validate_endpoint(&oauth.token_url, EndpointKind::OauthToken)?;
         let client_id = self.secret_for_slot(&oauth.client_id_slot);
         let client_secret = self.secret_for_slot(&oauth.client_secret_slot);
         if client_id.is_empty() {
@@ -500,7 +539,9 @@ impl CustomHttpProvider {
             .post(oauth.token_url.trim())
             .form(&form)
             .send()
-            .await?;
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
         check_status(&resp)?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
@@ -1078,7 +1119,9 @@ impl Provider for CustomHttpProvider {
             .headers(headers)
             .body(body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
         let resp = self.check_plugin_status(resp).await?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
@@ -1106,7 +1149,9 @@ impl Provider for CustomHttpProvider {
             .headers(headers)
             .body(body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
         let resp = self.check_plugin_status(resp).await?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
 
@@ -1826,24 +1871,324 @@ fn env_primary_secret(channel_code: &str) -> Option<String> {
         .ok()
 }
 
-fn validate_http_endpoint(endpoint: &str, deny_internal_host: bool) -> ProviderResult<()> {
-    let parsed = reqwest::Url::parse(endpoint)
-        .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        other => {
-            return Err(ProviderError::Config(format!(
-                "plugin endpoint scheme must be http/https, got {other}"
-            )));
+#[derive(Debug, Clone)]
+struct PluginHttpSandbox {
+    allowlist: Vec<OutboundAllow>,
+    redacted_headers: Vec<HeaderName>,
+    allow_absolute_urls: bool,
+}
+
+#[derive(Debug, Clone)]
+struct OutboundAllow {
+    scheme: Option<String>,
+    host: String,
+    port: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum EndpointKind {
+    BaseUrl,
+    AbsolutePath,
+    OauthToken,
+}
+
+impl EndpointKind {
+    fn label(self) -> &'static str {
+        match self {
+            EndpointKind::BaseUrl => "base_url",
+            EndpointKind::AbsolutePath => "absolute URL",
+            EndpointKind::OauthToken => "oauth token_url",
         }
     }
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| ProviderError::Config("plugin endpoint URL missing host".into()))?;
-    if deny_internal_host && is_internal_or_metadata_host(host) {
-        return Err(ProviderError::Config(format!(
-            "plugin absolute chat_path targets forbidden host {host}"
-        )));
+
+    fn enforce_internal_host(self) -> bool {
+        matches!(self, EndpointKind::AbsolutePath | EndpointKind::OauthToken)
+    }
+}
+
+impl PluginHttpSandbox {
+    fn new(manifest: &PluginManifest) -> ProviderResult<Self> {
+        let allowlist = manifest
+            .security
+            .outbound_allowlist
+            .iter()
+            .map(|entry| OutboundAllow::parse(entry))
+            .collect::<ProviderResult<Vec<_>>>()?;
+        let redacted_headers = redacted_header_names(manifest)?;
+        Ok(Self {
+            allowlist,
+            redacted_headers,
+            allow_absolute_urls: manifest.security.allow_absolute_chat_path,
+        })
+    }
+
+    fn validate_endpoint(&self, endpoint: &str, kind: EndpointKind) -> ProviderResult<()> {
+        let parsed = reqwest::Url::parse(endpoint)
+            .map_err(|e| ProviderError::Config(format!("invalid plugin endpoint URL: {e}")))?;
+        if matches!(kind, EndpointKind::AbsolutePath) && !self.allow_absolute_urls {
+            return Err(ProviderError::Config(
+                "plugin request.chat_path must be relative; absolute URLs are disabled by default"
+                    .into(),
+            ));
+        }
+        match parsed.scheme() {
+            "http" | "https" => {}
+            other => {
+                return Err(ProviderError::Config(format!(
+                    "plugin endpoint scheme must be http/https, got {other}"
+                )));
+            }
+        }
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| ProviderError::Config("plugin endpoint URL missing host".into()))?;
+        if is_metadata_host(host) {
+            return Err(ProviderError::Config(format!(
+                "plugin {} targets forbidden host {host}",
+                kind.label()
+            )));
+        }
+        let allow_local_sandbox =
+            cfg!(test) || std::env::var_os("KOOIX_PLUGIN_ALLOW_LOCALHOST").is_some();
+        let is_allowed_localhost =
+            allow_localhost_loopback(allow_local_sandbox, kind, parsed.scheme(), host);
+        if kind.enforce_internal_host()
+            && !is_allowed_localhost
+            && is_internal_or_metadata_host(host)
+        {
+            return Err(ProviderError::Config(format!(
+                "plugin {} targets forbidden host {host}",
+                kind.label()
+            )));
+        }
+        if !self.allowlist.is_empty() && !self.allowed_url(&parsed) {
+            return Err(ProviderError::Config(format!(
+                "plugin {} target {} is not in security.outbound_allowlist",
+                kind.label(),
+                url_origin(&parsed)
+            )));
+        }
+        Ok(())
+    }
+
+    fn allowed_url(&self, url: &Url) -> bool {
+        self.allowlist.iter().any(|entry| entry.matches(url))
+    }
+
+    fn validate_resolved_addrs(
+        &self,
+        host: &str,
+        addrs: &[SocketAddr],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if is_explicit_internal_host(host) && !is_metadata_host(host) {
+            return Ok(());
+        }
+        for addr in addrs {
+            if is_internal_or_metadata_ip(addr.ip()) {
+                return Err(format!(
+                    "plugin DNS rebind guard blocked {host} resolved to {}",
+                    addr.ip()
+                )
+                .into());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_response_peer(&self, resp: &reqwest::Response) -> ProviderResult<()> {
+        let Some(remote_addr) = resp.remote_addr() else {
+            return Ok(());
+        };
+        let allow_local_sandbox =
+            cfg!(test) || std::env::var_os("KOOIX_PLUGIN_ALLOW_LOCALHOST").is_some();
+        if let Some(host) = resp.url().host_str() {
+            if allow_localhost_loopback(
+                allow_local_sandbox,
+                EndpointKind::OauthToken,
+                resp.url().scheme(),
+                host,
+            ) || (is_explicit_internal_host(host) && !is_metadata_host(host))
+            {
+                return Ok(());
+            }
+            if is_metadata_host(host) {
+                return Err(ProviderError::Network(format!(
+                    "plugin DNS rebind guard blocked response peer {} for {}",
+                    remote_addr.ip(),
+                    self.redact_url(resp.url().as_str())
+                )));
+            }
+        }
+        if is_internal_or_metadata_ip(remote_addr.ip()) {
+            return Err(ProviderError::Network(format!(
+                "plugin DNS rebind guard blocked response peer {} for {}",
+                remote_addr.ip(),
+                self.redact_url(resp.url().as_str())
+            )));
+        }
+        Ok(())
+    }
+
+    fn redact_url(&self, url: &str) -> String {
+        let Ok(mut parsed) = Url::parse(url) else {
+            return url.to_string();
+        };
+        let mut redacted = Vec::new();
+        for (key, value) in parsed.query_pairs() {
+            if should_redact_query_key(&key) {
+                redacted.push((key.into_owned(), "[REDACTED]".to_string()));
+            } else {
+                redacted.push((key.into_owned(), value.into_owned()));
+            }
+        }
+        if redacted
+            .iter()
+            .any(|(_, value)| value.as_str() == "[REDACTED]")
+        {
+            parsed.query_pairs_mut().clear().extend_pairs(redacted);
+        }
+        parsed.to_string()
+    }
+
+    fn redact_headers(&self, headers: &HeaderMap) -> HeaderMap {
+        let mut redacted = HeaderMap::new();
+        for (name, value) in headers {
+            if self
+                .redacted_headers
+                .iter()
+                .any(|sensitive| sensitive == name)
+            {
+                redacted.insert(name.clone(), HeaderValue::from_static("[REDACTED]"));
+            } else {
+                redacted.insert(name.clone(), value.clone());
+            }
+        }
+        redacted
+    }
+
+    fn reqwest_error(&self, error: reqwest::Error) -> ProviderError {
+        let redacted = error
+            .url()
+            .map(|url| self.redact_url(url.as_str()))
+            .unwrap_or_default();
+        let error = error.without_url();
+        if !redacted.is_empty() && (error.is_connect() || error.is_timeout() || error.is_request())
+        {
+            return ProviderError::Network(format!("{error}; url={redacted}"));
+        }
+        ProviderError::from(error)
+    }
+}
+
+impl OutboundAllow {
+    fn parse(entry: &str) -> ProviderResult<Self> {
+        let entry = entry.trim();
+        let normalized = if entry.contains("://") {
+            entry.to_string()
+        } else {
+            format!("https://{entry}")
+        };
+        let parsed = Url::parse(&normalized).map_err(|e| {
+            ProviderError::Config(format!(
+                "invalid plugin outbound_allowlist entry {entry:?}: {e}"
+            ))
+        })?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| {
+                ProviderError::Config(format!(
+                    "invalid plugin outbound_allowlist entry {entry:?}: missing host"
+                ))
+            })?
+            .trim_matches(['[', ']'])
+            .to_ascii_lowercase();
+        Ok(Self {
+            scheme: Some(parsed.scheme().to_string()),
+            host,
+            port: parsed.port(),
+        })
+    }
+
+    fn matches(&self, url: &Url) -> bool {
+        if self
+            .scheme
+            .as_deref()
+            .is_some_and(|scheme| scheme != url.scheme())
+        {
+            return false;
+        }
+        let Some(host) = url.host_str() else {
+            return false;
+        };
+        if host.trim_matches(['[', ']']).to_ascii_lowercase().as_str() != self.host {
+            return false;
+        }
+        self.port == url.port()
+    }
+}
+
+#[derive(Clone)]
+struct SandboxDnsResolver {
+    sandbox: Arc<PluginHttpSandbox>,
+}
+
+impl SandboxDnsResolver {
+    fn new(sandbox: Arc<PluginHttpSandbox>) -> Self {
+        Self { sandbox }
+    }
+}
+
+impl reqwest::dns::Resolve for SandboxDnsResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        let sandbox = self.sandbox.clone();
+        Box::pin(async move {
+            let addrs = tokio::net::lookup_host((host.as_str(), 0))
+                .await
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
+            let addrs = addrs.collect::<Vec<_>>();
+            sandbox.validate_resolved_addrs(&host, &addrs)?;
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+fn redacted_header_names(manifest: &PluginManifest) -> ProviderResult<Vec<HeaderName>> {
+    let mut names = Vec::new();
+    for name in [
+        "authorization",
+        "api-key",
+        "x-api-key",
+        "cookie",
+        "set-cookie",
+        "x-amz-security-token",
+    ] {
+        push_header_name(&mut names, name)?;
+    }
+    if let Some(name) = manifest.auth.header_name() {
+        push_header_name(&mut names, name)?;
+    }
+    match manifest.auth.strategy {
+        AuthStrategy::Hmac => {
+            push_header_name(&mut names, &manifest.auth.hmac.signature_header)?;
+        }
+        AuthStrategy::AwsSigv4 => {
+            push_header_name(&mut names, "x-amz-date")?;
+            push_header_name(&mut names, "x-amz-content-sha256")?;
+        }
+        _ => {}
+    }
+    for name in &manifest.security.header_redaction {
+        push_header_name(&mut names, name)?;
+    }
+    Ok(names)
+}
+
+fn push_header_name(names: &mut Vec<HeaderName>, name: &str) -> ProviderResult<()> {
+    let name = HeaderName::from_bytes(name.as_bytes())
+        .map_err(|e| ProviderError::Config(format!("invalid plugin header {name:?}: {e}")))?;
+    if !names.contains(&name) {
+        names.push(name);
     }
     Ok(())
 }
@@ -1857,23 +2202,67 @@ fn is_internal_or_metadata_host(host: &str) -> bool {
         return true;
     }
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return match ip {
-            IpAddr::V4(ip) => {
-                ip.is_private()
-                    || ip.is_loopback()
-                    || ip.is_link_local()
-                    || ip.is_unspecified()
-                    || ip.is_broadcast()
-            }
-            IpAddr::V6(ip) => {
-                ip.is_loopback()
-                    || ip.is_unspecified()
-                    || ip.is_unique_local()
-                    || ip.is_unicast_link_local()
-            }
-        };
+        return is_internal_or_metadata_ip(ip);
     }
     false
+}
+
+fn is_metadata_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    matches!(host.as_str(), "metadata" | "metadata.google.internal")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|ip| matches!(ip, IpAddr::V4(ip) if ip.octets() == [169, 254, 169, 254]))
+}
+
+fn is_explicit_internal_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    host == "localhost" || host.parse::<IpAddr>().is_ok_and(is_internal_or_metadata_ip)
+}
+
+fn allow_localhost_loopback(enabled: bool, kind: EndpointKind, scheme: &str, host: &str) -> bool {
+    enabled
+        && matches!(kind, EndpointKind::OauthToken)
+        && scheme == "http"
+        && matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]")
+}
+
+fn is_internal_or_metadata_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || ip.octets() == [169, 254, 169, 254]
+        }
+        IpAddr::V6(ip) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+        }
+    }
+}
+
+fn url_origin(url: &Url) -> String {
+    let Some(host) = url.host_str() else {
+        return url.as_str().to_string();
+    };
+    match url.port() {
+        Some(port) => format!("{}://{}:{port}", url.scheme(), host),
+        None => format!("{}://{host}", url.scheme()),
+    }
+}
+
+fn should_redact_query_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    key.contains("key")
+        || key.contains("token")
+        || key.contains("secret")
+        || key.contains("password")
+        || key == "access_token"
 }
 
 fn whole_placeholder(s: &str) -> Option<&str> {
@@ -2571,6 +2960,9 @@ mod tests {
                             "scope": "chat:write"
                         }
                     },
+                    "security": {
+                        "permissions": { "oauth_client_credentials": true }
+                    },
                     "request": { "path": "/private/chat" }
                 }
             }),
@@ -2635,6 +3027,9 @@ mod tests {
                             "expiry_skew_seconds": 0
                         }
                     },
+                    "security": {
+                        "permissions": { "oauth_client_credentials": true }
+                    },
                     "request": { "path": "/private/chat" }
                 }
             }),
@@ -2675,6 +3070,9 @@ mod tests {
                         "oauth": {
                             "token_url": format!("{}/oauth/token", token_server.uri())
                         }
+                    },
+                    "security": {
+                        "permissions": { "oauth_client_credentials": true }
                     },
                     "request": { "path": "/private/chat" }
                 }
@@ -2744,6 +3142,26 @@ mod tests {
     }
 
     #[test]
+    fn plugin_sandbox_validate_endpoint_blocks_absolute_url_without_permission() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({ "plugin": {} }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let err = provider
+            .sandbox
+            .validate_endpoint("https://api.other.example/v1", EndpointKind::AbsolutePath)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("absolute URLs are disabled"),
+            "err={err}"
+        );
+    }
+
+    #[test]
     fn plugin_manifest_rejects_internal_absolute_url_even_when_enabled() {
         let provider = CustomHttpProvider::new_with_opts(
             "https://api.example.com",
@@ -2754,7 +3172,8 @@ mod tests {
                         "chat_path": "http://localhost/admin"
                     },
                     "security": {
-                        "allow_absolute_chat_path": true
+                        "allow_absolute_chat_path": true,
+                        "permissions": { "absolute_urls": true }
                     }
                 }
             }),
@@ -2767,6 +3186,115 @@ mod tests {
             err.to_string().contains("forbidden host localhost"),
             "err={err}"
         );
+    }
+
+    #[test]
+    fn plugin_manifest_requires_permission_for_absolute_urls() {
+        let err = match CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "request": {
+                        "chat_path": "https://api.other.example/v1/chat"
+                    },
+                    "security": {
+                        "allow_absolute_chat_path": true
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        ) {
+            Ok(_) => panic!("manifest should require absolute_urls permission"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("permissions.absolute_urls"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn plugin_manifest_enforces_outbound_allowlist() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "security": {
+                        "outbound_allowlist": ["https://api.example.com"]
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let err = provider
+            .sandbox
+            .validate_endpoint("https://blocked.example/chat", EndpointKind::BaseUrl)
+            .unwrap_err();
+        assert!(err.to_string().contains("outbound_allowlist"), "err={err}");
+    }
+
+    #[test]
+    fn plugin_manifest_redacts_headers_and_query_secrets_for_probe_debug() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({
+                "plugin": {
+                    "auth": { "strategy": "api_key_query", "query_name": "api_key" },
+                    "request": {
+                        "path": "/chat",
+                        "headers": { "X-Trace-Secret": "{{api_key}}" }
+                    },
+                    "security": {
+                        "header_redaction": ["x-trace-secret"]
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let mut endpoint = provider.endpoint_url_for(&make_req(false)).unwrap();
+        endpoint.push_str("?api_key=sk-test");
+        let redacted_url = provider.sandbox.redact_url(&endpoint);
+        assert!(redacted_url.contains("api_key="));
+        assert!(!redacted_url.contains("sk-test"), "url={redacted_url}");
+
+        let headers = provider.request_headers_for(&make_req(false)).unwrap();
+        let redacted_headers = provider.sandbox.redact_headers(&headers);
+        assert_eq!(
+            redacted_headers
+                .get("x-trace-secret")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn plugin_dns_rebind_guard_rejects_private_resolved_addresses() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com",
+            "sk-test",
+            json!({ "plugin": {} }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let err = provider
+            .sandbox
+            .validate_resolved_addrs(
+                "evil.example",
+                &[SocketAddr::from(([169, 254, 169, 254], 80))],
+            )
+            .unwrap_err();
+
+        assert!(err.to_string().contains("DNS rebind guard"), "err={err}");
     }
 
     #[test]

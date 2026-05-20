@@ -10,7 +10,7 @@
       "author": "Kooix Gate maintainers",
       "source": "official",
       "manifest_path": "official/openai-compatible/1.0.0/manifest.json",
-      "sha256": "39272db4c23bc2d1fbb643913a23176948c9b4dd0e50b5c2bf1ffe314788b4e0",
+      "sha256": "91ec7d541b3df5dc18a93f9b7bf40e6cba08e34532b57ca7d49f256b97d754c8",
       "compatibility": {
         "min_gate_version": "0.2.0",
         "max_gate_version": null,
@@ -35,7 +35,7 @@
       "author": "Kooix Gate community",
       "source": "community",
       "manifest_path": "community/openai-compatible-lite/1.0.0/manifest.json",
-      "sha256": "471ebac292e7787c4b6ece10e5cf6fb969a01daafa33f16b95ade0b2acfafca0",
+      "sha256": "2ce1464d8508666fb1f8ff0f501644eeee6fba06084b67db384b80f5aaf705fc",
       "compatibility": {
         "min_gate_version": "0.2.0",
         "max_gate_version": null,
@@ -60,7 +60,7 @@
       "author": "Kooix Gate maintainers",
       "source": "official",
       "manifest_path": "official/private-auth-field-map-sse/1.0.0/manifest.json",
-      "sha256": "acd71a60ee2fc41db0f3a6bb6d35213c98cdd6f35f480b0121a3abc0ce9b670d",
+      "sha256": "3dc3b0df2a6bada43aabacf86a7c9108d06b0a50074182386302081ee65d3392",
       "compatibility": {
         "min_gate_version": "0.2.0",
         "max_gate_version": null,

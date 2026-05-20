@@ -20,6 +20,7 @@ pub(crate) const DEFAULT_MAX_SSE_EVENT_BYTES: usize = 1024 * 1024;
 const HARD_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 const HARD_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 const HARD_MAX_SSE_EVENT_BYTES: usize = 4 * 1024 * 1024;
+const HARD_MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 #[serde(default)]
@@ -243,10 +244,20 @@ pub struct ProbeManifest {
 pub struct SecurityManifest {
     pub outbound_allowlist: Vec<String>,
     pub header_redaction: Vec<String>,
+    pub permissions: PluginPermissionsManifest,
     pub max_request_bytes: Option<usize>,
     pub max_response_bytes: Option<usize>,
     pub max_sse_event_bytes: Option<usize>,
     pub allow_absolute_chat_path: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(default)]
+pub struct PluginPermissionsManifest {
+    pub outbound_http: bool,
+    pub absolute_urls: bool,
+    pub oauth_client_credentials: bool,
+    pub secret_slots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -386,10 +397,52 @@ impl PluginManifest {
                 &json_pointer(pointer_base, "/request/body"),
             )?;
         }
+        validate_timeout_ms(self.request.timeout_ms, pointer_base)?;
         validate_probe(&self.probe, &json_pointer(pointer_base, "/probe"))?;
         validate_response_paths(&self.response, &json_pointer(pointer_base, "/response"))?;
         validate_stream_paths(&self.stream, &json_pointer(pointer_base, "/stream"))?;
-        self.security.validate(pointer_base)
+        self.security.validate(pointer_base)?;
+        self.validate_sandbox_permissions(pointer_base)
+    }
+
+    fn validate_sandbox_permissions(&self, pointer_base: &str) -> ProviderResult<()> {
+        let permissions = &self.security.permissions;
+        if !permissions.outbound_http {
+            return Err(config_at(
+                pointer_base,
+                "/security/permissions/outbound_http",
+                "HTTP plugin runtime requires outbound_http permission",
+            ));
+        }
+        if self.security.allow_absolute_chat_path && !permissions.absolute_urls {
+            return Err(config_at(
+                pointer_base,
+                "/security/permissions/absolute_urls",
+                "allow_absolute_chat_path requires permissions.absolute_urls=true",
+            ));
+        }
+        if self.auth.strategy == AuthStrategy::OauthClientCredentials
+            && !permissions.oauth_client_credentials
+        {
+            return Err(config_at(
+                pointer_base,
+                "/security/permissions/oauth_client_credentials",
+                "oauth_client_credentials auth requires permissions.oauth_client_credentials=true",
+            ));
+        }
+
+        if !permissions.secret_slots.is_empty() {
+            for slot in required_secret_slots(&self.auth) {
+                if !secret_slot_declared(&permissions.secret_slots, &slot) {
+                    return Err(config_at(
+                        pointer_base,
+                        "/security/permissions/secret_slots",
+                        &format!("secret slot {slot:?} is used but not declared"),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -505,6 +558,19 @@ impl SecurityManifest {
     }
 
     fn validate(&self, pointer_base: &str) -> ProviderResult<()> {
+        for (idx, entry) in self.outbound_allowlist.iter().enumerate() {
+            validate_outbound_allowlist_entry(
+                entry,
+                &json_pointer(pointer_base, &format!("/security/outbound_allowlist/{idx}")),
+            )?;
+        }
+        for (idx, name) in self.header_redaction.iter().enumerate() {
+            validate_header_name(
+                name,
+                &json_pointer(pointer_base, &format!("/security/header_redaction/{idx}")),
+            )?;
+        }
+        self.permissions.validate(pointer_base)?;
         validate_limit(
             &json_pointer(pointer_base, "/security/max_request_bytes"),
             self.max_request_bytes(),
@@ -520,6 +586,30 @@ impl SecurityManifest {
             self.max_sse_event_bytes(),
             HARD_MAX_SSE_EVENT_BYTES,
         )
+    }
+}
+
+impl Default for PluginPermissionsManifest {
+    fn default() -> Self {
+        Self {
+            outbound_http: true,
+            absolute_urls: false,
+            oauth_client_credentials: false,
+            secret_slots: Vec::new(),
+        }
+    }
+}
+
+impl PluginPermissionsManifest {
+    fn validate(&self, pointer_base: &str) -> ProviderResult<()> {
+        for (idx, slot) in self.secret_slots.iter().enumerate() {
+            validate_secret_slot(
+                pointer_base,
+                &format!("/security/permissions/secret_slots/{idx}"),
+                slot,
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -686,6 +776,64 @@ fn validate_metadata_urls(metadata: &MetadataManifest, pointer_base: &str) -> Pr
                 "URL scheme must be http/https",
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_outbound_allowlist_entry(entry: &str, pointer: &str) -> ProviderResult<()> {
+    let entry = entry.trim();
+    if entry.is_empty() {
+        return Err(ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: allowlist entry cannot be empty"
+        )));
+    }
+    let normalized = if entry.contains("://") {
+        entry.to_string()
+    } else {
+        format!("https://{entry}")
+    };
+    let parsed = reqwest::Url::parse(&normalized).map_err(|e| {
+        ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: invalid allowlist entry {entry:?}: {e}"
+        ))
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: allowlist scheme must be http/https"
+        )));
+    }
+    if parsed.host_str().is_none() {
+        return Err(ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: allowlist entry missing host"
+        )));
+    }
+    if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: allowlist entries are origins only"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_header_name(name: &str, pointer: &str) -> ProviderResult<()> {
+    reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
+        ProviderError::Config(format!(
+            "invalid plugin manifest at {pointer}: invalid header name {name:?}: {e}"
+        ))
+    })?;
+    Ok(())
+}
+
+fn validate_timeout_ms(timeout_ms: Option<u64>, pointer_base: &str) -> ProviderResult<()> {
+    let Some(timeout_ms) = timeout_ms else {
+        return Ok(());
+    };
+    if !(1..=HARD_MAX_TIMEOUT_MS).contains(&timeout_ms) {
+        return Err(config_at(
+            pointer_base,
+            "/request/timeout_ms",
+            "timeout_ms must be 1..600000",
+        ));
     }
     Ok(())
 }
@@ -1049,6 +1197,62 @@ fn validate_secret_slot(pointer_base: &str, suffix: &str, slot: &str) -> Provide
     Ok(())
 }
 
+fn required_secret_slots(auth: &AuthManifest) -> Vec<String> {
+    let mut slots = Vec::new();
+    match auth.strategy {
+        AuthStrategy::Bearer | AuthStrategy::ApiKeyHeader | AuthStrategy::ApiKeyQuery => {
+            push_secret_slot(&mut slots, auth.secret_slot());
+        }
+        AuthStrategy::Basic => {
+            if let Some(slot) = auth.username_slot() {
+                push_secret_slot(&mut slots, slot);
+            }
+            push_secret_slot(
+                &mut slots,
+                auth.password_slot().unwrap_or_else(|| auth.secret_slot()),
+            );
+        }
+        AuthStrategy::CustomHeaders => {
+            push_secret_slot(&mut slots, auth.secret_slot());
+        }
+        AuthStrategy::Hmac => {
+            push_secret_slot(&mut slots, auth.secret_slot());
+        }
+        AuthStrategy::AwsSigv4 => {
+            push_secret_slot(&mut slots, &auth.aws_sigv4.access_key_slot);
+            push_secret_slot(&mut slots, &auth.aws_sigv4.secret_key_slot);
+            if let Some(slot) = auth.aws_sigv4.session_token_slot.as_deref() {
+                push_secret_slot(&mut slots, slot);
+            }
+        }
+        AuthStrategy::OauthClientCredentials => {
+            push_secret_slot(&mut slots, &auth.oauth.client_id_slot);
+            push_secret_slot(&mut slots, &auth.oauth.client_secret_slot);
+        }
+        AuthStrategy::None => {}
+    }
+    slots
+}
+
+fn push_secret_slot(slots: &mut Vec<String>, slot: &str) {
+    let normalized = if slot.trim().is_empty() || slot.eq_ignore_ascii_case("api_key") {
+        "primary".to_string()
+    } else {
+        slot.to_ascii_lowercase()
+    };
+    if !slots.iter().any(|existing| existing == &normalized) {
+        slots.push(normalized);
+    }
+}
+
+fn secret_slot_declared(declared: &[String], required: &str) -> bool {
+    declared.iter().any(|slot| {
+        let mut normalized = Vec::new();
+        push_secret_slot(&mut normalized, slot);
+        normalized.iter().any(|slot| slot == required)
+    })
+}
+
 fn reject_plain_secret_strings(auth: &AuthManifest, pointer_base: &str) -> ProviderResult<()> {
     let value = serde_json::to_value(auth).map_err(|e| ProviderError::Config(e.to_string()))?;
     walk_plain_secret_strings(&value, pointer_base, "/auth")
@@ -1323,7 +1527,14 @@ mod tests {
                     "usage": { "prompt_tokens_path": "usage.prompt" },
                     "error": { "message_path": "error.message" },
                     "probe": { "model": "tiny", "success_status": [200] },
-                    "security": { "max_request_bytes": 4096, "header_redaction": ["authorization"] }
+                    "security": {
+                        "max_request_bytes": 4096,
+                        "header_redaction": ["authorization"],
+                        "outbound_allowlist": ["https://upstream.example"],
+                        "permissions": {
+                            "secret_slots": ["primary"]
+                        }
+                    }
                 }
             }),
             "https://upstream.example",
@@ -1338,6 +1549,60 @@ mod tests {
             Some("/v1/messages/{{model}}")
         );
         assert_eq!(manifest.auth.strategy, AuthStrategy::ApiKeyHeader);
+        assert_eq!(
+            manifest.security.outbound_allowlist,
+            vec!["https://upstream.example".to_string()]
+        );
+        assert!(manifest.security.permissions.outbound_http);
+        assert!(!manifest.security.permissions.absolute_urls);
+    }
+
+    #[test]
+    fn sandbox_permissions_require_explicit_oauth_and_secret_slots() {
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "oauth_client_credentials",
+                        "oauth": {
+                            "token_url": "https://idp.example.com/oauth/token"
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("permissions.oauth_client_credentials"),
+            "err={err}"
+        );
+
+        let err = PluginManifest::from_value(
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "auth": {
+                        "strategy": "api_key_header",
+                        "header_name": "X-Api-Key",
+                        "secret_slot": "private_key"
+                    },
+                    "security": {
+                        "permissions": {
+                            "secret_slots": ["primary"]
+                        }
+                    }
+                }
+            }),
+            "https://upstream.example",
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("secret slot \"private_key\""),
+            "err={err}"
+        );
     }
 
     #[test]
@@ -1534,6 +1799,9 @@ mod tests {
                             "token_url": "https://idp.example.com/oauth/token",
                             "scope": "chat:write"
                         }
+                    },
+                    "security": {
+                        "permissions": { "oauth_client_credentials": true }
                     }
                 }
             }),
@@ -1564,6 +1832,9 @@ mod tests {
                         "oauth": {
                             "token_url": "http://idp.example.com/oauth/token"
                         }
+                    },
+                    "security": {
+                        "permissions": { "oauth_client_credentials": true }
                     }
                 }
             }),

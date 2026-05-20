@@ -115,7 +115,7 @@ kgctl plugin registry export --root examples/manifest-registry --include-private
 
 `plugin export/import` 是 golden fixture 链路：`export` 会把 manifest、可选 non-stream response sample、raw SSE 与 replay 后的 `expected_chunks` 固化到 JSON；后续升级 schema 或 normalizer 时用 `plugin import --verify` 回放比对，避免私有协议映射漂移。`plugin package lint` 校验目录形态 package，要求 `manifest.json`、`fixtures/*.fixture.json`、`README.md` 与 `security.md` 齐备，`--verify` 会回放 fixture。
 
-`plugin registry` 是 P1.8 manifest registry 链路：`examples/manifest-registry/registry.json` 固化官方 preset、社区 sample 的 id、version、author、sha256、signature kind、兼容范围与 manifest 路径；`package` 把私有 manifest + README/security/fixtures 打包，`import` 写入 private namespace，`export` 默认隐藏 private entries，只有 `--include-private` 才导出。
+`plugin registry` 是 P1.8 manifest registry 链路：`examples/manifest-registry/registry.json` 固化官方 preset、社区 sample 的 id、version、author、sha256、signature kind、兼容范围与 manifest 路径；`package` 把私有 manifest + README/security/fixtures 打包，`import` 写入 private namespace，`export` 默认隐藏 private entries，只有 `--include-private` 才导出。`plugin test` 复用 runtime sandbox；本地 mock upstream 测试需显式设置 `KOOIX_PLUGIN_ALLOW_LOCALHOST=1`。
 
 ## 定价规则 CLI
 

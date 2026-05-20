@@ -35,8 +35,8 @@ pub use capabilities::{
 pub use custom_provider::{CustomHttpProvider, replay_plugin_sse};
 pub use error::{ProviderError, ProviderResult};
 pub use plugin_manifest::{
-    CapabilitiesManifest, ChannelPluginMapping, PluginManifest, ProbeManifest, plugin_manifest,
-    plugin_manifest_schema_json, validate_plugin_manifest,
+    CapabilitiesManifest, ChannelPluginMapping, PluginManifest, PluginPermissionsManifest,
+    ProbeManifest, plugin_manifest, plugin_manifest_schema_json, validate_plugin_manifest,
 };
 pub use router::{
     ChannelMetrics, ChannelRateCheck, ChannelRateLimiter, InMemoryChannelRateLimiter,

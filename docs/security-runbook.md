@@ -48,9 +48,9 @@
 Manifest 是不可信输入，尤其是私有 URL、headers、body 模板与 SSE path：
 
 - 禁止在 manifest 中保存明文 secret。
-- v0.2.0 默认禁止 `request.chat_path` 使用绝对 URL；显式打开时仍拒绝 localhost、link-local、private IP 与 metadata host。
-- 生产环境继续通过网络策略限制出站目标，阻断 DNS rebinding、代理绕过与内网管理地址 SSRF。
+- v0.2.0+ 默认禁止 `request.chat_path` 使用绝对 URL；显式打开必须同时声明 `security.permissions.absolute_urls=true`，并仍拒绝 localhost、link-local、private IP、metadata host 与 DNS rebind。
+- 优先配置 `security.outbound_allowlist` 为上游 origin；生产环境继续通过网络策略限制出站目标，阻断代理绕过与内网管理地址 SSRF。
 - Header / path / body 模板只允许白名单变量；未知变量应视为错误配置，不得降级放行。
-- request body、response body、单个 SSE event 都有大小上限；新增私有渠道前按预期返回体调小 limit。
-- 记录错误时必须 redaction：Authorization、api-key、x-api-key、cookie、set-cookie。
-- 新增私有 manifest 前先保存 request/response/SSE fixture，方便复盘与回放。
+- request body、response body、单个 SSE event 与 `request.timeout_ms` 都有上限；新增私有渠道前按预期返回体调小 limit/timeout。
+- 记录错误时必须 redaction：Authorization、api-key、x-api-key、cookie、set-cookie，以及 query 中的 key/token/secret/password。
+- 新增私有 manifest 前先保存 request/response/SSE fixture，并在 `security.permissions.secret_slots` 声明实际使用的 secret slot，方便复盘与回放。
