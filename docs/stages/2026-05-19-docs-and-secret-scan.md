@@ -215,6 +215,25 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / project keys table rollout
+
+本轮继续按 P2.1 “表格能力统一”推广到 `/orgs/[orgId]/projects/[projectId]/keys`：
+
+- API Key 管理页从手写 breadcrumb / header 迁到共享 `PageShell`，保留返回项目设置、刷新、创建 Key 三个动作。
+- 创建 Key 表单改用 `Card` / `Field` / `Alert`，继续保留名称必填、后端错误回显与创建后列表刷新。
+- 明文 Key 一次性展示改用 success `Card` 与 copy action，保留关闭后 toast 提醒，避免改变 secret exposure 语义。
+- Key 列表从 native table 迁到共享 `DataTable`，状态显示改用 `Badge`，loading / error / empty 改用 `StatePanel` / template empty snippet。
+- 撤销确认从手写 fixed overlay 迁到共享 `ModalFrame`，保留 destructive confirm 和撤销后列表刷新。
+- 模板审计快照：25 个 route page，`/orgs/[orgId]/projects/[projectId]/keys` gaps 清零，pages_with_gaps 从 7 降到 6。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
