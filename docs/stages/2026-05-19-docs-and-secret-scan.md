@@ -162,6 +162,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / org quotas table rollout
+
+本轮继续按 P2.1 “表格能力统一”推广到 `/orgs/[orgId]/quotas`：
+
+- Quota policy 列表新增 `DataToolbar`，支持按维度 / scope / model / quota ID 搜索，并按 scope、mode 做 quick filters。
+- 分组 quota 表格从 native table 迁到共享 `DataTable`，保留 scope 分组、dimension/unit、mode badge、Explain 与 delete 操作。
+- 空态细分为“暂无配额规则”和“无匹配配额规则”，筛选空态提供清除筛选动作。
+- 模板审计快照：25 个 route page，`/orgs/[orgId]/quotas` gaps 清零，pages_with_gaps 从 10 降到 9。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

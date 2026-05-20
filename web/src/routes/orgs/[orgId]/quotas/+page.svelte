@@ -18,6 +18,8 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
 	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import SectionCard from '$lib/components/templates/SectionCard.svelte';
@@ -51,6 +53,9 @@
 	let loading = $state(true);
 	let error = $state('');
 	let toast = $state('');
+	let search = $state('');
+	let scopeFilter = $state('all');
+	let modeFilter = $state('all');
 
 	let showForm = $state(false);
 	let formScopeKind = $state('org');
@@ -80,10 +85,26 @@
 	let reconciling = $state(false);
 	let reconcileError = $state('');
 
+	let filteredQuotas = $derived.by(() => {
+		const query = search.trim().toLowerCase();
+		return quotas.filter((q) => {
+			const matchesQuery =
+				!query ||
+				q.dimension.toLowerCase().includes(query) ||
+				q.scope_kind.toLowerCase().includes(query) ||
+				q.scope_id.toLowerCase().includes(query) ||
+				(q.model_filter ?? '').toLowerCase().includes(query) ||
+				q.id.toLowerCase().includes(query);
+			const matchesScope = scopeFilter === 'all' || q.scope_kind === scopeFilter;
+			const matchesMode = modeFilter === 'all' || q.mode === modeFilter;
+			return matchesQuery && matchesScope && matchesMode;
+		});
+	});
+
 	let grouped = $derived.by(() => {
 		const order = ['org', 'project', 'api_key', 'user'];
 		const groups: Record<string, Quota[]> = {};
-		for (const q of quotas) {
+		for (const q of filteredQuotas) {
 			if (!groups[q.scope_kind]) groups[q.scope_kind] = [];
 			groups[q.scope_kind].push(q);
 		}
@@ -100,6 +121,7 @@
 		dryRun: quotas.filter((q) => q.mode === 'dry_run').length,
 		models: quotas.filter((q) => q.model_filter && q.model_filter !== '*').length
 	}));
+	let hasActiveFilters = $derived(search.trim() !== '' || scopeFilter !== 'all' || modeFilter !== 'all');
 
 	onMount(async () => {
 		await loadQuotas();
@@ -267,6 +289,12 @@
 		if (rule.retry_after_ms) return `${Math.ceil(rule.retry_after_ms / 1000)}s`;
 		return '—';
 	}
+
+	function resetFilters() {
+		search = '';
+		scopeFilter = 'all';
+		modeFilter = 'all';
+	}
 </script>
 
 {#if toast}
@@ -384,6 +412,35 @@
 		<Card padding="md"><p class="text-xs {text.muted}">Model scoped</p><p class="mt-2 text-2xl font-semibold {text.primary}">{summary.models}</p></Card>
 	</div>
 
+	<DataToolbar badgesVisible={hasActiveFilters}>
+		{#snippet query()}
+			<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+			<Input class="pl-9" placeholder="搜索维度 / scope / model / quota ID" bind:value={search} disabled={loading} />
+		{/snippet}
+
+		{#snippet controls()}
+			<Select class="w-40" size="sm" bind:value={scopeFilter} disabled={loading} options={[{ value: 'all', label: '全部 scope' }, ...scopeOptions]} />
+			<Select class="w-40" size="sm" bind:value={modeFilter} disabled={loading} options={[{ value: 'all', label: '全部 mode' }, ...modeOptions]} />
+		{/snippet}
+
+		{#snippet actions()}
+			<Button variant="outline" size="sm" onclick={resetFilters} disabled={!hasActiveFilters || loading}>清除筛选</Button>
+		{/snippet}
+
+		{#snippet badges()}
+			{#if search.trim()}
+				<Badge>搜索：{search.trim()}</Badge>
+			{/if}
+			{#if scopeFilter !== 'all'}
+				<Badge>Scope：{scopeFilter}</Badge>
+			{/if}
+			{#if modeFilter !== 'all'}
+				<Badge>Mode：{modeFilter}</Badge>
+			{/if}
+			<Badge>显示 {filteredQuotas.length}/{quotas.length}</Badge>
+		{/snippet}
+	</DataToolbar>
+
 	{#if loading}
 		<StatePanel title="正在读取配额规则" description="吾正在从 control-plane 拉取 org/project/api_key/user 策略。" icon={RefreshCw} />
 	{:else if error}
@@ -395,11 +452,15 @@
 					<StatePanel title="暂无配额规则" description="先添加一条 dry-run 策略观测 would-deny，再切 enforce。" icon={Gauge}>
 						{#snippet actions()}<Button onclick={openCreateForm}>添加第一条</Button>{/snippet}
 					</StatePanel>
+				{:else if filteredQuotas.length === 0}
+					<StatePanel title="无匹配配额规则" description="换个搜索词、scope 或 mode 筛选。" icon={Search}>
+						{#snippet actions()}<Button variant="outline" onclick={resetFilters}>清除筛选</Button>{/snippet}
+					</StatePanel>
 				{:else}
 					{#each grouped as [scopeKind, items]}
-						<SectionCard title={scopeLabel(scopeKind)} description={`${items.length} 条策略`} icon={Gauge} bodyClass="overflow-x-auto">
-							<table class={dataTemplate.table}>
-								<thead class={dataTemplate.head}>
+						<SectionCard title={scopeLabel(scopeKind)} description={`${items.length} 条策略`} icon={Gauge}>
+							<DataTable class="mb-0">
+								{#snippet head()}
 									<tr>
 										<th class={dataTemplate.th}>维度</th>
 										<th class={dataTemplate.th}>限额</th>
@@ -409,36 +470,35 @@
 										<th class={dataTemplate.th}>窗口</th>
 										<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
 									</tr>
-								</thead>
-								<tbody class={dataTemplate.body}>
-									{#each items as q}
-										<tr class={dataTemplate.row}>
-											<td class={dataTemplate.tdStrong}>
-												<div class="font-medium">{dimensionLabel(q.dimension)}</div>
-												<div class="mt-0.5 text-[11px] {text.muted}">{dimensionUnit(q.dimension)}</div>
-											</td>
-											<td class={dataTemplate.tdMonoStrong}>{q.limit_value}</td>
-											<td class={dataTemplate.tdMono}>{shortId(q.scope_id)}</td>
-											<td class={dataTemplate.td}>{q.model_filter ?? '全部'}</td>
-											<td class={dataTemplate.td}>
-												<Badge variant={q.mode === 'dry_run' ? 'warning' : 'default'}>{q.mode}</Badge>
-											</td>
-											<td class={dataTemplate.td}>{q.window_seconds ? `${q.window_seconds}s` : '—'}</td>
-											<td class="px-4 py-3 text-right">
-												<div class="flex justify-end gap-1">
-													<Button variant="ghost" size="sm" onclick={() => loadRuleIntoExplain(q)}>
-														<Search size={14} />
-														Explain
-													</Button>
-													<Button variant="ghost" size="sm" onclick={() => (deletingId = q.id)}>
-														<Trash2 size={14} class="text-red-600 dark:text-red-400" />
-													</Button>
-												</div>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
+								{/snippet}
+
+								{#each items as q}
+									<tr class={dataTemplate.row}>
+										<td class={dataTemplate.tdStrong}>
+											<div class="font-medium">{dimensionLabel(q.dimension)}</div>
+											<div class="mt-0.5 text-[11px] {text.muted}">{dimensionUnit(q.dimension)}</div>
+										</td>
+										<td class={dataTemplate.tdMonoStrong}>{q.limit_value}</td>
+										<td class={dataTemplate.tdMono}>{shortId(q.scope_id)}</td>
+										<td class={dataTemplate.td}>{q.model_filter ?? '全部'}</td>
+										<td class={dataTemplate.td}>
+											<Badge variant={q.mode === 'dry_run' ? 'warning' : 'default'}>{q.mode}</Badge>
+										</td>
+										<td class={dataTemplate.td}>{q.window_seconds ? `${q.window_seconds}s` : '—'}</td>
+										<td class="px-4 py-3 text-right">
+											<div class="flex justify-end gap-1">
+												<Button variant="ghost" size="sm" onclick={() => loadRuleIntoExplain(q)}>
+													<Search size={14} />
+													Explain
+												</Button>
+												<Button variant="ghost" size="sm" onclick={() => (deletingId = q.id)}>
+													<Trash2 size={14} class="text-red-600 dark:text-red-400" />
+												</Button>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</DataTable>
 						</SectionCard>
 					{/each}
 				{/if}
