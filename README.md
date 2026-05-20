@@ -8,7 +8,7 @@
 >
 > **空衍**：以四向 super-star 为核，以 D4 旋转轨道为门；在对称星图中收束私有协议、认证、SSE 与字段映射。
 
-架构总览见 [DESIGN.md](./DESIGN.md)。文档入口与阶段记录见 [docs/README.md](./docs/README.md)。
+架构总览见 [docs/architecture.md](./docs/architecture.md)，核心设计原则见 [DESIGN.md](./DESIGN.md)。文档入口与阶段记录见 [docs/README.md](./docs/README.md)。
 
 竞品定位：NewAPI / OneAPI / LiteLLM 的「底盘加强版」——把它们反复踩的雷（权限粗、限流单一、租户隔离漏、流式漏扣）先治好，再谈渠道接入。
 

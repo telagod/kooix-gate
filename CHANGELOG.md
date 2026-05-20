@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Documentation Architecture
+
+- 新增 `docs/architecture.md` 作为长期系统架构入口，按 C4 system/context、runtime mode、route boundary、gateway request flow、data boundaries、deployment shapes 与 architecture decision log 组织，避免架构图散落在 `DESIGN.md`。
+- `README.md`、`DESIGN.md` 与 `docs/README.md` 同步改为“README → architecture → DESIGN → runbook/stages”的阅读路径，关键文档与阶段性文档边界更清晰。
+
 ### Added — Plugin Manifest v1
 
 - 新增 HTTP Plugin manifest v1 强类型解析，固定 `metadata` / `capabilities` / `auth` / `request` / `response` / `stream` / `usage` / `error` / `probe` / `security` 顶层分区。

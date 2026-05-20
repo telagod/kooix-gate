@@ -8,17 +8,19 @@
 建议阅读顺序：
 
 1. `README.md`：先看项目定位与快速开始。
-2. `DESIGN.md`：再看架构图、分层与关键流。
-3. `ROADMAP.md`：确认当前路线和未完成阶段。
-4. `RELEASE.md` / `docs/*runbook*`：看部署与处置。
-5. `docs/stages/`：最后看已完成阶段证据。
+2. `docs/architecture.md`：再看系统架构图、runtime mode、route boundary 与关键流。
+3. `DESIGN.md`：确认领域模型、权限、配额、计费等长期设计原则。
+4. `ROADMAP.md`：确认当前路线和未完成阶段。
+5. `RELEASE.md` / `docs/*runbook*`：看部署与处置。
+6. `docs/stages/`：最后看已完成阶段证据。
 
 ## 关键文档
 
 | 文档 | 用途 |
 | --- | --- |
 | [README.md](../README.md) | 项目入口、能力速览、Quick Start、测试命令。 |
-| [DESIGN.md](../DESIGN.md) | 架构设计、核心决策、运行时边界。 |
+| [architecture.md](./architecture.md) | 系统架构图、runtime mode、route boundary、关键请求流与部署形态。 |
+| [DESIGN.md](../DESIGN.md) | 设计原则、领域模型、权限、配额、计费与演进边界。 |
 | [ROADMAP.md](../ROADMAP.md) | 当前产品路线与未完成阶段计划。 |
 | [CHANGELOG.md](../CHANGELOG.md) | 版本变更记录。 |
 | [RELEASE.md](../RELEASE.md) | 发布、回滚、部署前后 smoke runbook。 |
