@@ -13,6 +13,7 @@ use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::{InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
+use crate::trace_context::{DataPlaneTrace, TraceIdentity, record_upstream_outcome};
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::{Extension, Json, Router, routing::post};
@@ -22,6 +23,8 @@ use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
 use gate_providers::types::{ImageGenerationRequest, ImageGenerationResponse};
 use gate_providers::{ImageProvider, ProviderError, RoutedImageProvider, Usage};
 use std::sync::Arc;
+use std::time::Instant;
+use tracing::Instrument;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -51,11 +54,35 @@ async fn create_image(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
+    let trace = DataPlaneTrace::new(
+        TraceIdentity::from_auth(&ctx, request_id),
+        "images.generations",
+        provider_type.clone(),
+        channel_id,
+        routed_group_id,
+        req.model.clone(),
+    );
+    let data_span = trace.span();
     let billing_ctx =
         BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &req.model, request_id);
 
-    let execute_start = std::time::Instant::now();
-    let resp = match provider.generate_image(req.clone()).await {
+    let execute_start = Instant::now();
+    let upstream_span = data_span.in_scope(|| trace.upstream_span("generate_image", false));
+    let upstream_start = Instant::now();
+    let upstream_result = provider
+        .generate_image(req.clone())
+        .instrument(upstream_span.clone())
+        .await;
+    record_upstream_outcome(
+        &upstream_span,
+        if upstream_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+        upstream_start.elapsed(),
+    );
+    let resp = match upstream_result {
         Ok(resp) => {
             crate::gateway::record_stage(
                 GatewayStage::Execute,
@@ -103,9 +130,12 @@ async fn create_image(
     if let Some(bctx) = billing_ctx {
         let outbox = app.outbox.clone();
         let pricing = app.pricing.clone();
-        tokio::spawn(async move {
-            emit_usage(outbox, pricing, bctx, usage, 200).await;
-        });
+        tokio::spawn(
+            async move {
+                emit_usage(outbox, pricing, bctx, usage, 200).await;
+            }
+            .instrument(data_span.clone()),
+        );
     }
 
     Ok(Json(resp))

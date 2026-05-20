@@ -12,6 +12,9 @@ use gate_auth::context::Subject;
 use gate_billing::{CostContext, OutboxRepo, PricingRepo, UsageEvent, compute_cost};
 use gate_providers::Usage;
 use std::sync::Arc;
+use tracing::Instrument;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// 一次 chat 调用的计费上下文（handler 在认证 / 路由阶段就能拿到）。
@@ -70,9 +73,29 @@ pub async fn emit_usage(
     usage: Usage,
     status: i16,
 ) {
+    let span = billing_emit_span(&ctx, status);
+    emit_usage_inner(outbox, pricing, ctx, usage, status, span.clone())
+        .instrument(span)
+        .await;
+}
+
+async fn emit_usage_inner(
+    outbox: Option<Arc<dyn OutboxRepo>>,
+    pricing: Option<Arc<dyn PricingRepo>>,
+    ctx: BillingCtx,
+    usage: Usage,
+    status: i16,
+    span: Span,
+) {
     let (Some(outbox), Some(pricing)) = (outbox, pricing) else {
+        record_billing_outcome(&span, "not_configured");
         tracing::debug!(
+            request_id = %ctx.request_id,
+            org_id = %ctx.org_id,
+            project_id = %ctx.project_id,
             api_key_id = %ctx.api_key_id,
+            channel_id = ?ctx.channel_id,
+            group_id = ?ctx.group_id,
             model = %ctx.model,
             "billing skipped: outbox or pricing not configured"
         );
@@ -92,20 +115,27 @@ pub async fn emit_usage(
     let pricing_rules = match pricing.find_rules(ctx.channel_id, &ctx.model, now).await {
         Ok(rules) if !rules.is_empty() => rules,
         Ok(_) => {
+            record_billing_outcome(&span, "pricing_miss");
             crate::metrics::record_billing_settle_failure("pricing_miss");
             tracing::warn!(
+                request_id = %ctx.request_id,
                 api_key_id = %ctx.api_key_id,
                 channel_id = ?ctx.channel_id,
+                group_id = ?ctx.group_id,
                 model = %ctx.model,
                 "billing skipped: no pricing found"
             );
             return;
         }
         Err(e) => {
+            record_billing_outcome(&span, "pricing_lookup_error");
             crate::metrics::record_billing_settle_failure("pricing_lookup");
             tracing::warn!(
                 error = %e,
+                request_id = %ctx.request_id,
                 api_key_id = %ctx.api_key_id,
+                channel_id = ?ctx.channel_id,
+                group_id = ?ctx.group_id,
                 model = %ctx.model,
                 "billing skipped: pricing lookup failed"
             );
@@ -137,9 +167,48 @@ pub async fn emit_usage(
     };
 
     if let Err(e) = outbox.enqueue(&event).await {
+        record_billing_outcome(&span, "enqueue_error");
         crate::metrics::record_billing_settle_failure("outbox_enqueue");
-        tracing::warn!(error = %e, "billing outbox enqueue failed");
+        tracing::warn!(error = %e, request_id = %event.request_id, "billing outbox enqueue failed");
+    } else {
+        record_billing_outcome(&span, "enqueued");
     }
+}
+
+fn billing_emit_span(ctx: &BillingCtx, status: i16) -> Span {
+    let span = tracing::info_span!(
+        "billing.emit_usage",
+        request_id = %ctx.request_id,
+        org_id = %ctx.org_id,
+        project_id = %ctx.project_id,
+        api_key_id = %ctx.api_key_id,
+        channel_id = display_opt_uuid(ctx.channel_id),
+        group_id = display_opt_uuid(ctx.group_id),
+        model = %ctx.model,
+        status = status,
+        outcome = tracing::field::Empty,
+    );
+    span.set_attribute("kooix.request_id", ctx.request_id.to_string());
+    span.set_attribute("kooix.org_id", ctx.org_id.to_string());
+    span.set_attribute("kooix.project_id", ctx.project_id.to_string());
+    span.set_attribute("kooix.api_key_id", ctx.api_key_id.to_string());
+    if let Some(channel_id) = ctx.channel_id {
+        span.set_attribute("kooix.channel_id", channel_id.to_string());
+    }
+    if let Some(group_id) = ctx.group_id {
+        span.set_attribute("kooix.group_id", group_id.to_string());
+    }
+    span.set_attribute("kooix.model", ctx.model.clone());
+    span
+}
+
+fn record_billing_outcome(span: &Span, outcome: &'static str) {
+    span.record("outcome", outcome);
+    span.set_attribute("kooix.outcome", outcome);
+}
+
+fn display_opt_uuid(value: Option<Uuid>) -> String {
+    value.map(|v| v.to_string()).unwrap_or_default()
 }
 
 fn cost_context_from_usage(usage: &Usage) -> CostContext {

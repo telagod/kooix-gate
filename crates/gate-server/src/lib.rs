@@ -34,6 +34,7 @@ pub mod route_manifest;
 pub mod routes;
 pub mod state;
 pub mod telemetry;
+pub mod trace_context;
 pub mod worker;
 
 pub use app::{build_controlplane_router, build_gateway_router, build_router};

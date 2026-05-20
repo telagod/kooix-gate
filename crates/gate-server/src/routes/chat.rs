@@ -32,6 +32,7 @@ use crate::gateway::{GatewayStage, StageOutcome};
 use crate::inflight::{InflightGuards, QuotaMetric};
 use crate::middleware::KooixRequestId;
 use crate::state::AppState;
+use crate::trace_context::{DataPlaneTrace, TraceIdentity, record_upstream_outcome};
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
@@ -49,6 +50,8 @@ use gate_providers::{ChannelMetrics, ChatRequest, ChatResponse, Provider, Provid
 use parking_lot::Mutex;
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Instant;
+use tracing::Instrument;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/chat/completions", post(chat_completions))
@@ -179,14 +182,38 @@ async fn chat_completions(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(uuid::Uuid::now_v7);
+    let trace = DataPlaneTrace::new(
+        TraceIdentity::from_auth(&ctx, request_id),
+        "chat.completions",
+        provider_type.clone(),
+        channel_id,
+        routed_group_id,
+        req.model.clone(),
+    );
+    let data_span = trace.span();
     let billing_ctx =
         BillingCtx::from_auth(&ctx, channel_id, routed_group_id, &req.model, request_id);
     let model = req.model.clone();
     let estimated_stream_usage = estimated_usage_from_request(&req);
 
     if req.stream {
-        let execute_start = std::time::Instant::now();
-        let upstream = match provider.chat_stream(req).await {
+        let execute_start = Instant::now();
+        let upstream_span = data_span.in_scope(|| trace.upstream_span("chat_stream", true));
+        let upstream_start = Instant::now();
+        let upstream_result = provider
+            .chat_stream(req)
+            .instrument(upstream_span.clone())
+            .await;
+        record_upstream_outcome(
+            &upstream_span,
+            if upstream_result.is_ok() {
+                "ok"
+            } else {
+                "error"
+            },
+            upstream_start.elapsed(),
+        );
+        let upstream = match upstream_result {
             Ok(upstream) => {
                 crate::gateway::record_stage(
                     GatewayStage::Execute,
@@ -232,6 +259,7 @@ async fn chat_completions(
 
         let app_for_billing = app.clone();
         let billing_ctx_clone = billing_ctx.clone();
+        let billing_parent_span = data_span.clone();
 
         // least_conn release: stream 结束后释放 inflight 计数
         let router_for_release = app.provider_router.clone();
@@ -302,9 +330,12 @@ async fn chat_completions(
             if let Some(bctx) = billing_ctx_clone {
                 let outbox = app_for_billing.outbox.clone();
                 let pricing = app_for_billing.pricing.clone();
-                tokio::spawn(async move {
-                    emit_usage(outbox, pricing, bctx, usage, 200).await;
-                });
+                tokio::spawn(
+                    async move {
+                        emit_usage(outbox, pricing, bctx, usage, 200).await;
+                    }
+                    .instrument(billing_parent_span),
+                );
             }
             // 占位返回值，会被 filter_map 过滤掉
             None::<gate_providers::ProviderResult<gate_providers::ChatStreamChunk>>
@@ -334,8 +365,21 @@ async fn chat_completions(
             let routed_metrics = routed_metrics.clone();
             let provider_type = provider_type.clone();
             let model = model.clone();
+            let trace = trace.clone();
+            let data_span = data_span.clone();
             async move {
-                match provider.chat(req_clone).await {
+                let upstream_span = data_span.in_scope(|| trace.upstream_span("chat", false));
+                let upstream_start = Instant::now();
+                let result = provider
+                    .chat(req_clone)
+                    .instrument(upstream_span.clone())
+                    .await;
+                record_upstream_outcome(
+                    &upstream_span,
+                    if result.is_ok() { "ok" } else { "error" },
+                    upstream_start.elapsed(),
+                );
+                match result {
                     Ok(resp) => Ok(resp),
                     Err(err) => {
                         report_channel_failure(
@@ -412,9 +456,12 @@ async fn chat_completions(
             let usage = resp.usage.clone();
             let outbox = app.outbox.clone();
             let pricing = app.pricing.clone();
-            tokio::spawn(async move {
-                emit_usage(outbox, pricing, bctx, usage, 200).await;
-            });
+            tokio::spawn(
+                async move {
+                    emit_usage(outbox, pricing, bctx, usage, 200).await;
+                }
+                .instrument(data_span.clone()),
+            );
         }
         Ok(Json(resp).into_response())
     }

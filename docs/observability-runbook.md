@@ -27,6 +27,44 @@ sum(rate(quota_denies_total[5m])) by (dimension, scope_kind, mode)
 - `kind=authentication_error|rate_limit_error|model_not_found|policy_error|upstream_error|...` 与 data-plane error shape 同源。
 - `quota_denies_total{mode="enforce"}` 只记录硬拦截，dry-run 继续看 `quota_dry_run_total`。
 
+## Trace correlation
+
+P1.9 后 data-plane / billing 链路固定使用同一组低基数 span 和属性，排障时先用 `kooix.request_id` 串起来，再按 org / project / channel / model 收窄。
+
+关键 spans：
+
+- `http.request`：HTTP 入站 span，记录 `request_id`、`status`、`latency_ms`。
+- `gateway.data_plane`：chat / responses / embeddings / images / audio handler span。
+- `gateway.upstream_request`：每次 upstream provider call / retry attempt span，记录 `operation`、`streaming`、`outcome`、`duration_ms`。
+- `billing.emit_usage`：usage 进入 billing outbox 前的 pricing / enqueue span，记录 `outcome=enqueued|pricing_miss|pricing_lookup_error|enqueue_error|not_configured`。
+- `billing.outbox.enqueue` / `billing.outbox.fetch_batch` / `billing.outbox.mark_done` / `billing.outbox.mark_failed`：outbox 生命周期 span。
+- `billing.consumer.tick` / `billing.consumer.process_one` / `billing.commit_usage`：consumer 批处理、单条 settlement 与 ledger / rollup 落库 span。
+
+核心属性：
+
+- `kooix.request_id`
+- `kooix.org_id`
+- `kooix.project_id`
+- `kooix.api_key_id`
+- `kooix.user_id`
+- `kooix.channel_id`
+- `kooix.group_id`
+- `kooix.model`
+- `kooix.provider_type`
+- `kooix.endpoint`
+- `kooix.operation`
+- `kooix.streaming`
+- `kooix.outcome`
+- `kooix.duration_ms`
+
+排障顺序：
+
+1. 用 `kooix.request_id=<uuid>` 找 `http.request`，确认 `status` / `latency_ms`。
+2. 跳到同 trace 的 `gateway.data_plane`，确认 `endpoint`、`provider_type`、`channel_id`、`group_id`、`model` 是否符合选路预期。
+3. 查看子 span `gateway.upstream_request`：`outcome=error` 时结合 `gateway_upstream_errors_total{provider_type,channel,model}` 判断是否 auth / rate limit / model missing / network。
+4. 若客户端成功但账单缺失，沿 `billing.emit_usage -> billing.outbox.enqueue -> billing.consumer.process_one -> billing.commit_usage` 查 `outcome` 与 `outbox_id`。
+5. 若 `billing.emit_usage{outcome="pricing_miss"}`，先补 pricing rule；若 `enqueue_error` / `commit_usage failed`，再查 DB / outbox lock / migration。
+
 ## Provider health probes
 
 ```promql

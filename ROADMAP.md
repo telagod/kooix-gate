@@ -543,11 +543,11 @@ cargo test -p gate-providers --all-targets
   - [x] quota deny
   - [x] billing settle lag
   - [x] outbox lag
-- [ ] Trace 串联：
-  - request_id
-  - org/project/api_key/channel/model
-  - upstream request span
-  - billing/outbox span
+- [x] Trace 串联：
+  - [x] request_id
+  - [x] org/project/api_key/channel/model
+  - [x] upstream request span
+  - [x] billing/outbox span
 - [ ] 控制台事故页：
   - 最近错误
   - top failing channels

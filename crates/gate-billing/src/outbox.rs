@@ -12,6 +12,7 @@ use crate::types::UsageEvent;
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{PgPool, Row};
+use tracing::Instrument;
 use uuid::Uuid;
 
 /// outbox 行 ID（BIGSERIAL）
@@ -52,6 +53,63 @@ impl PgOutboxRepo {
 #[async_trait]
 impl OutboxRepo for PgOutboxRepo {
     async fn enqueue(&self, event: &UsageEvent) -> BillingResult<OutboxId> {
+        let span = outbox_enqueue_span(event);
+        let span_for_inner = span.clone();
+        async move { self.enqueue_inner(event, &span_for_inner).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
+        let span = tracing::info_span!(
+            "billing.outbox.fetch_batch",
+            limit = limit,
+            batch_size = tracing::field::Empty,
+            worker_id = %self.worker_id,
+        );
+        let span_for_inner = span.clone();
+        async move { self.fetch_batch_inner(limit, &span_for_inner).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
+        let span = tracing::info_span!("billing.outbox.mark_done", outbox_id = id);
+        sqlx::query(
+            "UPDATE outbox_events \
+             SET processed_at = NOW(), locked_until = NULL, locked_by = NULL \
+             WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .instrument(span)
+        .await?;
+        Ok(())
+    }
+
+    async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
+        let span =
+            tracing::info_span!("billing.outbox.mark_failed", outbox_id = id, error = %error);
+        sqlx::query(
+            "UPDATE outbox_events \
+             SET retry_count = retry_count + 1, last_error = $2, locked_until = NULL, locked_by = NULL \
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(error)
+        .execute(&self.pool)
+        .instrument(span)
+        .await?;
+        Ok(())
+    }
+}
+
+impl PgOutboxRepo {
+    async fn enqueue_inner(
+        &self,
+        event: &UsageEvent,
+        span: &tracing::Span,
+    ) -> BillingResult<OutboxId> {
         let payload = serde_json::to_value(event)?;
         let row = sqlx::query(
             "INSERT INTO outbox_events (topic, payload) VALUES ('usage', $1) RETURNING id",
@@ -60,11 +118,16 @@ impl OutboxRepo for PgOutboxRepo {
         .fetch_one(&self.pool)
         .await?;
         let id: OutboxId = row.try_get("id")?;
+        span.record("outbox_id", id);
         record_outbox_enqueued(event);
         Ok(id)
     }
 
-    async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
+    async fn fetch_batch_inner(
+        &self,
+        limit: i64,
+        span: &tracing::Span,
+    ) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             "SELECT id, payload FROM outbox_events \
@@ -122,32 +185,8 @@ impl OutboxRepo for PgOutboxRepo {
             metrics::gauge!("billing_outbox_lag_seconds").set(0.0);
         }
         tx.commit().await?;
+        span.record("batch_size", result.len());
         Ok(result)
-    }
-
-    async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
-        sqlx::query(
-            "UPDATE outbox_events \
-             SET processed_at = NOW(), locked_until = NULL, locked_by = NULL \
-             WHERE id = $1",
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
-        sqlx::query(
-            "UPDATE outbox_events \
-             SET retry_count = retry_count + 1, last_error = $2, locked_until = NULL, locked_by = NULL \
-             WHERE id = $1",
-        )
-        .bind(id)
-        .bind(error)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
     }
 }
 
@@ -206,9 +245,54 @@ impl InMemoryOutboxRepo {
 #[async_trait]
 impl OutboxRepo for InMemoryOutboxRepo {
     async fn enqueue(&self, event: &UsageEvent) -> BillingResult<OutboxId> {
+        let span = outbox_enqueue_span(event);
+        let span_for_inner = span.clone();
+        async move { self.enqueue_inner(event, &span_for_inner) }
+            .instrument(span)
+            .await
+    }
+
+    async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
+        let span = tracing::info_span!(
+            "billing.outbox.fetch_batch",
+            limit = limit,
+            batch_size = tracing::field::Empty,
+            worker_id = "in_memory",
+        );
+        let span_for_inner = span.clone();
+        async move { self.fetch_batch_inner(limit, &span_for_inner) }
+            .instrument(span)
+            .await
+    }
+
+    async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
+        let _guard = tracing::info_span!("billing.outbox.mark_done", outbox_id = id).entered();
+        let mut g = self.inner.lock();
+        if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
+            r.processed = true;
+        }
+        Ok(())
+    }
+
+    async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
+        let _guard =
+            tracing::info_span!("billing.outbox.mark_failed", outbox_id = id, error = %error)
+                .entered();
+        let mut g = self.inner.lock();
+        if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
+            r.retry_count += 1;
+            r.last_error = Some(error.to_string());
+        }
+        Ok(())
+    }
+}
+
+impl InMemoryOutboxRepo {
+    fn enqueue_inner(&self, event: &UsageEvent, span: &tracing::Span) -> BillingResult<OutboxId> {
         let mut g = self.inner.lock();
         g.next_id += 1;
         let id = g.next_id;
+        span.record("outbox_id", id);
         g.rows.push(InMemoryRow {
             id,
             event: event.clone(),
@@ -220,7 +304,11 @@ impl OutboxRepo for InMemoryOutboxRepo {
         Ok(id)
     }
 
-    async fn fetch_batch(&self, limit: i64) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
+    fn fetch_batch_inner(
+        &self,
+        limit: i64,
+        span: &tracing::Span,
+    ) -> BillingResult<Vec<(OutboxId, UsageEvent)>> {
         let g = self.inner.lock();
         let out: Vec<_> = g
             .rows
@@ -236,25 +324,35 @@ impl OutboxRepo for InMemoryOutboxRepo {
             .map(|r| (Utc::now() - r.event.occurred_at).num_milliseconds().max(0) as f64 / 1000.0)
             .fold(0.0, f64::max);
         metrics::gauge!("billing_outbox_lag_seconds").set(lag_seconds);
+        span.record("batch_size", out.len());
         Ok(out)
     }
+}
 
-    async fn mark_done(&self, id: OutboxId) -> BillingResult<()> {
-        let mut g = self.inner.lock();
-        if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
-            r.processed = true;
-        }
-        Ok(())
-    }
+fn outbox_enqueue_span(event: &UsageEvent) -> tracing::Span {
+    tracing::info_span!(
+        "billing.outbox.enqueue",
+        outbox_id = tracing::field::Empty,
+        kooix.request_id = %event.request_id,
+        kooix.org_id = %event.org_id,
+        kooix.project_id = %event.project_id,
+        kooix.api_key_id = %event.api_key_id,
+        kooix.channel_id = display_opt_uuid(event.channel_id),
+        kooix.group_id = display_opt_uuid(event.group_id),
+        kooix.model = %event.model,
+        request_id = %event.request_id,
+        org_id = %event.org_id,
+        project_id = %event.project_id,
+        api_key_id = %event.api_key_id,
+        channel_id = display_opt_uuid(event.channel_id),
+        group_id = display_opt_uuid(event.group_id),
+        model = %event.model,
+        status = event.status,
+    )
+}
 
-    async fn mark_failed(&self, id: OutboxId, error: &str) -> BillingResult<()> {
-        let mut g = self.inner.lock();
-        if let Some(r) = g.rows.iter_mut().find(|r| r.id == id) {
-            r.retry_count += 1;
-            r.last_error = Some(error.to_string());
-        }
-        Ok(())
-    }
+fn display_opt_uuid(value: Option<Uuid>) -> String {
+    value.map(|v| v.to_string()).unwrap_or_default()
 }
 
 fn record_outbox_enqueued(event: &UsageEvent) {

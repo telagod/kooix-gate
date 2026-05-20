@@ -14,6 +14,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 /// 失败次数上限（与 outbox.rs fetch_batch SQL 中的 retry_count < 3 对应）。
 #[allow(dead_code)]
@@ -71,7 +72,20 @@ impl Consumer {
 
     /// 单次 tick：拉一批 → 逐条处理。
     pub async fn tick(&self) -> BillingResult<()> {
+        let span = tracing::info_span!(
+            "billing.consumer.tick",
+            configured_batch_size = self.batch_size,
+            batch_size = tracing::field::Empty,
+        );
+        let span_for_inner = span.clone();
+        async move { self.tick_inner(&span_for_inner).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn tick_inner(&self, span: &tracing::Span) -> BillingResult<()> {
         let batch = self.outbox.fetch_batch(self.batch_size).await?;
+        span.record("batch_size", batch.len());
         if batch.is_empty() {
             metrics::gauge!("billing_outbox_batch_size").set(0.0);
             return Ok(());
@@ -86,6 +100,14 @@ impl Consumer {
     }
 
     async fn process_one(&self, outbox_id: OutboxId, event: &UsageEvent) {
+        let span = usage_event_span("billing.consumer.process_one", event);
+        span.record("outbox_id", outbox_id);
+        async move { self.process_one_inner(outbox_id, event).await }
+            .instrument(span)
+            .await;
+    }
+
+    async fn process_one_inner(&self, outbox_id: OutboxId, event: &UsageEvent) {
         match commit_usage(&self.pool, event).await {
             Ok(()) => {
                 metrics::counter!("billing_outbox_processed_total").increment(1);
@@ -121,6 +143,13 @@ impl Consumer {
 ///
 /// channel_id 为 None 时直接写 NULL（fallback provider 路径无 channel 归属）。
 pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()> {
+    let span = usage_event_span("billing.commit_usage", event);
+    async move { commit_usage_inner(pool, event).await }
+        .instrument(span)
+        .await
+}
+
+async fn commit_usage_inner(pool: &PgPool, event: &UsageEvent) -> BillingResult<()> {
     let idem = event
         .idempotency_key
         .clone()
@@ -254,6 +283,70 @@ pub async fn commit_usage(pool: &PgPool, event: &UsageEvent) -> BillingResult<()
 
     tx.commit().await?;
     Ok(())
+}
+
+fn usage_event_span(name: &'static str, event: &UsageEvent) -> tracing::Span {
+    match name {
+        "billing.consumer.process_one" => tracing::info_span!(
+            "billing.consumer.process_one",
+            outbox_id = tracing::field::Empty,
+            kooix.request_id = %event.request_id,
+            kooix.org_id = %event.org_id,
+            kooix.project_id = %event.project_id,
+            kooix.api_key_id = %event.api_key_id,
+            kooix.channel_id = display_opt_uuid(event.channel_id),
+            kooix.group_id = display_opt_uuid(event.group_id),
+            kooix.model = %event.model,
+            request_id = %event.request_id,
+            org_id = %event.org_id,
+            project_id = %event.project_id,
+            api_key_id = %event.api_key_id,
+            channel_id = display_opt_uuid(event.channel_id),
+            group_id = display_opt_uuid(event.group_id),
+            model = %event.model,
+            status = event.status,
+        ),
+        "billing.commit_usage" => tracing::info_span!(
+            "billing.commit_usage",
+            kooix.request_id = %event.request_id,
+            kooix.org_id = %event.org_id,
+            kooix.project_id = %event.project_id,
+            kooix.api_key_id = %event.api_key_id,
+            kooix.channel_id = display_opt_uuid(event.channel_id),
+            kooix.group_id = display_opt_uuid(event.group_id),
+            kooix.model = %event.model,
+            request_id = %event.request_id,
+            org_id = %event.org_id,
+            project_id = %event.project_id,
+            api_key_id = %event.api_key_id,
+            channel_id = display_opt_uuid(event.channel_id),
+            group_id = display_opt_uuid(event.group_id),
+            model = %event.model,
+            status = event.status,
+        ),
+        _ => tracing::info_span!(
+            "billing.usage_event",
+            kooix.request_id = %event.request_id,
+            kooix.org_id = %event.org_id,
+            kooix.project_id = %event.project_id,
+            kooix.api_key_id = %event.api_key_id,
+            kooix.channel_id = display_opt_uuid(event.channel_id),
+            kooix.group_id = display_opt_uuid(event.group_id),
+            kooix.model = %event.model,
+            request_id = %event.request_id,
+            org_id = %event.org_id,
+            project_id = %event.project_id,
+            api_key_id = %event.api_key_id,
+            channel_id = display_opt_uuid(event.channel_id),
+            group_id = display_opt_uuid(event.group_id),
+            model = %event.model,
+            status = event.status,
+        ),
+    }
+}
+
+fn display_opt_uuid(value: Option<uuid::Uuid>) -> String {
+    value.map(|v| v.to_string()).unwrap_or_default()
 }
 
 // ============================================================================

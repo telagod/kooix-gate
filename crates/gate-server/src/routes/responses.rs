@@ -11,6 +11,7 @@ use crate::inflight::InflightGuards;
 use crate::middleware::KooixRequestId;
 use crate::routes::chat;
 use crate::state::AppState;
+use crate::trace_context::{DataPlaneTrace, TraceIdentity, record_upstream_outcome};
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
@@ -23,6 +24,8 @@ use gate_providers::{ChatRequest, ChatResponse, Usage};
 mod responses_codec;
 use responses_codec::{ResponsesRequest, chat_to_responses_response, responses_to_chat_request};
 use std::convert::Infallible;
+use std::time::Instant;
+use tracing::Instrument;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -71,6 +74,15 @@ async fn create_response(
     let request_id = request_id
         .map(|Extension(id)| id.0)
         .unwrap_or_else(Uuid::now_v7);
+    let trace = DataPlaneTrace::new(
+        TraceIdentity::from_auth(&ctx, request_id),
+        "responses",
+        provider_type.clone(),
+        channel_id,
+        routed_group_id,
+        chat_req.model.clone(),
+    );
+    let data_span = trace.span();
     let billing_ctx = BillingCtx::from_auth(
         &ctx,
         channel_id,
@@ -89,6 +101,8 @@ async fn create_response(
             billing_ctx,
             guards,
             provider_type,
+            data_span,
+            trace,
             chat_req,
         )
         .await
@@ -103,6 +117,8 @@ async fn create_response(
             billing_ctx,
             guards,
             provider_type,
+            data_span,
+            trace,
             chat_req,
         )
         .await
@@ -120,9 +136,11 @@ async fn create_response_non_stream(
     billing_ctx: Option<BillingCtx>,
     guards: Option<Extension<InflightGuards>>,
     provider_type: String,
+    data_span: tracing::Span,
+    trace: DataPlaneTrace,
     chat_req: ChatRequest,
 ) -> AppResult<axum::response::Response> {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     let model_for_metrics = chat_req.model.clone();
     let resp: ChatResponse = match with_retry(&retry_config, || {
         let req_clone = chat_req.clone();
@@ -131,8 +149,21 @@ async fn create_response_non_stream(
         let routed_metrics = routed_metrics.clone();
         let provider_type = provider_type.clone();
         let model_for_metrics = model_for_metrics.clone();
+        let trace = trace.clone();
+        let data_span = data_span.clone();
         async move {
-            match provider.chat(req_clone).await {
+            let upstream_span = data_span.in_scope(|| trace.upstream_span("responses.chat", false));
+            let upstream_start = Instant::now();
+            let result = provider
+                .chat(req_clone)
+                .instrument(upstream_span.clone())
+                .await;
+            record_upstream_outcome(
+                &upstream_span,
+                if result.is_ok() { "ok" } else { "error" },
+                upstream_start.elapsed(),
+            );
+            match result {
                 Ok(resp) => Ok(resp),
                 Err(err) => {
                     chat::report_channel_failure(
@@ -201,9 +232,12 @@ async fn create_response_non_stream(
         let outbox = app.outbox.clone();
         let pricing = app.pricing.clone();
         let usage = resp.usage.clone();
-        tokio::spawn(async move {
-            emit_usage(outbox, pricing, bctx, usage, 200).await;
-        });
+        tokio::spawn(
+            async move {
+                emit_usage(outbox, pricing, bctx, usage, 200).await;
+            }
+            .instrument(data_span.clone()),
+        );
     }
 
     Ok(Json(chat_to_responses_response(resp)).into_response())
@@ -219,12 +253,29 @@ async fn create_response_stream(
     billing_ctx: Option<BillingCtx>,
     guards: Option<Extension<InflightGuards>>,
     provider_type: String,
+    data_span: tracing::Span,
+    trace: DataPlaneTrace,
     chat_req: ChatRequest,
 ) -> AppResult<axum::response::Response> {
     let model = chat_req.model.clone();
     let estimated_stream_usage = chat::estimated_usage_from_request(&chat_req);
-    let execute_start = std::time::Instant::now();
-    let upstream = match provider.chat_stream(chat_req).await {
+    let execute_start = Instant::now();
+    let upstream_span = data_span.in_scope(|| trace.upstream_span("responses.chat_stream", true));
+    let upstream_start = Instant::now();
+    let upstream_result = provider
+        .chat_stream(chat_req)
+        .instrument(upstream_span.clone())
+        .await;
+    record_upstream_outcome(
+        &upstream_span,
+        if upstream_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+        upstream_start.elapsed(),
+    );
+    let upstream = match upstream_result {
         Ok(upstream) => {
             crate::gateway::record_stage(
                 GatewayStage::Execute,
@@ -266,6 +317,7 @@ async fn create_response_stream(
 
     let app_for_tail = app.clone();
     let billing_ctx_for_tail = billing_ctx.clone();
+    let billing_parent_span = data_span.clone();
     let guards_for_tail = guards.clone();
     let captured_usage = std::sync::Arc::new(parking_lot::Mutex::new(None::<Usage>));
     let captured_usage_for_tail = captured_usage.clone();
@@ -333,9 +385,12 @@ async fn create_response_stream(
         if let Some(bctx) = billing_ctx_for_tail {
             let outbox = app_for_tail.outbox.clone();
             let pricing = app_for_tail.pricing.clone();
-            tokio::spawn(async move {
-                emit_usage(outbox, pricing, bctx, usage, 200).await;
-            });
+            tokio::spawn(
+                async move {
+                    emit_usage(outbox, pricing, bctx, usage, 200).await;
+                }
+                .instrument(billing_parent_span),
+            );
         }
         Ok::<_, Infallible>(
             Event::default().data(serde_json::json!({"type":"response.completed"}).to_string()),

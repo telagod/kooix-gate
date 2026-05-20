@@ -25,6 +25,27 @@ gitleaks detect --source . --redact --verbose
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -C "$tmp" -xf - && gitleaks detect --source "$tmp" --no-git --redact --verbose
 ```
 
+## P1.9 Observability / Trace correlation
+
+本轮把 P1.9 Trace 串联从路线项落成 data-plane + billing 可追踪闭环：
+
+- HTTP middleware 使用固定 `http.request` span，记录 `request_id`、`status` 与 `latency_ms`，并把 `x-request-id` 写入 OTEL attribute `kooix.request_id`。
+- 新增 `trace_context` helper，统一生成 `gateway.data_plane` 与 `gateway.upstream_request` spans，并携带 `request_id`、`org_id`、`project_id`、`api_key_id`、`user_id`、`channel_id`、`group_id`、`provider_type`、`endpoint`、`model`。
+- `chat` / `responses` / `embeddings` / `images` / `audio` 所有 upstream provider call 都有 `gateway.upstream_request` child span，记录 `operation`、`streaming`、`outcome` 与 `duration_ms`；retry 场景每次 attempt 单独生成 span。
+- data-plane 中所有 `emit_usage` spawned task 都继承对应 `gateway.data_plane` span，避免成功返回后 billing trace 断链。
+- `billing.emit_usage` 记录 pricing / enqueue outcome；`billing.outbox.enqueue|fetch_batch|mark_done|mark_failed` 与 `billing.consumer.tick|process_one|commit_usage` 覆盖 outbox 生命周期和 settlement 落库。
+- `docs/observability-runbook.md` 增加 trace span / attribute 清单与按 request_id 排障顺序。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-billing -p gate-server --all-targets
+cargo clippy -p gate-billing -p gate-server --all-targets -- -D warnings
+cargo test -p gate-server trace_context
+cargo test -p gate-billing --test outbox_consumer -- --nocapture
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：
