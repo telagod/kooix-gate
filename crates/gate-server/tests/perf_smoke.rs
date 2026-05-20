@@ -479,6 +479,7 @@ async fn gateway_controlplane_and_metrics_smoke() {
         "/v1/admin/dashboard-stats too slow: {elapsed:?}"
     );
 
+    gate_server::metrics::reset_runtime_snapshots_for_tests();
     gate_server::metrics::record_quota_deny("daily_budget_usd", "api_key", "enforce");
     gate_server::metrics::record_upstream_error_with_context(
         "authentication_error",
@@ -489,6 +490,40 @@ async fn gateway_controlplane_and_metrics_smoke() {
     gate_server::metrics::record_billing_settle_lag_seconds(0.25);
     gate_server::metrics::record_billing_outbox_lag_seconds(0.5);
     gate_server::metrics::record_usage_rollup_lag_seconds(0.25);
+
+    let (status, body, elapsed) = timed(
+        &h.router,
+        Request::builder()
+            .method("GET")
+            .uri("/v1/admin/incidents?hours=24")
+            .header("authorization", format!("Bearer {}", h.admin_token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body={}",
+        String::from_utf8_lossy(&body)
+    );
+    assert!(
+        elapsed < MAX_ROUTE_LATENCY,
+        "/v1/admin/incidents too slow: {elapsed:?}"
+    );
+    let incidents: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(incidents["hours"], 24);
+    assert!(incidents["recent_errors"].is_array());
+    assert!(incidents["top_failing_channels"].is_array());
+    assert_eq!(
+        incidents["quota_denies_top"][0]["dimension"],
+        "daily_budget_usd"
+    );
+    assert_eq!(
+        incidents["upstream_errors_runtime_top"][0]["kind"],
+        "authentication_error"
+    );
+    assert!(incidents["upstream_error_classes"]["auth_401"].is_number());
 
     let (status, body, _) = timed(
         &h.router,

@@ -548,11 +548,11 @@ cargo test -p gate-providers --all-targets
   - [x] org/project/api_key/channel/model
   - [x] upstream request span
   - [x] billing/outbox span
-- [ ] 控制台事故页：
-  - 最近错误
-  - top failing channels
-  - quota deny top
-  - upstream 401/429/5xx 分类
+- [x] 控制台事故页：
+  - [x] 最近错误
+  - [x] top failing channels
+  - [x] quota deny top
+  - [x] upstream 401/429/5xx 分类
 - [ ] Runbook：
   - 上游全挂
   - Redis 不可用

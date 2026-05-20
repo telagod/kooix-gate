@@ -51,7 +51,8 @@ pub use repo::project::{PgProjectRepo, ProjectRepo};
 pub use repo::quota::{InMemoryQuotaRepo, PgQuotaRepo, QuotaRecord, QuotaRepo, QuotaUpsert};
 pub use repo::request_log::{
     DashboardStats, FilterOptionItem, FilterOptions, HourlyBucket, InMemoryRequestLogRepo,
-    ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage, RequestRecord,
+    IncidentSummary, ModelRank, PgRequestLogRepo, RequestFilter, RequestLogRepo, RequestPage,
+    RequestRecord, TopFailingChannel, UpstreamErrorClasses,
 };
 pub use repo::session::{
     InMemoryUserSessionRepo, PgUserSessionRepo, UserSessionCreate, UserSessionRecord,

@@ -27,6 +27,31 @@ sum(rate(quota_denies_total[5m])) by (dimension, scope_kind, mode)
 - `kind=authentication_error|rate_limit_error|model_not_found|policy_error|upstream_error|...` 与 data-plane error shape 同源。
 - `quota_denies_total{mode="enforce"}` 只记录硬拦截，dry-run 继续看 `quota_dry_run_total`。
 
+## Console incident center
+
+平台管理员可从控制台 `/admin/incidents` 或 API `GET /v1/admin/incidents?org_id=<uuid>&hours=24` 查看事故摘要：
+
+- `recent_errors`：近窗口最近错误，来自 `request_events`，缺表时回退 `usage_records`。
+- `top_failing_channels`：按错误数 / 错误率 / 最近错误时间排序的失败 channel，关联 `channels.name/provider_type`。
+- `quota_denies_top`：与 `quota_denies_total` 同步维护的 process-local runtime snapshot，自服务启动后累计。
+- `upstream_error_classes`：持久化请求里的 `401 auth`、`429 rate limit`、`5xx`、其它 `4xx` 与 unknown 分类。
+- `upstream_errors_runtime_top`：与 `gateway_upstream_errors_total` 同步维护的 process-local runtime snapshot，自服务启动后累计。
+
+快速 API 验尸：
+
+```bash
+curl "$KOOIX_URL/v1/admin/incidents?hours=24" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+判读顺序：
+
+1. 先看 `recent_errors`，用 `request_id` 跳到 `/admin/requests` 或 trace 中的 `kooix.request_id`。
+2. 再看 `top_failing_channels`：如果单个 channel 错误率高，优先 drain / disable 对应 channel；若 fallback/unknown 高，查 project default group 与 fallback provider。
+3. `quota_denies_top` 高时，去 `/orgs/:org_id/quotas` 看命中规则；注意该列表是运行时快照，重启会清零，长期趋势看 Prometheus。
+4. `upstream_error_classes.auth_401` 高：优先轮换 channel key；`rate_limit_429` 高：调低 routing weight / 增加 fallback；`upstream_5xx` 高：看 provider status 与 health probe。
+5. 多实例部署时 runtime snapshots 是单进程视图；跨实例聚合仍以 Prometheus 为准。
+
 ## Trace correlation
 
 P1.9 后 data-plane / billing 链路固定使用同一组低基数 span 和属性，排障时先用 `kooix.request_id` 串起来，再按 org / project / channel / model 收窄。

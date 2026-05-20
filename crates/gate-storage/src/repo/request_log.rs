@@ -119,6 +119,33 @@ pub struct FilterOptionItem {
     pub label: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct IncidentSummary {
+    pub top_failing_channels: Vec<TopFailingChannel>,
+    pub upstream_error_classes: UpstreamErrorClasses,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TopFailingChannel {
+    pub channel_id: Option<Uuid>,
+    pub channel_name: Option<String>,
+    pub provider_type: Option<String>,
+    pub requests: i64,
+    pub errors: i64,
+    pub error_rate: f64,
+    pub last_error_code: Option<String>,
+    pub last_error_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UpstreamErrorClasses {
+    pub auth_401: i64,
+    pub rate_limit_429: i64,
+    pub upstream_5xx: i64,
+    pub other_4xx: i64,
+    pub unknown: i64,
+}
+
 #[async_trait]
 pub trait RequestLogRepo: Send + Sync + 'static {
     async fn list(
@@ -133,6 +160,9 @@ pub trait RequestLogRepo: Send + Sync + 'static {
     async fn dashboard_stats(&self, org_id: Option<Uuid>, hours: i64) -> DbResult<DashboardStats>;
 
     async fn filter_options(&self, org_id: Option<Uuid>, hours: i64) -> DbResult<FilterOptions>;
+
+    async fn incident_summary(&self, org_id: Option<Uuid>, hours: i64)
+    -> DbResult<IncidentSummary>;
 }
 
 pub struct PgRequestLogRepo {
@@ -218,6 +248,14 @@ fn row_to_record(r: &sqlx::postgres::PgRow) -> DbResult<RequestRecord> {
 }
 
 impl PgRequestLogRepo {
+    fn source_for_incidents(source: &str) -> &'static str {
+        if source == "request_events" {
+            "request_events"
+        } else {
+            "usage_records"
+        }
+    }
+
     async fn dashboard_stats_from_rollups(
         &self,
         org_id: Option<Uuid>,
@@ -404,6 +442,111 @@ impl PgRequestLogRepo {
             channels,
             projects,
             error_codes,
+        })
+    }
+
+    async fn incident_summary_from_source(
+        &self,
+        source: &str,
+        org_id: Option<Uuid>,
+        hours: i64,
+    ) -> DbResult<IncidentSummary> {
+        let table = Self::source_for_incidents(source);
+        let alias = if table == "request_events" { "e" } else { "u" };
+        let org_filter = if org_id.is_some() {
+            format!("AND {alias}.org_id = $2")
+        } else {
+            String::new()
+        };
+
+        let top_sql = format!(
+            "WITH filtered AS (
+                SELECT {alias}.channel_id,
+                       {alias}.status,
+                       {alias}.error_code,
+                       {alias}.ts
+                FROM {table} {alias}
+                WHERE {alias}.ts >= NOW() - make_interval(hours => $1::int) {org_filter}
+             ), grouped AS (
+                SELECT f.channel_id,
+                       COUNT(*)::BIGINT AS requests,
+                       COUNT(*) FILTER (WHERE f.status >= 400 OR f.error_code IS NOT NULL)::BIGINT AS errors,
+                       (
+                         SELECT f2.error_code
+                         FROM filtered f2
+                         WHERE f2.channel_id IS NOT DISTINCT FROM f.channel_id
+                           AND (f2.status >= 400 OR f2.error_code IS NOT NULL)
+                         ORDER BY f2.ts DESC
+                         LIMIT 1
+                       ) AS last_error_code,
+                       MAX(f.ts) FILTER (WHERE f.status >= 400 OR f.error_code IS NOT NULL) AS last_error_at
+                FROM filtered f
+                GROUP BY f.channel_id
+             )
+             SELECT g.channel_id,
+                    c.name AS channel_name,
+                    c.provider_type AS provider_type,
+                    g.requests,
+                    g.errors,
+                    CASE WHEN g.requests > 0 THEN g.errors::float8 / g.requests::float8 ELSE 0 END AS error_rate,
+                    g.last_error_code,
+                    g.last_error_at
+             FROM grouped g
+             LEFT JOIN channels c ON c.id = g.channel_id
+             WHERE g.errors > 0
+             ORDER BY g.errors DESC, error_rate DESC, g.last_error_at DESC NULLS LAST
+             LIMIT 10"
+        );
+        let mut q = sqlx::query(&top_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        let top_failing_channels = rows
+            .iter()
+            .map(|r| TopFailingChannel {
+                channel_id: r.try_get("channel_id").ok().flatten(),
+                channel_name: r.try_get("channel_name").ok().flatten(),
+                provider_type: r.try_get("provider_type").ok().flatten(),
+                requests: r.try_get("requests").unwrap_or(0),
+                errors: r.try_get("errors").unwrap_or(0),
+                error_rate: r.try_get("error_rate").unwrap_or(0.0),
+                last_error_code: r.try_get("last_error_code").ok().flatten(),
+                last_error_at: r.try_get("last_error_at").ok().flatten(),
+            })
+            .collect();
+
+        let classes_sql = format!(
+            "SELECT
+                COUNT(*) FILTER (WHERE status = 401 OR error_code IN ('authentication_error', 'invalid_api_key', 'unauthorized'))::BIGINT AS auth_401,
+                COUNT(*) FILTER (WHERE status = 429 OR error_code IN ('rate_limit_error', 'rate_limited', 'too_many_requests'))::BIGINT AS rate_limit_429,
+                COUNT(*) FILTER (WHERE status >= 500)::BIGINT AS upstream_5xx,
+                COUNT(*) FILTER (
+                    WHERE status >= 400 AND status < 500
+                      AND status NOT IN (401, 429)
+                      AND COALESCE(error_code, '') NOT IN ('authentication_error', 'invalid_api_key', 'unauthorized', 'rate_limit_error', 'rate_limited', 'too_many_requests')
+                )::BIGINT AS other_4xx,
+                COUNT(*) FILTER (WHERE (status < 400 OR status IS NULL) AND error_code IS NOT NULL)::BIGINT AS unknown
+             FROM {table} {alias}
+             WHERE {alias}.ts >= NOW() - make_interval(hours => $1::int)
+               AND ({alias}.status >= 400 OR {alias}.error_code IS NOT NULL) {org_filter}"
+        );
+        let mut q = sqlx::query(&classes_sql).bind(hours as i32);
+        if let Some(o) = org_id {
+            q = q.bind(o);
+        }
+        let row = q.fetch_one(&self.pool).await?;
+        let upstream_error_classes = UpstreamErrorClasses {
+            auth_401: row.try_get("auth_401").unwrap_or(0),
+            rate_limit_429: row.try_get("rate_limit_429").unwrap_or(0),
+            upstream_5xx: row.try_get("upstream_5xx").unwrap_or(0),
+            other_4xx: row.try_get("other_4xx").unwrap_or(0),
+            unknown: row.try_get("unknown").unwrap_or(0),
+        };
+
+        Ok(IncidentSummary {
+            top_failing_channels,
+            upstream_error_classes,
         })
     }
 }
@@ -943,6 +1086,24 @@ impl RequestLogRepo for PgRequestLogRepo {
             error_codes,
         })
     }
+
+    async fn incident_summary(
+        &self,
+        org_id: Option<Uuid>,
+        hours: i64,
+    ) -> DbResult<IncidentSummary> {
+        let hours = hours.clamp(1, 720);
+        if table_exists(&self.pool, "request_events")
+            .await
+            .unwrap_or(false)
+        {
+            return self
+                .incident_summary_from_source("request_events", org_id, hours)
+                .await;
+        }
+        self.incident_summary_from_source("usage_records", org_id, hours)
+            .await
+    }
 }
 
 // InMemory stub for dev/test
@@ -999,6 +1160,17 @@ impl RequestLogRepo for InMemoryRequestLogRepo {
             channels: vec![],
             projects: vec![],
             error_codes: vec![],
+        })
+    }
+
+    async fn incident_summary(
+        &self,
+        _org_id: Option<Uuid>,
+        _hours: i64,
+    ) -> DbResult<IncidentSummary> {
+        Ok(IncidentSummary {
+            top_failing_channels: vec![],
+            upstream_error_classes: UpstreamErrorClasses::default(),
         })
     }
 }

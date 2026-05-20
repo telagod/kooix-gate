@@ -21,6 +21,7 @@
 		Clock,
 		XCircle,
 		ScrollText,
+		ShieldAlert,
 		Gauge
 	} from 'lucide-svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
@@ -328,6 +329,15 @@
 					<div class="flex-1">
 						<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">请求日志</p>
 						<p class="text-xs text-zinc-600 dark:text-zinc-300">查看 API 请求记录</p>
+					</div>
+					<ArrowRight size={14} class="text-zinc-300 dark:text-zinc-600" />
+				</button>
+
+				<button onclick={() => goto('/admin/incidents')} class="group flex items-center gap-3 p-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-500 transition-colors text-left">
+					<ShieldAlert size={20} class="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors" />
+					<div class="flex-1">
+						<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">事故中心</p>
+						<p class="text-xs text-zinc-600 dark:text-zinc-300">定位错误、配额与上游故障</p>
 					</div>
 					<ArrowRight size={14} class="text-zinc-300 dark:text-zinc-600" />
 				</button>

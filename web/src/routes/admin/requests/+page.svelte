@@ -514,7 +514,7 @@
 						<span class="text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_out)}</span>
 					</td>
 					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono">{formatCost(req.cost_usd)}</td>
-					<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[100px]">{shortId(req.channel_id)}...</td>
+					<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[100px]">{req.channel_id ? `${shortId(req.channel_id)}...` : '—'}</td>
 					<td class="px-4 py-3 text-right">
 						{#if expandedId === req.request_id}
 							<ChevronUp size={14} class="text-zinc-400" />

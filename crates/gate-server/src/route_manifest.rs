@@ -473,6 +473,7 @@ pub const ROUTES: &[RouteMeta] = &[
         PlatformAdmin,
         CONTROL_PLANE
     ),
+    route!("GET", "/v1/admin/incidents", PlatformAdmin, CONTROL_PLANE),
     route!(
         "GET",
         "/v1/admin/pricing-rules",

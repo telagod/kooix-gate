@@ -33,12 +33,16 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use gate_core::id::ChannelId;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use parking_lot::Mutex;
+use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
 const UNKNOWN_LABEL: &str = "unknown";
 const FALLBACK_CHANNEL_LABEL: &str = "fallback";
 const MAX_LABEL_CHARS: usize = 96;
+const MAX_RUNTIME_SNAPSHOT_SERIES: usize = 2048;
 const REQUEST_DURATION_BUCKETS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 ];
@@ -47,6 +51,28 @@ const REQUEST_DURATION_BUCKETS: &[f64] = &[
 /// [`install_recorder`]. The handle is used by the `/metrics` endpoint to
 /// render the exposition format.
 static HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
+static QUOTA_DENY_SNAPSHOT: OnceLock<Mutex<HashMap<QuotaDenyKey, u64>>> = OnceLock::new();
+static UPSTREAM_ERROR_SNAPSHOT: OnceLock<Mutex<HashMap<UpstreamErrorKey, u64>>> = OnceLock::new();
+
+type QuotaDenyKey = (String, String, String);
+type UpstreamErrorKey = (String, String, String, String);
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QuotaDenySnapshot {
+    pub dimension: String,
+    pub scope_kind: String,
+    pub mode: String,
+    pub denies: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpstreamErrorSnapshot {
+    pub kind: String,
+    pub provider_type: String,
+    pub channel: String,
+    pub model: String,
+    pub errors: u64,
+}
 
 /// Install the Prometheus metrics recorder (global, once).
 ///
@@ -109,6 +135,110 @@ pub async fn metrics_handler() -> impl IntoResponse {
 
 pub fn render_for_tests() -> Option<String> {
     HANDLE.get().map(PrometheusHandle::render)
+}
+
+fn quota_deny_counters() -> &'static Mutex<HashMap<QuotaDenyKey, u64>> {
+    QUOTA_DENY_SNAPSHOT.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn upstream_error_counters() -> &'static Mutex<HashMap<UpstreamErrorKey, u64>> {
+    UPSTREAM_ERROR_SNAPSHOT.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn bump_quota_deny_snapshot(dimension: String, scope_kind: String, mode: String) {
+    let mut counters = quota_deny_counters().lock();
+    let key = if counters.len() < MAX_RUNTIME_SNAPSHOT_SERIES
+        || counters.contains_key(&(dimension.clone(), scope_kind.clone(), mode.clone()))
+    {
+        (dimension, scope_kind, mode)
+    } else {
+        (
+            "overflow".to_string(),
+            "overflow".to_string(),
+            "overflow".to_string(),
+        )
+    };
+    *counters.entry(key).or_insert(0) += 1;
+}
+
+fn bump_upstream_error_snapshot(
+    kind: String,
+    provider_type: String,
+    channel: String,
+    model: String,
+) {
+    let mut counters = upstream_error_counters().lock();
+    let key = if counters.len() < MAX_RUNTIME_SNAPSHOT_SERIES
+        || counters.contains_key(&(
+            kind.clone(),
+            provider_type.clone(),
+            channel.clone(),
+            model.clone(),
+        )) {
+        (kind, provider_type, channel, model)
+    } else {
+        (
+            "overflow".to_string(),
+            "overflow".to_string(),
+            "overflow".to_string(),
+            "overflow".to_string(),
+        )
+    };
+    *counters.entry(key).or_insert(0) += 1;
+}
+
+pub fn quota_deny_snapshot() -> Vec<QuotaDenySnapshot> {
+    let mut rows: Vec<_> = quota_deny_counters()
+        .lock()
+        .iter()
+        .map(
+            |((dimension, scope_kind, mode), denies)| QuotaDenySnapshot {
+                dimension: dimension.clone(),
+                scope_kind: scope_kind.clone(),
+                mode: mode.clone(),
+                denies: *denies,
+            },
+        )
+        .collect();
+    rows.sort_by(|a, b| {
+        b.denies
+            .cmp(&a.denies)
+            .then_with(|| a.dimension.cmp(&b.dimension))
+            .then_with(|| a.scope_kind.cmp(&b.scope_kind))
+            .then_with(|| a.mode.cmp(&b.mode))
+    });
+    rows
+}
+
+pub fn upstream_error_snapshot() -> Vec<UpstreamErrorSnapshot> {
+    let mut rows: Vec<_> = upstream_error_counters()
+        .lock()
+        .iter()
+        .map(
+            |((kind, provider_type, channel, model), errors)| UpstreamErrorSnapshot {
+                kind: kind.clone(),
+                provider_type: provider_type.clone(),
+                channel: channel.clone(),
+                model: model.clone(),
+                errors: *errors,
+            },
+        )
+        .collect();
+    rows.sort_by(|a, b| {
+        b.errors
+            .cmp(&a.errors)
+            .then_with(|| a.kind.cmp(&b.kind))
+            .then_with(|| a.provider_type.cmp(&b.provider_type))
+            .then_with(|| a.channel.cmp(&b.channel))
+            .then_with(|| a.model.cmp(&b.model))
+    });
+    rows
+}
+
+#[doc(hidden)]
+pub fn reset_runtime_snapshots_for_tests() {
+    quota_deny_counters().lock().clear();
+    upstream_error_counters().lock().clear();
 }
 
 /// Record a completed HTTP request (called by the metrics middleware).
@@ -223,13 +353,17 @@ pub fn record_billing_settle_lag_seconds(lag_seconds: f64) {
 
 /// Record quota hard denies with bounded labels.
 pub fn record_quota_deny(dimension: &str, scope_kind: &str, mode: &str) {
+    let dimension = normalize_label_value(dimension);
+    let scope_kind = normalize_label_value(scope_kind);
+    let mode = normalize_label_value(mode);
     metrics::counter!(
         "quota_denies_total",
-        "dimension" => normalize_label_value(dimension),
-        "scope_kind" => normalize_label_value(scope_kind),
-        "mode" => normalize_label_value(mode),
+        "dimension" => dimension.clone(),
+        "scope_kind" => scope_kind.clone(),
+        "mode" => mode.clone(),
     )
     .increment(1);
+    bump_quota_deny_snapshot(dimension, scope_kind, mode);
 }
 
 /// Record normalized upstream/provider errors with legacy kind-only compatibility.
@@ -244,15 +378,19 @@ pub fn record_upstream_error_with_context(
     channel: &str,
     model: &str,
 ) {
+    let provider_type = normalize_label_value(provider_type);
+    let channel = normalize_label_value(channel);
+    let model = normalize_label_value(model);
     metrics::counter!("upstream_errors_total", "kind" => kind).increment(1);
     metrics::counter!(
         "gateway_upstream_errors_total",
         "kind" => kind,
-        "provider_type" => normalize_label_value(provider_type),
-        "channel" => normalize_label_value(channel),
-        "model" => normalize_label_value(model),
+        "provider_type" => provider_type.clone(),
+        "channel" => channel.clone(),
+        "model" => model.clone(),
     )
     .increment(1);
+    bump_upstream_error_snapshot(kind.to_string(), provider_type, channel, model);
 }
 
 pub fn channel_label(channel_id: Option<Uuid>) -> String {
@@ -392,5 +530,30 @@ mod tests {
             "bad_label_with_space"
         );
         assert!(normalize_label_value(&"x".repeat(200)).len() <= MAX_LABEL_CHARS);
+    }
+
+    #[test]
+    fn runtime_snapshots_capture_bounded_metrics() {
+        reset_runtime_snapshots_for_tests();
+
+        record_quota_deny("daily budget usd", "api key", "enforce");
+        record_upstream_error_with_context(
+            "authentication_error",
+            "openai",
+            "ch_test",
+            "gpt-4o-mini",
+        );
+
+        let quota = quota_deny_snapshot();
+        assert_eq!(quota.len(), 1);
+        assert_eq!(quota[0].dimension, "daily_budget_usd");
+        assert_eq!(quota[0].scope_kind, "api_key");
+        assert_eq!(quota[0].denies, 1);
+
+        let upstream = upstream_error_snapshot();
+        assert_eq!(upstream.len(), 1);
+        assert_eq!(upstream[0].kind, "authentication_error");
+        assert_eq!(upstream[0].provider_type, "openai");
+        assert_eq!(upstream[0].errors, 1);
     }
 }

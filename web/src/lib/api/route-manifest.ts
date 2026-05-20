@@ -41,6 +41,7 @@ export const routeManifest = {
 	{"method":"DELETE","path":"/v1/admin/identity-providers/:id","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"PUT","path":"/v1/admin/identity-providers/:id","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"POST","path":"/v1/admin/identity-providers/discover","auth":"platform_admin","modes":["all","controlplane"]},
+	{"method":"GET","path":"/v1/admin/incidents","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/admin/orgs","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"POST","path":"/v1/admin/orgs","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"PUT","path":"/v1/admin/orgs/:org_id","auth":"platform_admin","modes":["all","controlplane"]},

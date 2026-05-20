@@ -46,6 +46,29 @@ cargo test -p gate-server trace_context
 cargo test -p gate-billing --test outbox_consumer -- --nocapture
 ```
 
+## P1.9 Observability / Incident center
+
+本轮把 P1.9 控制台事故页落成可操作的止血入口：
+
+- 新增 `GET /v1/admin/incidents?org_id=<uuid>&hours=24`，权限沿用 Platform Admin + `AuditRead`。
+- 后端从 `request_events`（缺表时回退 `usage_records`）汇总最近错误、top failing channels 与 upstream 401 / 429 / 5xx / other / unknown 分类。
+- `metrics.rs` 为 `quota_denies_total` 与 `gateway_upstream_errors_total` 同步维护 bounded process-local snapshots，事故页展示 quota deny top 与运行时上游错误 Top；Prometheus 仍是跨实例长期趋势来源。
+- 控制台新增 `/admin/incidents`，按中文 UI 展示最近错误、失败渠道、quota deny top、upstream 分类与运行时快照，并从 Sidebar / Dashboard 提供入口。
+- `docs/observability-runbook.md` 增加 Console incident center 判读顺序和 runtime-local caveat。
+
+验证命令：
+
+```bash
+cargo fmt --all -- --check
+cargo check -p gate-server --all-targets
+cargo test -p gate-server admin_incidents_requires_platform_admin_user -- --nocapture
+cargo test -p gate-server runtime_snapshots_capture_bounded_metrics -- --nocapture
+npm --prefix web run check
+npm --prefix web test
+node scripts/check-route-manifest.mjs
+node scripts/generate-route-types.mjs --check
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

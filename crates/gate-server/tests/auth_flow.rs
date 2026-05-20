@@ -1024,6 +1024,62 @@ async fn admin_rejects_api_key_subject() {
 }
 
 #[tokio::test]
+async fn admin_incidents_requires_platform_admin_user() {
+    let f = fixture();
+
+    let dev_tok = jwt_for(&f.jwt, f.user_dev, Some(f.org_a), false);
+    let (status, body) = call(
+        &f.router,
+        "GET",
+        "/v1/admin/incidents?hours=24",
+        Some(&dev_tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "forbidden");
+
+    let (status, body) = call(
+        &f.router,
+        "GET",
+        "/v1/admin/incidents?hours=24",
+        Some(&f.api_key_plain),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "forbidden");
+
+    gate_server::metrics::reset_runtime_snapshots_for_tests();
+    gate_server::metrics::record_quota_deny("monthly_tokens", "org", "enforce");
+    gate_server::metrics::record_upstream_error_with_context(
+        "rate_limit_error",
+        "openai",
+        "ch_auth_flow",
+        "gpt-4o-mini",
+    );
+
+    let admin_tok = jwt_for(&f.jwt, f.user_super, None, true);
+    let (status, body) = call(
+        &f.router,
+        "GET",
+        "/v1/admin/incidents?hours=24",
+        Some(&admin_tok),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["hours"], 24);
+    assert!(body["recent_errors"].is_array());
+    assert!(body["top_failing_channels"].is_array());
+    assert_eq!(body["quota_denies_top"][0]["dimension"], "monthly_tokens");
+    assert_eq!(
+        body["upstream_errors_runtime_top"][0]["kind"],
+        "rate_limit_error"
+    );
+}
+
+#[tokio::test]
 async fn header_org_switch_denied_if_not_member() {
     // user_dev 属于 Org A；通过 X-Kooix-Org 切到 Org B 应被拒
     let f = fixture();

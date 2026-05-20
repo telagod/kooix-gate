@@ -1554,7 +1554,7 @@ export interface RequestRecord {
 	project_id: string;
 	api_key_id: string;
 	user_id: string | null;
-	channel_id: string;
+	channel_id: string | null;
 	channel_key_id: string | null;
 	group_id: string | null;
 	model_requested: string;
@@ -1707,6 +1707,59 @@ export async function getDashboardStats(orgId?: string, hours = 24): Promise<Das
 	const qs = new URLSearchParams({ hours: String(hours) });
 	if (orgId) qs.set('org_id', orgId);
 	return apiFetch<DashboardStatsResponse>(`/v1/admin/dashboard-stats?${qs}`);
+}
+
+// ── Incident Summary (Admin) ─────────────────────
+
+export interface TopFailingChannel {
+	channel_id: string | null;
+	channel_name: string | null;
+	provider_type: string | null;
+	requests: number;
+	errors: number;
+	error_rate: number;
+	last_error_code: string | null;
+	last_error_at: string | null;
+}
+
+export interface QuotaDenySnapshot {
+	dimension: string;
+	scope_kind: string;
+	mode: string;
+	denies: number;
+}
+
+export interface UpstreamErrorClasses {
+	auth_401: number;
+	rate_limit_429: number;
+	upstream_5xx: number;
+	other_4xx: number;
+	unknown: number;
+}
+
+export interface UpstreamErrorSnapshot {
+	kind: string;
+	provider_type: string;
+	channel: string;
+	model: string;
+	errors: number;
+}
+
+export interface IncidentSummaryResponse {
+	hours: number;
+	generated_at: string;
+	recent_errors: RequestRecord[];
+	top_failing_channels: TopFailingChannel[];
+	quota_denies_top: QuotaDenySnapshot[];
+	upstream_error_classes: UpstreamErrorClasses;
+	upstream_errors_runtime_top: UpstreamErrorSnapshot[];
+	data_notes: string[];
+}
+
+export async function getIncidentSummary(orgId?: string, hours = 24): Promise<IncidentSummaryResponse> {
+	const qs = new URLSearchParams({ hours: String(hours) });
+	if (orgId) qs.set('org_id', orgId);
+	return apiFetch<IncidentSummaryResponse>(`/v1/admin/incidents?${qs}`);
 }
 
 // ── Filter Options ──────────────────────────────

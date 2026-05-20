@@ -7,8 +7,8 @@ use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use gate_auth::{require, require_user};
 use gate_core::rbac::{Permission, Scope};
-use gate_storage::RequestFilter;
-use serde::Deserialize;
+use gate_storage::{RequestFilter, RequestRecord, TopFailingChannel, UpstreamErrorClasses};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -76,6 +76,7 @@ pub fn router() -> Router<AppState> {
         .route("/requests/filters", get(get_filter_options))
         .route("/requests/:request_id", get(get_request))
         .route("/dashboard-stats", get(dashboard_stats))
+        .route("/incidents", get(incident_summary))
 }
 
 async fn list_requests(
@@ -177,4 +178,67 @@ async fn dashboard_stats(
         .dashboard_stats(q.org_id, hours)
         .await?;
     Ok(Json(serde_json::to_value(&stats).unwrap_or_default()))
+}
+
+#[derive(Serialize)]
+struct IncidentSummaryResponse {
+    hours: i64,
+    generated_at: DateTime<Utc>,
+    recent_errors: Vec<RequestRecord>,
+    top_failing_channels: Vec<TopFailingChannel>,
+    quota_denies_top: Vec<crate::metrics::QuotaDenySnapshot>,
+    upstream_error_classes: UpstreamErrorClasses,
+    upstream_errors_runtime_top: Vec<crate::metrics::UpstreamErrorSnapshot>,
+    data_notes: Vec<&'static str>,
+}
+
+async fn incident_summary(
+    State(app): State<AppState>,
+    Authed(ctx): Authed,
+    Query(q): Query<DashboardStatsQuery>,
+) -> AppResult<Json<IncidentSummaryResponse>> {
+    require_user!(ctx);
+    require!(ctx, Permission::AuditRead, Scope::Platform);
+
+    let hours = q.hours.clamp(1, 720);
+    let recent_filter = RequestFilter {
+        org_id: q.org_id,
+        error_only: Some(true),
+        from: Some(Utc::now() - chrono::Duration::hours(hours)),
+        ..Default::default()
+    };
+    let recent_errors = app
+        .repos
+        .request_logs
+        .list(&recent_filter, None, 12)
+        .await?
+        .data;
+    let incidents = app
+        .repos
+        .request_logs
+        .incident_summary(q.org_id, hours)
+        .await?;
+
+    let quota_denies_top = crate::metrics::quota_deny_snapshot()
+        .into_iter()
+        .take(10)
+        .collect();
+    let upstream_errors_runtime_top = crate::metrics::upstream_error_snapshot()
+        .into_iter()
+        .take(10)
+        .collect();
+
+    Ok(Json(IncidentSummaryResponse {
+        hours,
+        generated_at: Utc::now(),
+        recent_errors,
+        top_failing_channels: incidents.top_failing_channels,
+        quota_denies_top,
+        upstream_error_classes: incidents.upstream_error_classes,
+        upstream_errors_runtime_top,
+        data_notes: vec![
+            "recent_errors/top_failing_channels/upstream_error_classes use persisted request events or usage records.",
+            "quota_denies_top and upstream_errors_runtime_top are process-local runtime snapshots since last boot.",
+        ],
+    }))
 }
