@@ -7,6 +7,11 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Stat from '$lib/components/Stat.svelte';
+	import DataTable from '$lib/components/templates/DataTable.svelte';
+	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import { cn, dataTemplate } from '$lib/design';
+	import { Cable } from 'lucide-svelte';
 
 	let channels = $state<Channel[]>([]);
 	let loading = $state(true);
@@ -150,12 +155,8 @@
 	}
 </script>
 
-<div class="px-6 py-6">
-	<div class="flex items-center justify-between mb-6">
-		<div>
-			<h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">渠道仪表盘</h1>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mt-1">全局渠道健康状态与运维概览</p>
-		</div>
+<PageShell title="渠道仪表盘" description="全局渠道健康状态与运维概览" icon={Cable} max="full">
+	{#snippet actions()}
 		<div class="flex gap-2">
 			<Button variant="outline" size="sm" onclick={handleExport} disabled={exporting || channels.length === 0}>
 				导出 JSON
@@ -167,7 +168,7 @@
 				</span>
 			</label>
 		</div>
-	</div>
+	{/snippet}
 
 	{#if importFile}
 		<Card class="p-4 mb-4 flex items-center justify-between">
@@ -190,14 +191,9 @@
 	{/if}
 
 	{#if loading}
-		<div class="flex items-center justify-center py-16">
-			<svg class="animate-spin h-6 w-6 text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-			</svg>
-		</div>
+		<StatePanel title="正在读取渠道" description="吾正在拉取全局渠道健康状态与运维概览。" icon={Cable} />
 	{:else if error}
-		<Card class="p-6"><p class="text-red-600 dark:text-red-400 text-sm">{error}</p></Card>
+		<StatePanel title="渠道加载失败" description={error} icon={Cable} variant="danger" />
 	{:else}
 		<!-- Stats cards -->
 		<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
@@ -242,30 +238,27 @@
 		<!-- Recent errors -->
 		{#if recentErrors.length > 0}
 			<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">最近错误 TOP 5</h2>
-			<div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 mb-8">
-				<table class="w-full text-sm">
-					<thead class="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
-						<tr>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Channel</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">Provider</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">错误</th>
-							<th class="px-4 py-3 text-left font-medium text-zinc-600 dark:text-zinc-400">时间</th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-						{#each recentErrors as ch}
-							<tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-								<td class="px-4 py-3">
-									<a href="/channels/{rawId(ch.id)}" class="font-mono text-zinc-900 dark:text-zinc-100 hover:underline text-xs">{ch.code}</a>
-								</td>
-								<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-xs">{ch.provider_type}</td>
-								<td class="px-4 py-3 text-red-600 dark:text-red-400 text-xs max-w-[300px] truncate">{ch.last_error}</td>
-								<td class="px-4 py-3 text-zinc-500 dark:text-zinc-400 text-xs">{fmtDate(ch.last_error_at)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+			<DataTable class="mb-8">
+				{#snippet head()}
+					<tr>
+						<th class={dataTemplate.th}>Channel</th>
+						<th class={dataTemplate.th}>Provider</th>
+						<th class={dataTemplate.th}>错误</th>
+						<th class={dataTemplate.th}>时间</th>
+					</tr>
+				{/snippet}
+
+				{#each recentErrors as ch}
+					<tr class={dataTemplate.row}>
+						<td class={dataTemplate.tdMonoStrong}>
+							<a href="/channels/{rawId(ch.id)}" class="hover:underline">{ch.code}</a>
+						</td>
+						<td class={dataTemplate.td}>{ch.provider_type}</td>
+						<td class={cn(dataTemplate.td, 'max-w-[300px] truncate text-red-600 dark:text-red-400')}>{ch.last_error}</td>
+						<td class={dataTemplate.td}>{fmtDate(ch.last_error_at)}</td>
+					</tr>
+				{/each}
+			</DataTable>
 		{/if}
 
 		<!-- Quick links -->
@@ -274,4 +267,4 @@
 			<a href="/admin/groups" class="text-sm text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 underline">分组管理 →</a>
 		</div>
 	{/if}
-</div>
+</PageShell>

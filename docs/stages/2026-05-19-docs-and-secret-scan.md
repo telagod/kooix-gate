@@ -320,6 +320,23 @@ npm --prefix web run check
 node scripts/audit-page-templates.mjs
 ```
 
+## P2.1 Frontend UX / admin channels dashboard rollout
+
+本轮继续按 P2.1 “表格能力统一”清理最后一个模板审计缺口 `/admin/channels`：
+
+- 渠道仪表盘从手写 header / H1 迁到共享 `PageShell`，导入/导出动作进入页面 actions 区。
+- 顶层 loading / error 改用 `StatePanel`，保留全局渠道统计、Provider 健康分布、导入 JSON、导出 JSON 与 quick links。
+- 最近错误 TOP 5 从 native table 迁到共享 `DataTable`，统一表头、边框、hover 与 text token。
+- 模板审计快照：25 个 route page，`/admin/channels` gaps 清零，pages_with_gaps 从 1 降到 0。
+- 关键文档同步 `CHANGELOG.md`、`ROADMAP.md`、`web/README.md`、`web/src/lib/design/README.md`。
+
+阶段验证命令：
+
+```bash
+npm --prefix web run check
+node scripts/audit-page-templates.mjs
+```
+
 ## P1.5 Billing ledger / reconciliation / invoice state / export digest
 
 本轮把 P1.5 billing 全部推进成可对账闭环：

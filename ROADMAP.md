@@ -590,7 +590,8 @@ cargo test -p gate-providers --all-targets
   - [x] 推广到 `/usage`（`PageShell` / `DataToolbar` / `StatePanel`）
   - [x] 推广到 `/setup`（`AuthFrame`）
   - [x] 推广到 `/admin/groups`（`PageShell` / `DataTable`）
-  - [ ] 继续推广到剩余模板缺口（`/admin/channels`）
+  - [x] 推广到 `/admin/channels`（`PageShell` / `DataTable`）
+  - [x] 模板审计缺口清零（`node scripts/audit-page-templates.mjs`）
 - [ ] Channel 创建 wizard：
   - 选择 Provider / preset / 自定义 manifest
   - 选择 auth strategy 并填写 secret slot
