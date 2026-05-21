@@ -20,12 +20,12 @@ use sigv4::{
 use crate::error::{
     NormalizedProviderErrorKind, ProviderError, ProviderErrorMetadata, ProviderResult,
 };
-use crate::openai::check_status;
+use crate::openai::{check_status, sse_to_chunks};
 use crate::plugin_manifest::{
     AuthStrategy, DEFAULT_CHAT_PATH, DEFAULT_EMBEDDINGS_PATH, PluginManifest, ProbeManifest,
     RequestMethod, SignatureEncoding,
 };
-use crate::plugin_preset::{adapt_chat_request, eval_path_value};
+use crate::plugin_preset::{ProviderPresetKind, adapt_chat_request, eval_path_value};
 use crate::types::*;
 use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
@@ -1241,6 +1241,100 @@ impl CustomHttpProvider {
     }
 }
 
+// ─── ADR-0002 fast-path runtime ─────────────────────────────────────────────
+//
+// 4 个 fast-path provider 在 `apply_preset` 阶段被打上 `security.builtin_fastpath`，
+// trait impl 顶部分发到下面这些函数：跳过 manifest 模板 / placeholder render /
+// auth header dispatch，直接复用编译期 OpenAI 路径。
+//
+// 0.3.x 仅实现 OpenAI 一条；剩下 3 条（Anthropic Messages / Azure OpenAI /
+// Bedrock SigV4）在 0.4.0 接入。其余 provider 进 trait impl 后走 manifest 解释器
+// 老路。
+impl CustomHttpProvider {
+    #[inline]
+    fn fastpath_kind(&self) -> Option<ProviderPresetKind> {
+        if self.manifest.security.builtin_fastpath {
+            self.manifest.preset.kind
+        } else {
+            None
+        }
+    }
+
+    /// OpenAI fast-path：直接 POST `{base_url}/chat/completions`，Bearer 鉴权，
+    /// JSON body 就是 `ChatRequest`。等价于 `OpenAiProvider::chat`，但保留
+    /// sandbox dns + peer 校验。
+    async fn fastpath_openai_chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
+        req.stream = false;
+        let url = format!("{}/chat/completions", self.base_url);
+        let api_key = self.secret_for_slot("primary");
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&api_key)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.json().await?)
+    }
+
+    async fn fastpath_openai_chat_stream(
+        &self,
+        mut req: ChatRequest,
+    ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
+        req.stream = true;
+        // 与 OpenAiProvider 一致：force include_usage 给计费用
+        let entry = req
+            .extra
+            .entry("stream_options".to_string())
+            .or_insert_with(|| json!({}));
+        match entry {
+            Value::Object(map) => {
+                map.insert("include_usage".to_string(), Value::Bool(true));
+            }
+            slot => {
+                *slot = json!({ "include_usage": true });
+            }
+        }
+        let url = format!("{}/chat/completions", self.base_url);
+        let api_key = self.secret_for_slot("primary");
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&api_key)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        check_status(&resp)?;
+        Ok(sse_to_chunks(resp.bytes_stream()).boxed())
+    }
+
+    async fn fastpath_openai_embed(
+        &self,
+        req: EmbeddingRequest,
+    ) -> ProviderResult<EmbeddingResponse> {
+        let url = format!("{}/embeddings", self.base_url);
+        let api_key = self.secret_for_slot("primary");
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&api_key)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.json().await?)
+    }
+}
+
 #[async_trait]
 impl Provider for CustomHttpProvider {
     fn name(&self) -> &'static str {
@@ -1248,6 +1342,9 @@ impl Provider for CustomHttpProvider {
     }
 
     async fn chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
+        if let Some(ProviderPresetKind::Openai) = self.fastpath_kind() {
+            return self.fastpath_openai_chat(req).await;
+        }
         req.stream = false;
         let body = self.request_json_body(&req)?;
         let endpoint = self.endpoint_url_for(&req)?;
@@ -1278,6 +1375,9 @@ impl Provider for CustomHttpProvider {
         &self,
         mut req: ChatRequest,
     ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
+        if let Some(ProviderPresetKind::Openai) = self.fastpath_kind() {
+            return self.fastpath_openai_chat_stream(req).await;
+        }
         req.stream = true;
         let body = self.request_json_body(&req)?;
         let endpoint = self.endpoint_url_for(&req)?;
@@ -1318,6 +1418,9 @@ impl EmbeddingProvider for CustomHttpProvider {
     }
 
     async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse> {
+        if let Some(ProviderPresetKind::Openai) = self.fastpath_kind() {
+            return self.fastpath_openai_embed(req).await;
+        }
         let body = self.embedding_request_json_body(&req)?;
         let endpoint = self.embedding_endpoint_url_for(&req)?;
         let method = self.request_method();

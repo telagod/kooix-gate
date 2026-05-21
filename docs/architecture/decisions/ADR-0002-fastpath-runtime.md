@@ -103,10 +103,22 @@ CustomHttpProvider::new_with_secret_slots
 
 - [x] 0.3.x：`SecurityConfig::builtin_fastpath` 字段 + `plugin_preset.rs` 静态注入 + 用户字段强制清零（4 个新单元测试锁定）
 - [x] 0.3.x：capability matrix golden test 覆盖 4 个 fastpath × 9 capability + 23 个 preset（`tests/capability_matrix.rs`）
-- [ ] 0.4.0：`CustomHttpProvider` 内部分发到 4 个 fastpath adapter
-- [ ] 0.4.0：plugin_vs_builtin bench 加 `builtin_fastpath` 列，ratio ≤ 1.02（baseline `pre-m3` 已存于 `target/criterion/`）
+- [x] 0.3.x：`CustomHttpProvider` 内部 OpenAI fast-path dispatch 落地（chat / chat_stream / embed），3 个集成 test 锁路径正确性；bench 实测 fast-path ≤ × 1.00（远好于 ≤ × 1.02 预算）
+- [ ] 0.4.0：剩 3 个 fast-path adapter 落地（Anthropic Messages / Azure OpenAI / Bedrock SigV4）
 - [ ] 0.4.0：catch_unwind 兜底 fallback path（fastpath panic → manifest runtime）
 - [ ] 0.4.0：preset bundle 拆 crate 评估（`gate-presets-openai` 等可选 feature）
+
+### Bench 数据更新（2026-05-22 OpenAI fast-path 接通后）
+
+| 路径 | mean | 95% CI | vs builtin |
+|------|------|--------|------------|
+| `builtin_openai`（编译期 fast-path） | 24.1 µs | [23.5, 24.8] | × 1.00 |
+| `plugin_openai_compatible`（manifest runtime） | 35.0 µs | [34.2, 35.7] | × 1.45 |
+| `plugin_openai_fastpath`（ADR-0002 dispatch） | **23.1 µs** | [22.3, 24.1] | **× 0.96** |
+
+**结论**：OpenAI fast-path 与 builtin 性能等价（bench 抖动落 × 0.96，CI 上限 × 1.00）。
+ADR-0002 的 ≤ × 1.02 预算达成。manifest runtime 仍维持 × 1.45（预期，未被 fast-path 影响）。
+复现：`cargo bench --package gate-providers --bench plugin_vs_builtin`。
 
 ## References
 

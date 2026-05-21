@@ -623,3 +623,128 @@ async fn plugin_probe_request_uses_manifest_path_body_status_and_cost() {
     assert_eq!(body["max_tokens"], 1);
     assert_eq!(body["messages"][0]["role"], "user");
 }
+
+// ─── ADR-0002 fast-path runtime tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn fastpath_openai_chat_routes_through_dispatch() {
+    // preset.provider="openai" 触发 builtin_fastpath=true，
+    // CustomHttpProvider::chat 走 fastpath_openai_chat 直接 POST，跳过 manifest 解释器。
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(header("authorization", "Bearer fast-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-fastpath",
+            "object": "chat.completion",
+            "created": 1730000000,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "fast" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "fast-key",
+        json!({ "plugin": { "preset": { "provider": "openai" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(resp.choices[0].message.content_text(), "fast");
+    assert_eq!(resp.usage.total_tokens, 2);
+}
+
+#[tokio::test]
+async fn fastpath_openai_chat_stream_routes_through_dispatch() {
+    let upstream = MockServer::start().await;
+    let sse = concat!(
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"c1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(header("authorization", "Bearer fast-key"))
+        // fast-path 会强制注入 stream_options.include_usage=true（与编译期 OpenAi 一致）
+        .and(body_json(json!({
+            "model": "odd-model",
+            "messages": [{ "role": "user", "content": "hello private" }],
+            "max_tokens": 32,
+            "stream": true,
+            "stream_options": { "include_usage": true }
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "fast-key",
+        json!({ "plugin": { "preset": { "provider": "openai" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let mut stream = provider.chat_stream(make_req(true)).await.unwrap();
+    let mut content = String::new();
+    let mut usage = None;
+    while let Some(item) = stream.next().await {
+        let chunk = item.unwrap();
+        if let Some(c) = &chunk.choices[0].delta.content {
+            content.push_str(c);
+        }
+        if chunk.usage.is_some() {
+            usage = chunk.usage.clone();
+        }
+    }
+
+    assert_eq!(content, "hi");
+    assert_eq!(usage.unwrap().total_tokens, 2);
+}
+
+#[tokio::test]
+async fn fastpath_does_not_apply_to_openai_compatible_preset() {
+    // preset.provider="openai_compatible" 不在 fast-path 白名单 → 走 manifest 解释器。
+    // 这个 test 的目的：确认 fast-path 没误伤其他 OpenAI 兼容协议的渠道。
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(header("authorization", "Bearer compat-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-compat",
+            "object": "chat.completion",
+            "created": 1730000000,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "compat" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "compat-key",
+        json!({ "plugin": { "preset": { "provider": "openai_compatible" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(resp.choices[0].message.content_text(), "compat");
+}

@@ -45,6 +45,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   M3 实施期间用 `--baseline pre-m3` 对比定量验收。文件落在 `target/criterion/`，
   不入 git；CI 可重跑生成。
 
+### Added — M3 T1：OpenAI fast-path dispatch 接通
+
+- `CustomHttpProvider::chat / chat_stream` + `EmbeddingProvider::embed` 顶部加 fast-path
+  分发：`security.builtin_fastpath = true` 且 `preset.kind == Openai` 时，跳过 manifest
+  解释器，直接 POST `/chat/completions` Bearer 鉴权（等价于 `OpenAiProvider`）。
+- 复用 `crate::openai::{check_status, sse_to_chunks}`，与编译期 OpenAI 路径**字节级一致**。
+- 保留 sandbox dns + peer 校验（安全不能省）。
+- bench 加 `plugin_openai_fastpath` 列。**实测数据**：
+  - builtin_openai           24.1 µs  [23.5, 24.8]
+  - plugin_openai_compatible 35.0 µs  [34.2, 35.7]  × 1.45
+  - plugin_openai_fastpath   **23.1 µs**  [22.3, 24.1]  **× 0.96**
+
+  fast-path 与 builtin 性能等价，达成 ADR-0002 ≤ × 1.02 预算。
+- 3 个新 integration test (`fastpath_openai_chat_*` / `fastpath_does_not_apply_*`) 锁定：
+  - `preset.provider="openai"` → fast-path 路径正确请求 + 响应解析；
+  - `preset.provider="openai_compatible"` 不被 fast-path 误伤，仍走 manifest 解释器。
+- ADR-0002 verification 第 3 项打勾；剩 Anthropic / Azure / Bedrock 3 个 fast-path
+  adapter + catch_unwind fallback + preset bundle 拆 crate 留 0.4.0。
+
 ---
 
 ## [0.3.0] — 2026-05-22

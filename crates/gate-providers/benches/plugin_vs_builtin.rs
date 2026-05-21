@@ -93,6 +93,24 @@ fn build_plugin(base_url: &str) -> Arc<CustomHttpProvider> {
     )
 }
 
+fn build_plugin_fastpath(base_url: &str) -> Arc<CustomHttpProvider> {
+    // ADR-0002 fast-path：preset.provider="openai" 触发 builtin_fastpath=true 注入。
+    let manifest = json!({
+        "plugin": {
+            "preset": { "provider": "openai" }
+        }
+    });
+    Arc::new(
+        CustomHttpProvider::new_with_opts(
+            base_url.to_string(),
+            "sk-bench".to_string(),
+            manifest,
+            opts(),
+        )
+        .expect("build CustomHttpProvider fastpath"),
+    )
+}
+
 fn bench_chat_compile_time(c: &mut Criterion) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -147,9 +165,37 @@ fn bench_chat_plugin_runtime(c: &mut Criterion) {
     drop(server);
 }
 
+fn bench_chat_plugin_fastpath(c: &mut Criterion) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let server = rt.block_on(setup_mock());
+    let base = server.uri();
+    let provider = build_plugin_fastpath(&base);
+    let req = sample_request();
+
+    let mut group = c.benchmark_group("chat_request");
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(60);
+    group.bench_function("plugin_openai_fastpath", |b| {
+        b.to_async(&rt).iter(|| {
+            let provider = provider.clone();
+            let req = req.clone();
+            async move {
+                black_box(provider.chat(req).await.unwrap());
+            }
+        });
+    });
+    group.finish();
+
+    drop(server);
+}
+
 criterion_group!(
     plugin_vs_builtin,
     bench_chat_compile_time,
     bench_chat_plugin_runtime,
+    bench_chat_plugin_fastpath,
 );
 criterion_main!(plugin_vs_builtin);
