@@ -266,6 +266,17 @@ pub struct SecurityManifest {
     pub max_response_bytes: Option<usize>,
     pub max_sse_event_bytes: Option<usize>,
     pub allow_absolute_chat_path: bool,
+    /// ADR-0002 fast-path runtime 标志：若为 true，runtime 走静态分发优化路径，
+    /// 跳过 manifest 解释器以达到 ≤ × 1.02 性能预算。
+    ///
+    /// **不允许用户 manifest 设置**：用户传入的 `security.builtin_fastpath` 在
+    /// `from_value` 解析后会被 `enforce_user_manifest_safety` 强制清零，只有
+    /// `plugin_preset.rs` 静态注册时（4 个 fast-path provider）才能注入 true。
+    /// 这是为了防止下游通过 channel.model_mapping 关掉 fast-path 或反之
+    /// 把不安全的非 fast-path provider 强制走未实现的路径。
+    ///
+    /// 字段在 0.4.0 接 dispatch 实现；0.3.x 仅接 schema + 注入点。
+    pub builtin_fastpath: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -315,6 +326,11 @@ impl PluginManifest {
             upgrade_v0(manifest_value, &pointer_base)?
         };
 
+        // ADR-0002: builtin_fastpath 必须由 preset 静态注入，不允许用户 channel
+        // manifest 设置（防止下游绕过 dispatch 锁定）。任何用户传入的值在这里清零，
+        // 真正的 fast-path 只在 apply_preset 里给 4 个白名单 provider 打开。
+        manifest.security.builtin_fastpath = false;
+
         manifest.apply_preset(base_url)?;
         manifest.validate(&pointer_base)?;
         Ok(manifest)
@@ -328,6 +344,19 @@ impl PluginManifest {
             ProviderPresetSpec::for_kind(kind, base_url, self.preset.api_version.as_deref())?;
         self.preset.adapter = spec.adapter;
         self.capabilities.merge_truthy_defaults(&spec.capabilities);
+
+        // ADR-0002: 静态注入 builtin_fastpath。0.3.x 仅设置 schema 字段，dispatch
+        // 实现在 0.4.0 落地（CustomHttpProvider 内部见 `self.manifest.security.builtin_fastpath`）。
+        if matches!(
+            kind,
+            crate::plugin_preset::ProviderPresetKind::Openai
+                | crate::plugin_preset::ProviderPresetKind::AnthropicMessages
+                | crate::plugin_preset::ProviderPresetKind::AzureOpenai
+                | crate::plugin_preset::ProviderPresetKind::BedrockConverse
+        ) {
+            self.security.builtin_fastpath = true;
+        }
+
         match kind {
             crate::plugin_preset::ProviderPresetKind::AzureOpenai
                 if self.auth.strategy == AuthStrategy::Bearer =>
@@ -1375,5 +1404,69 @@ mod tests {
         ] {
             assert!(props.get(section).is_some(), "missing {section}");
         }
+    }
+
+    #[test]
+    fn builtin_fastpath_injected_for_fast_path_presets() {
+        for preset in [
+            "openai",
+            "anthropic_messages",
+            "azure_openai",
+            "bedrock_converse",
+        ] {
+            let value = json!({ "plugin": { "preset": { "provider": preset } } });
+            let manifest = PluginManifest::from_value(value, "https://example.com")
+                .unwrap_or_else(|err| panic!("preset '{preset}' failed: {err}"));
+            assert!(
+                manifest.security.builtin_fastpath,
+                "preset '{preset}' should have builtin_fastpath=true after apply_preset"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_fastpath_not_set_for_non_fast_path_presets() {
+        for preset in ["deepseek", "mistral", "gemini", "groq", "ollama"] {
+            let value = json!({ "plugin": { "preset": { "provider": preset } } });
+            let manifest = PluginManifest::from_value(value, "https://example.com")
+                .unwrap_or_else(|err| panic!("preset '{preset}' failed: {err}"));
+            assert!(
+                !manifest.security.builtin_fastpath,
+                "preset '{preset}' must NOT have builtin_fastpath; only 4 ADR-0002 \
+                 fast-path presets are allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn user_cannot_override_builtin_fastpath() {
+        // 用户 channel manifest 试图强制 builtin_fastpath = true，应被清零。
+        let value = json!({
+            "plugin": {
+                "preset": { "provider": "deepseek" },
+                "security": { "builtin_fastpath": true }
+            }
+        });
+        let manifest = PluginManifest::from_value(value, "https://example.com").unwrap();
+        assert!(
+            !manifest.security.builtin_fastpath,
+            "user manifest must not be able to turn on builtin_fastpath for non-fast-path preset"
+        );
+    }
+
+    #[test]
+    fn user_cannot_disable_builtin_fastpath_for_fast_path_preset() {
+        // 反向：用户试图关掉 fast-path provider 的 builtin_fastpath，也应被覆盖。
+        let value = json!({
+            "plugin": {
+                "preset": { "provider": "openai" },
+                "security": { "builtin_fastpath": false }
+            }
+        });
+        let manifest = PluginManifest::from_value(value, "https://api.openai.com").unwrap();
+        assert!(
+            manifest.security.builtin_fastpath,
+            "user manifest must not be able to disable builtin_fastpath for fast-path preset"
+        );
     }
 }

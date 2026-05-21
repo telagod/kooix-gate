@@ -101,10 +101,10 @@ CustomHttpProvider::new_with_secret_slots
 
 ### Verification
 
-- [ ] 0.4.0：`SecurityConfig::builtin_fastpath` 字段 + `plugin_preset.rs` 静态注入
+- [x] 0.3.x：`SecurityConfig::builtin_fastpath` 字段 + `plugin_preset.rs` 静态注入 + 用户字段强制清零（4 个新单元测试锁定）
+- [x] 0.3.x：capability matrix golden test 覆盖 4 个 fastpath × 9 capability + 23 个 preset（`tests/capability_matrix.rs`）
 - [ ] 0.4.0：`CustomHttpProvider` 内部分发到 4 个 fastpath adapter
-- [ ] 0.4.0：plugin_vs_builtin bench 加 `builtin_fastpath` 列，ratio ≤ 1.02
-- [ ] 0.4.0：capability matrix golden test 覆盖 4 个 fastpath × 9 capability = 36 cell
+- [ ] 0.4.0：plugin_vs_builtin bench 加 `builtin_fastpath` 列，ratio ≤ 1.02（baseline `pre-m3` 已存于 `target/criterion/`）
 - [ ] 0.4.0：catch_unwind 兜底 fallback path（fastpath panic → manifest runtime）
 - [ ] 0.4.0：preset bundle 拆 crate 评估（`gate-presets-openai` 等可选 feature）
 

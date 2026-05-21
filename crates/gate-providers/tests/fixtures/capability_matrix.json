@@ -1,0 +1,384 @@
+{
+  "fast_path": {
+    "anthropic_messages": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": false,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.anthropic.com"
+    },
+    "azure_openai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://<resource>.openai.azure.com"
+    },
+    "bedrock_converse": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": false,
+        "embeddings": false,
+        "image": false,
+        "audio": false,
+        "vision": false,
+        "json_mode": false,
+        "batch": false
+      },
+      "base_url_suggestion": "https://bedrock-runtime.<region>.amazonaws.com"
+    },
+    "openai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.openai.com/v1"
+    }
+  },
+  "all_presets": {
+    "anthropic_messages": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": false,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.anthropic.com"
+    },
+    "azure_openai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://<resource>.openai.azure.com"
+    },
+    "bedrock_converse": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": false,
+        "embeddings": false,
+        "image": false,
+        "audio": false,
+        "vision": false,
+        "json_mode": false,
+        "batch": false
+      },
+      "base_url_suggestion": "https://bedrock-runtime.<region>.amazonaws.com"
+    },
+    "cohere_chat": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": false,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.cohere.com/v2"
+    },
+    "deepseek": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": false,
+        "embeddings": false,
+        "image": false,
+        "audio": false,
+        "vision": false,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.deepseek.com/v1"
+    },
+    "gemini": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://generativelanguage.googleapis.com"
+    },
+    "groq": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.groq.com/openai/v1"
+    },
+    "lm_studio": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "http://localhost:1234/v1"
+    },
+    "localai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "http://localhost:8080/v1"
+    },
+    "mistral": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.mistral.ai/v1"
+    },
+    "moonshot": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.moonshot.cn/v1"
+    },
+    "ollama": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "http://localhost:11434/v1"
+    },
+    "ollama_openai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "http://localhost:11434/v1"
+    },
+    "openai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.openai.com/v1"
+    },
+    "openai_compatible": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.openai.com/v1"
+    },
+    "openrouter": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://openrouter.ai/api/v1"
+    },
+    "qwen": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+    "together": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.together.xyz/v1"
+    },
+    "vertex_openai": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi"
+    },
+    "vllm": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "http://localhost:8000/v1"
+    },
+    "xinference": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "http://localhost:9997/v1"
+    },
+    "yi": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://api.lingyiwanwu.com/v1"
+    },
+    "zhipu": {
+      "capabilities": {
+        "chat": true,
+        "streaming": true,
+        "tools": true,
+        "embeddings": true,
+        "image": false,
+        "audio": false,
+        "vision": true,
+        "json_mode": true,
+        "batch": false
+      },
+      "base_url_suggestion": "https://open.bigmodel.cn/api/paas/v4"
+    }
+  }
+}

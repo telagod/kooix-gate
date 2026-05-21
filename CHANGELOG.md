@@ -25,6 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ROADMAP M3 章节加 bench 触发依据 + 新增 capability matrix golden test / panic fallback
   两条验收项。
 
+### Added — M3 T0：`builtin_fastpath` schema + golden test
+
+- `SecurityManifest::builtin_fastpath: bool` 字段落地。
+  - 用户 channel manifest 设置的值在 `PluginManifest::from_value` 入口被**强制清零**。
+  - 只有 `apply_preset` 给 4 个 fast-path（openai / anthropic_messages / azure_openai /
+    bedrock_converse）静态注入 `true`。
+  - 0.3.x 仅落地 schema + 注入点，dispatch 实现留 0.4.0。
+  - 4 个新单元测试 (`plugin_manifest::tests::builtin_fastpath_*` /
+    `user_cannot_override_*`) 锁定上述不变式。
+- 新增 [`crates/gate-providers/tests/capability_matrix.rs`](./crates/gate-providers/tests/capability_matrix.rs)：
+  golden test 锁 23 个 preset 的 `(capabilities, base_url_suggestion)` 矩阵；
+  漂移时跑 `KOOIX_UPDATE_FIXTURES=1 cargo test --test capability_matrix` 刷新 fixture。
+  Fixture 见 [`tests/fixtures/capability_matrix.json`](./crates/gate-providers/tests/fixtures/capability_matrix.json)。
+
+### Added — Bench baseline `pre-m3`
+
+- 跑了 `cargo bench --bench plugin_vs_builtin -- --save-baseline pre-m3`，
+  M3 实施期间用 `--baseline pre-m3` 对比定量验收。文件落在 `target/criterion/`，
+  不入 git；CI 可重跑生成。
+
 ---
 
 ## [0.3.0] — 2026-05-22
