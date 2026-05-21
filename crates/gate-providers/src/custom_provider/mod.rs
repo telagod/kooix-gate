@@ -1424,6 +1424,104 @@ impl CustomHttpProvider {
         fastpath_anthropic_check_status(&resp)?;
         Ok(fastpath_anthropic_sse_stream(resp.bytes_stream()).boxed())
     }
+
+    /// Azure OpenAI fast-path：deployment-based URL + `api-key` 头。
+    /// 请求/响应 body 与 OpenAI 一致，所以复用 OpenAI 的 check_status / sse_to_chunks。
+    fn azure_chat_url(&self, model: &str) -> String {
+        let api_version = self
+            .manifest
+            .preset
+            .api_version
+            .as_deref()
+            .unwrap_or("2024-08-01-preview");
+        format!(
+            "{}/openai/deployments/{}/chat/completions?api-version={}",
+            self.base_url, model, api_version
+        )
+    }
+
+    fn azure_embeddings_url(&self, model: &str) -> String {
+        let api_version = self
+            .manifest
+            .preset
+            .api_version
+            .as_deref()
+            .unwrap_or("2024-08-01-preview");
+        format!(
+            "{}/openai/deployments/{}/embeddings?api-version={}",
+            self.base_url, model, api_version
+        )
+    }
+
+    async fn fastpath_azure_chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
+        req.stream = false;
+        let url = self.azure_chat_url(&req.model);
+        let api_key = self.secret_for_slot("primary");
+        let resp = self
+            .client
+            .post(&url)
+            .header("api-key", api_key)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.json().await?)
+    }
+
+    async fn fastpath_azure_chat_stream(
+        &self,
+        mut req: ChatRequest,
+    ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
+        req.stream = true;
+        let entry = req
+            .extra
+            .entry("stream_options".to_string())
+            .or_insert_with(|| json!({}));
+        match entry {
+            Value::Object(map) => {
+                map.insert("include_usage".to_string(), Value::Bool(true));
+            }
+            slot => {
+                *slot = json!({ "include_usage": true });
+            }
+        }
+        let url = self.azure_chat_url(&req.model);
+        let api_key = self.secret_for_slot("primary");
+        let resp = self
+            .client
+            .post(&url)
+            .header("api-key", api_key)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        check_status(&resp)?;
+        Ok(sse_to_chunks(resp.bytes_stream()).boxed())
+    }
+
+    async fn fastpath_azure_embed(
+        &self,
+        req: EmbeddingRequest,
+    ) -> ProviderResult<EmbeddingResponse> {
+        let url = self.azure_embeddings_url(&req.model);
+        let api_key = self.secret_for_slot("primary");
+        let resp = self
+            .client
+            .post(&url)
+            .header("api-key", api_key)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        Ok(resp.json().await?)
+    }
 }
 
 #[async_trait]
@@ -1446,6 +1544,14 @@ impl Provider for CustomHttpProvider {
             Some(kind @ ProviderPresetKind::AnthropicMessages) => {
                 if let Some(result) = self
                     .run_fastpath(kind, "chat", self.fastpath_anthropic_chat(req.clone()))
+                    .await
+                {
+                    return result;
+                }
+            }
+            Some(kind @ ProviderPresetKind::AzureOpenai) => {
+                if let Some(result) = self
+                    .run_fastpath(kind, "chat", self.fastpath_azure_chat(req.clone()))
                     .await
                 {
                     return result;
@@ -1508,6 +1614,18 @@ impl Provider for CustomHttpProvider {
                     return result;
                 }
             }
+            Some(kind @ ProviderPresetKind::AzureOpenai) => {
+                if let Some(result) = self
+                    .run_fastpath(
+                        kind,
+                        "chat_stream",
+                        self.fastpath_azure_chat_stream(req.clone()),
+                    )
+                    .await
+                {
+                    return result;
+                }
+            }
             _ => {}
         }
         req.stream = true;
@@ -1550,12 +1668,24 @@ impl EmbeddingProvider for CustomHttpProvider {
     }
 
     async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse> {
-        if let Some(kind @ ProviderPresetKind::Openai) = self.fastpath_kind()
-            && let Some(result) = self
-                .run_fastpath(kind, "embed", self.fastpath_openai_embed(req.clone()))
-                .await
-        {
-            return result;
+        match self.fastpath_kind() {
+            Some(kind @ ProviderPresetKind::Openai) => {
+                if let Some(result) = self
+                    .run_fastpath(kind, "embed", self.fastpath_openai_embed(req.clone()))
+                    .await
+                {
+                    return result;
+                }
+            }
+            Some(kind @ ProviderPresetKind::AzureOpenai) => {
+                if let Some(result) = self
+                    .run_fastpath(kind, "embed", self.fastpath_azure_embed(req.clone()))
+                    .await
+                {
+                    return result;
+                }
+            }
+            _ => {}
         }
         let body = self.embedding_request_json_body(&req)?;
         let endpoint = self.embedding_endpoint_url_for(&req)?;

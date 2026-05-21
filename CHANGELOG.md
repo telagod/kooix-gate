@@ -76,6 +76,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ADR-0002 verification 5/7 项已勾，剩 Azure / Bedrock 2 个 adapter + preset bundle 拆 crate 留 0.4.0。
 
+### Added — M3 T2c：Azure OpenAI fast-path
+
+- `CustomHttpProvider` 内部 `fastpath_azure_chat / chat_stream / embed` 落地：
+  - Deployment URL 模板：`{base_url}/openai/deployments/{model}/chat/completions?api-version={X}`，
+    `api-key` 头鉴权。
+  - `manifest.preset.api_version` 通过 schema 传到 fast-path（default `2024-08-01-preview`）。
+  - 协议 body / response 与 OpenAI 一致 → 复用 `crate::openai::{check_status, sse_to_chunks}`。
+  - 2 个 integration test 锁定：URL 模板正确性 + api-version override 透传。
+
+### Note — M3 T2d (Bedrock fast-path) 推迟到 0.4.0
+
+回看 `crates/gate-providers/src/bedrock.rs:69` 的 `sign_request`：写着
+"Simplified: in production this would use proper AWS SigV4 signing"，**编译期
+BedrockProvider 当前的 SigV4 是占位实现**（只发 `X-Amz-Access-Key/Secret-Key` 头）。
+而 plugin runtime 的 `custom_provider/sigv4.rs` 已经实现完整 AWS SigV4。
+
+如果给 Bedrock 做 fast-path 走编译期 BedrockProvider，等于**功能降级**。0.3.0
+channel migration 已经把所有 `provider_type='bedrock'` 迁到 plugin runtime，不存在
+生产路径走假签名。0.4.0 一起干掉编译期 BedrockProvider（或修真）再做 fast-path。
+
 ### Added — M3 T1：OpenAI fast-path dispatch 接通
 
 - `CustomHttpProvider::chat / chat_stream` + `EmbeddingProvider::embed` 顶部加 fast-path

@@ -834,3 +834,84 @@ async fn fastpath_anthropic_chat_stream_routes_through_dispatch() {
     }
     assert_eq!(content, "streamed");
 }
+
+#[tokio::test]
+async fn fastpath_azure_chat_uses_deployment_url_and_api_key_header() {
+    let upstream = MockServer::start().await;
+    // Azure URL 模板：/openai/deployments/{model}/chat/completions?api-version=X
+    Mock::given(method("POST"))
+        .and(path("/openai/deployments/odd-model/chat/completions"))
+        .and(wiremock::matchers::query_param(
+            "api-version",
+            "2024-08-01-preview",
+        ))
+        .and(header("api-key", "az-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-azure",
+            "object": "chat.completion",
+            "created": 1730000000,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "azure fastpath" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 2, "completion_tokens": 2, "total_tokens": 4 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "az-key",
+        json!({ "plugin": { "preset": { "provider": "azure_openai" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(resp.choices[0].message.content_text(), "azure fastpath");
+    assert_eq!(resp.usage.total_tokens, 4);
+}
+
+#[tokio::test]
+async fn fastpath_azure_uses_manifest_api_version_override() {
+    // preset.api_version 应该传到 URL query
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/openai/deployments/odd-model/chat/completions"))
+        .and(wiremock::matchers::query_param(
+            "api-version",
+            "2024-02-15-preview",
+        ))
+        .and(header("api-key", "az-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-azure-v2",
+            "object": "chat.completion",
+            "created": 1730000000,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "v2" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "az-key",
+        json!({
+            "plugin": {
+                "preset": { "provider": "azure_openai", "api_version": "2024-02-15-preview" }
+            }
+        }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(resp.choices[0].message.content_text(), "v2");
+}

@@ -105,9 +105,27 @@ CustomHttpProvider::new_with_secret_slots
 - [x] 0.3.x：capability matrix golden test 覆盖 4 个 fastpath × 9 capability + 23 个 preset（`tests/capability_matrix.rs`）
 - [x] 0.3.x：`CustomHttpProvider` 内部 OpenAI fast-path dispatch 落地（chat / chat_stream / embed），3 个集成 test 锁路径正确性
 - [x] 0.3.x：`CustomHttpProvider` 内部 Anthropic Messages fast-path dispatch 落地（chat / chat_stream），2 个集成 test
+- [x] 0.3.x：`CustomHttpProvider` 内部 Azure OpenAI fast-path dispatch 落地（chat / chat_stream / embed），2 个集成 test（deployment URL + api-version override）
 - [x] 0.3.x：catch_unwind fallback 兜底（`run_fastpath` helper），3 个单元测试 + 集成 test 验证 panic 时降级到 manifest runtime
-- [ ] 0.4.0：剩 2 个 fast-path adapter 落地（Azure OpenAI / Bedrock SigV4）
+- [ ] 0.4.0：Bedrock SigV4 修真 + fast-path（**编译期 BedrockProvider 当前的 SigV4 是占位**，先修编译期再做 fast-path；详见下方笔记）
 - [ ] 0.4.0：preset bundle 拆 crate 评估（`gate-presets-openai` 等可选 feature）
+
+### Bedrock 单独说明
+
+回看 [`crates/gate-providers/src/bedrock.rs:69`](../../../crates/gate-providers/src/bedrock.rs#L69)
+的 `sign_request`：写着 *"Simplified: in production this would use proper AWS SigV4 signing"*
+—— 它只发 `X-Amz-Access-Key/Secret-Key` 两个头，不是 AWS 标准 SigV4。
+
+而 plugin runtime 在 [`crates/gate-providers/src/custom_provider/sigv4.rs`](../../../crates/gate-providers/src/custom_provider/sigv4.rs)
+里**已经实现了完整 SigV4**（manifest auth strategy = AwsSigv4，bedrock_converse preset 自动启用）。
+
+结论：Bedrock 的 fast-path 不是性能问题，是**功能问题**：
+1. **当前生产路径**：用户应该走 plugin runtime（auth_strategy=aws_sigv4），不要走编译期 BedrockProvider。
+2. **fast-path 前置条件**：先把 `bedrock.rs::sign_request` 改成真实 SigV4（复用
+   `custom_provider/sigv4.rs` 的 helper），再做 fast-path 才有意义。
+3. **0.3.x 不做**：channel migration 已经把 `provider_type='bedrock'` 全部迁到
+   plugin runtime，没有生产 channel 走到编译期 BedrockProvider 上。fast-path
+   做了反而是降级。0.4.0 一起干掉编译期 BedrockProvider 或修真。
 
 ### Bench 数据更新（2026-05-22 OpenAI fast-path 接通后）
 
