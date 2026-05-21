@@ -3,6 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+const VERTEX_OPENAI_BASE_URL: &str = "https://aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi";
+
 /// Capability flags shared by compile-time providers and runtime plugin manifests.
 ///
 /// Field names intentionally match `plugin.capabilities` in manifest v1 so API
@@ -154,7 +156,7 @@ impl ProviderCapability {
 pub fn provider_capabilities(provider_type: &str) -> ProviderCapabilities {
     match normalize_provider_type(provider_type).as_str() {
         "openai" => ProviderCapabilities::openai_full(),
-        "azure" => ProviderCapabilities::openai_compatible_core(),
+        "azure" | "vertex" => ProviderCapabilities::openai_compatible_core(),
         "anthropic" => ProviderCapabilities {
             chat: true,
             streaming: true,
@@ -206,6 +208,7 @@ pub fn provider_base_url_suggestion(provider_type: &str) -> Option<&'static str>
         "anthropic" => Some("https://api.anthropic.com"),
         "gemini" => Some("https://generativelanguage.googleapis.com"),
         "azure" => Some("https://<resource>.openai.azure.com"),
+        "vertex" => Some(VERTEX_OPENAI_BASE_URL),
         "bedrock" => Some("https://bedrock-runtime.<region>.amazonaws.com"),
         "deepseek" => Some("https://api.deepseek.com/v1"),
         "ollama" => Some("http://localhost:11434/v1"),
@@ -227,8 +230,8 @@ pub fn provider_base_url_suggestion(provider_type: &str) -> Option<&'static str>
 pub fn plugin_preset_capabilities(provider: &str) -> Option<ProviderCapabilities> {
     match normalize_provider_type(provider).as_str() {
         "openai" | "openai_compatible" | "vllm" | "lm_studio" | "ollama_openai" | "localai"
-        | "xinference" | "groq" | "together" | "openrouter" | "moonshot" | "zhipu" | "qwen"
-        | "yi" => Some(ProviderCapabilities::openai_compatible_core()),
+        | "xinference" | "vertex_openai" | "groq" | "together" | "openrouter" | "moonshot"
+        | "zhipu" | "qwen" | "yi" => Some(ProviderCapabilities::openai_compatible_core()),
         "deepseek" => Some(ProviderCapabilities {
             chat: true,
             streaming: true,
@@ -284,6 +287,7 @@ pub fn plugin_preset_base_url_suggestion(provider: &str) -> Option<&'static str>
         "mistral" => Some("https://api.mistral.ai/v1"),
         "gemini" => Some("https://generativelanguage.googleapis.com"),
         "azure_openai" => Some("https://<resource>.openai.azure.com"),
+        "vertex_openai" => Some(VERTEX_OPENAI_BASE_URL),
         "anthropic_messages" => Some("https://api.anthropic.com"),
         "bedrock_converse" => Some("https://bedrock-runtime.<region>.amazonaws.com"),
         "cohere_chat" => Some("https://api.cohere.com/v2"),
@@ -330,6 +334,7 @@ mod tests {
             "ollama_openai",
             "localai",
             "xinference",
+            "vertex_openai",
         ] {
             let caps = plugin_preset_capabilities(provider).expect(provider);
             assert!(caps.chat, "{provider}");

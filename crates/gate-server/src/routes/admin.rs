@@ -545,6 +545,7 @@ async fn create_channel(
         "anthropic",
         "gemini",
         "azure",
+        "vertex",
         "bedrock",
         "deepseek",
         "ollama",

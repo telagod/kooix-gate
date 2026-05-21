@@ -305,7 +305,7 @@ Channel 级 `health` 由所有 key 状态聚合：
 
 `provider_type=plugin|custom|http|http_plugin` 走运行时 HTTP plugin adapter，不需要重新编译 provider crate。插件 manifest 存在 `channels.model_mapping.plugin`（复用已暴露 JSONB 配置面，密钥仍走 `channel_keys` / env 回退）：
 
-- `preset.provider`：主流 Provider 预设，当前覆盖 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse`；预设负责默认 path、headers、request adapter、response/SSE mapper。
+- `preset.provider`：主流 Provider 预设，当前覆盖 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`vertex_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse`；预设负责默认 path、headers、request adapter、response/SSE mapper。
 - `request.chat_path`：默认必须是相对 `base_url` 的 path，支持模板变量；Azure 预设用 `{{model}}` 展开 deployment path。绝对 URL 需要显式 `security.allow_absolute_chat_path=true` 与 `security.permissions.absolute_urls=true`，且仍会拒绝 localhost、link-local、private IP、metadata host 与 DNS rebind。
 - `request.headers`：支持 `{{api_key}}` 等模板变量，未声明 Authorization 时默认 Bearer；设为 `null` 可显式禁用默认 Bearer。
 - `request.body`：JSON 模板，支持 `{{model}}`、`{{messages}}`、`{{last_user_message}}`、`{{stream}}`、`{{max_tokens}}` 等变量；整段占位会保留原 JSON 类型。
@@ -313,7 +313,7 @@ Channel 级 `health` 由所有 key 状态聚合：
 - `response.*_path`：把私有非流式响应抽成 `ChatResponse`。
 - `stream.*_path`：共享 SSE decoder 先处理 CRLF/LF、注释、多行 data、分片，再按 path 抽 token / finish_reason / usage，归一成 `ChatStreamChunk`；OpenAI-compatible 预设自动注入 `stream_options.include_usage=true`。
 
-这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；manifest v1 边界与示例见 `docs/plugin-manifest.md`。WASM runtime 仍延后，vNext ABI 设计稿见 `docs/wasm-plugin-abi.md`，避免早期把执行沙箱冻结成生产承诺。
+这条链覆盖 OpenAI-compatible、Anthropic Messages、Azure deployment URL、Vertex AI OpenAI endpoint、包装型私有 JSON、纯 token SSE、`data: EOF` 等奇葩格式；manifest v1 边界与示例见 `docs/plugin-manifest.md`。WASM runtime 仍延后，vNext ABI 设计稿见 `docs/wasm-plugin-abi.md`，避免早期把执行沙箱冻结成生产承诺。
 
 ### 4.4 Typed ID API 边界
 

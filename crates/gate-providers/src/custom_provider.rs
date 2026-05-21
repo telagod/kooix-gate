@@ -2530,6 +2530,27 @@ mod tests {
     }
 
     #[test]
+    fn vertex_openai_preset_targets_openai_compatible_vertex_endpoint() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/endpoints/openapi",
+            "ya29.test",
+            json!({ "plugin": { "preset": { "provider": "vertex_openai" } } }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let req = make_req(false);
+        assert_eq!(
+            provider.endpoint_url_for(&req).unwrap(),
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/endpoints/openapi/chat/completions"
+        );
+        let headers = provider.request_headers_for(&req).unwrap();
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer ya29.test");
+        assert!(provider.manifest.response.is_openai_compatible());
+        assert!(provider.manifest.stream.is_openai_compatible());
+    }
+
+    #[test]
     fn azure_preset_templates_deployment_path_and_api_key_header() {
         let provider = CustomHttpProvider::new_with_opts(
             "https://example.openai.azure.com",

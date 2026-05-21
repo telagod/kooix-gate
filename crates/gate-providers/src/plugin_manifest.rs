@@ -1889,6 +1889,7 @@ mod tests {
             "ollama_openai",
             "localai",
             "xinference",
+            "vertex_openai",
         ] {
             let manifest = PluginManifest::from_value(
                 json!({ "plugin": { "preset": { "provider": provider } } }),
@@ -1905,6 +1906,27 @@ mod tests {
             assert!(manifest.capabilities.streaming, "provider={provider}");
             assert!(manifest.capabilities.embeddings, "provider={provider}");
         }
+    }
+
+    #[test]
+    fn vertex_openai_preset_uses_openai_path_and_bearer_auth() {
+        let manifest = PluginManifest::from_value(
+            json!({ "plugin": { "preset": { "provider": "vertex_openai" } } }),
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/endpoints/openapi",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.auth.strategy, AuthStrategy::Bearer);
+        assert_eq!(manifest.auth.secret_slot.as_deref(), Some("primary"));
+        assert_eq!(manifest.request.path.as_deref(), Some("/chat/completions"));
+        assert!(manifest.response.is_openai_compatible());
+        assert!(manifest.stream.is_openai_compatible());
+        assert!(manifest.capabilities.chat);
+        assert!(manifest.capabilities.streaming);
+        assert!(manifest.capabilities.tools);
+        assert!(manifest.capabilities.embeddings);
+        assert!(manifest.capabilities.vision);
+        assert!(manifest.capabilities.json_mode);
     }
 
     #[test]

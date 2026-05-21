@@ -121,6 +121,7 @@ v1 固定以下分区：
 | `deepseek` / `mistral` / `groq` / `together` / `openrouter` / `moonshot` / `zhipu` / `qwen` / `yi` / `ollama` | OpenAI-compatible 变体 |
 | `vllm` / `lm_studio` / `ollama_openai` / `localai` / `xinference` | 本地 / 自托管 OpenAI-compatible endpoint 变体 |
 | `azure_openai` | 使用 `/openai/deployments/{{model}}/chat/completions?api-version=...` deployment path，认证走 `api-key` header |
+| `vertex_openai` | Google Vertex AI OpenAI-compatible endpoint；Base URL 为 `/v1/projects/<project>/locations/<location>/endpoints/openapi`，path 仍是 `/chat/completions`，认证走 Google Cloud OAuth access token 的 Bearer header |
 | `gemini` | 使用 Gemini OpenAI-compatible path `/v1beta/openai/chat/completions` |
 | `anthropic_messages` | OpenAI messages 转 Anthropic Messages API，含 stream / usage mapper |
 | `cohere_chat` | Cohere Chat OpenAI-compatible preset |
@@ -128,7 +129,7 @@ v1 固定以下分区：
 
 Capability 默认值说明：
 
-- OpenAI-compatible preset 默认声明 `chat` / `streaming` / `tools` / `embeddings` / `vision` / `json_mode`；`image` / `audio` / `batch` 需显式确认后再开。
+- OpenAI-compatible preset（含 `vertex_openai`）默认声明 `chat` / `streaming` / `tools` / `embeddings` / `vision` / `json_mode`；`image` / `audio` / `batch` 需显式确认后再开。
 - Anthropic Messages 默认声明 `chat` / `streaming` / `tools` / `vision` / `json_mode`。
 - Bedrock Converse 当前声明 `chat` / `streaming`；工具、视觉和结构化输出先按保守能力关闭。
 - manifest v1 的 bool 字段无法表达“未声明但显式 false”的三态；preset 只会把 truthy 默认能力并入 manifest，若需要严格禁用能力，应在控制台显示层和路由策略同步检查。
@@ -148,6 +149,25 @@ Capability 默认值说明：
   }
 }
 ```
+
+示例：Google Vertex AI OpenAI-compatible
+
+```json
+{
+  "plugin": {
+    "version": 1,
+    "preset": {
+      "provider": "vertex_openai"
+    },
+    "auth": {
+      "strategy": "bearer",
+      "secret_slot": "primary"
+    }
+  }
+}
+```
+
+Channel `base_url` 填：`https://aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi`（或区域化 `https://<location>-aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi`）；`primary` secret 存 Google Cloud OAuth access token（例如由 `gcloud auth print-access-token` 或外部凭据刷新器写入）。如果 access token 由外部进程轮转，Kooix 侧只负责按 Bearer 注入，不把 Google service account 私钥塞入 manifest。
 
 ## Request mapping
 

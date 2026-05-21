@@ -1,0 +1,46 @@
+{
+  "plugin": {
+    "preset": {
+      "provider": "vertex_openai"
+    },
+    "metadata": {
+      "name": "Google Vertex AI OpenAI-compatible",
+      "vendor": "Google Cloud",
+      "homepage": "https://cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/overview",
+      "docs": "https://cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/examples",
+      "owner": "Kooix Gate maintainers",
+      "tags": [
+        "official",
+        "preset",
+        "vertex-ai",
+        "openai-compatible"
+      ]
+    },
+    "auth": {
+      "strategy": "bearer",
+      "secret_slot": "primary"
+    },
+    "security": {
+      "max_request_bytes": 1048576,
+      "max_response_bytes": 8388608,
+      "max_sse_event_bytes": 1048576,
+      "allow_absolute_chat_path": false,
+      "outbound_allowlist": [
+        "https://aiplatform.googleapis.com"
+      ],
+      "header_redaction": [
+        "authorization",
+        "api-key",
+        "x-api-key"
+      ],
+      "permissions": {
+        "outbound_http": true,
+        "absolute_urls": false,
+        "oauth_client_credentials": false,
+        "secret_slots": [
+          "primary"
+        ]
+      }
+    }
+  }
+}

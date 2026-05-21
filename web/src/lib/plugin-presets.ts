@@ -50,10 +50,13 @@ const OPENAI_COMPAT_CORE: ProviderCapabilities = {
 	json_mode: true
 };
 const OPENAI_FULL: ProviderCapabilities = { ...OPENAI_COMPAT_CORE, image: true, audio: true };
+const VERTEX_OPENAI_BASE_URL =
+	'https://aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi';
 
 export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
 	openai: OPENAI_FULL,
 	azure: OPENAI_COMPAT_CORE,
+	vertex: OPENAI_COMPAT_CORE,
 	anthropic: { ...CHAT_STREAM, tools: true, vision: true, json_mode: true },
 	gemini: OPENAI_COMPAT_CORE,
 	deepseek: { ...CHAT_STREAM, json_mode: true },
@@ -84,6 +87,7 @@ export const PLUGIN_PRESET_CAPABILITIES: Record<string, ProviderCapabilities> = 
 	xinference: OPENAI_COMPAT_CORE,
 	anthropic_messages: { ...CHAT_STREAM, tools: true, vision: true, json_mode: true },
 	azure_openai: OPENAI_COMPAT_CORE,
+	vertex_openai: OPENAI_COMPAT_CORE,
 	gemini: OPENAI_COMPAT_CORE,
 	deepseek: { ...CHAT_STREAM, json_mode: true },
 	mistral: OPENAI_COMPAT_CORE,
@@ -104,6 +108,7 @@ export const PROVIDER_BASE_URL_SUGGESTIONS: Record<string, string> = {
 	anthropic: 'https://api.anthropic.com',
 	gemini: 'https://generativelanguage.googleapis.com',
 	azure: 'https://<resource>.openai.azure.com',
+	vertex: VERTEX_OPENAI_BASE_URL,
 	bedrock: 'https://bedrock-runtime.<region>.amazonaws.com',
 	deepseek: 'https://api.deepseek.com/v1',
 	ollama: 'http://localhost:11434/v1',
@@ -132,6 +137,7 @@ export const PLUGIN_PRESET_BASE_URL_SUGGESTIONS: Record<string, string> = {
 	mistral: 'https://api.mistral.ai/v1',
 	gemini: 'https://generativelanguage.googleapis.com',
 	azure_openai: 'https://<resource>.openai.azure.com',
+	vertex_openai: VERTEX_OPENAI_BASE_URL,
 	anthropic_messages: 'https://api.anthropic.com',
 	bedrock_converse: 'https://bedrock-runtime.<region>.amazonaws.com',
 	cohere_chat: 'https://api.cohere.com/v2',
@@ -223,6 +229,7 @@ export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] = [
 	{ value: 'xinference', label: 'Xinference' },
 	{ value: 'anthropic_messages', label: 'Anthropic Messages' },
 	{ value: 'azure_openai', label: 'Azure OpenAI' },
+	{ value: 'vertex_openai', label: 'Google Vertex AI OpenAI' },
 	{ value: 'gemini', label: 'Google Gemini' },
 	{ value: 'deepseek', label: 'DeepSeek' },
 	{ value: 'mistral', label: 'Mistral' },

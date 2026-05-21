@@ -19,6 +19,7 @@ pub(crate) enum ProviderPresetKind {
     Mistral,
     Gemini,
     AzureOpenai,
+    VertexOpenai,
     AnthropicMessages,
     BedrockConverse,
     CohereChat,
@@ -45,6 +46,7 @@ pub(crate) fn provider_preset_name(kind: ProviderPresetKind) -> &'static str {
         ProviderPresetKind::Mistral => "mistral",
         ProviderPresetKind::Gemini => "gemini",
         ProviderPresetKind::AzureOpenai => "azure_openai",
+        ProviderPresetKind::VertexOpenai => "vertex_openai",
         ProviderPresetKind::AnthropicMessages => "anthropic_messages",
         ProviderPresetKind::BedrockConverse => "bedrock_converse",
         ProviderPresetKind::CohereChat => "cohere_chat",
@@ -356,7 +358,8 @@ impl ProviderPresetSpec {
             | ProviderPresetKind::LmStudio
             | ProviderPresetKind::OllamaOpenai
             | ProviderPresetKind::Localai
-            | ProviderPresetKind::Xinference => Self::openai_compatible(DEFAULT_CHAT_PATH),
+            | ProviderPresetKind::Xinference
+            | ProviderPresetKind::VertexOpenai => Self::openai_compatible(DEFAULT_CHAT_PATH),
             ProviderPresetKind::Gemini => {
                 Self::openai_compatible("/v1beta/openai/chat/completions")
             }

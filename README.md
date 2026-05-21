@@ -28,7 +28,7 @@
 - ✅ 9 Provider 适配（OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock）
 - ✅ HTTP Plugin 渠道：用 JSON manifest 接入私有协议、奇葩 body/response、非标准 SSE token 帧
 - ✅ Plugin 安全护栏：manifest 模板白名单、绝对 URL 默认禁用、内网/metadata host 拒绝、body/response/SSE size limit
-- ✅ Provider 插件预设：OpenAI-compatible / Anthropic / Azure / Gemini / DeepSeek / Mistral / Cohere / Ollama / Bedrock 等主流渠道可统一按 plugin manifest 接入
+- ✅ Provider 插件预设：OpenAI-compatible / Anthropic / Azure / Vertex AI / Gemini / DeepSeek / Mistral / Cohere / Ollama / Bedrock 等主流渠道可统一按 plugin manifest 接入
 - ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
 - ✅ typed ID API response（`org_...` / `proj_...` / `usr_...`），路径参数仍兼容裸 UUID
 - ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
@@ -44,7 +44,7 @@
 - 🧩 typed ID 输出与 `FlexUuid` 路径参数兼容，前端用 `rawId()` / `shortId()` 处理展示和跳转。
 - 💸 Pricing rules 管理闭环：`/v1/admin/pricing-rules`、`kgctl pricing list|set|delete`、`/admin/pricing` 控制台页面。
 - 🧯 Crash-safe quota pre-debit：`inflight_requests.quota_keys/estimated_micros` + 60s sweeper 自动退还过期预扣；P1.6 扩展到 concurrent、lifetime budget、lifetime tokens 与 dry-run policy。
-- 🌊 HTTP Plugin SSE normalizer + Provider preset，覆盖私有 SSE 帧、Anthropic Messages、Azure deployment URL 与 OpenAI-compatible usage 末帧。
+- 🌊 HTTP Plugin SSE normalizer + Provider preset，覆盖私有 SSE 帧、Anthropic Messages、Azure deployment URL、Vertex AI OpenAI endpoint 与 OpenAI-compatible usage 末帧。
 - 🛡️ HTTP Plugin manifest 作为不可信配置处理：模板变量分域白名单、绝对 URL 默认禁用、内网/metadata host 拒绝、request/response/SSE size limit。
 - 🧱 前端模板化：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等集中到 `web/src/lib/components/templates/`。
 - 📜 发布收口：`ROADMAP.md`、`RELEASE.md`、`docs/README.md`、`docs/plugin-manifest.md`、`docs/security-runbook.md`、`examples/`。
@@ -205,7 +205,7 @@ P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim
 - **Billing ledger / invoice**：`billing_ledger_events` 是审计源；月账单状态机 `draft -> closed -> exported -> paid/waived`，导出 digest 绑定审计留存
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
 - **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`；manifest 按不可信配置处理，默认不允许绝对 URL，模板变量、outbound allowlist、DNS rebind guard、header redaction 与 body/response/SSE size 均有限制
-- **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面
+- **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`vertex_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面
 - **强类型 ID**：编译期阻止 `OrgId` 当 `UserId` 传
 - **typed ID 边界**：API response 序列化为 `{prefix}_{uuid_simple}`；route extractor 通过 `FlexUuid` 同时接收 typed ID 和裸 UUID，数据库仍存裸 UUID
 - **AuthContext 单一权限门面**：禁止外部读 raw 角色映射，全走 `can()` / `require!`

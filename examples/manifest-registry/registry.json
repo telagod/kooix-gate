@@ -29,6 +29,32 @@
       "description": "Minimal official preset package for OpenAI-compatible HTTP Plugin channels."
     },
     {
+      "id": "vertex-openai",
+      "name": "Google Vertex AI OpenAI-compatible preset",
+      "version": "1.0.0",
+      "author": "Kooix Gate maintainers",
+      "source": "official",
+      "manifest_path": "official/vertex-openai/1.0.0/manifest.json",
+      "sha256": "88022991d4a3d990a3af65712a738ce495af3a4ce0d976ce8d071f6b96b60a8e",
+      "compatibility": {
+        "min_gate_version": "0.2.0",
+        "max_gate_version": null,
+        "manifest_schema": 1
+      },
+      "signature": {
+        "kind": "unsigned",
+        "value": null
+      },
+      "homepage": "https://cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/overview",
+      "tags": [
+        "official",
+        "preset",
+        "vertex-ai",
+        "openai-compatible"
+      ],
+      "description": "Official preset for Google Vertex AI OpenAI-compatible chat endpoints using Google Cloud OAuth access tokens as Bearer credentials."
+    },
+    {
       "id": "openai-compatible-lite",
       "name": "OpenAI-compatible Lite",
       "version": "1.0.0",

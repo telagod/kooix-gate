@@ -55,6 +55,7 @@ examples/demo/quickstart.sh
 | `admin/create-pricing-rule.sh` | 创建 `pricing_rules` 规则。 |
 | `admin/create-quota.sh` | 创建 Org / Project / ApiKey quota。 |
 | `manifests/openai-compatible.json` | 最小 OpenAI-compatible HTTP Plugin manifest。 |
+| `manifests/vertex-openai.json` | Google Vertex AI OpenAI-compatible preset manifest，使用 Google Cloud OAuth access token 的 Bearer auth。 |
 | `manifests/private-auth-field-map-sse.json` | 私有 auth、字段映射、SSE normalizer 示例。 |
 | `manifest-registry/registry.json` | 官方/社区 manifest registry 索引，记录 preset/sample 的版本、作者、sha256、签名与兼容范围。 |
 | `manifest-packages/private-auth-field-map-sse/` | P1.8 manifest package 目录规范样本，包含 `manifest.json`、`fixtures/`、`README.md`、`security.md`。 |

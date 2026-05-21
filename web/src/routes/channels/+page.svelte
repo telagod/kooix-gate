@@ -86,6 +86,7 @@
 		{ value: 'anthropic', label: 'Anthropic', description: 'Claude 4 / Sonnet / Haiku' },
 		{ value: 'gemini', label: 'Google Gemini', description: 'Gemini 2.5 Pro / Flash' },
 		{ value: 'azure', label: 'Azure OpenAI', description: 'Azure 托管 GPT 部署' },
+		{ value: 'vertex', label: 'Google Vertex AI', description: 'Vertex AI OpenAI endpoint' },
 		{ value: 'bedrock', label: 'AWS Bedrock', description: 'Claude / Titan / Llama' },
 		{ value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek-V3 / R1' },
 		{ value: 'ollama', label: 'Ollama', description: '本地模型推理' },

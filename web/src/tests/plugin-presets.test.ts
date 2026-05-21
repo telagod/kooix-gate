@@ -24,6 +24,7 @@ describe('plugin provider presets', () => {
 		expect(values).toContain('openai_compatible');
 		expect(values).toContain('anthropic_messages');
 		expect(values).toContain('azure_openai');
+		expect(values).toContain('vertex_openai');
 		expect(values).toContain('gemini');
 		expect(values).toContain('deepseek');
 		expect(values).toContain('mistral');
@@ -97,11 +98,26 @@ describe('plugin provider presets', () => {
 	});
 
 	it('exposes capability defaults and base url suggestions for local OpenAI variants', () => {
-		for (const preset of ['vllm', 'lm_studio', 'ollama_openai', 'localai', 'xinference']) {
+		for (const preset of ['vllm', 'lm_studio', 'ollama_openai', 'localai', 'xinference', 'vertex_openai']) {
 			const caps = pluginCapabilitiesForPreset(preset);
 			expect(capabilityList(caps)).toEqual(expect.arrayContaining(['chat', 'streaming', 'embeddings']));
 			expect(pluginPresetBaseUrlSuggestion(preset)).toMatch(/^https?:\/\//);
 		}
+	});
+
+	it('builds Vertex AI OpenAI preset manifest with Google bearer auth', () => {
+		const manifest = pluginManifestFromPreset('vertex_openai');
+		expect(manifestPreset(manifest)).toBe('vertex_openai');
+		expect((manifest.plugin as Record<string, unknown>).auth).toEqual({
+			strategy: 'bearer',
+			secret_slot: 'primary'
+		});
+		expect(capabilityList(pluginCapabilitiesForPreset('vertex_openai'))).toEqual(
+			expect.arrayContaining(['chat', 'streaming', 'tools', 'embeddings', 'vision', 'json_mode'])
+		);
+		expect(pluginPresetBaseUrlSuggestion('vertex_openai')).toBe(
+			'https://aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi'
+		);
 	});
 
 	it('uses selected preset over stale manifest input', () => {
