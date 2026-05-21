@@ -402,6 +402,9 @@ async fn preset_openai_compatible_posts_normalized_request_and_streams_usage() {
 
 #[tokio::test]
 async fn preset_anthropic_messages_posts_native_body_and_normalizes_response() {
+    // ADR-0002 fast-path 接通后，preset.provider="anthropic_messages" 走
+    // fastpath_anthropic_chat（直接调 to_anthropic_request）而不是 manifest 模板。
+    // fast-path body 跟编译期 AnthropicProvider 一致：stream 字段为 None 时 skip。
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
@@ -410,8 +413,7 @@ async fn preset_anthropic_messages_posts_native_body_and_normalizes_response() {
         .and(body_json(json!({
             "model": "odd-model",
             "max_tokens": 32,
-            "messages": [{ "role": "user", "content": "hello private" }],
-            "stream": false
+            "messages": [{ "role": "user", "content": "hello private" }]
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "msg-1",
@@ -747,4 +749,88 @@ async fn fastpath_does_not_apply_to_openai_compatible_preset() {
 
     let resp = provider.chat(make_req(false)).await.unwrap();
     assert_eq!(resp.choices[0].message.content_text(), "compat");
+}
+
+#[tokio::test]
+async fn fastpath_anthropic_chat_routes_through_dispatch() {
+    // preset.provider="anthropic_messages" → builtin_fastpath=true → fastpath_anthropic_chat
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "ant-key"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_fast",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-5-sonnet-latest",
+            "content": [
+                { "type": "text", "text": "anthropic fastpath" }
+            ],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 3, "output_tokens": 2, "cache_read_input_tokens": 0 }
+        })))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "ant-key",
+        json!({ "plugin": { "preset": { "provider": "anthropic_messages" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(resp.choices[0].message.content_text(), "anthropic fastpath");
+    assert_eq!(resp.usage.prompt_tokens, 3);
+    assert_eq!(resp.usage.completion_tokens, 2);
+    assert_eq!(resp.usage.total_tokens, 5);
+}
+
+#[tokio::test]
+async fn fastpath_anthropic_chat_stream_routes_through_dispatch() {
+    let upstream = MockServer::start().await;
+    let sse = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s\",\"model\":\"claude-3-5-sonnet-latest\",\"usage\":{\"input_tokens\":4,\"output_tokens\":0,\"cache_read_input_tokens\":1}}}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"streamed\"}}\n\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "ant-key"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_opts(
+        upstream.uri(),
+        "ant-key",
+        json!({ "plugin": { "preset": { "provider": "anthropic_messages" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let mut stream = provider.chat_stream(make_req(true)).await.unwrap();
+    let mut content = String::new();
+    while let Some(item) = stream.next().await {
+        let chunk = item.unwrap();
+        if let Some(c) = &chunk.choices[0].delta.content {
+            content.push_str(c);
+        }
+    }
+    assert_eq!(content, "streamed");
 }

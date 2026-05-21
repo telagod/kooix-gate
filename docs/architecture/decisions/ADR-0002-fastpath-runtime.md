@@ -103,9 +103,10 @@ CustomHttpProvider::new_with_secret_slots
 
 - [x] 0.3.x：`SecurityConfig::builtin_fastpath` 字段 + `plugin_preset.rs` 静态注入 + 用户字段强制清零（4 个新单元测试锁定）
 - [x] 0.3.x：capability matrix golden test 覆盖 4 个 fastpath × 9 capability + 23 个 preset（`tests/capability_matrix.rs`）
-- [x] 0.3.x：`CustomHttpProvider` 内部 OpenAI fast-path dispatch 落地（chat / chat_stream / embed），3 个集成 test 锁路径正确性；bench 实测 fast-path ≤ × 1.00（远好于 ≤ × 1.02 预算）
-- [ ] 0.4.0：剩 3 个 fast-path adapter 落地（Anthropic Messages / Azure OpenAI / Bedrock SigV4）
-- [ ] 0.4.0：catch_unwind 兜底 fallback path（fastpath panic → manifest runtime）
+- [x] 0.3.x：`CustomHttpProvider` 内部 OpenAI fast-path dispatch 落地（chat / chat_stream / embed），3 个集成 test 锁路径正确性
+- [x] 0.3.x：`CustomHttpProvider` 内部 Anthropic Messages fast-path dispatch 落地（chat / chat_stream），2 个集成 test
+- [x] 0.3.x：catch_unwind fallback 兜底（`run_fastpath` helper），3 个单元测试 + 集成 test 验证 panic 时降级到 manifest runtime
+- [ ] 0.4.0：剩 2 个 fast-path adapter 落地（Azure OpenAI / Bedrock SigV4）
 - [ ] 0.4.0：preset bundle 拆 crate 评估（`gate-presets-openai` 等可选 feature）
 
 ### Bench 数据更新（2026-05-22 OpenAI fast-path 接通后）

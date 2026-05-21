@@ -1250,6 +1250,11 @@ impl CustomHttpProvider {
 // 0.3.x 仅实现 OpenAI 一条；剩下 3 条（Anthropic Messages / Azure OpenAI /
 // Bedrock SigV4）在 0.4.0 接入。其余 provider 进 trait impl 后走 manifest 解释器
 // 老路。
+//
+// **Panic 兜底**：fast-path 走的是手写代码路径，理论上不会 panic；但万一
+// （比如 OpenAI 改了响应格式触发 serde panic），`try_fastpath_*` 用
+// `FutureExt::catch_unwind` 兜底，panic 时记录 error 并降级到 manifest runtime
+// 老路，进程不挂。
 impl CustomHttpProvider {
     #[inline]
     fn fastpath_kind(&self) -> Option<ProviderPresetKind> {
@@ -1257,6 +1262,35 @@ impl CustomHttpProvider {
             self.manifest.preset.kind
         } else {
             None
+        }
+    }
+
+    /// 用 catch_unwind 包裹 fast-path 调用：panic → 记录 error + 返回 None
+    /// 让外层降级；正常路径返回 Some(result)。
+    ///
+    /// 注意：catch_unwind 要求 `UnwindSafe`，async future 自身用
+    /// `AssertUnwindSafe` 包；正常返回的 Result 已经是 Send+'static。
+    async fn run_fastpath<T>(
+        &self,
+        kind: ProviderPresetKind,
+        op: &'static str,
+        fut: impl std::future::Future<Output = ProviderResult<T>>,
+    ) -> Option<ProviderResult<T>> {
+        use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
+        match AssertUnwindSafe(fut).catch_unwind().await {
+            Ok(result) => Some(result),
+            Err(panic_payload) => {
+                let msg = panic_message(&panic_payload);
+                tracing::error!(
+                    target: "kooix::providers::fastpath",
+                    preset = ?kind,
+                    op = op,
+                    panic = %msg,
+                    "fast-path panicked; falling back to manifest runtime",
+                );
+                None
+            }
         }
     }
 
@@ -1333,6 +1367,63 @@ impl CustomHttpProvider {
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
         Ok(resp.json().await?)
     }
+
+    /// Anthropic Messages fast-path：POST `{base_url}/v1/messages`，
+    /// `x-api-key` + `anthropic-version` 头，body 用 Anthropic 原生格式（system /
+    /// content blocks / tool_use / tool_result），响应映射回 OpenAI ChatResponse。
+    /// 复用 `crate::anthropic` 模块的 helper，**不重复实现协议**。
+    async fn fastpath_anthropic_chat(&self, req: ChatRequest) -> ProviderResult<ChatResponse> {
+        use crate::anthropic::{
+            FASTPATH_ANTHROPIC_VERSION, fastpath_anthropic_check_status,
+            fastpath_anthropic_request_body, fastpath_anthropic_response_from_json,
+        };
+        let url = format!("{}/v1/messages", self.base_url);
+        let api_key = self.secret_for_slot("primary");
+        let body = fastpath_anthropic_request_body(&req);
+        let resp = self
+            .client
+            .post(&url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", FASTPATH_ANTHROPIC_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        fastpath_anthropic_check_status(&resp)?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        let value: Value = resp.json().await?;
+        fastpath_anthropic_response_from_json(value)
+    }
+
+    async fn fastpath_anthropic_chat_stream(
+        &self,
+        req: ChatRequest,
+    ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
+        use crate::anthropic::{
+            FASTPATH_ANTHROPIC_VERSION, fastpath_anthropic_check_status,
+            fastpath_anthropic_request_body, fastpath_anthropic_sse_stream,
+        };
+        let url = format!("{}/v1/messages", self.base_url);
+        let api_key = self.secret_for_slot("primary");
+        let mut body = fastpath_anthropic_request_body(&req);
+        // Anthropic SSE 要 stream:true 字段
+        if let Value::Object(map) = &mut body {
+            map.insert("stream".to_string(), Value::Bool(true));
+        }
+        let resp = self
+            .client
+            .post(&url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", FASTPATH_ANTHROPIC_VERSION)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        fastpath_anthropic_check_status(&resp)?;
+        Ok(fastpath_anthropic_sse_stream(resp.bytes_stream()).boxed())
+    }
 }
 
 #[async_trait]
@@ -1342,8 +1433,25 @@ impl Provider for CustomHttpProvider {
     }
 
     async fn chat(&self, mut req: ChatRequest) -> ProviderResult<ChatResponse> {
-        if let Some(ProviderPresetKind::Openai) = self.fastpath_kind() {
-            return self.fastpath_openai_chat(req).await;
+        match self.fastpath_kind() {
+            Some(kind @ ProviderPresetKind::Openai) => {
+                if let Some(result) = self
+                    .run_fastpath(kind, "chat", self.fastpath_openai_chat(req.clone()))
+                    .await
+                {
+                    return result;
+                }
+                // panic 已经被 catch_unwind 抓住，降级到 manifest runtime
+            }
+            Some(kind @ ProviderPresetKind::AnthropicMessages) => {
+                if let Some(result) = self
+                    .run_fastpath(kind, "chat", self.fastpath_anthropic_chat(req.clone()))
+                    .await
+                {
+                    return result;
+                }
+            }
+            _ => {}
         }
         req.stream = false;
         let body = self.request_json_body(&req)?;
@@ -1375,8 +1483,32 @@ impl Provider for CustomHttpProvider {
         &self,
         mut req: ChatRequest,
     ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>> {
-        if let Some(ProviderPresetKind::Openai) = self.fastpath_kind() {
-            return self.fastpath_openai_chat_stream(req).await;
+        match self.fastpath_kind() {
+            Some(kind @ ProviderPresetKind::Openai) => {
+                if let Some(result) = self
+                    .run_fastpath(
+                        kind,
+                        "chat_stream",
+                        self.fastpath_openai_chat_stream(req.clone()),
+                    )
+                    .await
+                {
+                    return result;
+                }
+            }
+            Some(kind @ ProviderPresetKind::AnthropicMessages) => {
+                if let Some(result) = self
+                    .run_fastpath(
+                        kind,
+                        "chat_stream",
+                        self.fastpath_anthropic_chat_stream(req.clone()),
+                    )
+                    .await
+                {
+                    return result;
+                }
+            }
+            _ => {}
         }
         req.stream = true;
         let body = self.request_json_body(&req)?;
@@ -1418,8 +1550,12 @@ impl EmbeddingProvider for CustomHttpProvider {
     }
 
     async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse> {
-        if let Some(ProviderPresetKind::Openai) = self.fastpath_kind() {
-            return self.fastpath_openai_embed(req).await;
+        if let Some(kind @ ProviderPresetKind::Openai) = self.fastpath_kind()
+            && let Some(result) = self
+                .run_fastpath(kind, "embed", self.fastpath_openai_embed(req.clone()))
+                .await
+        {
+            return result;
         }
         let body = self.embedding_request_json_body(&req)?;
         let endpoint = self.embedding_endpoint_url_for(&req)?;
@@ -1630,6 +1766,18 @@ pub(super) fn enforce_size(name: &str, actual: usize, limit: usize) -> ProviderR
         )));
     }
     Ok(())
+}
+
+/// 从 `catch_unwind` 拿到的 `Box<dyn Any + Send>` payload 里提取人话信息。
+/// panic payload 通常是 `&'static str` 或 `String`；其他类型显示 `<non-string panic>`.
+fn panic_message(payload: &Box<dyn std::any::Any + Send + 'static>) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        return (*s).to_string();
+    }
+    if let Some(s) = payload.downcast_ref::<String>() {
+        return s.clone();
+    }
+    "<non-string panic>".to_string()
 }
 
 fn enforce_response_length_hint(resp: &reqwest::Response, limit: usize) -> ProviderResult<()> {
@@ -3077,5 +3225,68 @@ mod tests {
             chunks[4].choices[0].finish_reason,
             Some(FinishReason::ToolCalls)
         );
+    }
+
+    // ─── ADR-0002 catch_unwind fallback tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn run_fastpath_returns_some_for_ok_future() {
+        // 用最简单的 manifest 拿一个 CustomHttpProvider 实例（不需要真的发请求）
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.openai.com".to_string(),
+            "sk-test".to_string(),
+            json!({ "plugin": { "preset": { "provider": "openai" } } }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let result = provider
+            .run_fastpath(ProviderPresetKind::Openai, "test_op", async {
+                Ok::<u32, ProviderError>(42)
+            })
+            .await;
+
+        match result {
+            Some(Ok(v)) => assert_eq!(v, 42),
+            other => panic!("expected Some(Ok(42)), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_fastpath_returns_none_for_panicking_future() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.openai.com".to_string(),
+            "sk-test".to_string(),
+            json!({ "plugin": { "preset": { "provider": "openai" } } }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        // panic 应该被 catch_unwind 抓住，函数返回 None
+        let result = provider
+            .run_fastpath::<u32>(ProviderPresetKind::Openai, "test_op", async {
+                panic!("simulated fast-path panic");
+                #[allow(unreachable_code)]
+                Ok(0)
+            })
+            .await;
+
+        assert!(
+            result.is_none(),
+            "panicking future must return None to trigger manifest runtime fallback"
+        );
+    }
+
+    #[test]
+    fn panic_message_extracts_string_payload() {
+        // 模拟 catch_unwind 返回的 Box<dyn Any + Send>
+        let payload: Box<dyn std::any::Any + Send> = Box::new("static str panic");
+        assert_eq!(panic_message(&payload), "static str panic");
+
+        let payload: Box<dyn std::any::Any + Send> = Box::new(String::from("owned panic"));
+        assert_eq!(panic_message(&payload), "owned panic");
+
+        let payload: Box<dyn std::any::Any + Send> = Box::new(42_u32);
+        assert_eq!(panic_message(&payload), "<non-string panic>");
     }
 }

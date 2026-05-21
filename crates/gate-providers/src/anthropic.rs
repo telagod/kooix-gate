@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 
+// ADR-0002 fast-path: 暴露给 custom_provider 复用，避免在两处实现 Anthropic 协议。
+pub(crate) const FASTPATH_ANTHROPIC_VERSION: &str = ANTHROPIC_VERSION;
+
 #[derive(Clone)]
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -681,4 +684,39 @@ fn drain_anthropic_events(
 
 fn find_double_newline(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\n\n")
+}
+
+// ─── ADR-0002 fast-path entry points ────────────────────────────────────────
+//
+// CustomHttpProvider 内部 fast-path 复用这些 wrapper。函数体只是把内部辅助
+// 暴露给同 crate 调用方，**不重复实现协议**。任何 Anthropic 协议的演进都在
+// 上面的 to_/from_/sse 函数里改一次，两条路径同步。
+
+/// Convert ChatRequest to Anthropic Messages API request body (serde_json::Value).
+pub(crate) fn fastpath_anthropic_request_body(req: &ChatRequest) -> serde_json::Value {
+    serde_json::to_value(to_anthropic_request(req)).expect("AnthropicRequest serializable")
+}
+
+/// Convert Anthropic Messages response JSON back to OpenAI-compatible ChatResponse.
+pub(crate) fn fastpath_anthropic_response_from_json(
+    value: serde_json::Value,
+) -> ProviderResult<ChatResponse> {
+    let parsed: AnthropicResponse = serde_json::from_value(value)
+        .map_err(|e| ProviderError::Decode(format!("anthropic response decode: {e}")))?;
+    Ok(from_anthropic_response(parsed))
+}
+
+/// Stream wrapper exposing the existing Anthropic SSE → OpenAI chunk parser.
+pub(crate) fn fastpath_anthropic_sse_stream<S>(
+    byte_stream: S,
+) -> impl futures::Stream<Item = ProviderResult<ChatStreamChunk>>
+where
+    S: futures::Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
+    anthropic_sse_to_chunks(byte_stream)
+}
+
+/// Anthropic-specific status check (401/403/429/404 → typed errors).
+pub(crate) fn fastpath_anthropic_check_status(resp: &reqwest::Response) -> ProviderResult<()> {
+    check_status(resp)
 }

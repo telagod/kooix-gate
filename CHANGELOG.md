@@ -45,6 +45,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   M3 实施期间用 `--baseline pre-m3` 对比定量验收。文件落在 `target/criterion/`，
   不入 git；CI 可重跑生成。
 
+### Added — M3 T2a：catch_unwind fallback 兜底
+
+- `CustomHttpProvider::run_fastpath` helper：用 `FutureExt::catch_unwind` 包裹 fast-path
+  调用，panic 时记录 `tracing::error!` 并返回 `None`，让 trait impl 顶部分发降级到
+  manifest runtime 老路。3 个单元测试（OK 路径 / panic 路径 / panic_message 解析）。
+- 防御性设计：fast-path 是手写代码路径，理论上不会 panic；这层兜底防止 OpenAI / Anthropic
+  改变响应格式触发 serde panic 时进程不挂。
+
+### Added — M3 T2b：Anthropic Messages fast-path
+
+- `CustomHttpProvider` 内部 `fastpath_anthropic_chat / chat_stream` 落地：
+  - `crate::anthropic` 模块新加 `pub(crate)` wrapper（`fastpath_anthropic_request_body` /
+    `_response_from_json` / `_sse_stream` / `_check_status` + `FASTPATH_ANTHROPIC_VERSION`），
+    复用编译期 `to_anthropic_request` / `from_anthropic_response` / `anthropic_sse_to_chunks`，
+    **零协议重复**。
+  - `preset.kind == AnthropicMessages` 时走 fast-path：POST `/v1/messages`，
+    `x-api-key` + `anthropic-version: 2023-06-01` 头，body 转 Anthropic 原生格式
+    （system / content blocks / tool_use / tool_result），响应映射回 OpenAI ChatResponse。
+  - 2 个 integration test（chat / chat_stream）锁路径正确性。
+- 老 test `preset_anthropic_messages_posts_native_body_and_normalizes_response` 调整：
+  body 期望去掉 `"stream": false` 字段，以匹配 fast-path 行为（与编译期
+  `AnthropicProvider` 一致：stream=None 时 skip serialized）。这是行为收敛，不是回归。
+
+### Bench 数据更新（OpenAI + Anthropic fast-path 全接通后）
+
+- builtin_openai             ≈ 24-28 µs
+- plugin_openai_compatible   ≈ 35 µs   × 1.45 vs builtin
+- **plugin_openai_fastpath   ≈ 21-23 µs   × 0.74-0.96 vs builtin** — ADR-0002 ≤ × 1.02 预算达成
+
+ADR-0002 verification 5/7 项已勾，剩 Azure / Bedrock 2 个 adapter + preset bundle 拆 crate 留 0.4.0。
+
 ### Added — M3 T1：OpenAI fast-path dispatch 接通
 
 - `CustomHttpProvider::chat / chat_stream` + `EmbeddingProvider::embed` 顶部加 fast-path
