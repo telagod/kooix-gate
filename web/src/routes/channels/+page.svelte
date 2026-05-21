@@ -40,6 +40,10 @@
 	import DataTable from '$lib/components/templates/DataTable.svelte';
 	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
 	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
+	import Pagination from '$lib/components/ui/Pagination.svelte';
+	import ProbeModal from './_components/ProbeModal.svelte';
+	import DeleteConfirmModal from './_components/DeleteConfirmModal.svelte';
+	import BatchConfirmModal from './_components/BatchConfirmModal.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 	import {
@@ -84,22 +88,11 @@
 	const PROVIDER_OPTIONS: ProviderOption[] = [
 		{ value: 'openai', label: 'OpenAI', description: 'GPT-4o / o1 / o3' },
 		{ value: 'anthropic', label: 'Anthropic', description: 'Claude 4 / Sonnet / Haiku' },
-		{ value: 'gemini', label: 'Google Gemini', description: 'Gemini 2.5 Pro / Flash' },
 		{ value: 'azure', label: 'Azure OpenAI', description: 'Azure 托管 GPT 部署' },
-		{ value: 'vertex', label: 'Google Vertex AI', description: 'Vertex AI OpenAI endpoint' },
 		{ value: 'bedrock', label: 'AWS Bedrock', description: 'Claude / Titan / Llama' },
-		{ value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek-V3 / R1' },
-		{ value: 'ollama', label: 'Ollama', description: '本地模型推理' },
-		{ value: 'mistral', label: 'Mistral', description: 'Mistral Large / Codestral' },
-		{ value: 'cohere', label: 'Cohere', description: 'Command R+ / Embed' },
-		{ value: 'groq', label: 'Groq', description: 'LPU 推理加速' },
-		{ value: 'together', label: 'Together AI', description: '开源模型推理' },
-		{ value: 'openrouter', label: 'OpenRouter', description: '多 provider 聚合' },
-		{ value: 'moonshot', label: 'Moonshot', description: 'Kimi 长上下文' },
-		{ value: 'zhipu', label: '智谱 GLM', description: 'GLM-4 / CodeGeex' },
-		{ value: 'qwen', label: '通义千问', description: 'Qwen-Max / Qwen-VL' },
-		{ value: 'yi', label: '零一万物', description: 'Yi-Large / Yi-Lightning' },
-		{ value: 'plugin', label: 'HTTP Plugin', description: '自定义私有协议 / SSE 整流' },
+		// 0.3.0 起 gemini / deepseek / mistral / ollama / cohere 走 plugin preset。
+		// 老 channel 由 migration 20260522000001 自动迁移；新 channel 通过 plugin builder 接入。
+		{ value: 'plugin', label: 'HTTP Plugin', description: '自定义私有协议 / SSE 整流 / Gemini / DeepSeek / Mistral / Ollama / Cohere / Groq / Together / OpenRouter / Moonshot / 智谱 / 通义 / 零一 等 18+ preset' },
 	];
 
 	const FILTER_PROVIDER_OPTIONS: ProviderOption[] = [
@@ -1114,78 +1107,37 @@ data: {"payload":{"type":"message_stop"}}
 	</div>
 {/if}
 
-<!-- Modal: Probe result -->
-{#if probingId && probeResult}
-	<ModalFrame close={() => { probeResult = null; probingId = null; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
-		<Card class="p-6 max-w-md w-full mx-4 animate-fade-in shadow-2xl">
-			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Probe — {probeChannelName}</h3>
-			<p class="text-xs text-zinc-500 dark:text-zinc-400 mb-3 font-mono">{probeResult.provider_type}</p>
-			<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">发现 {probeResult.models.length} 个模型</p>
-			<div class="max-h-56 overflow-y-auto rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-2 space-y-0.5">
-				{#each probeResult.models as m}
-					<div class="text-xs font-mono text-zinc-700 dark:text-zinc-300 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded">{m}</div>
-				{/each}
-			</div>
-			<div class="flex gap-2 justify-end mt-4">
-				<Button variant="outline" type="button" onclick={() => { probeResult = null; probingId = null; }}>关闭</Button>
-				<Button type="button" disabled={syncingProbe} onclick={handleSyncModels}>
-					{syncingProbe ? '同步中...' : '同步到 Channel'}
-				</Button>
-			</div>
-		</Card>
-	</ModalFrame>
-{/if}
-
-<!-- Modal: Probing spinner -->
-{#if probingId && !probeResult}
-	<div class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center animate-backdrop">
-		<Card class="p-6 max-w-xs w-full mx-4 flex flex-col items-center gap-3 animate-fade-in">
-			<div class="w-10 h-10 rounded-full border-2 border-zinc-200 dark:border-zinc-700 border-t-zinc-900 dark:border-t-zinc-100 animate-spin"></div>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300">Probe {probeChannelName}...</p>
-			<Button variant="outline" size="sm" onclick={() => (probingId = null)}>取消</Button>
-		</Card>
-	</div>
-{/if}
+<!-- Modal: Probe result + Probing spinner -->
+<ProbeModal
+	{probingId}
+	{probeResult}
+	{probeChannelName}
+	{syncingProbe}
+	onClose={() => { probeResult = null; probingId = null; }}
+	onSync={handleSyncModels}
+/>
 
 <!-- Modal: Delete confirm -->
 {#if deletingId}
-	{@const deletingChannel = channels.find((ch) => ch.id === deletingId)}
-	{@const expectedDeleteConfirmation = `delete:${deletingChannel?.code ?? ''}`}
-	<ModalFrame close={() => { deletingId = null; deleteConfirmation = ''; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
-		<Card class="p-6 max-w-sm w-full mx-4 animate-fade-in shadow-2xl">
-			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认删除</h3>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">此操作将禁用该 channel 并软删除，无法恢复。请输入确认短语：</p>
-			<div class="mb-4 space-y-2">
-				<code class="block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedDeleteConfirmation}</code>
-				<Input id="channel-delete-confirm" bind:value={deleteConfirmation} placeholder={expectedDeleteConfirmation} disabled={deleting} class="font-mono" />
-			</div>
-			<div class="flex gap-2 justify-end">
-				<Button variant="outline" onclick={() => { deletingId = null; deleteConfirmation = ''; }} disabled={deleting}>取消</Button>
-				<Button variant="destructive" onclick={handleDelete} disabled={deleting || deleteConfirmation.trim() !== expectedDeleteConfirmation}>
-					{deleting ? '删除中...' : '确认删除'}
-				</Button>
-			</div>
-		</Card>
-	</ModalFrame>
+	<DeleteConfirmModal
+		{deletingId}
+		{channels}
+		{deleting}
+		bind:deleteConfirmation
+		onClose={() => { deletingId = ''; deleteConfirmation = ''; }}
+		onConfirm={handleDelete}
+		updateConfirmation={(val) => (deleteConfirmation = val)}
+	/>
 {/if}
 
 <!-- Modal: Batch confirm -->
-{#if batchAction}
-	<ModalFrame close={() => { batchAction = null; }} class="z-50 bg-black/60 backdrop-blur-sm animate-backdrop">
-		<Card class="p-6 max-w-sm w-full mx-4 animate-fade-in shadow-2xl">
-			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
-				批量{batchAction === 'enable' ? '启用' : batchAction === 'disable' ? '禁用' : '删除'}
-			</h3>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">将对 {selectedIds.size} 个 channel 执行操作。</p>
-			<div class="flex gap-2 justify-end">
-				<Button variant="outline" onclick={() => (batchAction = null)} disabled={batchProcessing}>取消</Button>
-				<Button variant={batchAction === 'delete' ? 'destructive' : 'default'} onclick={executeBatch} disabled={batchProcessing}>
-					{batchProcessing ? '处理中...' : '确认'}
-				</Button>
-			</div>
-		</Card>
-	</ModalFrame>
-{/if}
+<BatchConfirmModal
+	{batchAction}
+	selectedCount={selectedIds.size}
+	{batchProcessing}
+	onClose={() => (batchAction = null)}
+	onConfirm={executeBatch}
+/>
 
 <!-- Drawer: Create -->
 {#if showCreate}
@@ -1898,44 +1850,7 @@ data: {"payload":{"type":"message_stop"}}
 			</DataTable>
 
 			<!-- Pagination -->
-			{#if totalPages > 1}
-				<div class={dataTemplate.pagination}>
-					<p class="text-xs text-zinc-500 dark:text-zinc-400">
-						{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} / {total}
-					</p>
-					<div class="flex items-center gap-1">
-						<button
-							type="button"
-							disabled={page <= 1}
-							onclick={() => goPage(page - 1)}
-							class="p-2 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-						>
-							<ChevronLeft size={16} />
-						</button>
-						{#each pageNumbers(page, totalPages) as p}
-							{#if p === '...'}
-								<span class="w-8 h-8 flex items-center justify-center text-xs text-zinc-400">...</span>
-							{:else}
-								<button
-									type="button"
-									onclick={() => goPage(p as number)}
-									class="w-8 h-8 rounded-md text-xs font-medium transition-colors {p === page
-										? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
-										: 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}"
-								>{p}</button>
-							{/if}
-						{/each}
-						<button
-							type="button"
-							disabled={page >= totalPages}
-							onclick={() => goPage(page + 1)}
-							class="p-2 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-						>
-							<ChevronRight size={16} />
-						</button>
-					</div>
-				</div>
-			{/if}
+			<Pagination {page} {pageSize} {total} {totalPages} onGoPage={goPage} {pageNumbers} />
 		</div>
 		<!-- Keyboard hint -->
 		<p class="text-[10px] text-zinc-400 dark:text-zinc-600 mt-2 text-center shrink-0">

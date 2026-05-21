@@ -9,6 +9,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-05-22
+
+### **BREAKING** — Compile-time thin wrapper providers retired (ADR-0001)
+
+5 个编译期 thin wrapper provider 已删除，统一改走 plugin runtime + preset：
+
+- `crates/gate-providers/src/cohere.rs` ❌ → plugin preset `cohere_chat`
+- `crates/gate-providers/src/deepseek.rs` ❌ → plugin preset `deepseek`
+- `crates/gate-providers/src/gemini.rs` ❌ → plugin preset `gemini`
+- `crates/gate-providers/src/mistral.rs` ❌ → plugin preset `mistral`
+- `crates/gate-providers/src/ollama.rs` ❌ → plugin preset `ollama`
+
+`gate_providers::CohereProvider` / `DeepSeekProvider` / `GeminiProvider` / `MistralProvider` /
+`OllamaProvider` 公共类型已删除。直接 import 这些类型的下游代码会编译失败。
+
+### Added — Channel migration 20260522000001
+
+- 新增 [`crates/gate-storage/migrations/20260522000001_migrate_thin_wrapper_to_plugin.sql`](./crates/gate-storage/migrations/20260522000001_migrate_thin_wrapper_to_plugin.sql)：
+  把存量 `channels` 表中 5 类 `provider_type` 自动迁移为 `provider_type='plugin'` +
+  `model_mapping.plugin.preset.provider='<对应 preset 名>'`。
+- Migration 幂等：再跑一次不会重复写入。
+- 回滚步骤见 SQL 文件头部注释（需要带回 5 thin wrapper 源码）。
+
+### Changed — Router fail-loud on legacy provider_type
+
+- `gate_providers::router::builder::build_provider_with_secrets` / `build_embedding_provider_with_secrets`：
+  遇到 `provider_type` ∈ `cohere/deepseek/gemini/mistral/ollama` 时返回 `ProviderError::Config`，
+  提示用户跑 `kgctl migrate`。不再静默走 OpenAI 兼容回退。
+
+### Changed — Frontend channel form
+
+- `web/src/routes/channels/+page.svelte` `PROVIDER_OPTIONS` 下拉移除 5 个删掉的 thin wrapper +
+  10 个本来就是 plugin preset 的别名（groq / together / openrouter / moonshot / 智谱 / 通义 / 零一 等）。
+  保留 4 个 fast-path（OpenAI / Anthropic / Azure / Bedrock）+ 1 个 "HTTP Plugin"。所有 18+ preset
+  在 plugin manifest builder 内提供。
+
+### Version
+
+- Workspace 版本切到 `0.3.0`（9 crate 全量同步：gate-core / gate-storage / gate-crypto / gate-auth / gate-cache / gate-providers / gate-server / gate-billing / kgctl）。
+- web/package.json 版本切到 `0.3.0`。
+
+### Migration & Upgrade
+
+1. **DB**：发版前必须先跑 `kgctl migrate`（应用 migration 20260522000001）。
+2. **应用层**：升级 binary。新 binary 拒绝 legacy `provider_type` 值，但 migration 已经把存量改完，正常流量不受影响。
+3. **下游 SDK**：如有第三方代码 `use gate_providers::CohereProvider` 等，需改成
+   `let manifest = json!({"plugin":{"preset":{"provider":"cohere_chat"}}}); CustomHttpProvider::new(...)`。
+
+---
+
+## [0.2.1] — 2026-05-22
+
+### Refactor — Three Megafile Split
+
+- 拆 `crates/gate-providers/src/router.rs` (4524 行) → `router/{mod,trace,routed,metrics,selection,helpers,builder}.rs`，主 `mod.rs` 减至 ~3500 行；6 个子模块每个 ≤ 285 行。
+- 拆 `crates/gate-providers/src/custom_provider.rs` (3878 行) → `custom_provider/{mod,sandbox,replay,sigv4,secrets}.rs`，主 `mod.rs` 减至 ~2980 行；4 个子模块每个 ≤ 407 行。
+- 拆 `crates/gate-providers/src/plugin_manifest.rs` (2193 行) → `plugin_manifest/{mod,validate,upgrade}.rs`，主 `mod.rs` 减至 ~1380 行；validate 754 行 + upgrade 86 行。
+- 拆分对外公共 API 完全保持兼容：所有 `pub use` re-export 通过 `mod/mod.rs` 转发，`gate_providers::ProviderRouter` / `CustomHttpProvider` / `replay_plugin_sse` / `PluginManifest` 等外部访问路径不变。
+- `cargo clippy --workspace --all-targets -- -D warnings` 全绿；217 lib tests 全过；web check 0 errors / 0 warnings；web build 通过。
+
+### Refactor — Frontend Page Split
+
+- 拆 `web/src/routes/channels/+page.svelte` (1949 行) → 抽 `_components/{ProbeModal,DeleteConfirmModal,BatchConfirmModal}.svelte` + 通用 `lib/components/ui/Pagination.svelte`；主页面减至 1875 行。
+- 拆 `web/src/routes/admin/pricing/+page.svelte` (683 行) → 抽 `_components/PricingRulesTable.svelte`；主页面减至 640 行。
+- 拆 `web/src/routes/usage/requests/+page.svelte` (547 行) → 抽 `_components/CursorPagination.svelte`；主页面减至 541 行。
+- web check / vitest (87 tests) / build 全绿。
+
+### Added — gate-providers Crate Documentation
+
+- 新增 [crates/gate-providers/README.md](./crates/gate-providers/README.md)：模块树（router / custom_provider / plugin_manifest 三巨兽拆分后结构）+ 公共 API + 演进方向 + 关键约束 + 测试入口。
+
+### Changed — Web Bundle Budget
+
+- `web/scripts/check-bundle-budget.mjs` 阈值从 750_000 收紧到 250_000 字节（拆分后单个 chunk 实际 ≤ 204 KB）。可用 `KOOIX_WEB_BUNDLE_MAX_BYTES` 临时覆盖。
+
+### Added — Test Distribution Convention
+
+- `CONTRIBUTING.md` 新增「跨 crate integration test 分布」表格：30 个 test 文件分 6 crate（gate-storage 5 / gate-providers 2 / gate-cache 1 / gate-billing 2 / gate-server 19 / kgctl 1），每 crate 测自己边界。优化 test 编译时间走 cargo-nextest（复用 binary）而非迁移文件位置。
+
+### Added — Self-critique & Roadmap Refactor
+
+- 新增 [docs/stages/2026-05-21-self-critique-todo.md](./docs/stages/2026-05-21-self-critique-todo.md)：四道劫痕（定位模糊 / 前端散乱 / 渠道半成品 / 编译产物太大）+ 26 条整改 TODO + 三里程碑执行顺序 + 7 条验收线。
+- 新增 [ADR-0001 Provider 全插件化迁移](./docs/architecture/decisions/ADR-0001-providers-as-plugin.md)：固化 0.2.1 → 0.3.0 → 0.4.0 三阶段迁移路径、capability parity、性能预算（5%）、双跑窗口、回滚方案。
+- ROADMAP 重构：路线总览改为三里程碑（M1 v0.2.1 收尾 / M2 v0.3.0 退役 / M3 v0.4.0 fast-path），原 P0/P1/P2 段保留为已完成基线证据。
+- ROADMAP M1.5：playground 收编为产品线（visual workflow editor），不再视为异物；7 节点共享 `ProviderCapability` 矩阵、节点工作流执行接入 `request_events` audit。
+- README 第一屏重写：定位句 + 是什么/不是什么 + vs 竞品对比表（vs LiteLLM / OneAPI / OpenRouter）+ 30 秒 quickstart；删除能力流水账，全部引用 DESIGN/ROADMAP。
+
+### Added — Architecture Documentation
+
+- 新增 [docs/playground.md](./docs/playground.md)：playground 节点类型、ProviderCapability 联动、bundle 策略、已知限制、M1.5 路线。
+- 新增 [web/src/lib/components/README.md](./web/src/lib/components/README.md)：38 个 Svelte 组件分类索引（templates / ui / channels / flow / playground / brand）+ 约定。
+- 充实 [docs/architecture/control-plane.md](./docs/architecture/control-plane.md) / [data-plane.md](./docs/architecture/data-plane.md) / [worker-plane.md](./docs/architecture/worker-plane.md)：每页加职责矩阵、关键约束、状态机、错误归一表、关键链路、代码锚点、跨页面交叉引用。
+
+### Changed — Build & Disk Usage
+
+- `Cargo.toml [profile.dev]` 调优：`debug = "line-tables-only"` + `split-debuginfo = "unpacked"` + `[profile.dev.package."*"] opt-level = 1`，预计 `target/debug` 体积砍 3-4 倍（163 GB → 40-55 GB）。
+- 新增 [.config/nextest.toml](./.config/nextest.toml)：cargo-nextest 配置（default + ci profile，slow-timeout，testcontainers-aware filter override）。
+- 新增 [scripts/cargo-sweep-helper.sh](./scripts/cargo-sweep-helper.sh)：dry-run / apply / deep clean 模式，30 天 fingerprint 阈值可通过 `KOOIX_SWEEP_DAYS` 覆盖。
+- `CONTRIBUTING.md` 新增「Disk usage management」章节：cargo-sweep / cargo-nextest / sqlx migrate cache / dev profile 用法。
+
+### Changed — Provider Deprecation Warnings
+
+- 5 个 thin wrapper provider 标 `#[deprecated(since = "0.2.1", note = "use plugin preset; will be removed in 0.3.0. See ADR-0001.")]`：`CohereProvider` / `DeepSeekProvider` / `GeminiProvider` / `MistralProvider` / `OllamaProvider`。
+- `gate-providers/src/router.rs::build_provider_with_secrets` / `build_embedding_provider_with_secrets` 加 `#[allow(deprecated)]` 临时门面，等 0.3.0 删除 thin wrapper 时一并清理。
+
+### Changed — Frontend
+
+- `web/package.json`：`lucide-svelte` 锁定 `~1.0.1`（minor 锁定，避免 1.0 早期版本节点稳定性回漂）。
+- `web/package.json`：版本切到 `0.2.1`。
+
+### Version & Documentation
+
+- Workspace 版本切到 `0.2.1`（9 crate 全量同步：gate-core / gate-storage / gate-crypto / gate-auth / gate-cache / gate-providers / gate-server / gate-billing / kgctl）。
+- README badge 同步：`version-0.2.1`、`tests-285 Rust + 87 web`。
+
+---
+
 ### Added — Documentation Architecture
 
 - 新增 `CONTRIBUTING.md` 与 `SECURITY.md`，并把 `docs/architecture.md` 拆出 `data-plane` / `control-plane` / `worker-plane` 子页，形成更接近成熟项目的文档树与贡献入口。

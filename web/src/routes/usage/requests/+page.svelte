@@ -20,6 +20,7 @@
 	import DataToolbar from '$lib/components/templates/DataToolbar.svelte';
 	import FilterPanel from '$lib/components/templates/FilterPanel.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
+	import CursorPagination from './_components/CursorPagination.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 
 	let me = $state<MeResult | null>(null);
@@ -527,21 +528,14 @@
 		</DataTable>
 
 		<!-- Pagination -->
-		<div class="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
-			<span class="text-xs">
-				第 {pageNum} 页 · {page.data.length} 条
-				{#if loading}<span class="ml-2 text-zinc-400">加载中...</span>{/if}
-			</span>
-			<div class="flex items-center gap-2">
-				<Button variant="outline" size="sm" onclick={prevPage} disabled={cursorStack.length === 0 && !currentCursor || loading}>
-					<ArrowLeft size={14} />
-					<span class="ml-1">上一页</span>
-				</Button>
-				<Button variant="outline" size="sm" onclick={nextPage} disabled={!page.has_more || loading}>
-					<span class="mr-1">下一页</span>
-					<ArrowRight size={14} />
-				</Button>
-			</div>
-		</div>
+		<CursorPagination
+			{pageNum}
+			pageDataLength={page.data.length}
+			hasMore={page.has_more}
+			{loading}
+			canPrev={cursorStack.length > 0 || !!currentCursor}
+			onPrev={prevPage}
+			onNext={nextPage}
+		/>
 	{/if}
 </PageShell>

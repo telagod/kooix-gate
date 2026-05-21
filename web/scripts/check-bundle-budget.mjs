@@ -6,7 +6,9 @@ const manifestPath = new URL('../.svelte-kit/output/client/.vite/manifest.json',
   .pathname;
 const generatedNodesRoot = new URL('../.svelte-kit/generated/client-optimized/nodes/', import.meta.url)
   .pathname;
-const maxEntryBytes = Number(process.env.KOOIX_WEB_BUNDLE_MAX_BYTES ?? 750_000);
+// 0.2.1 收紧门禁：拆分前 channels/+page 130 KB，拆分后 <= 130 KB；
+// 留余量到 250 KB 防止后续节点编辑回漂；可用 KOOIX_WEB_BUNDLE_MAX_BYTES 临时覆盖。
+const maxEntryBytes = Number(process.env.KOOIX_WEB_BUNDLE_MAX_BYTES ?? 250_000);
 let failures = [];
 
 async function walk(dir) {

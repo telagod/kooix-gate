@@ -4,50 +4,82 @@
 
 # Kooix Gate · 空衍
 
-> Rust + Svelte 打造的 LLM 网关。多 Org 三层租户、9 Provider 多模态、HTTP Plugin 私有协议接入、流式正确计费、可视化编排、配额拦截、SSO/OIDC。
->
-> **空衍**：以四向 super-star 为核，以 D4 旋转轨道为门；在对称星图中收束私有协议、认证、SSE 与字段映射。
+**面向多租户运营的 Rust LLM 网关——把 OneAPI 反复踩的坑先治好，再谈渠道接入。**
 
-架构总览见 [docs/architecture.md](./docs/architecture.md)，核心设计原则见 [DESIGN.md](./DESIGN.md)。文档入口与阶段记录见 [docs/README.md](./docs/README.md)。
+写一份 JSON manifest 就能上一个新渠道，不发版；流式计费 fail-closed；多 Org RLS 兜底；编译期 SQL；强类型 ID。
 
-竞品定位：NewAPI / OneAPI / LiteLLM 的「底盘加强版」——把它们反复踩的雷（权限粗、限流单一、租户隔离漏、流式漏扣）先治好，再谈渠道接入。
-
-[![Tests](https://img.shields.io/badge/tests-277%20Rust%20%2B%2055%20web-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-285%20Rust%20%2B%2085%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-0.2.1-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
-## 当前版本：v0.2.0
+## 是什么
 
-详见 [CHANGELOG.md](./CHANGELOG.md)。
+| 维度 | 答案 |
+|------|------|
+| **定位** | 多租户 LLM 网关 + 控制台。Rust 后端 + Svelte 前端，单 binary 17 MB |
+| **核心场景** | 公司/团队对外发 API key，对内统一接 N 家上游，结算到月账单，配额拦截，审计齐全 |
+| **不是什么** | 不是 LLM 路由 SDK（用 LiteLLM）；不是无状态代理（用 Cloudflare AI Gateway）；不是单租户 chat UI（用 LobeChat）|
 
-> v0.2.0 是第一个正式发布版本：把 typed ID、pricing rules、crash-safe quota pre-debit、HTTP Plugin SSE normalizer、Provider 插件预设、发布 runbook 与渠道插件化 roadmap 一起收口。
+## 跟谁不同
 
-### 核心能力
+| | Kooix Gate | LiteLLM | OneAPI / NewAPI | OpenRouter |
+|---|---|---|---|---|
+| **多 Org 租户** | ✅ 三层 + RLS 兜底 | ❌ 单租户 | ⚠ 用户级 | ☁ SaaS |
+| **流式计费** | ✅ fail-closed + outbox | ⚠ 有跳过窗口 | ⚠ 静默漏扣 | ☁ SaaS |
+| **私有协议接入** | ✅ JSON manifest（5 分钟）| ✅ Python config | ⚠ 改 Go 代码 | ❌ |
+| **配额维度** | rpm/tpm/concurrent/budget/lifetime + dry-run | rpm/tpm | rpm/tpm | quota |
+| **运行时** | Rust + 编译期 SQL | Python | Go | 闭源 |
+| **典型 binary** | 17 MB | ~500 MB image | ~30 MB | n/a |
 
-- ✅ 多 Org × Project × ApiKey 三层租户 + RBAC + RLS 兜底
-- ✅ 9 Provider 适配（OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock）
-- ✅ HTTP Plugin 渠道：用 JSON manifest 接入私有协议、奇葩 body/response、非标准 SSE token 帧
-- ✅ Plugin 安全护栏：manifest 模板白名单、绝对 URL 默认禁用、内网/metadata host 拒绝、body/response/SSE size limit
-- ✅ Provider 插件预设：OpenAI-compatible / Anthropic / Azure / Vertex AI / Gemini / DeepSeek / Mistral / Cohere / Ollama / Bedrock 等主流渠道可统一按 plugin manifest 接入
-- ✅ `/v1/chat/completions` OpenAI 兼容（流式 SSE + 非流式 + tool calling）
-- ✅ typed ID API response（`org_...` / `proj_...` / `usr_...`），路径参数仍兼容裸 UUID
-- ✅ 5 种路由策略（priority / weighted_random / round_robin / least_conn / least_latency）
-- ✅ 多维度计费引擎（token / image / audio / cache / batch，自动同步 LiteLLM 定价，ledger 对账 + invoice 状态机）
-- ✅ Quota policy engine（rpm / tpm / concurrent / daily / monthly / lifetime，Redis Lua 原子，dry-run / explain / reconcile）
-- ✅ Refresh session 管理：refresh token hash 持久化、轮转、防重放、logout 撤销、平台管理员踢下线
-- ✅ 可视化编排 Playground（@xyflow/svelte 节点式流程编辑器）
-- ✅ SvelteKit 控制台（channel 管理 / 请求日志 / usage 仪表盘 / 月度账单 / SSO）
-- ✅ `kgctl` 部署 CLI + Docker Compose 一键部署 + GitHub Actions CI
+> 一句话：**用 Rust 把 OneAPI 的产品形态做对，用 manifest 把 LiteLLM 的接入便利搬过来。**
 
-### v0.2.0 新增亮点
+## 30 秒跑通
 
-- 🧩 typed ID 输出与 `FlexUuid` 路径参数兼容，前端用 `rawId()` / `shortId()` 处理展示和跳转。
-- 💸 Pricing rules 管理闭环：`/v1/admin/pricing-rules`、`kgctl pricing list|set|delete`、`/admin/pricing` 控制台页面。
-- 🧯 Crash-safe quota pre-debit：`inflight_requests.quota_keys/estimated_micros` + 60s sweeper 自动退还过期预扣；P1.6 扩展到 concurrent、lifetime budget、lifetime tokens 与 dry-run policy。
-- 🌊 HTTP Plugin SSE normalizer + Provider preset，覆盖私有 SSE 帧、Anthropic Messages、Azure deployment URL、Vertex AI OpenAI endpoint 与 OpenAI-compatible usage 末帧。
-- 🛡️ HTTP Plugin manifest 作为不可信配置处理：模板变量分域白名单、绝对 URL 默认禁用、内网/metadata host 拒绝、request/response/SSE size limit。
-- 🧱 前端模板化：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等集中到 `web/src/lib/components/templates/`。
-- 📜 发布收口：`ROADMAP.md`、`RELEASE.md`、`docs/README.md`、`docs/plugin-manifest.md`、`docs/security-runbook.md`、`examples/`。
+```bash
+docker compose up -d                      # PG + Redis + 迁移 + 服务
+open http://localhost:8000                # 控制台（首次进入会引导初始化）
+```
+
+要走"自己编译"的，看 [快速开始（手动）](#快速开始手动) 章节。
+
+## 文档地图
+
+- [DESIGN.md](./DESIGN.md) — 领域模型、运行时边界、数据流
+- [docs/architecture.md](./docs/architecture.md) — C4 架构总览（control / data / worker plane）
+- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADR（架构决议）
+- [docs/plugin-manifest.md](./docs/plugin-manifest.md) — HTTP Plugin manifest 规范与示例
+- [docs/observability-runbook.md](./docs/observability-runbook.md) — SLO 指标 / 故障处置
+- [docs/security-runbook.md](./docs/security-runbook.md) — 密钥轮换 / master key 丢失
+- [ROADMAP.md](./ROADMAP.md) — 三里程碑路线
+- [examples/](./examples/) — SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm
+
+## 当前版本：v0.2.1
+
+收尾与大范围优化版本：dev profile 调优、ADR 文档化、ROADMAP 收敛三里程碑、provider 全插件化迁移路径锁定、三巨兽源文件拆解、前端 1949 行核弹拆分。详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+## 核心能力
+
+完整能力清单与运行时边界见：
+
+- [docs/architecture.md](./docs/architecture.md) — C4 架构总览（control / data / worker plane）
+- [DESIGN.md](./DESIGN.md) — 领域模型、数据流、关键决议
+- [ROADMAP.md](./ROADMAP.md) — 当前基线与三里程碑路线
+- [docs/playground.md](./docs/playground.md) — 工作流编辑器
+
+一句话按层：
+
+| 层 | 能力 |
+|----|------|
+| 租户 | Org × Project × ApiKey 三层 + RBAC + Postgres RLS 兜底 |
+| 网关 | OpenAI 兼容 chat/embeddings/images/audio/responses，流式 SSE + tool calling |
+| 渠道接入 | HTTP Plugin manifest v1 + 18+ provider preset |
+| 路由 | priority / weighted_random / round_robin / least_conn / least_latency + fallback + canary |
+| 计费 | 多维度定价 + LiteLLM 自动同步 + crash-safe pre-debit + ledger + invoice 状态机 |
+| 配额 | rpm / tpm / concurrent / daily / monthly / lifetime + dry-run / explain |
+| 身份 | Argon2id + JWT + API Key SHA-256 + OIDC SSO + refresh session 轮转 |
+| 可视化 | SvelteKit 控制台 + Playground 工作流编辑器 |
+| 运维 | `kgctl` CLI + Docker Compose + Prometheus + OpenTelemetry + incident UI |
 
 ## 技术栈
 

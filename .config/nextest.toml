@@ -1,0 +1,36 @@
+# cargo-nextest 配置 — Kooix Gate
+#
+# Kooix Gate 把跨 crate integration test 集中在 gate-server，nextest 默认共享 binary。
+# 本地：`cargo nextest run --workspace`
+# CI：保留 `cargo test` 走 doctest，nextest 跑 unit/integration。
+#
+# 文档：https://nexte.st/book/configuration
+
+[profile.default]
+# 默认 retries=0：测试要么对要么错，重试只会掩盖 flaky。
+retries = 0
+# 测试输出策略：失败时打印 stdout/stderr。
+failure-output = "immediate-final"
+# 慢测试警告阈值（秒）。
+slow-timeout = { period = "60s", terminate-after = 3 }
+# testcontainers 启动的 Postgres / Redis 容器需要 30s+ 暖机；testcontainers crate 启用了
+# `KOOIX_SKIP_PG_TESTS=1` 跳过开关，本地无 Docker 环境时记得设置。
+
+[profile.default.junit]
+# 输出 JUnit XML 给 CI 聚合。
+path = "junit.xml"
+
+# CI profile：走 nextest，但保留更详细的输出。
+[profile.ci]
+retries = 0
+failure-output = "immediate-final"
+slow-timeout = { period = "120s", terminate-after = 2 }
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
+
+# 默认按 binary 分组并行；过滤 testcontainers heavy bin 的并行度。
+[[profile.default.overrides]]
+filter = 'test(/.*pg_repo|.*rls_isolation|.*billing_e2e|.*quota_predebit|.*invitations_e2e|.*b1_full_chain|.*custom_provider|.*auth_flow|.*outbox_consumer|.*x_kooix_project/)'
+threads-required = 2

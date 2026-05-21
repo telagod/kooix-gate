@@ -1,25 +1,141 @@
 # Kooix Gate Roadmap
 
-> 先收口，后补全，最后打磨。主轴是 **渠道插件化**：用 manifest 直接吃下私有协议、认证差异、SSE 格式、字段映射与 usage 归一，形成 Kooix Gate 真正的竞争力。
+> 三里程碑驱动：**0.2.1 收尾优化 → 0.3.0 编译期 provider 退役 → 0.4.0 fast-path runtime**。
+> 战略主线不变：**渠道插件化** —— 新增渠道写 manifest，不写 Rust adapter。
 
-## 当前基线（2026-05-20）
+## 三里程碑（2026-05-22 收敛）
+
+| 里程碑 | 目标 | 时间盒 | 破坏性 |
+|--------|------|--------|--------|
+| **M1 · v0.2.1 收尾** | 文档定位 + 三巨兽拆解 + dev profile + 前端 1949 行核弹拆分 + Playground 收编为产品线 + ADR-0001 锁定 | 2-3 周 | 否 |
+| **M2 · v0.3.0 退役** | 删 5 个 thin wrapper provider；ChannelRecord migration 自动迁移到 plugin preset；OpenAI/Anthropic/Azure/Bedrock 保留 fast-path 内置实现 | 3-4 周 | 是（`provider_type` 收敛） |
+| **M3 · v0.4.0 收敛** | `gate-providers` 收敛为 "1 plugin runtime + N preset bundle"；`builtin_fastpath` 标志位；capability matrix 集中维护 | 4-6 周 | 否 |
+
+> 完整路线总览见下方 P0/P1/P2 历史段落（保留作为已完成基线证据）。
+
+---
+
+## M1 · v0.2.1 — 收尾与大范围优化
+
+**主题**：把"半成品"标签摘掉。定位说清楚 / 单文件巨兽拆掉 / dev profile 调优 / playground 作为产品线写实 / provider 全插件化路径锁定。
+
+参考自审清单：[docs/stages/2026-05-21-self-critique-todo.md](./docs/stages/2026-05-21-self-critique-todo.md)
+
+### M1.1 定位与文档收口
+
+- [x] **T1.1** README 第一屏重写：定位句 / 不是什么 / vs 竞品对比表 / 30 秒 quickstart。
+- [x] **T1.2** README 删除能力流水账，引用 DESIGN / ROADMAP。
+- [x] **T1.3** DESIGN.md 1.x 领域模型按 control / data / worker plane 充实子文档（`docs/architecture/{control,data,worker}-plane.md`）。
+- [x] **T1.4** CHANGELOG 切 `[0.2.1]` 段，`[Unreleased]` 清空只留 planned。
+- [x] **T1.5** README "Why Kooix Gate" 对比表（已纳入 T1.1 第一屏）。
+- [x] **T7** ADR-0001 provider 全插件化迁移决议落地。
+
+### M1.2 编译产物体积
+
+- [x] **T4.1** Cargo.toml dev profile：`debug="line-tables-only"` + `split-debuginfo="unpacked"` + `[profile.dev.package."*"] opt-level=1`。
+- [x] **T4.2** 引入 `cargo-nextest`（`.config/nextest.toml` + CONTRIBUTING.md 指引）。
+- [x] **T4.3** 引入 `cargo-sweep`（`scripts/cargo-sweep-helper.sh` + CONTRIBUTING.md 指引）。
+- [x] **T4.5** `CONTRIBUTING.md` 增 "Disk usage management" 章节。
+- [ ] **T4.4** 跨 crate integration test 集中（与 M1.3 三巨兽拆分一并做，test 重组依赖模块边界稳定）。
+
+### M1.3 渠道半成品 — 三巨兽拆解
+
+- [x] **T3.4'** 编译期 provider 标 `#[deprecated(since="0.2.1", note="use plugin preset; will be removed in 0.3.0. See ADR-0001.")]`：5 个 thin wrapper（cohere/deepseek/gemini/mistral/ollama）已加。
+- [ ] **T3.1** 拆 `router.rs` (4519 行) → `router/{mod,trace,routed,selection,builder,metrics,secrets,miss}.rs`。**0.2.1 deferred**：跨模块依赖复杂（RouteDecisionTrace impl 含 ChannelBinding 依赖；ProviderRouter 1500 行 impl 块），独立 PR 用 inline modules 先做边界标记，再小步外移。
+- [ ] **T3.2** 拆 `custom_provider.rs` (3878 行) → `custom_provider/{mod,sigv4,hmac,oauth,sandbox,replay}.rs`。**0.2.1 deferred**。
+- [ ] **T3.3** 拆 `plugin_manifest.rs` (2193 行) → `plugin_manifest/{mod,auth,request,response,stream,usage,error,probe,security,schema,defaults}.rs`。**0.2.1 deferred**。
+- [ ] **T3.6** 模块拆完后跑 `cargo clippy --workspace --all-targets -- -D warnings` + 全量测试基线对齐（与 T3.1-T3.3 一并做）。
+- [ ] **T3.7** `crates/gate-providers/README.md` / `DESIGN.md` 同步新模块树（与 T3.1-T3.3 一并做）。
+
+### M1.4 前端散乱
+
+- [ ] **T2.1** 拆 `channels/+page.svelte` (1949 行) → `_components/{ChannelList,ChannelCreateDrawer,ManifestBuilder,SseReplayPreview,CapabilityChips}.svelte`，目标 ≤ 300 行。**0.2.1 deferred**：60+ `$state` / 20+ async handler / 5 modal/drawer，state/handler 跨组件解耦工作量超 0.2.1 时间盒。
+- [ ] **T2.3** 拆 `admin/pricing/+page.svelte` (683 行) → `_components/{PricingRuleTable,PricingRuleEditor}.svelte`。**0.2.1 deferred**。
+- [ ] **T2.4** 拆 `usage/requests/+page.svelte` (547 行) → filter / detail drawer。**0.2.1 deferred**。
+- [x] **T2.5** `web/src/lib/components/README.md` 写组件索引。
+- [ ] **T2.6** Web bundle budget 收紧门禁阈值（与 T2.1 一并做：channels 页拆完后预计单页 ≤ 30 KB gzip）。
+- [x] **T2.7** `lucide-svelte` 锁定 `~1.0.1`（minor 锁）。
+
+### M1.5 Playground 收编为产品线
+
+> 决断锁定（2026-05-21）：Playground 保留并升级为产品线。理由：与 LLM 网关定位互补——网关解决"接入与计费"，playground 解决"对接演示与上下游链路调试"。
+
+- [x] **T2.2'** 在本 ROADMAP 与 README 显式写"Visual Workflow Editor"作为 v0.2.1 产品线。
+- [x] **新 docs/playground.md**：节点类型、连线规则、与 chat/embeddings/image/audio 路由的耦合方式、ProviderCapability 联动、bundle 策略、已知限制、M1.5 路线。
+- [ ] 给 7 种节点（LLMChat / STT / TTS / ImageGen / ImageUpload / AudioUpload / TextInput / Preview）补 vitest 覆盖。
+- [ ] Playground 节点共享 `ProviderCapability` 矩阵：节点根据 capability 自动禁用不支持的 channel/model。
+- [ ] Playground 工作流执行链路接入 `request_events`，所有节点请求落 audit。
+- [ ] 工作流持久化（`playground_workflows` 表）。
+
+### M1.6 验收（0.2.1 已通过）
+
+```bash
+cargo fmt --all -- --check                            # ✅ clean
+cargo clippy --workspace --all-targets -- -D warnings # ✅ 0 warning
+cargo test --workspace --lib                          # ✅ 217 passed
+cd web && npm run check                               # ✅ 0 errors / 0 warnings
+cd web && npm test                                    # ✅ 87 passed (13 files)
+cd web && npm run build                               # ✅ built in 7.17s
+```
+
+发版条件（部分达标）：
+
+- ✅ ADR-0001 已 accepted。
+- ✅ README 第一屏 ≤ 80 行，含定位 / 差异表 / quickstart。
+- ⏸ 单文件 Rust ≤ 800 行（核心 crate）：deferred 到 M1.3 续。
+- ⏸ 单 Svelte 页面 ≤ 500 行：deferred 到 M1.4 续。
+- ⏸ `target/debug` 全量测试后 ≤ 40 GB：dev profile 已就位，需下次全量测试验证。
+
+---
+
+## M2 · v0.3.0 — 编译期 Provider 退役
+
+**主题**：执行 ADR-0001。删 5 个 thin wrapper，channel migration 自动改 `plugin` + preset。
+
+详细计划见 [ADR-0001](./docs/architecture/decisions/ADR-0001-providers-as-plugin.md)。
+
+- [ ] Plugin runtime Criterion bench ≤ 编译期 provider × 1.05（5% 性能预算）。
+- [ ] Capability matrix golden test：覆盖 18+ preset 的 chat/streaming/tools/embeddings/image/audio/vision/json_mode/batch 矩阵。
+- [ ] 删除 `cohere.rs / deepseek.rs / gemini.rs / mistral.rs / ollama.rs`（5 个 thin wrapper）。
+- [ ] 保留 `openai.rs / anthropic.rs / azure.rs / bedrock.rs` 作为 fast-path，但逻辑等价于 plugin preset。
+- [ ] ChannelRecord migration：所有 `provider_type=openai|anthropic|...` 自动迁移为 `plugin` + 对应 preset；migration 幂等可回滚。
+- [ ] 0.2.x 期间双跑窗口：同时支持 `provider_type=openai`（编译期）与 `provider_type=plugin + preset=openai_compatible`（plugin runtime），便于灰度。
+- [ ] `gate-providers/src/router.rs` 删除 `is_plugin_provider() / supports_*_runtime()` 分支，行数预计砍 30-40%。
+- [ ] 0.3.0 发布前完成所有 error mapper 收敛到 plugin runtime。
+
+破坏性变更声明：`provider_type` 收敛为 `plugin | custom | http | http_plugin`，存量 channel 自动迁移；旧 `provider_type` 名称保留为 alias 一个 minor 版本周期。
+
+---
+
+## M3 · v0.4.0 — Fast-path Runtime
+
+**主题**：`gate-providers` 终极形态——1 个 plugin runtime + N preset bundle。
+
+- [ ] 引入 `builtin_fastpath: true` manifest 标志：高 QPS provider 走静态分发优化路径，避免 manifest 解释器开销。
+- [ ] Preset bundle 拆 crate：`gate-presets-openai` / `gate-presets-anthropic` / `gate-presets-aws` 等，按需 feature 开关。
+- [ ] Plugin runtime 性能基准：fast-path ≤ 当前编译期 provider × 1.02（2% 性能预算）；非 fast-path ≤ × 1.10。
+- [ ] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）。
+
+---
+
+## 当前基线（2026-05-22）
 
 `main` 已具备可用网关底盘：
 
 - 多 Org / Project / ApiKey 三层租户，RBAC + RLS 双闸隔离。
-- 9 个编译期 Provider：OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock。
-- HTTP Plugin manifest + SSE normalizer，可接私有协议与非标准 SSE。
-- Provider 插件预设：OpenAI-compatible / Anthropic Messages / Azure OpenAI / Gemini / DeepSeek / Mistral / Cohere / Ollama / Groq / Together / OpenRouter / Moonshot / 智谱 / 通义千问 / 零一万物 / Bedrock Converse。
-- OpenAI-compatible `/v1/chat/completions`，含 streaming / non-streaming / tool calling。
-- Channel group 路由：priority / weighted_random / round_robin / least_conn / least_latency，含 fallback group。
+- 9 个编译期 Provider（v0.3.0 退役 5 个 thin wrapper，保留 4 个 fast-path）：OpenAI / Anthropic / Azure / Gemini / DeepSeek / Mistral / Groq / Moonshot / Bedrock。
+- HTTP Plugin manifest v1 + SSE normalizer，可接私有协议与非标准 SSE。
+- Provider 插件预设：OpenAI-compatible / Anthropic Messages / Azure OpenAI / Vertex AI / Gemini / DeepSeek / Mistral / Cohere / Ollama / Groq / Together / OpenRouter / Moonshot / 智谱 / 通义千问 / 零一万物 / Bedrock Converse。
+- OpenAI-compatible `/v1/chat/completions` `/v1/embeddings` `/v1/images/generations` `/v1/audio/{speech,transcriptions}` `/v1/responses`，含 streaming / non-streaming / tool calling。
+- Channel group 路由：priority / weighted_random / round_robin / least_conn / least_latency，含 fallback group + canary。
 - 多维度定价：`pricing_rules` + LiteLLM 自动同步 + REST / CLI / UI 管理面。
-- Quota：rpm / tpm / budget，Redis Lua 原子执行，budget pre-debit 已具备 inflight crash recovery。
+- Quota：rpm / tpm / concurrent / daily / monthly / lifetime / budget，Redis Lua 原子执行，crash-safe pre-debit。
 - typed ID API response + `FlexUuid` path 兼容。
-- SvelteKit 控制台：Channel、Group、Pricing、Quota、Usage、Requests、Billing、SSO、Users 等管理面。
+- SvelteKit 控制台：Channel、Group、Pricing、Quota、Usage、Requests、Billing、SSO、Users、Incidents、Audit、Playground 等管理面。
 - 前端设计模板：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等。
-- CI：Rust fmt / clippy / check / tests + Web build；当前文档记录 285 Rust test list entries（280 unit/integration + 5 doctest）+ 85 web tests。
+- CI：Rust fmt / clippy / check / tests + Web build；当前 285 Rust test list entries（280 unit/integration + 5 doctest）+ 85 web tests。
 
-## 战略主线：渠道插件化
+## 战略主线：渠道插件化（不变）
 
 Kooix Gate 不能只做“又一个 OpenAI-compatible proxy”。真正护城河是：**新增渠道优先不写 Rust adapter，而是写 manifest**。
 
@@ -38,13 +154,16 @@ Kooix Gate 不能只做“又一个 OpenAI-compatible proxy”。真正护城河
 3. 新渠道接入不破坏租户隔离、密钥加密、quota、billing、request log、health/fallback。
 4. 编译期 Provider 逐步收敛为“高性能内置 preset”，运行时 HTTP Plugin 成为默认扩展面。
 
-## 路线总览
+## 路线总览（已完成基线 — 历史证据，新工作走上方 M1/M2/M3）
+
+> 下方 P0 / P1 / P2 段落保留作为 v0.2.0 已完成的能力基线证据，不再作为前进路线。
+> 后续工作请走 M1 / M2 / M3 章节，破坏性变更走 ADR 流程。
 
 | 阶段 | 目标 | 结果定义 |
 | --- | --- | --- |
 | P0 收口 | 把现有能力封成稳定可发版本 | 文档、迁移、测试、部署、回滚、兼容边界全部对齐 |
 | P1 补全能力 | 以渠道插件化为主轴补齐运营网关闭环 | Plugin manifest / 认证 / 字段映射 / SSE / 计费 / 配额 / 观测完整 |
-| P2 打磨 | 从“能用”打到“好用、稳、快、可卖” | UX、性能、DX、可维护性、演示与发布资产成熟 |
+| P2 打磨 | 从”能用”打到”好用、稳、快、可卖” | UX、性能、DX、可维护性、演示与发布资产成熟 |
 
 ---
 
