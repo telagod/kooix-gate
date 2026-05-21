@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Plugin runtime perf bench (ADR-0001 verification)
+
+- 新增 [`crates/gate-providers/benches/plugin_vs_builtin.rs`](./crates/gate-providers/benches/plugin_vs_builtin.rs)：
+  Criterion micro-bench 对比 `OpenAiProvider` vs `CustomHttpProvider + openai_compatible preset`
+  的 chat 路径单次调用耗时，wiremock localhost endpoint。
+- 实测数据（2026-05-22）：builtin 25.6 µs / plugin 36.2 µs，**ratio × 1.41**，超 ADR-0001 的
+  5% 预算 8 倍。详见 [ADR-0001 Verification 段](./docs/architecture/decisions/ADR-0001-providers-as-plugin.md#bench-数据2026-05-22)。
+- 触发 M3 立项：[ADR-0002 Fast-path Runtime](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md)。
+
+### Added — M3 设计落地
+
+- 新增 [ADR-0002](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md)：`builtin_fastpath`
+  manifest 标志位 + 4 个高频 provider 静态分发设计。
+- ROADMAP M3 章节加 bench 触发依据 + 新增 capability matrix golden test / panic fallback
+  两条验收项。
+
 ---
 
 ## [0.3.0] — 2026-05-22

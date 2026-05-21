@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "sse"
 harness = false
+
+[[bench]]
+name = "plugin_vs_builtin"
+harness = false

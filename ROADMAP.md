@@ -110,10 +110,17 @@ cd web && npm run build                               # ✅ built in 7.17s
 ## M3 · v0.4.0 — Fast-path Runtime
 
 **主题**：`gate-providers` 终极形态——1 个 plugin runtime + N preset bundle。
+详细设计见 [ADR-0002 Fast-path Runtime](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md)。
 
-- [ ] 引入 `builtin_fastpath: true` manifest 标志：高 QPS provider 走静态分发优化路径，避免 manifest 解释器开销。
+**触发依据**（0.3.0 实测）：plugin runtime vs builtin chat 路径 ratio = **× 1.41**
+（CI [×1.32, ×1.51]），超 ADR-0001 的 5% 预算 8 倍，必须做 fast-path。
+复现：`cargo bench --package gate-providers --bench plugin_vs_builtin`。
+
+- [ ] 引入 `builtin_fastpath: true` manifest 标志：4 个高 QPS provider（OpenAI / Anthropic / Azure / Bedrock）走静态分发，避免 manifest 解释器开销。
 - [ ] Preset bundle 拆 crate：`gate-presets-openai` / `gate-presets-anthropic` / `gate-presets-aws` 等，按需 feature 开关。
 - [ ] Plugin runtime 性能基准：fast-path ≤ 当前编译期 provider × 1.02（2% 性能预算）；非 fast-path ≤ × 1.10。
+- [ ] Capability matrix golden test：fastpath × 9 capability = 36 cell，锁字节级 parity。
+- [ ] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime。
 - [ ] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）。
 
 ---

@@ -62,9 +62,29 @@
 - [x] 0.3.0：channel migration 20260522000001 自动改 provider_type='plugin' + 注入 preset
 - [x] 0.3.0：router builder 对 legacy provider_type fail-loud
 - [x] 0.3.0：前端 channel form 收敛 PROVIDER_OPTIONS
-- [ ] 0.2.x→0.3.0：plugin runtime Criterion bench ≤ 编译期 provider × 1.05（5% 性能预算，仍待跑）
+- [x] 0.3.0：plugin runtime Criterion bench 已落地（`benches/plugin_vs_builtin.rs`），数据见下表 — **5% 预算超标**，触发 M3 fast-path 立项
 - [ ] 0.3.x：capability matrix golden test 覆盖所有 preset
 - [ ] 0.3.x：所有 integration test 走 plugin runtime path
+- [ ] 0.4.0：`builtin_fastpath` manifest 标志 + 静态分发 fast-path runtime（M3 主线）
+
+### Bench 数据（2026-05-22）
+
+`cargo bench --package gate-providers --bench plugin_vs_builtin`，wiremock localhost endpoint，单次
+`Provider::chat()` 调用：
+
+| 路径 | mean | 95% CI |
+|------|------|--------|
+| `builtin_openai`（编译期 fast-path） | **25.6 µs** | [24.6, 26.7] |
+| `plugin_openai_compatible`（manifest runtime） | **36.2 µs** | [35.3, 37.1] |
+| **ratio** | **× 1.41** | [× 1.32, × 1.51] |
+
+**结论**：plugin runtime 当前比 builtin 慢约 41%，远超 5% 预算。差距主要来自
+manifest 解释器 hot path：placeholder render / endpoint URL template 评估 /
+auth header build / 每次 chat 重新构造 `RequestContext`。M3 引入
+`builtin_fastpath: true` manifest 标志的必要性由此条 bench 实测支撑，**不是猜测**。
+
+> 复现：`cargo bench --package gate-providers --bench plugin_vs_builtin`，HTML 报告在
+> `target/criterion/chat_request/`。
 
 ## References
 
