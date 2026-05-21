@@ -217,7 +217,7 @@
 			? pluginCapabilitiesForPreset(pluginBuilderDraft.preset)
 			: providerCapabilities(createForm.provider_type)
 	);
-	let createMissingCaps = $derived(missingCapabilityList(createProviderCaps, ['image', 'audio', 'batch']));
+	let createMissingCaps = $derived(missingCapabilityList(createProviderCaps, ['embeddings', 'image', 'audio', 'batch']));
 	let editProviderCaps = $derived<ProviderCapabilities | null>(
 		editingChannel
 			? (isPluginProvider(editingChannel.provider_type)
@@ -225,7 +225,7 @@
 					: providerCapabilities(editingChannel.provider_type))
 			: null
 	);
-	let editMissingCaps = $derived(missingCapabilityList(editProviderCaps ?? undefined, ['image', 'audio', 'batch']));
+	let editMissingCaps = $derived(missingCapabilityList(editProviderCaps ?? undefined, ['embeddings', 'image', 'audio', 'batch']));
 
 	// ── Init ─────────────────────────────────────────
 	onMount(() => {

@@ -276,7 +276,7 @@ pub struct ChatDelta {
 
 // ── Embeddings ────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EmbeddingRequest {
     pub model: String,
     pub input: EmbeddingInput,
@@ -286,7 +286,7 @@ pub struct EmbeddingRequest {
     pub dimensions: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum EmbeddingInput {
     Single(String),

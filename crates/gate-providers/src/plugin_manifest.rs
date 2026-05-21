@@ -7,13 +7,15 @@
 
 use crate::error::{ProviderError, ProviderResult};
 use crate::plugin_preset::{
-    PresetManifest, ProviderPresetSpec, ResponseManifest, StreamManifest, UsageManifest,
+    EmbeddingResponseManifest, PresetManifest, ProviderPresetSpec, ResponseManifest,
+    StreamManifest, UsageManifest,
 };
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 pub(crate) const DEFAULT_CHAT_PATH: &str = "/chat/completions";
+pub(crate) const DEFAULT_EMBEDDINGS_PATH: &str = "/embeddings";
 pub(crate) const DEFAULT_MAX_REQUEST_BYTES: usize = 1024 * 1024;
 pub(crate) const DEFAULT_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const DEFAULT_MAX_SSE_EVENT_BYTES: usize = 1024 * 1024;
@@ -36,6 +38,7 @@ pub struct PluginManifest {
     pub capabilities: CapabilitiesManifest,
     pub auth: AuthManifest,
     pub request: RequestManifest,
+    pub(crate) embedding_response: EmbeddingResponseManifest,
     pub(crate) response: ResponseManifest,
     pub(crate) stream: StreamManifest,
     pub(crate) usage: UsageManifest,
@@ -194,9 +197,12 @@ pub struct RequestManifest {
     pub method: RequestMethod,
     #[serde(alias = "chat_path")]
     pub path: Option<String>,
+    #[serde(alias = "embeddings_path")]
+    pub embedding_path: Option<String>,
     pub query: Map<String, Value>,
     pub headers: Map<String, Value>,
     pub body: Option<Value>,
+    pub embedding_body: Option<Value>,
     pub timeout_ms: Option<u64>,
     pub retry: RetryManifest,
     pub force_stream_field: bool,
@@ -266,6 +272,7 @@ struct LegacyPluginManifest {
     preset: PresetManifest,
     request: LegacyRequestManifest,
     response: ResponseManifest,
+    embedding_response: EmbeddingResponseManifest,
     stream: StreamManifest,
     error: ErrorManifest,
     probe: ProbeManifest,
@@ -276,8 +283,11 @@ struct LegacyPluginManifest {
 #[serde(default)]
 struct LegacyRequestManifest {
     chat_path: Option<String>,
+    embedding_path: Option<String>,
+    embeddings_path: Option<String>,
     headers: Map<String, Value>,
     body: Option<Value>,
+    embedding_body: Option<Value>,
     retry: RetryManifest,
     force_stream_field: bool,
     stream_path: String,
@@ -334,8 +344,14 @@ impl PluginManifest {
         if self.request.path.is_none() {
             self.request.path = Some(spec.chat_path);
         }
+        if self.request.embedding_path.is_none() {
+            self.request.embedding_path = spec.embedding_path;
+        }
         if self.request.body.is_none() {
             self.request.body = spec.body;
+        }
+        if self.request.embedding_body.is_none() {
+            self.request.embedding_body = spec.embedding_body;
         }
         for (k, v) in spec.headers {
             if k.eq_ignore_ascii_case("authorization") && v.is_null() {
@@ -353,6 +369,8 @@ impl PluginManifest {
             self.request.stream_path = path;
         }
         self.response.apply_defaults(spec.response);
+        self.embedding_response
+            .apply_defaults(spec.embedding_response);
         self.stream.apply_defaults(spec.stream);
         Ok(())
     }
@@ -376,6 +394,13 @@ impl PluginManifest {
                 &json_pointer(pointer_base, "/request/path"),
             )?;
         }
+        if let Some(path) = &self.request.embedding_path {
+            validate_template_str(
+                path,
+                TemplateScope::Path,
+                &json_pointer(pointer_base, "/request/embedding_path"),
+            )?;
+        }
         for (name, value) in &self.request.query {
             validate_template_value(
                 value,
@@ -397,9 +422,20 @@ impl PluginManifest {
                 &json_pointer(pointer_base, "/request/body"),
             )?;
         }
+        if let Some(body) = &self.request.embedding_body {
+            validate_template_value(
+                body,
+                TemplateScope::Body,
+                &json_pointer(pointer_base, "/request/embedding_body"),
+            )?;
+        }
         validate_timeout_ms(self.request.timeout_ms, pointer_base)?;
         validate_probe(&self.probe, &json_pointer(pointer_base, "/probe"))?;
         validate_response_paths(&self.response, &json_pointer(pointer_base, "/response"))?;
+        validate_embedding_response_paths(
+            &self.embedding_response,
+            &json_pointer(pointer_base, "/embedding_response"),
+        )?;
         validate_stream_paths(&self.stream, &json_pointer(pointer_base, "/stream"))?;
         self.security.validate(pointer_base)?;
         self.validate_sandbox_permissions(pointer_base)
@@ -458,6 +494,7 @@ impl Default for PluginManifest {
             },
             auth: AuthManifest::default(),
             request: RequestManifest::default(),
+            embedding_response: EmbeddingResponseManifest::default(),
             response: ResponseManifest::default(),
             stream: StreamManifest::default(),
             usage: UsageManifest::default(),
@@ -531,9 +568,11 @@ impl Default for RequestManifest {
         Self {
             method: RequestMethod::Post,
             path: None,
+            embedding_path: None,
             query: Map::new(),
             headers: Map::new(),
             body: None,
+            embedding_body: None,
             retry: RetryManifest::default(),
             timeout_ms: None,
             force_stream_field: true,
@@ -726,14 +765,20 @@ fn upgrade_v0(value: Value, pointer_base: &str) -> ProviderResult<PluginManifest
         preset: legacy.preset,
         request: RequestManifest {
             path: legacy.request.chat_path,
+            embedding_path: legacy
+                .request
+                .embedding_path
+                .or(legacy.request.embeddings_path),
             headers: legacy.request.headers,
             body: legacy.request.body,
+            embedding_body: legacy.request.embedding_body,
             retry: legacy.request.retry,
             force_stream_field: legacy.request.force_stream_field,
             stream_path: legacy.request.stream_path,
             ..Default::default()
         },
         response: legacy.response,
+        embedding_response: legacy.embedding_response,
         stream: legacy.stream,
         error: legacy.error,
         probe: legacy.probe,
@@ -746,8 +791,11 @@ impl Default for LegacyRequestManifest {
     fn default() -> Self {
         Self {
             chat_path: None,
+            embedding_path: None,
+            embeddings_path: None,
             headers: Map::new(),
             body: None,
+            embedding_body: None,
             retry: RetryManifest::default(),
             force_stream_field: true,
             stream_path: "stream".to_string(),
@@ -1055,6 +1103,33 @@ fn validate_response_paths(response: &ResponseManifest, pointer: &str) -> Provid
         (
             "/usage/audio_seconds_path",
             response.usage.audio_seconds_path.as_deref(),
+        ),
+        ("/usage/raw_path", response.usage.raw_path.as_deref()),
+    ] {
+        if let Some(path) = path {
+            validate_mapping_path(path, &json_pointer(pointer, suffix))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_embedding_response_paths(
+    response: &EmbeddingResponseManifest,
+    pointer: &str,
+) -> ProviderResult<()> {
+    for (suffix, path) in [
+        ("/object_path", response.object_path.as_deref()),
+        ("/data_path", response.data_path.as_deref()),
+        ("/embedding_path", response.embedding_path.as_deref()),
+        ("/index_path", response.index_path.as_deref()),
+        ("/model_path", response.model_path.as_deref()),
+        (
+            "/usage/prompt_tokens_path",
+            response.usage.prompt_tokens_path.as_deref(),
+        ),
+        (
+            "/usage/total_tokens_path",
+            response.usage.total_tokens_path.as_deref(),
         ),
         ("/usage/raw_path", response.usage.raw_path.as_deref()),
     ] {
@@ -1391,10 +1466,14 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
                     | "aws_secret_key"
                     | "aws_session_token"
                     | "model"
+                    | "input"
+                    | "input_texts"
                     | "stream"
                     | "temperature"
                     | "top_p"
                     | "max_tokens"
+                    | "encoding_format"
+                    | "dimensions"
                     | "tools"
                     | "tool_choice"
             ) || path.starts_with("metadata.")
@@ -1407,10 +1486,14 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
                     | "aws_secret_key"
                     | "aws_session_token"
                     | "model"
+                    | "input"
+                    | "input_texts"
                     | "stream"
                     | "temperature"
                     | "top_p"
                     | "max_tokens"
+                    | "encoding_format"
+                    | "dimensions"
                     | "last_user_message"
                     | "tools"
                     | "tool_choice"
@@ -1425,6 +1508,8 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
                     | "aws_secret_key"
                     | "aws_session_token"
                     | "model"
+                    | "input"
+                    | "input_texts"
                     | "messages"
                     | "metadata"
                     | "extra"
@@ -1434,6 +1519,8 @@ fn placeholder_allowed(scope: TemplateScope, path: &str) -> bool {
                     | "temperature"
                     | "top_p"
                     | "max_tokens"
+                    | "encoding_format"
+                    | "dimensions"
                     | "last_user_message"
             ) || path.starts_with("request.")
                 || path.starts_with("messages.")
@@ -1522,6 +1609,13 @@ mod tests {
                         "headers": { "X-Model": "{{model}}" },
                         "body": { "messages": "{{messages}}" }
                     },
+                    "embedding_response": {
+                        "openai_compatible": false,
+                        "data_path": "embeddings.float",
+                        "embedding_path": ".",
+                        "model_path": "model",
+                        "usage": { "prompt_tokens_path": "usage.input", "total_tokens_path": "usage.total" }
+                    },
                     "response": { "openai_compatible": false, "content_path": "answer" },
                     "stream": { "openai_compatible": false, "content_path": "token" },
                     "usage": { "prompt_tokens_path": "usage.prompt" },
@@ -1547,6 +1641,10 @@ mod tests {
         assert_eq!(
             manifest.request.path.as_deref(),
             Some("/v1/messages/{{model}}")
+        );
+        assert_eq!(
+            manifest.embedding_response.data_path.as_deref(),
+            Some("embeddings.float")
         );
         assert_eq!(manifest.auth.strategy, AuthStrategy::ApiKeyHeader);
         assert_eq!(
@@ -1613,6 +1711,7 @@ mod tests {
                     "version": 1,
                     "request": {
                         "path": "/deployments/{{metadata.deployment}}/chat",
+                        "embedding_path": "/deployments/{{model}}/embeddings",
                         "query": {
                             "tenant": "{{metadata.tenant}}",
                             "tool": "{{tool_choice}}"
@@ -1625,6 +1724,11 @@ mod tests {
                             "tools": "{{tools}}",
                             "toolChoice": "{{tool_choice}}",
                             "metadata": "{{metadata}}"
+                        },
+                        "embedding_body": {
+                            "texts": "{{input_texts}}",
+                            "format": "{{encoding_format}}",
+                            "dimensions": "{{dimensions}}"
                         }
                     }
                 }
@@ -1637,6 +1741,11 @@ mod tests {
             manifest.request.path.as_deref(),
             Some("/deployments/{{metadata.deployment}}/chat")
         );
+        assert_eq!(
+            manifest.request.embedding_path.as_deref(),
+            Some("/deployments/{{model}}/embeddings")
+        );
+        assert!(manifest.request.embedding_body.is_some());
     }
 
     #[test]
@@ -1902,6 +2011,11 @@ mod tests {
                 Some("/chat/completions"),
                 "provider={provider}"
             );
+            assert_eq!(
+                manifest.request.embedding_path.as_deref(),
+                Some("/embeddings"),
+                "provider={provider}"
+            );
             assert!(manifest.capabilities.chat, "provider={provider}");
             assert!(manifest.capabilities.streaming, "provider={provider}");
             assert!(manifest.capabilities.embeddings, "provider={provider}");
@@ -1919,7 +2033,12 @@ mod tests {
         assert_eq!(manifest.auth.strategy, AuthStrategy::Bearer);
         assert_eq!(manifest.auth.secret_slot.as_deref(), Some("primary"));
         assert_eq!(manifest.request.path.as_deref(), Some("/chat/completions"));
+        assert_eq!(
+            manifest.request.embedding_path.as_deref(),
+            Some("/embeddings")
+        );
         assert!(manifest.response.is_openai_compatible());
+        assert!(manifest.embedding_response.is_openai_compatible());
         assert!(manifest.stream.is_openai_compatible());
         assert!(manifest.capabilities.chat);
         assert!(manifest.capabilities.streaming);

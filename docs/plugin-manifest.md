@@ -57,8 +57,9 @@ v1 固定以下分区：
 - `metadata`：name、vendor、homepage、docs、owner、tags。
 - `capabilities`：chat、streaming、tools、embeddings、image、audio、vision、json_mode、batch；与内置 Provider 能力矩阵共用字段，Admin API / 控制台 / 路由都读取同一形状。
 - `auth`：认证策略与 secret slot 引用；不允许明文 secret。
-- `request`：method、path、query、headers、body、timeout、retry。
+- `request`：method、chat path、embedding path、query、headers、body、timeout、retry。
 - `response`：非流式字段映射。
+- `embedding_response`：embedding 字段映射。
 - `stream`：SSE / chunked streaming 映射。
 - `usage`：token / image / audio / cache / batch 归一规则。
 - `error`：状态码与错误 body 映射。
@@ -120,9 +121,9 @@ v1 固定以下分区：
 | `openai` / `openai_compatible` | 标准 `/chat/completions`，streaming 自动注入 `stream_options.include_usage=true` |
 | `deepseek` / `mistral` / `groq` / `together` / `openrouter` / `moonshot` / `zhipu` / `qwen` / `yi` / `ollama` | OpenAI-compatible 变体 |
 | `vllm` / `lm_studio` / `ollama_openai` / `localai` / `xinference` | 本地 / 自托管 OpenAI-compatible endpoint 变体 |
-| `azure_openai` | 使用 `/openai/deployments/{{model}}/chat/completions?api-version=...` deployment path，认证走 `api-key` header |
-| `vertex_openai` | Google Vertex AI OpenAI-compatible endpoint；Base URL 为 `/v1/projects/<project>/locations/<location>/endpoints/openapi`，path 仍是 `/chat/completions`，认证走 Google Cloud OAuth access token 的 Bearer header |
-| `gemini` | 使用 Gemini OpenAI-compatible path `/v1beta/openai/chat/completions` |
+| `azure_openai` | 使用 `/openai/deployments/{{model}}/chat/completions?api-version=...` 与 `/openai/deployments/{{model}}/embeddings?api-version=...` deployment path，认证走 `api-key` header |
+| `vertex_openai` | Google Vertex AI OpenAI-compatible endpoint；Base URL 为 `/v1/projects/<project>/locations/<location>/endpoints/openapi`，chat path 为 `/chat/completions`，embedding path 为 `/embeddings`，认证走 Google Cloud OAuth access token 的 Bearer header |
+| `gemini` | 使用 Gemini OpenAI-compatible path `/v1beta/openai/chat/completions` 与 `/v1beta/openai/embeddings` |
 | `anthropic_messages` | OpenAI messages 转 Anthropic Messages API，含 stream / usage mapper |
 | `cohere_chat` | Cohere Chat OpenAI-compatible preset |
 | `bedrock_converse` | Bedrock Converse request/response 映射，默认使用 `aws_sigv4` 正式签名 |
@@ -134,7 +135,7 @@ Capability 默认值说明：
 - Bedrock Converse 当前声明 `chat` / `streaming`；工具、视觉和结构化输出先按保守能力关闭。
 - manifest v1 的 bool 字段无法表达“未声明但显式 false”的三态；preset 只会把 truthy 默认能力并入 manifest，若需要严格禁用能力，应在控制台显示层和路由策略同步检查。
 
-路由行为：chat runtime 会根据已声明能力跳过不满足 stream、tool calling、vision input、JSON mode 的 channel；embedding 路由只选择声明 `embeddings=true` 且有内置 embedding runtime 的 Provider。
+路由行为：chat runtime 会根据已声明能力跳过不满足 stream、tool calling、vision input、JSON mode 的 channel；embedding runtime 会选择声明 `embeddings=true` 的 compile-time provider 或 HTTP Plugin channel。Plugin channel 还必须存在 active channel key / env fallback，否则路由会跳过并尝试同 group 下一个 channel。
 
 示例：Azure OpenAI
 
@@ -171,7 +172,7 @@ Channel `base_url` 填：`https://aiplatform.googleapis.com/v1/projects/<project
 
 ## Request mapping
 
-`request.path` 默认只支持相对 `base_url` 的 path，并可使用模板变量；旧字段 `request.chat_path` 仍作为 alias 接受：
+`request.path` 默认只支持相对 `base_url` 的 chat path，并可使用模板变量；旧字段 `request.chat_path` 仍作为 alias 接受。`request.embedding_path`（alias: `request.embeddings_path`）是 embedding endpoint；未声明时默认 `/embeddings`，preset 可覆盖，例如 Azure deployment path。
 
 ```json
 {
@@ -180,6 +181,7 @@ Channel `base_url` 填：`https://aiplatform.googleapis.com/v1/projects/<project
     "auth": { "strategy": "custom_headers", "headers": { "X-Api-Key": "{{api_key}}" } },
     "request": {
       "path": "/private/chat/{{metadata.deployment}}",
+      "embedding_path": "/private/embeddings/{{model}}",
       "query": { "stream": "{{stream}}", "tenant": "{{metadata.tenant}}" },
       "headers": {
         "X-Model": "{{model}}",
@@ -193,6 +195,12 @@ Channel `base_url` 填：`https://aiplatform.googleapis.com/v1/projects/<project
         "toolChoice": "{{tool_choice}}",
         "stream": "{{stream}}",
         "limit": "{{max_tokens}}"
+      },
+      "embedding_body": {
+        "modelName": "{{model}}",
+        "texts": "{{input_texts}}",
+        "format": "{{encoding_format}}",
+        "dimensions": "{{dimensions}}"
       }
     }
   }
@@ -203,9 +211,9 @@ Channel `base_url` 填：`https://aiplatform.googleapis.com/v1/projects/<project
 
 当前 v1 支持：
 
-- Header 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{tools}}`、`{{tool_choice}}`、`{{metadata.*}}`、`{{extra.*}}`。
-- Path / query 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{last_user_message}}`、`{{tools}}`、`{{tool_choice}}`、`{{request.*}}`、`{{metadata.*}}`、`{{extra.*}}`。
-- Body 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{messages}}`、`{{tools}}`、`{{tool_choice}}`、`{{metadata}}`、`{{extra}}`、`{{last_user_message}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{request.*}}`、`{{messages.*}}`、`{{metadata.*}}`、`{{extra.*}}`。
+- Header 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{input}}`、`{{input_texts}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{encoding_format}}`、`{{dimensions}}`、`{{tools}}`、`{{tool_choice}}`、`{{metadata.*}}`、`{{extra.*}}`。
+- Path / query 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{input}}`、`{{input_texts}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{encoding_format}}`、`{{dimensions}}`、`{{last_user_message}}`、`{{tools}}`、`{{tool_choice}}`、`{{request.*}}`、`{{metadata.*}}`、`{{extra.*}}`。
+- Body / embedding_body 模板：`{{api_key}}`、`{{aws_secret_key}}`、`{{aws_session_token}}`、`{{model}}`、`{{input}}`、`{{input_texts}}`、`{{messages}}`、`{{tools}}`、`{{tool_choice}}`、`{{metadata}}`、`{{extra}}`、`{{last_user_message}}`、`{{stream}}`、`{{temperature}}`、`{{top_p}}`、`{{max_tokens}}`、`{{encoding_format}}`、`{{dimensions}}`、`{{request.*}}`、`{{messages.*}}`、`{{metadata.*}}`、`{{extra.*}}`。
 
 `{{api_key}}` 是运行时解密出的 channel key；`{{aws_secret_key}}` / `{{aws_session_token}}` 只用于显式模板或 AWS 兼容 slot，Bedrock Converse preset 默认走 `aws_sigv4` 签名。
 
@@ -406,6 +414,42 @@ Path 规则：
 - `usage.raw_path` 会把 vendor 原始 usage metadata 保留在 response usage 的 `raw` 字段；`image_units_path`、`audio_seconds_path` 暂先进入响应与定价上下文，旧 `usage_records` 投影仍只保存 token / cache / cost。
 
 `finish_reason` 会归一：`stop` / `stopped` / `stop_sequence` / `end_turn` / `done` → `stop`；`max_tokens` → `length`；`tool_use` → `tool_calls`；`safety` → `content_filter`。
+
+## Embedding response mapping
+
+Embedding runtime 默认按 OpenAI-compatible `/embeddings` 响应解析；若私有上游不是标准 shape，可声明 `embedding_response.openai_compatible=false`：
+
+```json
+{
+  "plugin": {
+    "request": {
+      "embedding_path": "/private/embed/{{model}}",
+      "embedding_body": {
+        "texts": "{{input_texts}}",
+        "format": "{{encoding_format}}",
+        "dimensions": "{{dimensions}}"
+      }
+    },
+    "embedding_response": {
+      "openai_compatible": false,
+      "data_path": "result.vectors",
+      "embedding_path": "values",
+      "index_path": "position",
+      "model_path": "result.model",
+      "usage": {
+        "prompt_tokens_path": "usage.input_tokens",
+        "total_tokens_path": "usage.total_tokens"
+      }
+    }
+  }
+}
+```
+
+- `data_path` 必须指向 embedding item 数组。
+- `embedding_path` 指向每个 item 内的向量数组；`.` 表示 item 本身就是向量。
+- `index_path` 可选，缺失时按数组顺序补 `0..n`。
+- `usage` 复用 path evaluator，当前 embedding 只消费 `prompt_tokens_path` / `total_tokens_path` / `raw_path`。
+- OpenAI-compatible preset 默认填 `request.embedding_path=/embeddings`；Azure preset 填 deployment embedding path；Gemini preset 会在 `base_url` 已含 `/v1beta/openai` 时自动收敛为 `/embeddings`。
 
 ## Error / retry / health mapping
 
@@ -616,11 +660,11 @@ v0.2.0 必须遵守：
 - 私有 URL / header / body 都视为不可信配置，发布前需要人工 review；生产环境仍建议用网络层 egress firewall 作为 runtime allowlist 外的兜底。
 - 不在日志、request log、audit 中写出 `api_key`、secret header、Bearer token 或 query secret；probe/debug 输出必须使用 redacted headers / URL。
 
-后续计划补齐：signed manifest package、跨版本 fixture 批量回放与 WASM runtime PoC。WASM ABI vNext 设计稿见 [wasm-plugin-abi.md](./wasm-plugin-abi.md)。
+后续计划补齐：plugin image/audio/batch runtime、signed manifest package、跨版本 fixture 批量回放与 WASM runtime PoC。WASM ABI vNext 设计稿见 [wasm-plugin-abi.md](./wasm-plugin-abi.md)。
 
 ## 当前测试覆盖
 
-- `cargo test -p gate-providers plugin` / `cargo test -p gate-providers custom_provider`：request template、preset、Azure path、Anthropic adapter、自定义 SSE mapper、绝对 URL/内网 host 拒绝、outbound allowlist、DNS rebind guard、header/query redaction、OAuth permission、request body size limit。
+- `cargo test -p gate-providers plugin` / `cargo test -p gate-providers custom_provider`：request template、preset、Azure path、Anthropic adapter、HTTP Plugin embeddings runtime、自定义 embedding/SSE mapper、绝对 URL/内网 host 拒绝、outbound allowlist、DNS rebind guard、header/query redaction、OAuth permission、request body size limit。
 - `cargo test -p gate-providers sse`：共享 SSE decoder 的分片、多行 data、CRLF/LF 行为。
 - `cargo test -p kgctl plugin_`：CLI schema/lint/test/replay/export/import golden fixture、directory package lint 与 registry package/import/export。
 - `cargo test -p gate-server --test channel_plugin_e2e`：manifest replay → channel create → group binding 控制面闭环。

@@ -4,19 +4,19 @@
 //! as the plugin manifest. The manifest can reshape requests, map strange JSON
 //! responses, and normalize arbitrary SSE frames back into OpenAI-compatible chunks.
 
-use crate::Provider;
 use crate::error::{
     NormalizedProviderErrorKind, ProviderError, ProviderErrorMetadata, ProviderResult,
 };
 use crate::openai::check_status;
 use crate::plugin_manifest::{
-    AuthStrategy, DEFAULT_CHAT_PATH, PluginManifest, ProbeManifest, RequestMethod,
-    SignatureEncoding,
+    AuthStrategy, DEFAULT_CHAT_PATH, DEFAULT_EMBEDDINGS_PATH, PluginManifest, ProbeManifest,
+    RequestMethod, SignatureEncoding,
 };
 use crate::plugin_manifest::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SSE_EVENT_BYTES};
 use crate::plugin_preset::{StreamManifest, adapt_chat_request, eval_path_value};
 use crate::sse::{SseEvent, SseLineDecoder};
 use crate::types::*;
+use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
 use base64::Engine as _;
 use futures::stream::{BoxStream, StreamExt};
@@ -219,7 +219,26 @@ impl CustomHttpProvider {
 
     fn endpoint_url_for(&self, req: &ChatRequest) -> ProviderResult<String> {
         let ctx = self.request_context_for(req)?;
-        self.endpoint_url_with_context(&ctx)
+        self.endpoint_url_with_path_and_context(
+            self.manifest
+                .request
+                .path
+                .as_deref()
+                .unwrap_or(DEFAULT_CHAT_PATH),
+            &ctx,
+        )
+    }
+
+    fn embedding_endpoint_url_for(&self, req: &EmbeddingRequest) -> ProviderResult<String> {
+        let ctx = self.embedding_request_context_for(req);
+        self.endpoint_url_with_path_and_context(
+            self.manifest
+                .request
+                .embedding_path
+                .as_deref()
+                .unwrap_or(DEFAULT_EMBEDDINGS_PATH),
+            &ctx,
+        )
     }
 
     fn request_method(&self) -> Method {
@@ -229,13 +248,11 @@ impl CustomHttpProvider {
         }
     }
 
-    fn endpoint_url_with_context(&self, ctx: &Value) -> ProviderResult<String> {
-        let path = self
-            .manifest
-            .request
-            .path
-            .as_deref()
-            .unwrap_or(DEFAULT_CHAT_PATH);
+    fn endpoint_url_with_path_and_context(
+        &self,
+        path: &str,
+        ctx: &Value,
+    ) -> ProviderResult<String> {
         let rendered = render_template_str(path, ctx);
         if rendered.starts_with("http://") || rendered.starts_with("https://") {
             if !self.manifest.security.allow_absolute_chat_path {
@@ -323,6 +340,14 @@ impl CustomHttpProvider {
     ) -> ProviderResult<HeaderMap> {
         let ctx = self.request_context_for(req)?;
         self.request_headers_with_context(&ctx, endpoint, body, method)
+    }
+
+    #[cfg(test)]
+    fn embedding_request_headers_for(&self, req: &EmbeddingRequest) -> ProviderResult<HeaderMap> {
+        let body = self.embedding_request_json_body(req)?;
+        let endpoint = self.embedding_endpoint_url_for(req)?;
+        let ctx = self.embedding_request_context_for(req);
+        self.request_headers_with_context(&ctx, &endpoint, &body, self.request_method().as_str())
     }
 
     async fn request_headers_for_parts_runtime(
@@ -770,6 +795,10 @@ impl CustomHttpProvider {
         Ok(request_context(&effective_req, &self.plugin_context()))
     }
 
+    fn embedding_request_context_for(&self, req: &EmbeddingRequest) -> Value {
+        embedding_request_context(req, &self.plugin_context())
+    }
+
     #[cfg(test)]
     fn build_body(&self, req: &ChatRequest) -> ProviderResult<Value> {
         self.build_body_with_extra(req, &json!({}))
@@ -798,6 +827,34 @@ impl CustomHttpProvider {
         let bytes = serde_json::to_vec(&body)?;
         enforce_size(
             "plugin request body",
+            bytes.len(),
+            self.manifest.security.max_request_bytes(),
+        )?;
+        Ok(bytes)
+    }
+
+    #[cfg(test)]
+    fn build_embedding_body(&self, req: &EmbeddingRequest) -> ProviderResult<Value> {
+        self.build_embedding_body_with_extra(req, &json!({}))
+    }
+
+    fn build_embedding_body_with_extra(
+        &self,
+        req: &EmbeddingRequest,
+        extra: &Value,
+    ) -> ProviderResult<Value> {
+        let ctx = embedding_request_context(req, extra);
+        match &self.manifest.request.embedding_body {
+            Some(template) => Ok(render_value(template, &ctx)),
+            None => Ok(serde_json::to_value(req)?),
+        }
+    }
+
+    fn embedding_request_json_body(&self, req: &EmbeddingRequest) -> ProviderResult<Vec<u8>> {
+        let body = self.build_embedding_body_with_extra(req, &self.plugin_context())?;
+        let bytes = serde_json::to_vec(&body)?;
+        enforce_size(
+            "plugin embedding request body",
             bytes.len(),
             self.manifest.security.max_request_bytes(),
         )?;
@@ -1094,6 +1151,79 @@ impl CustomHttpProvider {
             upstream_metadata,
         })
     }
+
+    fn parse_embedding_response(
+        &self,
+        value: Value,
+        requested_model: &str,
+    ) -> ProviderResult<EmbeddingResponse> {
+        if self.manifest.embedding_response.is_openai_compatible() {
+            return Ok(serde_json::from_value(value)?);
+        }
+
+        let response = &self.manifest.embedding_response;
+        let object = response
+            .object_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v))
+            .unwrap_or_else(|| "list".to_string());
+        let model = response
+            .model_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .and_then(|v| value_to_string(&v))
+            .unwrap_or_else(|| requested_model.to_string());
+        let data_value = response
+            .data_path
+            .as_deref()
+            .and_then(|p| eval_path_value(&value, p).ok().flatten())
+            .unwrap_or_else(|| value.get("data").cloned().unwrap_or_else(|| value.clone()));
+        let items = data_value.as_array().ok_or_else(|| {
+            ProviderError::Decode("plugin embedding_response.data_path is not an array".into())
+        })?;
+        let mut data = Vec::with_capacity(items.len());
+        for (idx, item) in items.iter().enumerate() {
+            let embedding_value = response
+                .embedding_path
+                .as_deref()
+                .and_then(|p| eval_path_value(item, p).ok().flatten())
+                .unwrap_or_else(|| {
+                    item.get("embedding")
+                        .cloned()
+                        .unwrap_or_else(|| item.clone())
+                });
+            let embedding = parse_embedding_vector(&embedding_value)?;
+            let index = response
+                .index_path
+                .as_deref()
+                .and_then(|p| eval_path_value(item, p).ok().flatten())
+                .and_then(|v| value_to_u32(&v))
+                .unwrap_or(idx as u32);
+            data.push(EmbeddingData {
+                object: "embedding".to_string(),
+                index,
+                embedding,
+            });
+        }
+
+        let usage = response.usage.extract(&value)?;
+        let prompt_tokens = usage.prompt_tokens;
+        let total_tokens = if usage.total_tokens > 0 {
+            usage.total_tokens
+        } else {
+            prompt_tokens
+        };
+        Ok(EmbeddingResponse {
+            object,
+            data,
+            model,
+            usage: EmbeddingUsage {
+                prompt_tokens,
+                total_tokens,
+            },
+        })
+    }
 }
 
 #[async_trait]
@@ -1163,6 +1293,40 @@ impl Provider for CustomHttpProvider {
             max_sse_event_bytes: self.manifest.security.max_sse_event_bytes(),
         };
         Ok(normalize_plugin_sse(resp.bytes_stream(), mapper).boxed())
+    }
+}
+
+#[async_trait]
+impl EmbeddingProvider for CustomHttpProvider {
+    fn name(&self) -> &'static str {
+        "plugin"
+    }
+
+    async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse> {
+        let body = self.embedding_request_json_body(&req)?;
+        let endpoint = self.embedding_endpoint_url_for(&req)?;
+        let method = self.request_method();
+        let ctx = self.embedding_request_context_for(&req);
+        let mut headers = self
+            .request_headers_with_context_runtime(&ctx, &endpoint, &body, method.as_str())
+            .await?;
+        headers
+            .entry(reqwest::header::CONTENT_TYPE)
+            .or_insert(HeaderValue::from_static("application/json"));
+        let resp = self
+            .client
+            .request(method, endpoint)
+            .headers(headers)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        let resp = self.check_plugin_status(resp).await?;
+        enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
+        let resp = resp.error_for_status().map_err(ProviderError::from)?;
+        let body = self.limited_json_response(resp).await?;
+        self.parse_embedding_response(body, &req.model)
     }
 }
 
@@ -1541,6 +1705,29 @@ fn request_context(req: &ChatRequest, extra: &Value) -> Value {
         "tools": req.tools.clone(),
         "tool_choice": req.tool_choice.clone(),
         "metadata": req.extra.get("metadata").cloned().unwrap_or(Value::Null),
+    });
+    if let (Some(dst), Some(src)) = (ctx.as_object_mut(), extra.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
+    ctx
+}
+
+fn embedding_request_context(req: &EmbeddingRequest, extra: &Value) -> Value {
+    let input_texts = match &req.input {
+        EmbeddingInput::Single(value) => vec![value.clone()],
+        EmbeddingInput::Multiple(values) => values.clone(),
+    };
+    let mut ctx = json!({
+        "request": req,
+        "model": req.model,
+        "input": req.input,
+        "input_texts": input_texts,
+        "encoding_format": req.encoding_format,
+        "dimensions": req.dimensions,
+        "metadata": Value::Null,
+        "extra": Value::Null,
     });
     if let (Some(dst), Some(src)) = (ctx.as_object_mut(), extra.as_object()) {
         for (k, v) in src {
@@ -2348,6 +2535,31 @@ fn value_to_u16(v: &Value) -> Option<u16> {
     }
 }
 
+fn value_to_u32(v: &Value) -> Option<u32> {
+    match v {
+        Value::Number(n) => n.as_u64().and_then(|value| u32::try_from(value).ok()),
+        Value::String(s) => s.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
+fn parse_embedding_vector(value: &Value) -> ProviderResult<Vec<f32>> {
+    let arr = value
+        .as_array()
+        .ok_or_else(|| ProviderError::Decode("plugin embedding value is not an array".into()))?;
+    arr.iter()
+        .map(|value| {
+            value
+                .as_f64()
+                .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
+                .map(|n| n as f32)
+                .ok_or_else(|| {
+                    ProviderError::Decode("plugin embedding vector contains non-number".into())
+                })
+        })
+        .collect()
+}
+
 fn retry_after_ms(headers: &HeaderMap) -> Option<u64> {
     headers
         .get("retry-after")
@@ -2533,7 +2745,7 @@ mod tests {
     fn vertex_openai_preset_targets_openai_compatible_vertex_endpoint() {
         let provider = CustomHttpProvider::new_with_opts(
             "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/endpoints/openapi",
-            "ya29.test",
+            "vertex-token",
             json!({ "plugin": { "preset": { "provider": "vertex_openai" } } }),
             crate::ProviderOpts::default(),
         )
@@ -2545,7 +2757,18 @@ mod tests {
             "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/endpoints/openapi/chat/completions"
         );
         let headers = provider.request_headers_for(&req).unwrap();
-        assert_eq!(headers.get("authorization").unwrap(), "Bearer ya29.test");
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer vertex-token");
+        assert_eq!(
+            provider
+                .embedding_endpoint_url_for(&EmbeddingRequest {
+                    model: "text-embedding-3-small".into(),
+                    input: EmbeddingInput::Single("hello".into()),
+                    encoding_format: None,
+                    dimensions: None,
+                })
+                .unwrap(),
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/endpoints/openapi/embeddings"
+        );
         assert!(provider.manifest.response.is_openai_compatible());
         assert!(provider.manifest.stream.is_openai_compatible());
     }
@@ -2570,6 +2793,17 @@ mod tests {
         assert_eq!(
             provider.endpoint_url_for(&req).unwrap(),
             "https://example.openai.azure.com/openai/deployments/odd-model/chat/completions?api-version=2024-02-15-preview"
+        );
+        assert_eq!(
+            provider
+                .embedding_endpoint_url_for(&EmbeddingRequest {
+                    model: "odd-model".into(),
+                    input: EmbeddingInput::Single("hello".into()),
+                    encoding_format: None,
+                    dimensions: None,
+                })
+                .unwrap(),
+            "https://example.openai.azure.com/openai/deployments/odd-model/embeddings?api-version=2024-02-15-preview"
         );
         let headers = provider.request_headers_for(&req).unwrap();
         assert_eq!(headers.get("api-key").unwrap(), "azure-key");
@@ -2639,6 +2873,98 @@ mod tests {
         );
         let headers = provider.request_headers_for(&make_req(false)).unwrap();
         assert!(headers.get("authorization").is_none());
+    }
+
+    #[test]
+    fn embedding_request_template_uses_embedding_path_body_and_auth() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com/v1",
+            "embed-key",
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "capabilities": { "embeddings": true },
+                    "auth": { "strategy": "api_key_header", "header_name": "X-Embed-Key" },
+                    "request": {
+                        "embedding_path": "/private/embed/{{model}}",
+                        "query": { "dims": "{{dimensions}}" },
+                        "embedding_body": {
+                            "modelName": "{{model}}",
+                            "texts": "{{input_texts}}",
+                            "format": "{{encoding_format}}",
+                            "dimensions": "{{dimensions}}"
+                        }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let req = EmbeddingRequest {
+            model: "embed-model".into(),
+            input: EmbeddingInput::Multiple(vec!["hello".into(), "world".into()]),
+            encoding_format: Some("float".into()),
+            dimensions: Some(3),
+        };
+
+        assert_eq!(
+            provider.embedding_endpoint_url_for(&req).unwrap(),
+            "https://api.example.com/v1/private/embed/embed-model?dims=3"
+        );
+        let body = provider.build_embedding_body(&req).unwrap();
+        assert_eq!(body["modelName"], "embed-model");
+        assert_eq!(body["texts"], json!(["hello", "world"]));
+        assert_eq!(body["format"], "float");
+        assert_eq!(body["dimensions"], 3);
+        let headers = provider.embedding_request_headers_for(&req).unwrap();
+        assert_eq!(headers.get("x-embed-key").unwrap(), "embed-key");
+    }
+
+    #[test]
+    fn custom_embedding_response_mapper_normalizes_vendor_vectors() {
+        let provider = CustomHttpProvider::new_with_opts(
+            "https://api.example.com/v1",
+            "embed-key",
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "embedding_response": {
+                        "openai_compatible": false,
+                        "data_path": "result.vectors",
+                        "embedding_path": "values",
+                        "index_path": "position",
+                        "model_path": "result.model",
+                        "usage": {
+                            "prompt_tokens_path": "usage.input_tokens",
+                            "total_tokens_path": "usage.total_tokens"
+                        }
+                    }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+        let response = provider
+            .parse_embedding_response(
+                json!({
+                    "result": {
+                        "model": "vendor-embed",
+                        "vectors": [
+                            { "position": 1, "values": [0.1, "0.2"] },
+                            { "position": 2, "values": [0.3, 0.4] }
+                        ]
+                    },
+                    "usage": { "input_tokens": 7, "total_tokens": 7 }
+                }),
+                "fallback-model",
+            )
+            .unwrap();
+
+        assert_eq!(response.object, "list");
+        assert_eq!(response.model, "vendor-embed");
+        assert_eq!(response.data[0].index, 1);
+        assert_eq!(response.data[0].embedding, vec![0.1, 0.2]);
+        assert_eq!(response.usage.total_tokens, 7);
     }
 
     #[test]
@@ -2995,6 +3321,63 @@ mod tests {
         let second = provider.chat(make_req(false)).await.unwrap();
         assert_eq!(first.choices[0].message.content_text(), "ok");
         assert_eq!(second.usage.total_tokens, 2);
+    }
+
+    #[tokio::test]
+    async fn plugin_embedding_posts_openai_compatible_body_to_embeddings_path() {
+        let server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/embeddings"))
+            .and(wiremock::matchers::header(
+                "authorization",
+                "Bearer embed-key",
+            ))
+            .and(wiremock::matchers::body_json(json!({
+                "model": "text-embedding-3-small",
+                "input": ["hello", "world"],
+                "encoding_format": "float",
+                "dimensions": 3
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "object": "list",
+                "data": [
+                    { "object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3] },
+                    { "object": "embedding", "index": 1, "embedding": [0.4, 0.5, 0.6] }
+                ],
+                "model": "text-embedding-3-small",
+                "usage": { "prompt_tokens": 4, "total_tokens": 4 }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = CustomHttpProvider::new_with_opts(
+            server.uri(),
+            "embed-key",
+            json!({
+                "plugin": {
+                    "version": 1,
+                    "preset": { "provider": "openai_compatible" }
+                }
+            }),
+            crate::ProviderOpts::default(),
+        )
+        .unwrap();
+
+        let response = provider
+            .embed(EmbeddingRequest {
+                model: "text-embedding-3-small".into(),
+                input: EmbeddingInput::Multiple(vec!["hello".into(), "world".into()]),
+                encoding_format: Some("float".into()),
+                dimensions: Some(3),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.data.len(), 2);
+        assert_eq!(response.data[0].embedding, vec![0.1, 0.2, 0.3]);
+        assert_eq!(response.usage.total_tokens, 4);
     }
 
     #[tokio::test]

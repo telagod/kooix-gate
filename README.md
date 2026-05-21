@@ -204,7 +204,7 @@ P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim
 - **Outbox pattern**：业务事务和计费写入解耦，支持 `enqueue_batch`、批量 settlement、批量 mark done，并用幂等 `ON CONFLICT DO NOTHING` 兜底重复事件
 - **Billing ledger / invoice**：`billing_ledger_events` 是审计源；月账单状态机 `draft -> closed -> exported -> paid/waived`，导出 digest 绑定审计留存
 - **Channel 平台级 + Group 编排**：运营和租户解耦，channel_keys envelope encrypted
-- **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 request body/header、非流式 response path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk`；manifest 按不可信配置处理，默认不允许绝对 URL，模板变量、outbound allowlist、DNS rebind guard、header redaction 与 body/response/SSE size 均有限制
+- **HTTP Plugin 整流**：`provider_type=plugin` 时 `model_mapping.plugin` 作为 manifest，声明 chat / embeddings request path/body/header、非流式 response path、embedding vector/usage path、流式 SSE event/token/usage path，统一归一为 OpenAI-compatible `ChatResponse` / `ChatStreamChunk` / `EmbeddingResponse`；manifest 按不可信配置处理，默认不允许绝对 URL，模板变量、outbound allowlist、DNS rebind guard、header redaction 与 body/response/SSE size 均有限制
 - **Provider 插件预设**：`model_mapping.plugin.preset.provider` 可选 `openai`、`openai_compatible`、`anthropic_messages`、`azure_openai`、`vertex_openai`、`gemini`、`deepseek`、`mistral`、`cohere_chat`、`ollama`、`groq`、`together`、`openrouter`、`moonshot`、`zhipu`、`qwen`、`yi`、`bedrock_converse` 等，把主流 Provider 也收敛到同一 plugin manifest 接入面
 - **强类型 ID**：编译期阻止 `OrgId` 当 `UserId` 传
 - **typed ID 边界**：API response 序列化为 `{prefix}_{uuid_simple}`；route extractor 通过 `FlexUuid` 同时接收 typed ID 和裸 UUID，数据库仍存裸 UUID

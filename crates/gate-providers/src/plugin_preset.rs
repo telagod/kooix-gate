@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 use std::borrow::Cow;
 
 const DEFAULT_CHAT_PATH: &str = "/chat/completions";
+const DEFAULT_EMBEDDINGS_PATH: &str = "/embeddings";
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -116,6 +117,34 @@ impl ResponseManifest {
             .or(defaults.finish_reason_path);
         self.request_id_path = self.request_id_path.take().or(defaults.request_id_path);
         self.metadata_path = self.metadata_path.take().or(defaults.metadata_path);
+        self.usage.apply_defaults(defaults.usage);
+    }
+
+    pub(crate) fn is_openai_compatible(&self) -> bool {
+        self.openai_compatible.unwrap_or(true)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(default)]
+pub(crate) struct EmbeddingResponseManifest {
+    pub(crate) openai_compatible: Option<bool>,
+    pub(crate) object_path: Option<String>,
+    pub(crate) data_path: Option<String>,
+    pub(crate) embedding_path: Option<String>,
+    pub(crate) index_path: Option<String>,
+    pub(crate) model_path: Option<String>,
+    pub(crate) usage: UsageManifest,
+}
+
+impl EmbeddingResponseManifest {
+    pub(crate) fn apply_defaults(&mut self, defaults: Self) {
+        self.openai_compatible = self.openai_compatible.or(defaults.openai_compatible);
+        self.object_path = self.object_path.take().or(defaults.object_path);
+        self.data_path = self.data_path.take().or(defaults.data_path);
+        self.embedding_path = self.embedding_path.take().or(defaults.embedding_path);
+        self.index_path = self.index_path.take().or(defaults.index_path);
+        self.model_path = self.model_path.take().or(defaults.model_path);
         self.usage.apply_defaults(defaults.usage);
     }
 
@@ -326,10 +355,13 @@ impl UsageManifest {
 #[derive(Debug)]
 pub(crate) struct ProviderPresetSpec {
     pub(crate) chat_path: String,
+    pub(crate) embedding_path: Option<String>,
     pub(crate) headers: Map<String, Value>,
     pub(crate) body: Option<Value>,
+    pub(crate) embedding_body: Option<Value>,
     pub(crate) stream_path: Option<String>,
     pub(crate) response: ResponseManifest,
+    pub(crate) embedding_response: EmbeddingResponseManifest,
     pub(crate) stream: StreamManifest,
     pub(crate) adapter: Option<PresetAdapter>,
     pub(crate) capabilities: ProviderCapabilities,
@@ -362,16 +394,34 @@ impl ProviderPresetSpec {
             | ProviderPresetKind::VertexOpenai => Self::openai_compatible(DEFAULT_CHAT_PATH),
             ProviderPresetKind::Gemini => {
                 Self::openai_compatible("/v1beta/openai/chat/completions")
+                    .with_embedding_path("/v1beta/openai/embeddings")
             }
             ProviderPresetKind::AzureOpenai => Self::openai_compatible(format!(
                 "/openai/deployments/{{{{model}}}}/chat/completions?api-version={}",
+                api_version.unwrap_or("2024-08-01-preview")
+            ))
+            .with_embedding_path(format!(
+                "/openai/deployments/{{{{model}}}}/embeddings?api-version={}",
                 api_version.unwrap_or("2024-08-01-preview")
             ))
             .with_header("api-key", json!("{{api_key}}"))
             .without_bearer(),
             ProviderPresetKind::AnthropicMessages => Self::anthropic_messages(),
             ProviderPresetKind::BedrockConverse => Self::bedrock_converse(),
-            ProviderPresetKind::CohereChat => Self::openai_compatible("/chat"),
+            ProviderPresetKind::CohereChat => Self::openai_compatible("/chat")
+                .with_embedding_path("/embed")
+                .with_embedding_body(json!({
+                    "model": "{{model}}",
+                    "texts": "{{input_texts}}",
+                    "input_type": "search_document",
+                    "embedding_types": ["float"]
+                }))
+                .with_embedding_response(EmbeddingResponseManifest {
+                    openai_compatible: Some(false),
+                    data_path: Some("embeddings.float".to_string()),
+                    embedding_path: Some(".".to_string()),
+                    ..Default::default()
+                }),
         };
         let mut spec = spec.with_base_defaults(base_url);
         spec.capabilities = plugin_preset_capabilities(provider_preset_name(kind))
@@ -382,10 +432,16 @@ impl ProviderPresetSpec {
     fn openai_compatible(chat_path: impl Into<String>) -> Self {
         Self {
             chat_path: chat_path.into(),
+            embedding_path: Some(DEFAULT_EMBEDDINGS_PATH.to_string()),
             headers: Map::new(),
             body: None,
+            embedding_body: None,
             stream_path: Some("stream".to_string()),
             response: ResponseManifest {
+                openai_compatible: Some(true),
+                ..Default::default()
+            },
+            embedding_response: EmbeddingResponseManifest {
                 openai_compatible: Some(true),
                 ..Default::default()
             },
@@ -401,8 +457,10 @@ impl ProviderPresetSpec {
     fn bedrock_converse() -> Self {
         Self {
             chat_path: "/model/{{model}}/converse".to_string(),
+            embedding_path: None,
             headers: Map::from_iter([("Authorization".to_string(), Value::Null)]),
             body: None,
+            embedding_body: None,
             stream_path: Some("stream".to_string()),
             response: ResponseManifest {
                 openai_compatible: Some(false),
@@ -421,6 +479,7 @@ impl ProviderPresetSpec {
                 },
                 ..Default::default()
             },
+            embedding_response: EmbeddingResponseManifest::default(),
             stream: StreamManifest {
                 openai_compatible: Some(false),
                 event_path: None,
@@ -449,12 +508,14 @@ impl ProviderPresetSpec {
     fn anthropic_messages() -> Self {
         Self {
             chat_path: "/v1/messages".to_string(),
+            embedding_path: None,
             headers: Map::from_iter([
                 ("x-api-key".to_string(), json!("{{api_key}}")),
                 ("anthropic-version".to_string(), json!("2023-06-01")),
                 ("Authorization".to_string(), Value::Null),
             ]),
             body: None,
+            embedding_body: None,
             stream_path: Some("stream".to_string()),
             response: ResponseManifest {
                 openai_compatible: Some(false),
@@ -473,6 +534,7 @@ impl ProviderPresetSpec {
                 },
                 ..Default::default()
             },
+            embedding_response: EmbeddingResponseManifest::default(),
             stream: StreamManifest {
                 openai_compatible: Some(false),
                 event_path: None,
@@ -503,6 +565,21 @@ impl ProviderPresetSpec {
         self
     }
 
+    fn with_embedding_path(mut self, path: impl Into<String>) -> Self {
+        self.embedding_path = Some(path.into());
+        self
+    }
+
+    fn with_embedding_body(mut self, body: Value) -> Self {
+        self.embedding_body = Some(body);
+        self
+    }
+
+    fn with_embedding_response(mut self, response: EmbeddingResponseManifest) -> Self {
+        self.embedding_response = response;
+        self
+    }
+
     fn without_bearer(self) -> Self {
         self.with_header("Authorization", Value::Null)
     }
@@ -511,6 +588,9 @@ impl ProviderPresetSpec {
         let base = base_url.trim_end_matches('/');
         if self.chat_path == "/v1beta/openai/chat/completions" && base.ends_with("/v1beta/openai") {
             self.chat_path = DEFAULT_CHAT_PATH.to_string();
+            if self.embedding_path.as_deref() == Some("/v1beta/openai/embeddings") {
+                self.embedding_path = Some(DEFAULT_EMBEDDINGS_PATH.to_string());
+            }
         }
         self
     }

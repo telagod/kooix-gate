@@ -858,6 +858,20 @@ fn build_embedding_provider(
     api_key: String,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn EmbeddingProvider>> {
+    build_embedding_provider_with_secrets(
+        channel,
+        api_key.clone(),
+        env_secret_map(&channel.code, api_key),
+        opts,
+    )
+}
+
+fn build_embedding_provider_with_secrets(
+    channel: &gate_storage::ChannelRecord,
+    api_key: String,
+    secrets: HashMap<String, String>,
+    opts: crate::ProviderOpts,
+) -> ProviderResult<Arc<dyn EmbeddingProvider>> {
     match channel.provider_type.as_str() {
         "azure" => {
             let p = AzureProvider::new_with_opts(channel.base_url.clone(), api_key, None, opts)
@@ -887,6 +901,16 @@ fn build_embedding_provider(
         "gemini" => {
             let p = GeminiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
                 .map_err(|e| ProviderError::Config(format!("build GeminiProvider: {e}")))?;
+            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        }
+        "plugin" | "custom" | "http" | "http_plugin" => {
+            let p = CustomHttpProvider::new_with_secret_slots(
+                channel.base_url.clone(),
+                secrets,
+                channel.model_mapping.clone(),
+                opts,
+            )
+            .map_err(|e| ProviderError::Config(format!("build CustomHttpProvider: {e}")))?;
             Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
         }
         _ => {
@@ -1536,7 +1560,9 @@ impl ProviderRouter {
             return Ok(None);
         }
 
-        // Filter: model compatible AND provider supports EmbeddingProvider
+        // Filter: model compatible AND provider advertises embedding capability.
+        // Runtime HTTP plugin channels are eligible here; candidate loop below
+        // still requires an active secret before constructing the provider.
         let compatible: Vec<_> = bindings
             .iter()
             .filter(|b| {
@@ -1546,8 +1572,7 @@ impl ProviderRouter {
                     b.channel.supported_models.is_empty()
                         || b.channel.supported_models.iter().any(|m| m == model)
                 };
-                let provider_ok = channel_capabilities(&b.channel).embeddings
-                    && !is_plugin_provider(&b.channel.provider_type);
+                let provider_ok = channel_capabilities(&b.channel).embeddings;
                 model_ok && provider_ok
             })
             .collect();
@@ -1574,6 +1599,21 @@ impl ProviderRouter {
         );
 
         for candidate in &ordered {
+            if is_plugin_provider(&candidate.channel.provider_type)
+                && !self
+                    .has_available_plugin_secret(
+                        candidate.channel.channel_id,
+                        &candidate.channel.code,
+                    )
+                    .await
+            {
+                tracing::info!(
+                    channel = %candidate.channel.code,
+                    "plugin embedding channel has no active secret, trying next channel"
+                );
+                continue;
+            }
+
             // RPM 检查
             if !self
                 .rate_limiter
@@ -1602,15 +1642,24 @@ impl ProviderRouter {
                 continue;
             }
 
-            let (api_key, key_id) = self
-                .resolve_key_for_channel(candidate.channel.channel_id, &candidate.channel.code)
+            let (api_key, key_id, secrets) = self
+                .resolve_secrets_for_channel(candidate.channel.channel_id, &candidate.channel.code)
                 .await?;
             let opts = crate::ProviderOpts {
                 timeout_ms: candidate.channel.timeout_ms as u64,
             };
 
             let provider: Arc<dyn EmbeddingProvider> =
-                build_embedding_provider(&candidate.channel, api_key, opts)?;
+                if is_plugin_provider(&candidate.channel.provider_type) {
+                    build_embedding_provider_with_secrets(
+                        &candidate.channel,
+                        api_key,
+                        secrets,
+                        opts,
+                    )?
+                } else {
+                    build_embedding_provider(&candidate.channel, api_key, opts)?
+                };
 
             if group.strategy == "least_conn" {
                 self.inflight.acquire(candidate.channel.channel_id);
@@ -3214,6 +3263,38 @@ mod tests {
         (id, rec)
     }
 
+    fn make_plugin_channel(
+        code: &str,
+        base_url: String,
+        model_mapping: serde_json::Value,
+    ) -> (ChannelId, ChannelRecord) {
+        let id = ChannelId::from(Uuid::now_v7());
+        let now = Utc::now();
+        let rec = ChannelRecord {
+            channel_id: id,
+            code: code.to_string(),
+            name: code.to_string(),
+            provider_type: "plugin".to_string(),
+            base_url,
+            supported_models: vec!["embed-model".to_string()],
+            status: "active".to_string(),
+            health: "healthy".to_string(),
+            timeout_ms: 60000,
+            max_retries: 0,
+            rpm_limit: None,
+            tpm_limit: None,
+            tags: vec![],
+            model_mapping,
+            balance: None,
+            balance_updated_at: None,
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
+            updated_at: now,
+        };
+        (id, rec)
+    }
+
     async fn build_router_with_key(secret: &str) -> (ProviderRouter, ChannelId, ProjectId) {
         use gate_crypto::kms::{EnvKms, generate_master_key_b64};
 
@@ -3775,6 +3856,162 @@ mod tests {
             !raw_request.contains("sk-primary-slot"),
             "primary secret must not be injected for alt-key auth, request={raw_request}"
         );
+    }
+
+    #[tokio::test]
+    async fn route_embedding_uses_plugin_runtime_and_secret_slots() {
+        use gate_crypto::kms::{EnvKms, generate_master_key_b64};
+
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/embeddings"))
+            .and(wiremock::matchers::header("x-embed-key", "db-embed-value"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "object": "list",
+                    "data": [{ "object": "embedding", "index": 0, "embedding": [0.1, 0.2] }],
+                    "model": "embed-model",
+                    "usage": { "prompt_tokens": 2, "total_tokens": 2 }
+                })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let (ch_id, ch_rec) = make_plugin_channel(
+            "embed-plugin",
+            server.uri(),
+            serde_json::json!({
+                "plugin": {
+                    "version": 1,
+                    "preset": { "provider": "openai_compatible" },
+                    "auth": {
+                        "strategy": "api_key_header",
+                        "header_name": "X-Embed-Key",
+                        "secret_slot": "embed-key"
+                    }
+                }
+            }),
+        );
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(ch_rec);
+        ch_repo.seed_binding(group_id, ch_id, 1, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let kms = EnvKms::from_b64(&generate_master_key_b64(), "test").unwrap();
+        let sealer = Arc::new(gate_crypto::EnvelopeKms::new(kms));
+        let aad = gate_crypto::aad::channel_key(*ch_id.as_uuid());
+        let key_enc = sealer.seal(b"db-embed-value", &aad).await.unwrap();
+        let ck_repo = Arc::new(InMemoryChannelKeyRepo::new());
+        ck_repo.seed(ChannelKeyRecord {
+            id: ChannelKeyId::from(Uuid::now_v7()),
+            channel_id: ch_id,
+            label: Some("embed-key".to_string()),
+            key_enc,
+            key_fingerprint: "fp-embed-value".to_string(),
+            weight: 1,
+            health: "healthy".to_string(),
+            consecutive_errors: 0,
+            total_requests: 0,
+            total_errors: 0,
+            last_error_code: None,
+            last_error_at: None,
+            cooldown_until: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(ck_repo)
+            .with_crypto(sealer);
+
+        let routed = router
+            .route_embedding(project_id, "embed-model")
+            .await
+            .unwrap()
+            .expect("plugin embedding channel should route");
+        assert_eq!(routed.channel_id, ch_id);
+        assert_eq!(routed.provider_type, "plugin");
+        let response = routed
+            .provider
+            .embed(crate::types::EmbeddingRequest {
+                model: routed.resolved_model.clone(),
+                input: crate::types::EmbeddingInput::Single("hello".to_string()),
+                encoding_format: None,
+                dimensions: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(response.data[0].embedding, vec![0.1, 0.2]);
+        assert_eq!(response.usage.total_tokens, 2);
+    }
+
+    #[tokio::test]
+    async fn route_embedding_skips_plugin_without_active_secret() {
+        let project_id = ProjectId::from(Uuid::now_v7());
+        let group_id = ChannelGroupId::from(Uuid::now_v7());
+        let (plugin_id, plugin) = make_plugin_channel(
+            "no-key-plugin",
+            "https://api.example.com/v1".to_string(),
+            serde_json::json!({
+                "plugin": {
+                    "version": 1,
+                    "preset": { "provider": "openai_compatible" },
+                    "auth": {
+                        "strategy": "api_key_header",
+                        "header_name": "X-Embed-Key",
+                        "secret_slot": "embed-key"
+                    }
+                }
+            }),
+        );
+        let mut fallback = make_channel_with_models("fallback-openai", "openai", vec![]);
+        let fallback_id = fallback.channel_id;
+        fallback.supported_models = vec!["embed-model".to_string()];
+
+        let ch_repo = Arc::new(InMemoryChannelRepo::new());
+        ch_repo.seed_channel(plugin);
+        ch_repo.seed_channel(fallback);
+        ch_repo.seed_binding(group_id, plugin_id, 1, 100);
+        ch_repo.seed_binding(group_id, fallback_id, 2, 100);
+
+        let grp_repo = Arc::new(InMemoryChannelGroupRepo::new());
+        grp_repo.seed_group(ChannelGroupRecord {
+            group_id,
+            name: "default".to_string(),
+            description: String::new(),
+            strategy: "priority".to_string(),
+            fallback_group_id: None,
+            enabled: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+        grp_repo.seed_default(project_id, group_id);
+
+        let router = ProviderRouter::new(ch_repo, grp_repo)
+            .with_channel_key_repo(Arc::new(InMemoryChannelKeyRepo::new()));
+        let routed = router
+            .route_embedding(project_id, "embed-model")
+            .await
+            .unwrap()
+            .expect("fallback compile-time embedding provider should route");
+        assert_eq!(routed.channel_id, fallback_id);
+        assert_eq!(routed.provider_type, "openai");
     }
 
     // ============================================================================

@@ -120,6 +120,15 @@ describe('plugin provider presets', () => {
 		);
 	});
 
+	it('marks OpenAI-compatible plugin presets as embedding-routable', () => {
+		for (const preset of ['openai_compatible', 'azure_openai', 'vertex_openai', 'gemini', 'mistral', 'cohere_chat']) {
+			const manifest = pluginManifestFromPreset(preset);
+			const plugin = manifest.plugin as Record<string, unknown>;
+			expect((plugin.capabilities as Record<string, unknown>).embeddings).toBe(true);
+			expect(plugin.preset).toEqual({ provider: preset });
+		}
+	});
+
 	it('uses selected preset over stale manifest input', () => {
 		const selected = selectedPluginMapping('azure_openai', '{"plugin":{"preset":{"provider":"openai_compatible"}}}');
 		expect(manifestPreset(selected)).toBe('azure_openai');
