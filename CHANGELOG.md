@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.8] — 2026-05-23
+
+**主题**：admin/pricing DeletePricingModal 抽出 — 640 → 633 行 (-7)。
+
+### Refactor
+
+- `_components/DeletePricingModal.svelte` (41 行)
+- pricing wizard form (310-624, 314 行) 多步流程 + 复杂 state，留 0.5.0+ 评估
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.7] — 2026-05-23
 
 **主题**：admin/users ResetPassword + SuspendUser modal 抽出 — 752 → 729 行 (-23)。
