@@ -116,12 +116,14 @@ cd web && npm run build                               # ✅ built in 7.17s
 （CI [×1.32, ×1.51]），超 ADR-0001 的 5% 预算 8 倍，必须做 fast-path。
 复现：`cargo bench --package gate-providers --bench plugin_vs_builtin`。
 
-- [ ] 引入 `builtin_fastpath: true` manifest 标志：4 个高 QPS provider（OpenAI / Anthropic / Azure / Bedrock）走静态分发，避免 manifest 解释器开销。
-- [ ] Preset bundle 拆 crate：`gate-presets-openai` / `gate-presets-anthropic` / `gate-presets-aws` 等，按需 feature 开关。
-- [ ] Plugin runtime 性能基准：fast-path ≤ 当前编译期 provider × 1.02（2% 性能预算）；非 fast-path ≤ × 1.10。
-- [ ] Capability matrix golden test：fastpath × 9 capability = 36 cell，锁字节级 parity。
-- [ ] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime。
-- [ ] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）。
+**2026-05-22 收尾**：M3 全部完成，bench 实测 fast-path 路径 × 0.74-1.00（远好于预算）。
+
+- [x] 引入 `builtin_fastpath: true` manifest 标志：4 个高 QPS provider（OpenAI / Anthropic / Azure / Bedrock）走静态分发，避免 manifest 解释器开销。
+- [x] ~~Preset bundle 拆 crate~~ — 评估后决定不拆（23 个 preset 共享 OpenAI adapter，硬拆重复代码；细节见 [ADR-0002 § preset bundle 决策](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md#preset-bundle-决策2026-05-22)）。
+- [x] Plugin runtime 性能基准：fast-path × 0.74-1.00（远好于 × 1.02 预算），manifest runtime × 1.27-1.45。
+- [x] Capability matrix golden test：fastpath × 9 capability + 全 23 preset，`tests/capability_matrix.rs` 锁定。
+- [x] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime（`run_fastpath` helper）。
+- [ ] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）— 留 0.5.0+。
 
 ---
 

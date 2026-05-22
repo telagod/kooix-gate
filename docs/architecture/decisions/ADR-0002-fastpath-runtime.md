@@ -1,6 +1,6 @@
 # ADR-0002: Plugin Runtime Fast-path（M3 v0.4.0）
 
-- Status: **Proposed (M3 kickoff 2026-05-22)**
+- Status: **Accepted (M3 shipped 2026-05-22)** — 4 个 fast-path adapter 全接通，sigv4 修真，preset bundle 决策不拆
 - Deciders: telagod
 - Affected: `crates/gate-providers/src/custom_provider/`, `crates/gate-providers/src/plugin_manifest/`, `crates/gate-providers/src/plugin_preset/`, `examples/manifest-registry/`
 
@@ -108,7 +108,47 @@ CustomHttpProvider::new_with_secret_slots
 - [x] 0.3.x：`CustomHttpProvider` 内部 Azure OpenAI fast-path dispatch 落地（chat / chat_stream / embed），2 个集成 test（deployment URL + api-version override）
 - [x] 0.3.x：catch_unwind fallback 兜底（`run_fastpath` helper），3 个单元测试 + 集成 test 验证 panic 时降级到 manifest runtime
 - [x] 0.3.x：Bedrock SigV4 修真 + Converse fast-path：编译期 `BedrockProvider` 的假签名换成真 AWS SigV4（AWS 已知向量 test pass），fast-path 也接通（2 个集成 test），sigv4 helpers 提升到 `crate::sigv4` 顶级模块供 anthropic.rs / bedrock.rs / custom_provider 共用
-- [ ] 0.4.0：preset bundle 拆 crate 评估（`gate-presets-openai` 等可选 feature）
+- [x] 0.4.0：preset bundle 拆 crate 评估完成 — **决定不拆**（详见下方 § preset bundle 决策）
+
+### preset bundle 决策（2026-05-22）
+
+ADR-0002 原计划 "1 plugin runtime + N preset bundle"，在 v0.4.0 实施前评估实际结构，
+**决定不拆 crate / 不引入 feature gate，保留 `plugin_preset.rs` 单文件**。
+
+**实测数据**：
+
+| 指标 | 数值 |
+|------|------|
+| `plugin_preset.rs` 总行数 | 896 |
+| 真正的 preset spec fn | 3 个：`openai_compatible(chat_path)` / `bedrock_converse()` / `anthropic_messages()` |
+| 23 个 ProviderPresetKind 实际复用 OpenAI adapter | 20 个（只差 chat_path / headers / base_url 几行 const） |
+| preset 编译产物体积估计 | < 30KB rlib（vs 整个 gate-providers ~5MB） |
+
+**为什么不拆**：
+
+1. **共享 adapter 不可拆**：20+ 个 preset（OpenAI-compatible 系：DeepSeek / Mistral /
+   Groq / Together / OpenRouter / Moonshot / 智谱 / 通义 / 零一 / Ollama OpenAI / vLLM /
+   LM Studio / LocalAI / Xinference / Vertex OpenAI 等）共用一份
+   `openai_compatible(chat_path)` 实现，差别只在 `chat_path` / `headers` 几行 const。
+   硬拆会复制 adapter 代码 N 次，违背 DRY。
+2. **代码量本来就小**：896 行单文件，体积 < 30KB，远低于把它拆 N crate 的维护成本。
+3. **feature gate 成本 > 收益**：23 preset × cfg gate = 维护噩梦，出错概率高（漏 feature
+   测试矩阵），下游裁剪需求几乎不存在（运维要么全开要么换网关）。
+4. **preset 是 runtime 路由核心**：`plugin_manifest` 15 处 + `custom_provider` 17 处
+   call 它，不是可选/扩展点，是基础设施。基础设施拆 crate 等于把自己绑死。
+5. **ADR-0001 战略仍达成**：M2 已经把编译期 thin wrapper provider 删了，所有 channel 走
+   plugin runtime；M3 接通 fast-path 性能回归编译期水准（× 0.74-1.00）。"1 plugin
+   runtime + N preset bundle" 的实质（接入面统一 + 性能不输）已经达成，bundle 拆 crate
+   只是名义上的形态。
+
+**未来再拆的触发条件**（如果以后真要拆）：
+
+- preset 文件超过 3000 行，单 file 不可读
+- 出现需要不同依赖的 preset（如 protobuf/grpc 协议接入），cfg gate 不可避免
+- 下游用户明确反馈编译产物体积是问题（目前没有）
+
+WASM Plugin ABI vNext PoC 仍是 0.4.0+ 的探索方向，但与 preset bundle 拆 crate 无关——
+WASM 接入面是新的 host extension hook，不是把现有 preset 改成 WASM。
 
 ### Bedrock 修真说明（取代之前的"推迟到 0.4.0"）
 

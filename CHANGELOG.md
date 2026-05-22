@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] — 2026-05-22
+
+**主题**：ADR-0002 M3 Fast-path Runtime 完成 — `gate-providers` 终极形态收尾。
+
+### Highlights
+
+- **OpenAI / Anthropic / Azure / Bedrock 四条 fast-path 全接通**：plugin runtime 在 4 个高频
+  provider 上跳过 manifest 解释器，直接走静态分发。bench 实测 fast-path × 0.74-1.00 vs
+  builtin（manifest runtime 是 × 1.27-1.45），远好于 ADR-0002 ≤ × 1.02 预算。
+- **Bedrock SigV4 修真**：编译期 `BedrockProvider` 之前的占位假签名（仅发
+  `X-Amz-Access-Key/Secret-Key` 头）换成真 AWS Signature V4，AWS 已知向量 test 通过。
+  `crate::sigv4` 模块提到 crate 顶层供 anthropic / bedrock / custom_provider 共用，
+  零协议重复。
+- **Capability matrix golden test**：23 个 preset × 9 capability + base_url 默认值字节级锁定，
+  drift 即 fail。`KOOIX_UPDATE_FIXTURES=1` 触发刷新。
+- **catch_unwind fallback**：fast-path panic 时 `tracing::error!` + 降级到 manifest runtime，
+  防御性兜底进程不挂。
+- **preset bundle 决策**：评估后**不拆 crate** —— 23 个 preset 共享 OpenAI adapter，硬拆
+  重复代码。`plugin_preset.rs` 单文件 896 行保留。详见 [ADR-0002 § preset bundle 决策](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md#preset-bundle-决策2026-05-22)。
+
 ### Added — Plugin runtime perf bench (ADR-0001 verification)
 
 - 新增 [`crates/gate-providers/benches/plugin_vs_builtin.rs`](./crates/gate-providers/benches/plugin_vs_builtin.rs)：
