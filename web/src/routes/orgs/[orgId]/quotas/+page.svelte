@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { AlertTriangle, CheckCircle2, Gauge, GitCompareArrows, Plus, RefreshCw, Search, Trash2 } from 'lucide-svelte';
 	import { shortId } from '$lib/id.js';
+	import QuotaDeleteModal from './_components/QuotaDeleteModal.svelte';
 	import {
 		deleteQuota,
 		explainQuota,
@@ -429,27 +430,15 @@
 	</div>
 {/if}
 
-{#if deletingId}
-	<ModalFrame close={() => (deletingId = null)} panelClass="w-full max-w-sm">
-		<Card padding="lg">
-			<div class="mb-4 flex items-start gap-3">
-				<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400">
-					<AlertTriangle size={18} />
-				</div>
-				<div>
-					<h3 class="text-lg font-semibold {text.primary}">确认删除配额</h3>
-					<p class="mt-1 text-sm {text.secondary}">删除后该维度限制立即失效，Redis 现有计数不会自动清空。</p>
-				</div>
-			</div>
-			<div class="flex justify-end gap-2">
-				<Button variant="outline" onclick={() => (deletingId = null)} disabled={deleting}>取消</Button>
-				<Button variant="destructive" onclick={handleDelete} disabled={deleting}>
-					{deleting ? '删除中...' : '确认删除'}
-				</Button>
-			</div>
-		</Card>
-	</ModalFrame>
-{/if}
+<QuotaDeleteModal
+	{deletingId}
+	{deleting}
+	textPrimary={text.primary}
+	textSecondary={text.secondary}
+	onClose={() => (deletingId = null)}
+	onConfirm={handleDelete}
+/>
+
 
 {#if showForm}
 	<ModalFrame close={() => (showForm = false)} panelClass="w-full max-w-2xl">

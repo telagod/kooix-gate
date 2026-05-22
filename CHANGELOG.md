@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.6] — 2026-05-23
+
+**主题**：orgs/quotas QuotaDeleteModal 抽出 — 959 → 948 行 (-11)。
+
+### Refactor
+
+- `_components/QuotaDeleteModal.svelte` (46 行)
+- QuotaForm / Wizard 体量大且 props 表过宽，留 0.5.0+ 评估
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.5] — 2026-05-23
 
 **主题**：admin/groups/+page.svelte 拆 4 个 modal — 1083 → 972 行 (-10.2%)。
