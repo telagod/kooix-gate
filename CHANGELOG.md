@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.12] — 2026-05-23
+
+**主题**：QuotaWizard 完整组件化 — quotas 948 → 722 行 (-23.8%)。
+
+### Refactor
+
+- `_components/QuotaWizard.svelte` (321 行) — 252 行 wizard modal 整体抽出
+- 26 顶层 props（含 5 derived state + 11 callback + 5 sample/format helpers）
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.11] — 2026-05-23
 
 **主题**：ChannelTable 完整组件化 — channels 1487 → 1252 行 (-15.8%)。
