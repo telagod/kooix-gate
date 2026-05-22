@@ -3,6 +3,7 @@
 //! 入口：`super::PluginManifest::validate` 把 manifest 各段交给本模块的 validate_* 链。
 //! Helper：placeholder_allowed / template_paths / required_secret_slots / 等。
 
+use super::helpers::escape_json_pointer;
 use super::*;
 use crate::error::{ProviderError, ProviderResult};
 

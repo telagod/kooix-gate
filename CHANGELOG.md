@@ -11,6 +11,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] — 2026-05-22
+
+**主题**：M1.3 三巨兽拆解收尾 — 单文件 ≤ 800 行目标推进。
+
+### Refactor — Three giant files split (M1.3 T3.1-T3.3)
+
+- **`plugin_manifest/mod.rs` 1472 → 705 行**（-52%）：抽出
+  `plugin_manifest/{factory,helpers,tests}.rs` 三子模块。`factory.rs` 收口
+  `validate_plugin_manifest` / `plugin_manifest` / `plugin_manifest_retry_config` /
+  `plugin_manifest_schema_json` 4 个公共入口；`helpers.rs` 内部 JSON pointer / config
+  error 工具；`tests.rs` 24 个单元测试搬迁。
+- **`custom_provider/mod.rs` 3516 → 1452 行**（-59%）：抽出
+  `custom_provider/{helpers,fastpath,tests}.rs`。`helpers.rs` 27 个 free fn / RenderedValue
+  struct（模板渲染 / JSON 路径 / header 插入 / 错误判定）；`fastpath.rs` ADR-0002
+  fast-path inherent impl 块（`fastpath_kind` / `run_fastpath` + 4 provider 8 fn）；
+  `tests.rs` 整体迁出。
+- **`router/mod.rs` 3540 → 1713 行**（-52%）：抽出 `router/tests.rs`，1830 行
+  unit/integration 测试搬迁。
+
+### Verification
+
+- `cargo fmt --all -- --check` 净
+- `cargo clippy --workspace --all-targets -- -D warnings` 净
+- `cargo test --workspace --lib`：485 passed / 0 failed（plugin_manifest 30 / custom_provider
+  120 / router 44 / 其他 291）
+- `gate-server` 关键 e2e：c1_routing 11 passed / channel_plugin_e2e 1 passed
+
+### Notes
+
+- 三巨兽再拆受限于内部循环依赖（`ProviderRouter` impl 跨 dispatch fn 强耦合 /
+  `PluginManifest::from_value` 与 type 系统强耦合），1452 / 1713 行已是现阶段最优。
+- M1.3 T3.6 / T3.7（clippy 基线 + crate README）一并完成。
+
+### Bench parity
+
+- 0.4.1 重新跑 `cargo bench --package gate-providers --bench plugin_vs_builtin`，
+  fast-path 路径性能与 0.4.0 持平（× 0.74-1.00），拆分零回归。
+
+---
+
 ## [0.4.0] — 2026-05-22
 
 **主题**：ADR-0002 M3 Fast-path Runtime 完成 — `gate-providers` 终极形态收尾。

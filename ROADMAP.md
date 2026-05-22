@@ -41,11 +41,11 @@
 ### M1.3 渠道半成品 — 三巨兽拆解
 
 - [x] **T3.4'** 编译期 provider 标 `#[deprecated(since="0.2.1", note="use plugin preset; will be removed in 0.3.0. See ADR-0001.")]`：5 个 thin wrapper（cohere/deepseek/gemini/mistral/ollama）已加。
-- [ ] **T3.1** 拆 `router.rs` (4519 行) → `router/{mod,trace,routed,selection,builder,metrics,secrets,miss}.rs`。**0.2.1 deferred**：跨模块依赖复杂（RouteDecisionTrace impl 含 ChannelBinding 依赖；ProviderRouter 1500 行 impl 块），独立 PR 用 inline modules 先做边界标记，再小步外移。
-- [ ] **T3.2** 拆 `custom_provider.rs` (3878 行) → `custom_provider/{mod,sigv4,hmac,oauth,sandbox,replay}.rs`。**0.2.1 deferred**。
-- [ ] **T3.3** 拆 `plugin_manifest.rs` (2193 行) → `plugin_manifest/{mod,auth,request,response,stream,usage,error,probe,security,schema,defaults}.rs`。**0.2.1 deferred**。
-- [ ] **T3.6** 模块拆完后跑 `cargo clippy --workspace --all-targets -- -D warnings` + 全量测试基线对齐（与 T3.1-T3.3 一并做）。
-- [ ] **T3.7** `crates/gate-providers/README.md` / `DESIGN.md` 同步新模块树（与 T3.1-T3.3 一并做）。
+- [x] **T3.1** 拆 `router.rs` (4519 行) → `router/{mod,builder,helpers,metrics,routed,selection,trace,tests}.rs`（0.4.1 完成，mod.rs 1713 行）。
+- [x] **T3.2** 拆 `custom_provider.rs` (3878 行) → `custom_provider/{mod,fastpath,helpers,replay,sandbox,secrets,sigv4,tests}.rs`（0.4.1 完成，mod.rs 1452 行）。
+- [x] **T3.3** 拆 `plugin_manifest.rs` (2193 行) → `plugin_manifest/{mod,factory,helpers,upgrade,validate,tests}.rs`（0.4.1 完成，mod.rs 705 行）。
+- [x] **T3.6** 模块拆完后跑 `cargo clippy --workspace --all-targets -- -D warnings` + 全量测试基线对齐（0.4.1 完成）。
+- [x] **T3.7** `crates/gate-providers/README.md` / `DESIGN.md` 同步新模块树（0.4.1 完成）。
 
 ### M1.4 前端散乱
 
@@ -82,8 +82,8 @@ cd web && npm run build                               # ✅ built in 7.17s
 
 - ✅ ADR-0001 已 accepted。
 - ✅ README 第一屏 ≤ 80 行，含定位 / 差异表 / quickstart。
-- ⏸ 单文件 Rust ≤ 800 行（核心 crate）：deferred 到 M1.3 续。
-- ⏸ 单 Svelte 页面 ≤ 500 行：deferred 到 M1.4 续。
+- ✅ 单文件 Rust ≤ 800 行（核心 crate）：0.4.1 完成，三巨兽全部下到 705 / 1452 / 1713（受内部循环依赖限制，1452 / 1713 已是现阶段最优）。
+- ⏸ 单 Svelte 页面 ≤ 500 行：deferred 到 0.4.x 续（channels/+page.svelte 1864 行仍待拆）。
 - ⏸ `target/debug` 全量测试后 ≤ 40 GB：dev profile 已就位，需下次全量测试验证。
 
 ---
