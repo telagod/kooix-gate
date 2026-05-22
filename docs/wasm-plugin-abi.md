@@ -1,8 +1,11 @@
 # WASM Plugin ABI vNext 设计稿
 
-Status: design for vNext; no runtime endpoints are shipped in v0.2.0
+Status: **PoC v0 — ADR-0003 收口（2026-05-23）**；wasmtime runtime 留 0.5.0+
 Scope: HTTP Plugin manifest v1 稳定后的可执行插件 ABI、sandbox、secret access、determinism、resource limits 与 audit 边界
-Last verified: 2026-05-20
+Last verified: 2026-05-23
+
+> 本设计稿在 0.4.16 升级为 [ADR-0003 v0](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)，
+> sample manifest 见 `examples/manifest-registry/community/wasm-transform/0.1.0/`。
 
 ## 结论
 

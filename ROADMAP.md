@@ -124,7 +124,7 @@ cd web && npm run build                               # ✅ built in 7.17s
 - [x] Plugin runtime 性能基准：fast-path × 0.74-1.00（远好于 × 1.02 预算），manifest runtime × 1.27-1.45。
 - [x] Capability matrix golden test：fastpath × 9 capability + 全 23 preset，`tests/capability_matrix.rs` 锁定。
 - [x] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime（`run_fastpath` helper）。
-- [ ] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）— 留 0.5.0+。
+- [x] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）— 0.4.16 落地 ADR-0003 v0 + sample manifest（`examples/manifest-registry/community/wasm-transform/0.1.0/`），wasmtime runtime 留 0.5.0+。
 
 ---
 

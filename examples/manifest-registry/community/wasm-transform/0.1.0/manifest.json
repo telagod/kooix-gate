@@ -1,0 +1,71 @@
+{
+  "plugin": {
+    "version": 1,
+    "metadata": {
+      "name": "wasm-transform-sample",
+      "vendor": "kooix-gate-examples",
+      "homepage": "https://github.com/telagod/kooix-gate",
+      "tags": ["wasm", "transform", "experimental", "adr-0003"]
+    },
+    "capabilities": {
+      "chat": true,
+      "streaming": true
+    },
+    "auth": {
+      "strategy": "bearer",
+      "secret_slot": "primary"
+    },
+    "request": {
+      "method": "POST",
+      "path": "/chat/completions"
+    },
+    "response": {
+      "openai_compatible": true
+    },
+    "stream": {
+      "openai_compatible": true
+    },
+    "usage": {
+      "prompt_tokens_path": "usage.prompt_tokens",
+      "completion_tokens_path": "usage.completion_tokens",
+      "total_tokens_path": "usage.total_tokens"
+    },
+    "error": {
+      "message_path": "error.message"
+    },
+    "probe": {
+      "model": "gpt-4o-mini",
+      "success_status": [200]
+    },
+    "security": {
+      "max_request_bytes": 1048576,
+      "max_response_bytes": 8388608,
+      "max_sse_event_bytes": 1048576,
+      "allow_absolute_chat_path": false,
+      "outbound_allowlist": [],
+      "header_redaction": ["authorization"],
+      "permissions": {
+        "outbound_http": true,
+        "absolute_urls": false,
+        "oauth_client_credentials": false,
+        "secret_slots": ["primary"]
+      },
+      "_wasm_v0_placeholder": {
+        "_comment": "ADR-0003 v0 design — runtime not yet shipped (planned 0.5.0). This block is reserved schema only; gate-providers ignores unknown _wasm_* keys.",
+        "wasm_module": "modules/prompt_rewriter.wasm",
+        "wasm_module_sha256": "TBD",
+        "wasm_max_memory_bytes": 16777216,
+        "wasm_max_cpu_ms": 50,
+        "wasm_hooks": [
+          "chat_request_transform",
+          "chat_response_transform",
+          "stream_chunk_transform"
+        ]
+      }
+    },
+    "preset": {
+      "provider": "openai_compatible",
+      "chat_path": "/chat/completions"
+    }
+  }
+}

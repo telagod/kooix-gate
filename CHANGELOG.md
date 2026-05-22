@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.16] — 2026-05-23
+
+**主题**：ADR-0003 WASM Plugin ABI v0 PoC 收口 — M3 唯一未结项达成。
+
+### Added
+
+- `docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md`：
+  - v0 host functions 最小集（plugin_init / chat_request_transform / chat_response_transform / stream_chunk_transform / host_log / host_get_secret_slot / host_record_metric）
+  - hard limits（≤ 50ms CPU / ≤ 16 MiB memory / no I/O / deterministic）
+  - 与 HTTP Plugin manifest v1 的 inner transform layer 关系定型
+  - Fallback 与 audit 边界（panic / OOM / timeout 降级到 manifest 路径）
+- `examples/manifest-registry/community/wasm-transform/0.1.0/`：sample manifest 占位（`security._wasm_v0_placeholder`，0.4.x validator 跳过未知字段）
+- `docs/wasm-plugin-abi.md` 同步指向 ADR-0003
+
+### Roadmap 同步
+
+- M3 v0.4.0 WASM Plugin ABI vNext PoC 标记 ticked
+
+### Deferred to 0.5.0+
+
+- wasmtime runtime 落地（`crates/gate-providers/src/wasm_plugin/`）
+- `SecurityManifest::wasm_*` 字段从占位升为 typed field
+- Rust SDK + golden test
+- AssemblyScript / Go SDK 文档
+
+---
+
 ## [0.4.15] — 2026-05-23
 
 **主题**：SessionModal 抽出 — admin/users 729 → 669 行 (-8.2%)。
