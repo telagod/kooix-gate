@@ -11,6 +11,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.20] — 2026-05-23
+
+**主题**：0.4.x 21 版本大收尾 — 0.5.0 债务清零，M3 全结。
+
+### 0.4.x 全程战报（21 版本）
+
+| 版本 | 主战 | 战果 |
+|------|------|------|
+| 0.4.0 | M3 Fast-path Runtime | ADR-0002 4 fast-path × 0.74-1.00 vs builtin |
+| 0.4.1 | Rust 三巨兽拆解 | router/custom_provider/plugin_manifest 全部 -52% 以上 |
+| 0.4.2-0.4.4 | channels 第一轮 | 1864 → 1487 (-20.2%) |
+| 0.4.5-0.4.9 | groups/quotas/users/pricing/requests 拆 modal + 共享 helper | -350 行总计 |
+| 0.4.10 | 阶段收尾 | M1.4 partial ticked |
+| 0.4.11 | ChannelTable 完整组件化 | channels 1487 → 1252 (-15.8%) |
+| 0.4.12 | QuotaWizard | quotas 948 → 722 (-23.8%) |
+| 0.4.13 | QuotaForm | quotas 722 → 680 |
+| 0.4.14 | PricingWizard | pricing 633 → 369 (-41.7%) |
+| 0.4.15 | SessionModal | users 729 → 669 |
+| 0.4.16 | **ADR-0003 WASM Plugin ABI v0** | M3 唯一未结收口 |
+| 0.4.17 | channels/[channelId] 3 modal | 667 → 618 |
+| 0.4.18 | bundle budget 250→220KB | M1.4 T2.6 ticked |
+| 0.4.19 | billing helpers | 463 → 435 |
+| 0.4.20 | **大收尾 / 阶段总结** | ROADMAP M1 / M3 全 ticked |
+
+### 前端 +page.svelte Top 10（0.4.20 结算）
+
+```
+1252  channels/+page.svelte         (起 1864 → -32.8%)
+ 972  admin/groups/+page.svelte     (起 1083 → -10.2%)
+ 680  orgs/[orgId]/quotas/+page.svelte  (起 959 → -29.1%)
+ 669  admin/users/+page.svelte      (起 752 → -11.0%)
+ 618  channels/[channelId]/+page.svelte (起 667 → -7.3%)
+ 594  admin/requests/+page.svelte   (起 628 → -5.4%)
+ 507  usage/requests/+page.svelte   (起 541 → -6.3%)
+ 442  admin/audit/+page.svelte
+ 439  admin/sso/+page.svelte
+```
+
+### 0.4.x 新建工件
+
+- **22 个 _components 子组件**：channels (6) + channels/[channelId] (3) + admin/groups (4) + admin/users (3) + admin/pricing (3) + orgs/quotas (3) + usage/requests (1)
+- **3 个 _lib helper 模块**：channels (137 行) / billing (38 行) / requests-helpers (59 行)
+- **ADR-0003 WASM Plugin ABI v0** + sample manifest（0.5.0 wasmtime runtime 占位）
+
+### M3 全结
+
+- ADR-0001 Providers as Plugin ✅
+- ADR-0002 Fast-path Runtime ✅
+- ADR-0003 WASM Plugin ABI v0 ✅（runtime 留 0.5.0）
+
+### Roadmap M1.4 全 ticked
+
+- T2.1 channels 拆 ✅
+- T2.3 admin/pricing 拆 ✅
+- T2.4 usage/requests 拆 ✅
+- T2.6 bundle budget 收紧 ✅
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+- `cargo build` 净
+- 21 个 tag (v0.4.0..v0.4.20) 全部 push origin/main
+
+### Deferred 到 0.5.0+
+
+- wasmtime runtime 落地（ADR-0003 v0 → v1）
+- 进一步收敛 channels/+page (1252) + admin/groups (972) — 按需拆分
+- 进一步收紧 web bundle budget 220 → 180KB
+
+---
+
 ## [0.4.19] — 2026-05-23
 
 **主题**：billing helpers 抽出 — 463 → 435 行 (-6.0%)。
