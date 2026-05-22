@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.15] — 2026-05-23
+
+**主题**：SessionModal 抽出 — admin/users 729 → 669 行 (-8.2%)。
+
+### Refactor
+
+- `_components/SessionModal.svelte` (123 行) — 75 行 session list modal + format helper
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.14] — 2026-05-23
 
 **主题**：PricingWizard 完整组件化 — admin/pricing 633 → 369 行 (-41.7%)。

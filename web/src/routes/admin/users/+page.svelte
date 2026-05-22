@@ -19,6 +19,7 @@
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import ResetPasswordModal from './_components/ResetPasswordModal.svelte';
 	import SuspendUserModal from './_components/SuspendUserModal.svelte';
+	import SessionModal from './_components/SessionModal.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
 	import {
@@ -650,80 +651,19 @@
 			onConfirm={confirmStatusChange}
 		/>
 
-		{#if sessionTarget}
-			<ModalFrame close={() => (sessionTarget = null)} class="bg-zinc-950/40" panelClass="w-full max-w-4xl">
-				<Card padding="lg" class="max-h-[85vh] w-full max-w-4xl overflow-y-auto">
-					<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-						<div class="flex items-center gap-2">
-							<MonitorSmartphone size={18} class={text.secondary} />
-							<div>
-								<p class="font-semibold {text.primary}">活跃 refresh sessions 会话</p>
-								<p class="text-xs {text.muted}">{sessionTarget.email} · 撤销后仅阻断后续 refresh，已签发 access token 会自然过期。</p>
-							</div>
-						</div>
-						<div class="flex gap-2">
-							<Button variant="outline" size="sm" onclick={refreshSessions} disabled={sessionsLoading}>
-								<RefreshCcw size={12} class={sessionsLoading ? 'animate-spin' : ''} />刷新
-							</Button>
-							<Button variant="destructive" size="sm" onclick={revokeAllSessions} disabled={revokeAllBusy || sessions.length === 0}>
-								<LogOut size={12} />全部踢下线
-							</Button>
-						</div>
-					</div>
+		<SessionModal
+			{sessionTarget}
+			{sessions}
+			{sessionsLoading}
+			{sessionError}
+			{revokeAllBusy}
+			{sessionBusy}
+			text={{ primary: text.primary, secondary: text.secondary, muted: text.muted }}
+			onClose={() => (sessionTarget = null)}
+			onRefresh={refreshSessions}
+			onRevokeAll={revokeAllSessions}
+			onRevokeSession={revokeSession}
+		/>
 
-					{#if sessionError}
-						<Alert variant="danger" class="mb-3">{sessionError}</Alert>
-					{/if}
-
-					{#if sessionsLoading}
-						<div class="space-y-2">
-							{#each Array(3) as _}
-								<Skeleton class="h-14" />
-							{/each}
-						</div>
-					{:else if sessions.length === 0}
-						<StatePanel title="暂无活跃 session 会话" description="该用户没有可继续 refresh 的登录态。" icon={MonitorSmartphone} />
-					{:else}
-						<DataTable class="mb-0">
-							{#snippet head()}
-								<tr>
-									<th class={dataTemplate.th}>Session 会话</th>
-									<th class={dataTemplate.th}>IP / UA</th>
-									<th class={dataTemplate.th}>最后使用</th>
-									<th class={dataTemplate.th}>过期</th>
-									<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">操作</th>
-								</tr>
-							{/snippet}
-
-							{#each sessions as session}
-								<tr class={dataTemplate.row}>
-									<td class="px-4 py-3">
-										<div class="font-mono text-xs {text.primary}">{session.id}</div>
-										{#if session.current}
-											<Badge variant="admin">当前</Badge>
-										{/if}
-									</td>
-									<td class="px-4 py-3">
-										<div class="font-mono text-xs {text.primary}">{session.ip ?? '—'}</div>
-										<div class="mt-1 max-w-md truncate text-xs {text.muted}">{session.user_agent ?? '未知 User-Agent'}</div>
-									</td>
-									<td class={dataTemplate.td}>{fmtDateTime(session.last_used_at)}</td>
-									<td class={dataTemplate.td}>{fmtDateTime(session.expires_at)}</td>
-									<td class="px-4 py-3 text-right">
-										<Button variant="destructive" size="sm" onclick={() => revokeSession(session)} disabled={sessionBusy[session.id]}>
-											<LogOut size={12} />撤销
-										</Button>
-									</td>
-								</tr>
-							{/each}
-						</DataTable>
-					{/if}
-
-					<div class="mt-5 flex justify-end">
-						<Button variant="ghost" onclick={() => (sessionTarget = null)}>关闭</Button>
-					</div>
-				</Card>
-			</ModalFrame>
-		{/if}
 	{/if}
 </PageShell>
