@@ -17,6 +17,8 @@
 	import ModalFrame from '$lib/components/templates/ModalFrame.svelte';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import ResetPasswordModal from './_components/ResetPasswordModal.svelte';
+	import SuspendUserModal from './_components/SuspendUserModal.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
 	import {
@@ -624,54 +626,29 @@
 			</div>
 		</div>
 
-		{#if resetTarget}
-			<ModalFrame close={() => (resetTarget = null)} class="bg-zinc-950/40" panelClass="w-full max-w-md">
-				<Card padding="lg" class="w-full max-w-md">
-					<div class="mb-4 flex items-center gap-2">
-						<KeyRound size={18} class={text.secondary} />
-						<div>
-							<p class="font-semibold {text.primary}">重置密码</p>
-							<p class="text-xs {text.muted}">{resetTarget.email}</p>
-						</div>
-					</div>
-					<Field label="新密码" for="reset-password" error={resetPasswordError} required>
-						<Input id="reset-password" type="password" placeholder="至少 8 位" bind:value={resetPasswordValue} autocomplete="new-password" invalid={!!resetPasswordError} />
-					</Field>
-					<div class="mt-5 flex justify-end gap-2">
-						<Button variant="ghost" onclick={() => (resetTarget = null)}>取消</Button>
-						<Button onclick={submitResetPassword} disabled={passwordBusy[resetTarget.id]}>
-							<Check size={14} />确认重置
-						</Button>
-					</div>
-				</Card>
-			</ModalFrame>
-		{/if}
+		<ResetPasswordModal
+			{resetTarget}
+			bind:resetPasswordValue
+			{resetPasswordError}
+			{passwordBusy}
+			textPrimary={text.primary}
+			textSecondary={text.secondary}
+			textMuted={text.muted}
+			onClose={() => (resetTarget = null)}
+			onConfirm={submitResetPassword}
+		/>
 
-		{#if statusConfirmTarget}
-			{@const expectedStatusConfirmation = `suspend:${statusConfirmTarget.email}`}
-			<ModalFrame close={() => { statusConfirmTarget = null; statusConfirmation = ''; pendingStatus = ''; }} class="bg-zinc-950/40" panelClass="w-full max-w-md">
-				<Card padding="lg" class="w-full max-w-md">
-					<div class="mb-4 flex items-center gap-2">
-						<ShieldOff size={18} class={text.danger} />
-						<div>
-							<p class="font-semibold {text.primary}">停用用户</p>
-							<p class="text-xs {text.muted}">{statusConfirmTarget.email}</p>
-						</div>
-					</div>
-					<p class="mb-3 text-sm {text.secondary}">停用后该用户无法继续登录。请输入确认短语：</p>
-					<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedStatusConfirmation}</code>
-					<Field label="确认短语" for="user-status-confirm" required>
-						<Input id="user-status-confirm" bind:value={statusConfirmation} placeholder={expectedStatusConfirmation} class="font-mono" />
-					</Field>
-					<div class="mt-5 flex justify-end gap-2">
-						<Button variant="ghost" onclick={() => { statusConfirmTarget = null; statusConfirmation = ''; pendingStatus = ''; }}>取消</Button>
-						<Button variant="destructive" onclick={confirmStatusChange} disabled={statusBusy[statusConfirmTarget.id] || statusConfirmation.trim() !== expectedStatusConfirmation}>
-							<ShieldOff size={14} />确认停用
-						</Button>
-					</div>
-				</Card>
-			</ModalFrame>
-		{/if}
+		<SuspendUserModal
+			{statusConfirmTarget}
+			bind:statusConfirmation
+			{statusBusy}
+			textPrimary={text.primary}
+			textSecondary={text.secondary}
+			textMuted={text.muted}
+			textDanger={text.danger}
+			onClose={() => { statusConfirmTarget = null; statusConfirmation = ''; pendingStatus = ''; }}
+			onConfirm={confirmStatusChange}
+		/>
 
 		{#if sessionTarget}
 			<ModalFrame close={() => (sessionTarget = null)} class="bg-zinc-950/40" panelClass="w-full max-w-4xl">

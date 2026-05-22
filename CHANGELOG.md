@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.7] — 2026-05-23
+
+**主题**：admin/users ResetPassword + SuspendUser modal 抽出 — 752 → 729 行 (-23)。
+
+### Refactor
+
+- `_components/ResetPasswordModal.svelte` (53 行)
+- `_components/SuspendUserModal.svelte` (59 行)
+- session modal 75 行内嵌 sessions 列表，留 0.5.0+ 独立拆
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.6] — 2026-05-23
 
 **主题**：orgs/quotas QuotaDeleteModal 抽出 — 959 → 948 行 (-11)。
