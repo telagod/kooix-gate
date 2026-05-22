@@ -24,6 +24,13 @@
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
 	import { cn, dataTemplate, text, type BadgeVariant } from '$lib/design';
+	import {
+		fmtCost,
+		fmtNum,
+		scopeLabel,
+		invoiceStatusLabel,
+		invoiceStatusVariant,
+	} from './_lib/helpers';
 
 	let orgId = $derived($page.params.orgId ?? '');
 
@@ -154,47 +161,12 @@
 		}
 	}
 
-	// ── 格式化工具 ────────────────────────────────────────
-	function fmtCost(s: string): string {
-		const n = parseFloat(s);
-		return isNaN(n) ? s : `$${n.toFixed(4)}`;
-	}
-
-	function fmtNum(n: number): string {
-		return n.toLocaleString('en-US');
-	}
+	// ── 格式化工具：fmtCost / fmtNum / scopeLabel / invoiceStatus* 已抽到 _lib/helpers.ts ──
 
 	// ── 告警分组 ──────────────────────────────────────────
 	let watch = $derived(alerts.filter((a) => a.level === 'watch'));
 	let approaching = $derived(alerts.filter((a) => a.level === 'approaching'));
 	let exceeded = $derived(alerts.filter((a) => a.level === 'exceeded'));
-
-	function scopeLabel(kind: string): string {
-		const m: Record<string, string> = { org: '组织', project: '项目', api_key: 'API Key' };
-		return m[kind] ?? kind;
-	}
-
-	function invoiceStatusLabel(status: string): string {
-		const m: Record<string, string> = {
-			draft: 'Draft',
-			closed: 'Closed',
-			exported: 'Exported',
-			paid: 'Paid',
-			waived: 'Waived'
-		};
-		return m[status] ?? status;
-	}
-
-	function invoiceStatusVariant(status: string): BadgeVariant {
-		const m: Record<string, BadgeVariant> = {
-			draft: 'default',
-			closed: 'warning',
-			exported: 'admin',
-			paid: 'success',
-			waived: 'warning'
-		};
-		return m[status] ?? 'default';
-	}
 
 	function canClose(): boolean {
 		return bill?.invoice.status === 'draft';

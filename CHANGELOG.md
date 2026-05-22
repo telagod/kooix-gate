@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.19] — 2026-05-23
+
+**主题**：billing helpers 抽出 — 463 → 435 行 (-6.0%)。
+
+### Refactor
+
+- `_lib/helpers.ts` (38 行) — fmtCost / fmtNum / scopeLabel / invoiceStatusLabel / invoiceStatusVariant 5 个纯函数
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.18] — 2026-05-23
 
 **主题**：Web bundle budget 阈值收紧 — 250KB → 220KB（M1.4 T2.6 ticked）。
