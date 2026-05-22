@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.4] — 2026-05-23
+
+**主题**：channels helpers 扩充 — `fmtLimit` / `fmtDate` / `statusBadgeCls` /
+`healthBadgeCls` / `healthDot` 抽到 `_lib/helpers.ts`。
+
+### Refactor
+
+- channels/+page.svelte: 1515 → 1487 行 (-28)
+- `_lib/helpers.ts`: 97 → 137 行（追加 5 个表格 badge / fmt helper）
+- ChannelTable 完整组件化推迟到 0.5.0+：DataTable 段调用面 ~30 props，硬拆反模式。
+  本版改为抽 row 渲染辅助函数，让表格代码可读但仍保持单页 owner。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.3] — 2026-05-23
 
 **主题**：channels/+page.svelte CreateDrawer 拆分 — 1718 → 1515 行 (-11.8%)。

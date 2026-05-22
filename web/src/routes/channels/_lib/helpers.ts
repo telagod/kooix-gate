@@ -95,3 +95,43 @@ export function pluginAuthSlotSummary(form: PluginAuthForm): string {
 			return 'primary';
 	}
 }
+
+export function fmtLimit(v: number | null | undefined): string {
+	if (v == null) return '—';
+	return v.toLocaleString();
+}
+
+export function fmtDate(s: string | null | undefined): string {
+	if (!s) return '—';
+	try {
+		return new Date(s).toLocaleDateString('zh-CN', {
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+		});
+	} catch {
+		return s;
+	}
+}
+
+export function healthBadgeCls(health: string): string {
+	if (health === 'healthy') return 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 ring-1 ring-green-600/10 dark:ring-green-400/20';
+	if (health === 'degraded') return 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-1 ring-amber-600/10 dark:ring-amber-400/20';
+	if (health === 'unhealthy') return 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-red-600/10 dark:ring-red-400/20';
+	return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-200 dark:ring-zinc-700';
+}
+
+export function statusBadgeCls(status: string): string {
+	if (status === 'active') return 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 ring-1 ring-green-600/10 dark:ring-green-400/20';
+	if (status === 'draining') return 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-1 ring-amber-600/10 dark:ring-amber-400/20';
+	if (status === 'disabled') return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-200 dark:ring-zinc-700';
+	return 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-red-600/10 dark:ring-red-400/20';
+}
+
+export function healthDot(health: string): string {
+	if (health === 'healthy') return 'bg-green-500';
+	if (health === 'degraded') return 'bg-amber-500';
+	if (health === 'unhealthy') return 'bg-red-500';
+	return 'bg-zinc-400';
+}
