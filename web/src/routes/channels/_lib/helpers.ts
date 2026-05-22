@@ -3,7 +3,7 @@
 // 这些值与 state 无关，可被 _components/* 子组件共用。
 
 import { CAPABILITY_LABELS, capabilityList, providerCapabilities } from '$lib/plugin-presets';
-import type { ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
+import type { PluginAuthForm, ProviderCapabilities, ProviderCapabilityKey } from '$lib/plugin-presets';
 import type { ProviderOption } from '$lib/components/ui/ProviderSelect.svelte';
 
 export const PROVIDER_OPTIONS: ProviderOption[] = [
@@ -66,4 +66,32 @@ export function capabilityChipClass(key: ProviderCapabilityKey): string {
 		return 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20';
 	}
 	return 'bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700';
+}
+
+export function pluginAuthSlotSummary(form: PluginAuthForm): string {
+	switch (form.strategy) {
+		case 'bearer':
+		case 'api_key_header':
+		case 'api_key_query':
+		case 'hmac':
+			return form.secret_slot.trim() || 'primary';
+		case 'basic':
+			return `${form.username_slot.trim() || 'username'} / ${form.password_slot.trim() || 'primary'}`;
+		case 'aws_sigv4':
+			return [
+				form.aws_access_key_slot.trim() || 'primary',
+				form.aws_secret_key_slot.trim() || 'aws_secret_key',
+				form.aws_session_token_slot.trim(),
+			]
+				.filter(Boolean)
+				.join(' / ');
+		case 'oauth_client_credentials':
+			return `${form.oauth_client_id_slot.trim() || 'client_id'} / ${form.oauth_client_secret_slot.trim() || 'client_secret'}`;
+		case 'custom_headers':
+			return '按 Headers JSON 内的 {{slot}} 引用';
+		case 'none':
+			return '无认证 slot';
+		default:
+			return 'primary';
+	}
 }

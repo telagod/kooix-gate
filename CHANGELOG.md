@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.3] — 2026-05-23
+
+**主题**：channels/+page.svelte CreateDrawer 拆分 — 1718 → 1515 行 (-11.8%)。
+
+### Refactor
+
+- `_components/CreateChannelDrawer.svelte` (367 行)：把 218 行 CreateDrawer template
+  抽成独立组件。props 表 36（12 bindable + 9 read-only + 15 callback/util），manifest
+  builder 7 步流程整体内嵌。
+- `pluginAuthSlotSummary` 移到 `_lib/helpers.ts`，跨 drawer 共用。
+- Svelte 5 占位符 `{{model}}` 转 const 变量化（`REQUEST_BODY_PLACEHOLDER` /
+  `PROBE_PATH_PLACEHOLDER`），避免被解析为 expression。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.2] — 2026-05-22
 
 **主题**：M1.4 前端 channels 巨兽初拆 — `channels/+page.svelte` 1864 → 1718 行（-7.8%）。

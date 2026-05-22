@@ -45,6 +45,7 @@
 	import DeleteConfirmModal from './_components/DeleteConfirmModal.svelte';
 	import BatchConfirmModal from './_components/BatchConfirmModal.svelte';
 	import EditChannelDrawer from './_components/EditChannelDrawer.svelte';
+	import CreateChannelDrawer from './_components/CreateChannelDrawer.svelte';
 	import {
 		PROVIDER_OPTIONS as HELPER_PROVIDER_OPTIONS,
 		FILTER_PROVIDER_OPTIONS as HELPER_FILTER_PROVIDER_OPTIONS,
@@ -54,6 +55,7 @@
 		capabilityFallback,
 		capabilityTitle,
 		capabilityChipClass,
+		pluginAuthSlotSummary,
 	} from './_lib/helpers';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import { cn, dataTemplate } from '$lib/design';
@@ -783,30 +785,6 @@ data: {"payload":{"type":"message_stop"}}
 		}
 	}
 
-	function pluginAuthSlotSummary(form: PluginAuthForm): string {
-		switch (form.strategy) {
-			case 'bearer':
-			case 'api_key_header':
-			case 'api_key_query':
-			case 'hmac':
-				return form.secret_slot.trim() || 'primary';
-			case 'basic':
-				return `${form.username_slot.trim() || 'username'} / ${form.password_slot.trim() || 'primary'}`;
-			case 'aws_sigv4':
-				return [form.aws_access_key_slot.trim() || 'primary', form.aws_secret_key_slot.trim() || 'aws_secret_key', form.aws_session_token_slot.trim()]
-					.filter(Boolean)
-					.join(' / ');
-			case 'oauth_client_credentials':
-				return `${form.oauth_client_id_slot.trim() || 'client_id'} / ${form.oauth_client_secret_slot.trim() || 'client_secret'}`;
-			case 'custom_headers':
-				return '按 Headers JSON 内的 {{slot}} 引用';
-			case 'none':
-				return '无认证 slot';
-			default:
-				return 'primary';
-		}
-	}
-
 	function preferredCreateKeyAlias(): string {
 		const form = pluginBuilderDraft.auth;
 		switch (form.strategy) {
@@ -1106,222 +1084,41 @@ data: {"payload":{"type":"message_stop"}}
 />
 
 <!-- Drawer: Create -->
-{#if showCreate}
-	<ModalFrame close={() => { showCreate = false; }} class="z-40 justify-end bg-black/50 backdrop-blur-sm p-0 animate-backdrop">
-		<div class="w-full max-w-lg bg-white dark:bg-zinc-900 h-full overflow-y-auto shadow-2xl animate-slide-in-right">
-			<div class="p-6">
-				<div class="flex items-center justify-between mb-6">
-					<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">新建 Channel</h2>
-					<button onclick={() => (showCreate = false)} class="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-						<X size={18} />
-					</button>
-				</div>
-				<form onsubmit={handleCreate} class="space-y-6">
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">基础信息</p>
-						<div class="space-y-3">
-							<div>
-								<label for="ch-code" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Code <span class="text-red-500">*</span></label>
-								<Input id="ch-code" placeholder="openai-prod" bind:value={createForm.code} disabled={creating} />
-							</div>
-							<div>
-								<label for="ch-name" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-								<Input id="ch-name" placeholder="OpenAI Production" bind:value={createForm.name} disabled={creating} />
-							</div>
-							<Field label="Provider" for="ch-provider" required>
-								<ProviderSelect bind:value={createForm.provider_type} options={PROVIDER_OPTIONS} mode="grid" disabled={creating} />
-							</Field>
-							<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-								<div class="mb-2 flex items-center justify-between gap-2">
-									<p class="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Capability</p>
-									{#if isPluginProvider(createForm.provider_type) && pluginBuilderDraft.preset}
-										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{pluginBuilderDraft.preset}</span>
-									{:else}
-										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{createForm.provider_type}</span>
-									{/if}
-								</div>
-								<div class="flex flex-wrap gap-1.5" title={capabilityTitle(createProviderCaps)}>
-									{#each capabilityList(createProviderCaps) as cap}
-										<span class="rounded-md px-2 py-0.5 text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
-									{/each}
-								</div>
-								{#if createMissingCaps.length > 0}
-									<p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
-										未声明 {createMissingCaps.map(cap => CAPABILITY_LABELS[cap]).join(' / ')}；这些请求不会路由到该 Channel。
-									</p>
-								{/if}
-							</div>
-							<div>
-								<label for="ch-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL <span class="text-red-500">*</span></label>
-								<Input id="ch-url" placeholder={isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) || 'https://api.example.com/v1' : providerBaseUrlSuggestion(createForm.provider_type) || 'https://api.openai.com/v1'} bind:value={createForm.base_url} disabled={creating} />
-								{#if (isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) : providerBaseUrlSuggestion(createForm.provider_type))}
-									<button type="button" class="mt-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100" onclick={() => { createForm.base_url = isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) : providerBaseUrlSuggestion(createForm.provider_type); }}>
-										使用建议：{isPluginProvider(createForm.provider_type) ? pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) : providerBaseUrlSuggestion(createForm.provider_type)}
-									</button>
-								{/if}
-							</div>
-							{#if isPluginProvider(createForm.provider_type)}
-								<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-									<div class="mb-4 flex flex-wrap gap-1.5">
-										{#each PLUGIN_BUILDER_STEPS as label, index}
-											<button type="button" onclick={() => (pluginBuilderStep = index + 1)} class="rounded-full px-2.5 py-1 text-xs font-medium transition-colors {pluginBuilderStep === index + 1 ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' : 'bg-white text-zinc-600 ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800'}">
-												{index + 1}. {label}
-											</button>
-										{/each}
-									</div>
-
-									{#if pluginBuilderStep === 1}
-										<label for="ch-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">1. 选择 preset 或自定义</label>
-										<select id="ch-plugin-preset" bind:value={pluginBuilderDraft.preset} onchange={handleBuilderPresetChange} disabled={creating} class="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
-											{#each PLUGIN_PRESET_OPTIONS as opt}
-												<option value={opt.value}>{opt.label}</option>
-											{/each}
-										</select>
-										{#if pluginBuilderDraft.preset}
-											<div class="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-												<p class="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">Preset capability defaults</p>
-												<div class="flex flex-wrap gap-1.5">
-													{#each capabilityList(pluginCapabilitiesForPreset(pluginBuilderDraft.preset)) as cap}
-														<span class="rounded-md px-2 py-0.5 text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
-													{/each}
-												</div>
-												<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Base URL 建议：{pluginPresetBaseUrlSuggestion(pluginBuilderDraft.preset) || '按上游文档填写'}</p>
-											</div>
-										{/if}
-									{:else if pluginBuilderStep === 2}
-										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">2. 配置 auth</p>
-										<PluginAuthEditor bind:form={pluginBuilderDraft.auth} disabled={creating} idPrefix="ch-builder-auth" />
-										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); pluginBuilderStep = 3; }} disabled={creating}>写入 manifest</Button>
-									{:else if pluginBuilderStep === 3}
-										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">3. 配置 request mapping</p>
-										<Input placeholder="/private/chat" bind:value={pluginBuilderDraft.request_path} disabled={creating || !!pluginBuilderDraft.preset} />
-										<textarea class="mt-2 min-h-36 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" bind:value={pluginBuilderDraft.request_body} disabled={creating || !!pluginBuilderDraft.preset}></textarea>
-										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); pluginBuilderStep = 4; }} disabled={creating}>生成 request</Button>
-									{:else if pluginBuilderStep === 4}
-										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">4. 粘贴 non-stream response sample，点选字段映射</p>
-										<textarea class="min-h-32 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={RESPONSE_SAMPLE_PLACEHOLDER} bind:value={pluginBuilderDraft.response_sample} oninput={refreshBuilderSuggestions} disabled={creating}></textarea>
-										<div class="mt-2 grid grid-cols-2 gap-2">
-											{#each pluginBuilderSuggestions.slice(0, 8) as s}
-												<div class="rounded-md border border-zinc-200 bg-white p-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
-													<p class="mb-1 truncate font-mono text-zinc-700 dark:text-zinc-300">{s.path}</p>
-													<div class="flex flex-wrap gap-1">
-														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('content', s.path)}>content</button>
-														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('finish', s.path)}>finish</button>
-														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('prompt', s.path)}>prompt</button>
-														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('completion', s.path)}>completion</button>
-														<button type="button" class="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" onclick={() => chooseBuilderPath('total', s.path)}>total</button>
-													</div>
-												</div>
-											{/each}
-										</div>
-										<p class="mt-2 text-xs text-zinc-500">已选：content={pluginBuilderDraft.response_content_path || 'auto'} · prompt={pluginBuilderDraft.response_prompt_tokens_path || 'auto'} · completion={pluginBuilderDraft.response_completion_tokens_path || 'auto'}</p>
-										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); pluginBuilderStep = 5; }} disabled={creating}>生成 response mapping</Button>
-									{:else if pluginBuilderStep === 5}
-										<div class="mb-2 flex items-center justify-between gap-2">
-											<div>
-												<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">5. 粘贴 raw SSE sample，预览 chunks</p>
-												<p class="text-xs text-zinc-500 dark:text-zinc-400">未填时使用内置 private SSE 样例。</p>
-											</div>
-											<Button size="sm" variant="outline" type="button" onclick={replayCreatePluginManifest} disabled={creating || createReplaying}>{createReplaying ? '回放中...' : 'Replay'}</Button>
-										</div>
-										<textarea class="min-h-36 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_REPLAY_SAMPLE} bind:value={createReplayInput} disabled={creating || createReplaying}></textarea>
-										{#if createReplayError}<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{createReplayError}</p>{/if}
-										{#if createReplayOutput}<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{createReplayOutput}</pre>{/if}
-									{:else if pluginBuilderStep === 6}
-										<div class="mb-2 flex items-start justify-between gap-3">
-											<div>
-												<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">6. 自动 Probe 参数</p>
-												<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">保存时先写入初始 Key，再调用 channel probe；若未填写 key，则依赖环境变量或 none auth，Probe 失败只提示不回滚。</p>
-											</div>
-											<label class="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-												<input type="checkbox" bind:checked={createAutoProbe} disabled={creating} class="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:ring-zinc-100" />
-												保存后自动 Probe
-											</label>
-										</div>
-										<Input placeholder="/models 或 /health/chat" bind:value={pluginBuilderDraft.probe_path} disabled={creating} />
-										<div class="mt-2 grid grid-cols-2 gap-2">
-											<Input placeholder="probe model" bind:value={pluginBuilderDraft.probe_model} disabled={creating} />
-											<Input placeholder="200,204" bind:value={pluginBuilderDraft.probe_success_status} disabled={creating} />
-										</div>
-										<Input class="mt-2" placeholder="max_cost_micros，空为不声明成本" bind:value={pluginBuilderDraft.probe_max_cost_micros} disabled={creating} />
-										<textarea class="mt-2 min-h-24 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PROBE_BODY_PLACEHOLDER} bind:value={pluginBuilderDraft.probe_body} disabled={creating}></textarea>
-										<div class="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-											<p class="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">初始 Key（可选）</p>
-											<div class="grid grid-cols-[0.8fr_1.2fr] gap-2">
-												<Input placeholder="key alias / secret slot" bind:value={createInitialKeyAlias} disabled={creating} />
-												<Input type="password" placeholder="只在保存时加密写入，不进入 manifest" bind:value={createInitialKeySecret} disabled={creating} autocomplete="new-password" />
-											</div>
-											<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">当前 auth 需要 slot：{pluginAuthSlotSummary(pluginBuilderDraft.auth)}。留空则继续使用已存在 channel key 或环境变量，创建流程不会保存明文。</p>
-										</div>
-										<Button class="mt-3" size="sm" variant="outline" type="button" onclick={() => { updateBuilderManifestPreview(); lintCreatePluginManifest(); pluginBuilderStep = 7; }} disabled={creating}>生成 probe manifest 并 lint</Button>
-									{:else}
-										<p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">7. 保存 channel 并加入 group</p>
-										<select bind:value={pluginBuilderDraft.target_group_id} disabled={creating || loadingCreateGroups} class="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
-											<option value="">不自动加入 Group</option>
-											{#each createGroups as group}
-												<option value={group.id}>{group.name} · {group.strategy}</option>
-											{/each}
-										</select>
-										<p class="mt-2 text-xs text-zinc-500">保存成功后会调用 addGroupBinding(group, channel, priority=1, weight=1)。若开启自动 Probe，会在创建后立即按 manifest probe 探活；发现模型且模型列表为空时会自动同步。</p>
-									{/if}
-
-									<div class="mt-4">
-										<div class="mb-1 flex items-center justify-between gap-2">
-											<label for="ch-plugin" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest Preview</label>
-											<Button size="sm" variant="outline" type="button" onclick={lintCreatePluginManifest} disabled={creating}>本地 lint</Button>
-										</div>
-										<textarea id="ch-plugin" class="min-h-48 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={pluginBuilderDraft.preset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={pluginManifestInput} disabled={creating}></textarea>
-										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Builder 会把 Auth / Request / Response / Probe 合并进 manifest；manifest 只引用 secret slot，不写明文 secret。</p>
-									</div>
-								</div>
-							{/if}
-						</div>
-					</div>
-
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">限速 & 超时</p>
-						<div class="grid grid-cols-2 gap-3">
-							<div>
-								<label for="ch-rpm" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">RPM</label>
-								<Input id="ch-rpm" type="number" placeholder="无限制" bind:value={createForm.rpm_limit} disabled={creating} />
-							</div>
-							<div>
-								<label for="ch-tpm" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">TPM</label>
-								<Input id="ch-tpm" type="number" placeholder="无限制" bind:value={createForm.tpm_limit} disabled={creating} />
-							</div>
-							<div>
-								<label for="ch-timeout" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">超时(ms)</label>
-								<Input id="ch-timeout" type="number" bind:value={createForm.timeout_ms} disabled={creating} />
-							</div>
-							<div>
-								<label for="ch-retries" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">重试次数</label>
-								<Input id="ch-retries" type="number" bind:value={createForm.max_retries} disabled={creating} />
-							</div>
-						</div>
-					</div>
-
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">模型</p>
-						<Input placeholder="gpt-4o, gpt-4o-mini (逗号分隔)" bind:value={modelsInput} disabled={creating} />
-					</div>
-
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">标签</p>
-						<Input placeholder="production, us-east" bind:value={tagsInput} disabled={creating} />
-					</div>
-
-					{#if createError}
-						<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{createError}</p>
-					{/if}
-					<div class="flex gap-2 justify-end pt-4 border-t border-zinc-200 dark:border-zinc-800">
-						<Button variant="outline" type="button" onclick={() => (showCreate = false)}>取消</Button>
-						<Button type="submit" disabled={creating}>{creating ? '创建中...' : '创建'}</Button>
-					</div>
-				</form>
-			</div>
-		</div>
-	</ModalFrame>
-{/if}
+<CreateChannelDrawer
+	bind:showCreate
+	bind:createForm
+	bind:pluginBuilderDraft
+	bind:pluginBuilderStep
+	bind:pluginManifestInput
+	bind:modelsInput
+	bind:tagsInput
+	bind:createInitialKeyAlias
+	bind:createInitialKeySecret
+	bind:createAutoProbe
+	bind:createReplayInput
+	{pluginBuilderSuggestions}
+	{createReplayOutput}
+	{createReplayError}
+	{createReplaying}
+	{creating}
+	{createError}
+	{createProviderCaps}
+	{createMissingCaps}
+	{createGroups}
+	{loadingCreateGroups}
+	pluginManifestExample={PLUGIN_MANIFEST_EXAMPLE}
+	privatePluginManifestExample={PRIVATE_PLUGIN_MANIFEST_EXAMPLE}
+	pluginReplaySample={PLUGIN_REPLAY_SAMPLE}
+	onClose={() => (showCreate = false)}
+	onSubmit={handleCreate}
+	onPresetChange={handleCreatePresetChange}
+	onBuilderPresetChange={handleBuilderPresetChange}
+	onChooseBuilderPath={chooseBuilderPath}
+	onRefreshBuilderSuggestions={refreshBuilderSuggestions}
+	onUpdateBuilderManifestPreview={updateBuilderManifestPreview}
+	onLintManifest={lintCreatePluginManifest}
+	onReplayManifest={replayCreatePluginManifest}
+/>
 
 <!-- Drawer: Edit -->
 <EditChannelDrawer
