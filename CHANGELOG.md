@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.14] — 2026-05-23
+
+**主题**：PricingWizard 完整组件化 — admin/pricing 633 → 369 行 (-41.7%)。
+
+### Refactor
+
+- `_components/PricingWizard.svelte` (404 行) — 304 行 4 步 wizard form 整体抽出
+- 36 顶层 props（11 bindable + 12 read-only state + 11 callback/util）
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.13] — 2026-05-23
 
 **主题**：QuotaForm 抽出 — quotas 722 → 680 行 (-5.8%)。
