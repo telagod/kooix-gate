@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.13] — 2026-05-23
+
+**主题**：QuotaForm 抽出 — quotas 722 → 680 行 (-5.8%)。
+
+### Refactor
+
+- `_components/QuotaForm.svelte` (109 行)
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.12] — 2026-05-23
 
 **主题**：QuotaWizard 完整组件化 — quotas 948 → 722 行 (-23.8%)。

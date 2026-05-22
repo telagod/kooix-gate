@@ -6,6 +6,7 @@
 	import { shortId } from '$lib/id.js';
 	import QuotaDeleteModal from './_components/QuotaDeleteModal.svelte';
 	import QuotaWizard from './_components/QuotaWizard.svelte';
+	import QuotaForm from './_components/QuotaForm.svelte';
 	import {
 		deleteQuota,
 		explainQuota,
@@ -440,68 +441,25 @@
 	onConfirm={handleDelete}
 />
 
-
-{#if showForm}
-	<ModalFrame close={() => (showForm = false)} panelClass="w-full max-w-2xl">
-		<Card padding="lg" class="max-h-[90vh] overflow-y-auto">
-			<div class="mb-5 flex items-start justify-between gap-3">
-				<div>
-					<p class="text-xs font-semibold uppercase tracking-widest {text.muted}">Policy Rule</p>
-					<h3 class="mt-1 text-lg font-semibold {text.primary}">添加配额策略</h3>
-					<p class="mt-1 text-sm {text.secondary}">user × model / api_key × model 均可用 model_filter 精确收束。</p>
-				</div>
-				<Badge variant={formMode === 'dry_run' ? 'warning' : 'default'}>{formMode}</Badge>
-			</div>
-
-			<form onsubmit={handleSubmit} class="space-y-4">
-				<div class="grid gap-3 md:grid-cols-3">
-					<div>
-						<label for="q-scope" class="mb-1 block text-sm font-medium {text.secondary}">作用域</label>
-						<Select id="q-scope" bind:value={formScopeKind} options={scopeOptions} disabled={submitting} />
-					</div>
-					<div>
-						<label for="q-dim" class="mb-1 block text-sm font-medium {text.secondary}">维度</label>
-						<Select id="q-dim" bind:value={formDimension} options={dimensionOptions} disabled={submitting} />
-					</div>
-					<div>
-						<label for="q-mode" class="mb-1 block text-sm font-medium {text.secondary}">模式</label>
-						<Select id="q-mode" bind:value={formMode} options={modeOptions} disabled={submitting} />
-					</div>
-				</div>
-
-				<div>
-					<label for="q-scope-id" class="mb-1 block text-sm font-medium {text.secondary}">Scope ID</label>
-					<Input id="q-scope-id" placeholder={orgId} bind:value={formScopeId} disabled={submitting} />
-					<p class="mt-1 text-xs {text.muted}">Org 填当前 Org ID；Project / API Key / User 填对应 UUID 或 typed ID。</p>
-				</div>
-
-				<div class="grid gap-3 md:grid-cols-3">
-					<div>
-						<label for="q-limit" class="mb-1 block text-sm font-medium {text.secondary}">限额</label>
-						<Input id="q-limit" type="number" step="any" min="0" bind:value={formLimitValue} disabled={submitting} />
-					</div>
-					<div>
-						<label for="q-window" class="mb-1 block text-sm font-medium {text.secondary}">窗口秒</label>
-						<Input id="q-window" type="number" min="1" placeholder="60" bind:value={formWindowSeconds} disabled={submitting} />
-					</div>
-					<div>
-						<label for="q-model" class="mb-1 block text-sm font-medium {text.secondary}">Model filter</label>
-						<Input id="q-model" placeholder="gpt-4o*" bind:value={formModelFilter} disabled={submitting} />
-					</div>
-				</div>
-
-				{#if formError}
-					<Alert variant="danger">{formError}</Alert>
-				{/if}
-
-				<div class="flex justify-end gap-2">
-					<Button variant="outline" type="button" onclick={() => (showForm = false)}>取消</Button>
-					<Button type="submit" disabled={submitting}>{submitting ? '保存中...' : '保存策略'}</Button>
-				</div>
-			</form>
-		</Card>
-	</ModalFrame>
-{/if}
+<QuotaForm
+	bind:showForm
+	bind:formScopeKind
+	bind:formScopeId
+	bind:formDimension
+	bind:formLimitValue
+	bind:formModelFilter
+	bind:formWindowSeconds
+	bind:formMode
+	{formError}
+	{submitting}
+	{orgId}
+	{scopeOptions}
+	{dimensionOptions}
+	{modeOptions}
+	{text}
+	onClose={() => (showForm = false)}
+	onSubmit={handleSubmit}
+/>
 
 <QuotaWizard
 	{showWizard}
