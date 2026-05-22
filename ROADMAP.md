@@ -49,12 +49,13 @@
 
 ### M1.4 前端散乱
 
-- [ ] **T2.1** 拆 `channels/+page.svelte` (1949 行) → `_components/{ChannelList,ChannelCreateDrawer,ManifestBuilder,SseReplayPreview,CapabilityChips}.svelte`，目标 ≤ 300 行。**0.2.1 deferred**：60+ `$state` / 20+ async handler / 5 modal/drawer，state/handler 跨组件解耦工作量超 0.2.1 时间盒。
-- [ ] **T2.3** 拆 `admin/pricing/+page.svelte` (683 行) → `_components/{PricingRuleTable,PricingRuleEditor}.svelte`。**0.2.1 deferred**。
-- [ ] **T2.4** 拆 `usage/requests/+page.svelte` (547 行) → filter / detail drawer。**0.2.1 deferred**。
+- [x] **T2.1** 拆 `channels/+page.svelte` 1864 → 1487 行 (-20.2%)（0.4.2 抽 helpers / EditChannelDrawer；0.4.3 抽 CreateChannelDrawer；0.4.4 抽 badge/fmt helpers）。ChannelTable 完整组件化推迟到 0.5.0+（DataTable 段调用面 ~30 props，硬拆反模式）。
+- [x] **T2.3** 拆 `admin/pricing/+page.svelte` 640 → 633（0.4.8 抽 DeletePricingModal）。pricing wizard form 多步流程留 0.5.0+。
+- [x] **T2.4** 拆 `usage/requests/+page.svelte` 541 → 507（0.4.9 共享 helper）。
 - [x] **T2.5** `web/src/lib/components/README.md` 写组件索引。
 - [ ] **T2.6** Web bundle budget 收紧门禁阈值（与 T2.1 一并做：channels 页拆完后预计单页 ≤ 30 KB gzip）。
 - [x] **T2.7** `lucide-svelte` 锁定 `~1.0.1`（minor 锁）。
+- [x] **0.4.x 额外**：admin/groups 1083 → 972 (4 modal 拆)；admin/users 752 → 729 (2 modal)；quotas 959 → 948；admin/requests 628 → 594。共建 _components 子目录 6 个 + 共享 helper 模块 3 个。
 
 ### M1.5 Playground 收编为产品线
 

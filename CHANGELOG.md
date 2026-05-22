@@ -11,6 +11,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.10] — 2026-05-23
+
+**主题**：0.4.x 阶段收尾 — M1.4 前端拆解里程碑达成，ROADMAP 同步。
+
+### 阶段战报（0.4.0 → 0.4.10）
+
+| 阶段 | 战果 |
+|------|------|
+| 0.4.0 | M3 Fast-path Runtime 完成（ADR-0002 4 fast-path × 0.74-1.00 vs builtin） |
+| 0.4.1 | Rust 三巨兽拆解（router/custom_provider/plugin_manifest 全部 -52% 以上） |
+| 0.4.2 | channels: 1864 → 1718 (-7.8%) — helpers + EditChannelDrawer |
+| 0.4.3 | channels: 1718 → 1515 (-11.8%) — CreateChannelDrawer |
+| 0.4.4 | channels: 1515 → 1487 (-1.8%) — badge/fmt helpers |
+| 0.4.5 | admin/groups: 1083 → 972 (-10.2%) — 4 modal |
+| 0.4.6 | quotas: 959 → 948 (-1.1%) — QuotaDeleteModal |
+| 0.4.7 | admin/users: 752 → 729 (-3.1%) — 2 modal |
+| 0.4.8 | admin/pricing: 640 → 633 (-1.1%) — DeletePricingModal |
+| 0.4.9 | requests 双页 -68 行 (-5.7%) — 共享 helper |
+
+### 前端 +page.svelte Top 10（0.4.10 结算）
+
+```
+1487  channels/+page.svelte
+ 972  admin/groups/+page.svelte
+ 948  orgs/[orgId]/quotas/+page.svelte
+ 729  admin/users/+page.svelte
+ 667  channels/[channelId]/+page.svelte
+ 633  admin/pricing/+page.svelte
+ 594  admin/requests/+page.svelte
+ 507  usage/requests/+page.svelte
+ 463  orgs/[orgId]/billing/+page.svelte
+```
+
+### 新增 _components / _lib
+
+- `channels/_components/`: EditChannelDrawer + CreateChannelDrawer + 3 existing modal = 5
+- `channels/_lib/helpers.ts`: 12 个共享 fn/常量
+- `admin/groups/_components/`: 4 modal
+- `admin/users/_components/`: 2 modal
+- `admin/pricing/_components/`: DeletePricingModal + existing PricingRulesTable = 2
+- `orgs/[orgId]/quotas/_components/`: QuotaDeleteModal
+- `$lib/requests-helpers.ts`: 6 个跨页共享 fn
+
+### Deferred 到 0.5.0+
+
+- ChannelTable 完整组件化（DataTable 段 ~30 props，硬拆反模式）
+- QuotaForm / QuotaWizard 拆分（多步流程 + 复杂 derived state）
+- Pricing wizard form（多步 + 计费 preview state）
+- admin/users session modal（75 行嵌套 sessions 列表）
+- T2.6 Web bundle budget 收紧门禁阈值
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+- `npm test` 87 passed
+- `cargo build` 净
+
+### ROADMAP 同步
+
+- M1.4 T2.1 / T2.3 / T2.4 全部 ticked
+- 新增 "0.4.x 额外" 条目记录 modal 拆解战果
+
+---
+
 ## [0.4.9] — 2026-05-23
 
 **主题**：requests 双页共享 helper 抽出 — admin/requests 628 → 594 / usage/requests 541 → 507（合计 -68 行 / -5.7%）。
