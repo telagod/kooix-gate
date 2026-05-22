@@ -26,6 +26,9 @@
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import SectionCard from '$lib/components/templates/SectionCard.svelte';
 	import StatePanel from '$lib/components/templates/StatePanel.svelte';
+	import RevokeKeyModal from './_components/RevokeKeyModal.svelte';
+	import CreateKeyModal from './_components/CreateKeyModal.svelte';
+	import RotateKeyModal from './_components/RotateKeyModal.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 	import { Cable, CirclePause, ListChecks, Plus, RotateCw, Server, ShieldCheck, XCircle, Zap } from 'lucide-svelte';
 
@@ -295,89 +298,37 @@
 	</div>
 {/if}
 
+<RevokeKeyModal
+	{revokingId}
+	bind:revokeConfirmation
+	{revoking}
+	onClose={() => { revokingId = null; revokeConfirmation = ''; }}
+	onConfirm={handleRevoke}
+/>
+
+<CreateKeyModal
+	bind:showCreateKey
+	bind:createSecret
+	bind:createAlias
+	{createKeyError}
+	{creatingKey}
+	onClose={() => (showCreateKey = false)}
+	onSubmit={handleCreateKey}
+/>
+
+<RotateKeyModal
+	bind:showRotate
+	bind:rotateSecret
+	bind:rotateAlias
+	bind:rotateConfirmation
+	{rotateError}
+	{rotating}
+	channelCode={channelStats?.channel.code ?? ''}
+	onClose={() => { showRotate = false; rotateConfirmation = ''; }}
+	onSubmit={handleRotate}
+/>
+
 <!-- Revoke confirm -->
-{#if revokingId}
-	{@const expectedRevokeConfirmation = `revoke:${rawId(revokingId)}`}
-	<ModalFrame close={() => { revokingId = null; revokeConfirmation = ''; }} class="z-40">
-		<Card class="p-6 max-w-sm w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认撤销</h3>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">撤销后此 Key 将立即失效。请输入确认短语：</p>
-			<div class="mb-4 space-y-2">
-				<code class="block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedRevokeConfirmation}</code>
-				<Input id="revoke-confirm" bind:value={revokeConfirmation} disabled={revoking} placeholder={expectedRevokeConfirmation} class="font-mono" />
-			</div>
-			<div class="flex gap-2 justify-end">
-				<Button variant="outline" onclick={() => { revokingId = null; revokeConfirmation = ''; }} disabled={revoking}>取消</Button>
-				<Button variant="destructive" onclick={handleRevoke} disabled={revoking || revokeConfirmation.trim() !== expectedRevokeConfirmation}>
-					{revoking ? '撤销中...' : '确认撤销'}
-				</Button>
-			</div>
-		</Card>
-	</ModalFrame>
-{/if}
-
-<!-- Create Key modal -->
-{#if showCreateKey}
-	<ModalFrame close={() => { showCreateKey = false; }} class="z-40">
-		<Card class="p-6 max-w-lg w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">添加 Key</h3>
-			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
-				<p class="text-xs text-amber-800 dark:text-amber-300">Secret 为上游 API Key 明文，加密存储后不可查看。</p>
-			</div>
-			<form onsubmit={handleCreateKey} class="space-y-3">
-				<Field label="Secret" for="ck-secret" required>
-					<Textarea id="ck-secret" bind:value={createSecret} disabled={creatingKey} rows={3} placeholder="sk-..." class="font-mono resize-none" />
-				</Field>
-				<Field label="别名" for="ck-alias">
-					<Input id="ck-alias" bind:value={createAlias} disabled={creatingKey} placeholder="prod-key-1" />
-				</Field>
-				{#if createKeyError}
-					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{createKeyError}</p>
-				{/if}
-				<div class="flex gap-2 justify-end">
-					<Button variant="outline" type="button" onclick={() => (showCreateKey = false)}>取消</Button>
-					<Button type="submit" disabled={creatingKey || !createSecret.trim()}>
-						{creatingKey ? '创建中...' : '创建'}
-					</Button>
-				</div>
-			</form>
-		</Card>
-	</ModalFrame>
-{/if}
-
-<!-- Rotate modal -->
-{#if showRotate}
-	{@const expectedRotateConfirmation = `rotate:${channelStats?.channel.code ?? ''}`}
-	<ModalFrame close={() => { showRotate = false; rotateConfirmation = ''; }} class="z-40">
-		<Card class="p-6 max-w-lg w-full mx-4">
-			<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">轮转 Key</h3>
-			<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2 mb-4">
-				<p class="text-xs text-amber-800 dark:text-amber-300">将创建新 Key 并自动撤销所有旧 Key。</p>
-			</div>
-			<form onsubmit={handleRotate} class="space-y-3">
-				<Field label="新 Secret" for="rk-secret" required>
-					<Textarea id="rk-secret" bind:value={rotateSecret} disabled={rotating} rows={3} placeholder="sk-..." class="font-mono resize-none" />
-				</Field>
-				<Field label="别名" for="rk-alias">
-					<Input id="rk-alias" bind:value={rotateAlias} disabled={rotating} placeholder="prod-key-2" />
-				</Field>
-				<Field label="二次确认" for="rk-confirm" hint="轮转会禁用旧 healthy key；请输入下方短语。">
-					<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedRotateConfirmation}</code>
-					<Input id="rk-confirm" bind:value={rotateConfirmation} disabled={rotating} placeholder={expectedRotateConfirmation} class="font-mono" />
-				</Field>
-				{#if rotateError}
-					<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">{rotateError}</p>
-				{/if}
-				<div class="flex gap-2 justify-end">
-					<Button variant="outline" type="button" onclick={() => (showRotate = false)}>取消</Button>
-					<Button variant="destructive" type="submit" disabled={rotating || !rotateSecret.trim() || rotateConfirmation.trim() !== expectedRotateConfirmation}>
-						{rotating ? '轮转中...' : '确认轮转'}
-					</Button>
-				</div>
-			</form>
-		</Card>
-	</ModalFrame>
-{/if}
 
 <PageShell
 	title={channelStats ? (channelStats.channel.name || channelStats.channel.code) : 'Channel 详情'}

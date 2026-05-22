@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.17] — 2026-05-23
+
+**主题**：channels/[channelId] 3 modal 抽出 — 667 → 618 行 (-7.3%)。
+
+### Refactor
+
+- `_components/RevokeKeyModal.svelte` (43 行)
+- `_components/CreateKeyModal.svelte` (53 行)
+- `_components/RotateKeyModal.svelte` (63 行)
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.16] — 2026-05-23
 
 **主题**：ADR-0003 WASM Plugin ABI v0 PoC 收口 — M3 唯一未结项达成。
