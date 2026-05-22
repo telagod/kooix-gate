@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.9] — 2026-05-23
+
+**主题**：requests 双页共享 helper 抽出 — admin/requests 628 → 594 / usage/requests 541 → 507（合计 -68 行 / -5.7%）。
+
+### Refactor
+
+- `$lib/requests-helpers.ts` (59 行) — 6 个纯函数跨页共享：
+  - `rangeToDate` / `statusBadgeCls` / `formatRequestDate` /
+    `formatLatency` / `formatCost` / `formatTokens`
+- `formatDate` → `formatRequestDate` 统一命名（避免与他页同名冲突）
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.8] — 2026-05-23
 
 **主题**：admin/pricing DeletePricingModal 抽出 — 640 → 633 行 (-7)。
