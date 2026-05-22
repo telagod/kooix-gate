@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.11] — 2026-05-23
+
+**主题**：ChannelTable 完整组件化 — channels 1487 → 1252 行 (-15.8%)。
+
+### Refactor
+
+- `_components/ChannelTable.svelte` (289 行)：262 行 DataTable + head snippet + rows + expanded body
+  抽出。props 表用 `actions` 对象分组，从 ~30 props 收敛到 14 顶层 props（含 1 actions 对象）。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.10] — 2026-05-23
 
 **主题**：0.4.x 阶段收尾 — M1.4 前端拆解里程碑达成，ROADMAP 同步。
