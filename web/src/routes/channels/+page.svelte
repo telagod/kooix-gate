@@ -44,6 +44,17 @@
 	import ProbeModal from './_components/ProbeModal.svelte';
 	import DeleteConfirmModal from './_components/DeleteConfirmModal.svelte';
 	import BatchConfirmModal from './_components/BatchConfirmModal.svelte';
+	import EditChannelDrawer from './_components/EditChannelDrawer.svelte';
+	import {
+		PROVIDER_OPTIONS as HELPER_PROVIDER_OPTIONS,
+		FILTER_PROVIDER_OPTIONS as HELPER_FILTER_PROVIDER_OPTIONS,
+		STATUS_OPTIONS as HELPER_STATUS_OPTIONS,
+		HEALTH_OPTIONS as HELPER_HEALTH_OPTIONS,
+		isPluginProvider,
+		capabilityFallback,
+		capabilityTitle,
+		capabilityChipClass,
+	} from './_lib/helpers';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 	import {
@@ -85,34 +96,10 @@
 		ShieldCheck
 	} from 'lucide-svelte';
 
-	const PROVIDER_OPTIONS: ProviderOption[] = [
-		{ value: 'openai', label: 'OpenAI', description: 'GPT-4o / o1 / o3' },
-		{ value: 'anthropic', label: 'Anthropic', description: 'Claude 4 / Sonnet / Haiku' },
-		{ value: 'azure', label: 'Azure OpenAI', description: 'Azure 托管 GPT 部署' },
-		{ value: 'bedrock', label: 'AWS Bedrock', description: 'Claude / Titan / Llama' },
-		// 0.3.0 起 gemini / deepseek / mistral / ollama / cohere 走 plugin preset。
-		// 老 channel 由 migration 20260522000001 自动迁移；新 channel 通过 plugin builder 接入。
-		{ value: 'plugin', label: 'HTTP Plugin', description: '自定义私有协议 / SSE 整流 / Gemini / DeepSeek / Mistral / Ollama / Cohere / Groq / Together / OpenRouter / Moonshot / 智谱 / 通义 / 零一 等 18+ preset' },
-	];
-
-	const FILTER_PROVIDER_OPTIONS: ProviderOption[] = [
-		{ value: '', label: '全部 Provider', description: '不过滤' },
-		...PROVIDER_OPTIONS,
-	];
-
-	const STATUS_OPTIONS = [
-		{ value: '', label: '全部状态' },
-		{ value: 'active', label: 'Active' },
-		{ value: 'draining', label: 'Draining' },
-		{ value: 'disabled', label: 'Disabled' },
-	];
-
-	const HEALTH_OPTIONS = [
-		{ value: '', label: '全部健康度' },
-		{ value: 'healthy', label: 'Healthy' },
-		{ value: 'degraded', label: 'Degraded' },
-		{ value: 'unhealthy', label: 'Unhealthy' },
-	];
+	const PROVIDER_OPTIONS = HELPER_PROVIDER_OPTIONS;
+	const FILTER_PROVIDER_OPTIONS = HELPER_FILTER_PROVIDER_OPTIONS;
+	const STATUS_OPTIONS = HELPER_STATUS_OPTIONS;
+	const HEALTH_OPTIONS = HELPER_HEALTH_OPTIONS;
 
 	// ── State ────────────────────────────────────────
 	let channels = $state<Channel[]>([]);
@@ -597,27 +584,6 @@ data: {"payload":{"type":"message_stop"}}
 		'Test',
 		'Save'
 	];
-
-	function isPluginProvider(providerType: string | undefined): boolean {
-		return ['plugin', 'custom', 'http', 'http_plugin'].includes(providerType ?? '');
-	}
-
-	function capabilityFallback(providerType: string, caps: ProviderCapabilities | undefined): ProviderCapabilities {
-		if (caps) return caps;
-		return providerCapabilities(providerType);
-	}
-
-	function capabilityTitle(caps: ProviderCapabilities | undefined): string {
-		const active = capabilityList(caps);
-		return active.length > 0 ? active.map(key => CAPABILITY_LABELS[key]).join(', ') : 'No capability declared';
-	}
-
-	function capabilityChipClass(key: ProviderCapabilityKey): string {
-		if (key === 'image' || key === 'audio' || key === 'batch') {
-			return 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20';
-		}
-		return 'bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700';
-	}
 
 	function applyBaseUrlSuggestion(kind: 'create' | 'edit') {
 		if (kind === 'create') {
@@ -1358,145 +1324,33 @@ data: {"payload":{"type":"message_stop"}}
 {/if}
 
 <!-- Drawer: Edit -->
-{#if editingChannel}
-	<ModalFrame close={() => { editingChannel = null; }} class="z-40 justify-end bg-black/50 backdrop-blur-sm p-0 animate-backdrop">
-		<div class="w-full max-w-lg bg-white dark:bg-zinc-900 h-full overflow-y-auto shadow-2xl animate-slide-in-right">
-			<div class="p-6">
-				<div class="flex items-center justify-between mb-6">
-					<div>
-						<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">编辑 Channel</h2>
-						<p class="text-xs font-mono text-zinc-500 dark:text-zinc-400 mt-0.5">{editingChannel.code}</p>
-					</div>
-					<button onclick={() => (editingChannel = null)} class="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-						<X size={18} />
-					</button>
-				</div>
-				<form onsubmit={handleEdit} class="space-y-6">
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">基础信息</p>
-						<div class="space-y-3">
-							<div>
-								<label for="ed-name" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">名称</label>
-								<Input id="ed-name" bind:value={editForm.name} disabled={editing} />
-							</div>
-							<div>
-								<label for="ed-url" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Base URL</label>
-								<Input id="ed-url" bind:value={editForm.base_url} disabled={editing} />
-								{#if editingChannel && (isPluginProvider(editingChannel.provider_type) ? pluginPresetBaseUrlSuggestion(editPluginPreset) : providerBaseUrlSuggestion(editingChannel.provider_type))}
-									<button type="button" class="mt-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100" onclick={() => { if (editingChannel) editForm.base_url = isPluginProvider(editingChannel.provider_type) ? pluginPresetBaseUrlSuggestion(editPluginPreset) : providerBaseUrlSuggestion(editingChannel.provider_type); }}>
-										使用建议：{isPluginProvider(editingChannel.provider_type) ? pluginPresetBaseUrlSuggestion(editPluginPreset) : providerBaseUrlSuggestion(editingChannel.provider_type)}
-									</button>
-								{/if}
-							</div>
-							{#if editProviderCaps}
-								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-									<div class="mb-2 flex items-center justify-between gap-2">
-										<p class="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Capability</p>
-										<span class="text-xs font-mono text-zinc-500 dark:text-zinc-400">{editingChannel.provider_type}</span>
-									</div>
-									<div class="flex flex-wrap gap-1.5" title={capabilityTitle(editProviderCaps)}>
-										{#each capabilityList(editProviderCaps) as cap}
-											<span class="rounded-md px-2 py-0.5 text-xs font-medium ring-1 {capabilityChipClass(cap)}">{CAPABILITY_LABELS[cap]}</span>
-										{/each}
-									</div>
-									{#if editMissingCaps.length > 0}
-										<p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
-											未声明 {editMissingCaps.map(cap => CAPABILITY_LABELS[cap]).join(' / ')}；这些请求不会路由到该 Channel。
-										</p>
-									{/if}
-								</div>
-							{/if}
-							{#if isPluginProvider(editingChannel.provider_type)}
-								<div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-									<label for="ed-plugin-preset" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider 插件预设</label>
-										<select id="ed-plugin-preset" bind:value={editPluginPreset} onchange={handleEditPresetChange} disabled={editing} class="mb-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100">
-											{#each PLUGIN_PRESET_OPTIONS as opt}
-												<option value={opt.value}>{opt.label}</option>
-											{/each}
-										</select>
-										<PluginAuthEditor bind:form={editAuthForm} disabled={editing} idPrefix="ed-auth" />
-										<div class="mb-1 flex items-center justify-between gap-2">
-											<label for="ed-plugin" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Plugin Manifest</label>
-											<Button size="sm" variant="outline" type="button" onclick={lintEditPluginManifest} disabled={editing}>本地 lint</Button>
-										</div>
-										<textarea id="ed-plugin" class="min-h-64 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={editPluginPreset ? PLUGIN_MANIFEST_EXAMPLE : PRIVATE_PLUGIN_MANIFEST_EXAMPLE} bind:value={editPluginManifestInput} disabled={editing || !!editPluginPreset}></textarea>
-										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">保存前会把 Auth Strategy 合并进 manifest 并本地 lint；manifest 只引用 secret slot，不写明文 secret。</p>
-										<div class="mt-4 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-											<div class="mb-2 flex items-center justify-between gap-2">
-												<div>
-													<p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">SSE replay preview</p>
-													<p class="text-xs text-zinc-500 dark:text-zinc-400">粘贴 raw SSE，预览归一后的 OpenAI-compatible chunks。</p>
-												</div>
-												<Button size="sm" variant="outline" type="button" onclick={replayEditPluginManifest} disabled={editing || editReplaying}>{editReplaying ? '回放中...' : 'Replay'}</Button>
-											</div>
-											<textarea class="min-h-36 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:ring-zinc-100" placeholder={PLUGIN_REPLAY_SAMPLE} bind:value={editReplayInput} disabled={editing || editReplaying}></textarea>
-											{#if editReplayError}
-												<p class="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{editReplayError}</p>
-											{/if}
-											{#if editReplayOutput}
-												<pre class="mt-2 max-h-56 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">{editReplayOutput}</pre>
-											{/if}
-										</div>
-									</div>
-								{/if}
-							<div class="flex items-center gap-2">
-								<input type="checkbox" id="ed-enabled" bind:checked={editForm.enabled} disabled={editing} class="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600" />
-								<label for="ed-enabled" class="text-sm text-zinc-700 dark:text-zinc-300">启用</label>
-							</div>
-						</div>
-					</div>
-
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">限速 & 超时</p>
-						<div class="grid grid-cols-2 gap-3">
-							<div>
-								<label for="ed-rpm" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">RPM</label>
-								<Input id="ed-rpm" type="number" placeholder="无限制" bind:value={editForm.rpm_limit} disabled={editing} />
-							</div>
-							<div>
-								<label for="ed-tpm" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">TPM</label>
-								<Input id="ed-tpm" type="number" placeholder="无限制" bind:value={editForm.tpm_limit} disabled={editing} />
-							</div>
-							<div>
-								<label for="ed-timeout" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">超时(ms)</label>
-								<Input id="ed-timeout" type="number" bind:value={editForm.timeout_ms} disabled={editing} />
-							</div>
-							<div>
-								<label for="ed-retries" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">重试次数</label>
-								<Input id="ed-retries" type="number" bind:value={editForm.max_retries} disabled={editing} />
-							</div>
-						</div>
-					</div>
-
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">模型</p>
-						<div class="flex gap-2 items-end">
-							<div class="flex-1">
-								<Input placeholder="gpt-4o, gpt-4o-mini" bind:value={editModelsInput} disabled={editing} />
-							</div>
-							<Button variant="outline" size="sm" type="button" disabled={editing || !!probingId} onclick={() => handleProbe(editingChannel!)}>
-								<span class="flex items-center gap-1"><Radar size={14} /> Probe</span>
-							</Button>
-						</div>
-					</div>
-
-					<div>
-						<p class="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3">标签</p>
-						<Input placeholder="production, us-east" bind:value={editTagsInput} disabled={editing} />
-					</div>
-
-					{#if editError}
-						<p class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{editError}</p>
-					{/if}
-					<div class="flex gap-2 justify-end pt-4 border-t border-zinc-200 dark:border-zinc-800">
-						<Button variant="outline" type="button" onclick={() => (editingChannel = null)}>取消</Button>
-						<Button type="submit" disabled={editing}>{editing ? '保存中...' : '保存'}</Button>
-					</div>
-				</form>
-			</div>
-		</div>
-	</ModalFrame>
-{/if}
+<EditChannelDrawer
+	bind:editingChannel
+	bind:editForm
+	bind:editAuthForm
+	bind:editPluginPreset
+	bind:editPluginManifestInput
+	bind:editReplayInput
+	bind:editModelsInput
+	bind:editTagsInput
+	{editReplayOutput}
+	{editReplayError}
+	{editReplaying}
+	{editing}
+	{editError}
+	{editProviderCaps}
+	{editMissingCaps}
+	{probingId}
+	pluginManifestExample={PLUGIN_MANIFEST_EXAMPLE}
+	privatePluginManifestExample={PRIVATE_PLUGIN_MANIFEST_EXAMPLE}
+	pluginReplaySample={PLUGIN_REPLAY_SAMPLE}
+	onClose={() => (editingChannel = null)}
+	onSubmit={handleEdit}
+	onProbe={handleProbe}
+	onPresetChange={handleEditPresetChange}
+	onLintManifest={lintEditPluginManifest}
+	onReplayManifest={replayEditPluginManifest}
+/>
 
 <!-- Main content -->
 <PageShell

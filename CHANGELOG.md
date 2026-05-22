@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.2] — 2026-05-22
+
+**主题**：M1.4 前端 channels 巨兽初拆 — `channels/+page.svelte` 1864 → 1718 行（-7.8%）。
+
+### Refactor — Channels page split (M1.4 partial)
+
+- **`channels/_lib/helpers.ts` 新增 (69 行)**：抽出 4 个纯函数（`isPluginProvider` /
+  `capabilityFallback` / `capabilityTitle` / `capabilityChipClass`）+ 4 个常量
+  （`PROVIDER_OPTIONS` / `FILTER_PROVIDER_OPTIONS` / `STATUS_OPTIONS` / `HEALTH_OPTIONS`），
+  与 state 解耦，可被 `_components/*` 子组件共用。
+- **`_components/EditChannelDrawer.svelte` 新增 (232 行)**：把 EditDrawer 整段 141 行
+  template 抽成独立组件，25 props（11 bindable + 6 read-only state + 8 callback +
+  3 sample 常量）。`+page.svelte` 端调用面收敛到 `<EditChannelDrawer ... />` 一处。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+- `npm test` 87 passed / 0 failed (13 files)
+- `npm run build` 5.76s 净
+
+### Deferred to 0.4.3
+
+- `CreateChannelDrawer.svelte`（218 行 template，props 表~40，需配合 ManifestBuilder 二次拆）
+- `ChannelTable.svelte`（261 行 DataTable 块，19 props）
+- `admin/groups/+page.svelte`（1083 行）
+
+---
+
 ## [0.4.1] — 2026-05-22
 
 **主题**：M1.3 三巨兽拆解收尾 — 单文件 ≤ 800 行目标推进。
