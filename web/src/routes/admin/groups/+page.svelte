@@ -20,6 +20,10 @@
 		Layers, Plus, Trash2, Pencil, X, ChevronRight, Search,
 		ArrowRight, AlertTriangle, Check
 	} from 'lucide-svelte';
+	import CreateGroupModal from './_components/CreateGroupModal.svelte';
+	import DeleteGroupModal from './_components/DeleteGroupModal.svelte';
+	import DisableGroupModal from './_components/DisableGroupModal.svelte';
+	import AddChannelModal from './_components/AddChannelModal.svelte';
 
 	// ── Strategy metadata ──
 	const STRATEGIES: Record<string, { label: string; color: string; desc: string }> = {
@@ -924,160 +928,45 @@
 	{/if}
 </PageShell>
 
-<!-- ═══ Create Group Modal ═══ -->
-{#if showCreate}
-	<ModalFrame close={() => { showCreate = false; }}>
-		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-			<div class="p-5 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
-				<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">新建分组</h2>
-				<button onclick={() => { showCreate = false; }} class="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700"><X class="w-5 h-5 text-zinc-500" /></button>
-			</div>
-			<div class="p-5 space-y-4">
-				<Field label="名称" for="group-create-name">
-					<Input id="group-create-name" bind:value={createForm.name} placeholder="如：默认分组" />
-				</Field>
-				<Field label="路由策略" for="group-create-strategy">
-					<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-						{#each Object.entries(STRATEGIES) as [key, s]}
-							<button
-								onclick={() => { createForm.strategy = key; }}
-								class="text-left p-3 rounded-lg border-2 transition-colors
-									{createForm.strategy === key ? 'border-zinc-900 dark:border-zinc-300 bg-zinc-50 dark:bg-zinc-700' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500'}"
-							>
-								<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(s.color)} mb-1">{s.label}</span>
-								<p class="text-xs text-zinc-600 dark:text-zinc-300">{s.desc}</p>
-							</button>
-						{/each}
-					</div>
-				</Field>
-				<Field label="回退分组（可选）" for="group-create-fallback">
-					<Select id="group-create-fallback" bind:value={createForm.fallback_group_id} options={createFallbackOptions} />
-				</Field>
-				<Field label="描述（可选）" for="group-create-description">
-					<Textarea id="group-create-description" bind:value={createForm.description} rows={2} placeholder="分组用途说明" />
-				</Field>
-			</div>
-			<div class="p-5 border-t border-zinc-200 dark:border-zinc-700 flex justify-end gap-2">
-				<Button variant="outline" onclick={() => { showCreate = false; }}>取消</Button>
-				<Button onclick={handleCreate} disabled={!createForm.name.trim()}>创建</Button>
-			</div>
-		</div>
-	</ModalFrame>
-{/if}
 
-<!-- ═══ Delete Confirm Modal ═══ -->
-{#if deleteTarget}
-	{@const deleteRefs = selectedId === deleteTarget.id ? projectRefs(detail) : []}
-	<ModalFrame close={() => { deleteTarget = null; }}>
-		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-sm">
-			<div class="p-6 text-center">
-				<div class="mx-auto w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
-					<AlertTriangle class="w-6 h-6 text-red-600 dark:text-red-400" />
-				</div>
-				<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认删除</h3>
-				<p class="text-sm text-zinc-600 dark:text-zinc-300">
-					确定要删除分组「{deleteTarget.name}」吗？此操作不可撤销。
-					{#if deleteRefs.length > 0}
-						<br /><span class="inline-flex items-center justify-center gap-1 text-red-500 font-medium"><AlertTriangle class="h-3.5 w-3.5" />有 {deleteRefs.length} 个项目正在使用此分组</span>
-					{/if}
-				</p>
-			</div>
-			<div class="px-6 pb-6 flex gap-2">
-				<Button variant="outline" class="flex-1" onclick={() => { deleteTarget = null; }}>取消</Button>
-				<Button variant="destructive" class="flex-1" onclick={handleDelete}>删除</Button>
-			</div>
-		</div>
-	</ModalFrame>
-{/if}
+<!-- Modals -->
+<CreateGroupModal
+	bind:showCreate
+	bind:createForm
+	strategies={STRATEGIES}
+	fallbackOptions={createFallbackOptions}
+	{strategyBadgeClass}
+	onClose={() => (showCreate = false)}
+	onConfirm={handleCreate}
+/>
 
-<!-- ═══ Disable Confirm Modal ═══ -->
-{#if disableTarget}
-	{@const expectedDisableConfirmation = `disable:${disableTarget.name}`}
-	<ModalFrame close={() => { disableTarget = null; disableConfirmation = ''; }}>
-		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-sm">
-			<div class="p-6 text-center">
-				<div class="mx-auto w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
-					<AlertTriangle class="w-6 h-6 text-amber-600 dark:text-amber-400" />
-				</div>
-				<h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">确认禁用分组</h3>
-				<p class="text-sm text-zinc-600 dark:text-zinc-300 mb-4">禁用后该分组不会继续承载新路由。请输入确认短语：</p>
-				<code class="mb-2 block rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{expectedDisableConfirmation}</code>
-				<Input id="group-disable-confirm" bind:value={disableConfirmation} placeholder={expectedDisableConfirmation} class="font-mono text-left" />
-			</div>
-			<div class="px-6 pb-6 flex gap-2">
-				<Button variant="outline" class="flex-1" onclick={() => { disableTarget = null; disableConfirmation = ''; }}>取消</Button>
-				<Button variant="destructive" class="flex-1" onclick={confirmDisableGroup} disabled={disableConfirmation.trim() !== expectedDisableConfirmation}>禁用</Button>
-			</div>
-		</div>
-	</ModalFrame>
-{/if}
+<DeleteGroupModal
+	{deleteTarget}
+	deleteRefs={selectedId === deleteTarget?.id ? projectRefs(detail) : []}
+	onClose={() => (deleteTarget = null)}
+	onConfirm={handleDelete}
+/>
 
-<!-- ═══ Add Channel Modal ═══ -->
-{#if showAddChannel}
-	<ModalFrame close={() => { showAddChannel = false; }}>
-		<div class="bg-white dark:bg-zinc-800 rounded-xl shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col">
-			<div class="p-5 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between flex-shrink-0">
-				<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">添加渠道</h2>
-				<button onclick={() => { showAddChannel = false; }} class="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700"><X class="w-5 h-5 text-zinc-500" /></button>
-			</div>
+<DisableGroupModal
+	{disableTarget}
+	bind:disableConfirmation
+	onClose={() => { disableTarget = null; disableConfirmation = ''; }}
+	onConfirm={confirmDisableGroup}
+/>
 
-			<!-- Filters -->
-			<div class="p-4 border-b border-zinc-200 dark:border-zinc-700 space-y-3 flex-shrink-0">
-				<div class="flex gap-2">
-					<div class="relative flex-1">
-						<Search class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
-						<Input bind:value={channelSearch} placeholder="搜索渠道..." class="pl-9" />
-					</div>
-					<Select bind:value={channelProviderFilter} options={providerFilterOptions} class="w-36" />
-				</div>
-				<div class="flex gap-4">
-					<Field label="优先级" for="group-add-priority" class="flex-row items-center gap-2 space-y-0">
-						<Input id="group-add-priority" type="number" bind:value={addPriority} size="sm" class="w-20" />
-					</Field>
-					<Field label="权重" for="group-add-weight" class="flex-row items-center gap-2 space-y-0">
-						<Input id="group-add-weight" type="number" bind:value={addWeight} size="sm" class="w-20" />
-					</Field>
-				</div>
-				<Field label="Canary 流量（可选）" for="group-add-canary" hint="留空为关闭；开启时后端限制 1%-5%，未命中流量会走其它渠道。">
-					<Input id="group-add-canary" type="number" min="1" max="5" step="0.5" bind:value={addCanaryPercent} placeholder="如 5" size="sm" class="w-28" />
-				</Field>
-			</div>
+<AddChannelModal
+	bind:showAddChannel
+	bind:channelSearch
+	bind:channelProviderFilter
+	{providerFilterOptions}
+	bind:addPriority
+	bind:addWeight
+	bind:addCanaryPercent
+	{selectedChannels}
+	{filteredChannels}
+	{providerColor}
+	onClose={() => (showAddChannel = false)}
+	onToggleChannel={toggleChannel}
+	onConfirm={handleAddChannels}
+/>
 
-			<!-- Channel list -->
-			<div class="flex-1 overflow-y-auto p-4 space-y-1">
-				{#if filteredChannels.length === 0}
-					<p class="text-center text-sm text-zinc-600 dark:text-zinc-300 py-8">没有可用的渠道</p>
-				{:else}
-					{#each filteredChannels as ch (ch.id)}
-						<button
-							onclick={() => toggleChannel(ch.id)}
-							class="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors
-								{selectedChannels.has(ch.id) ? 'bg-zinc-100 dark:bg-zinc-800 border border-zinc-400 dark:border-zinc-500' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50 border border-transparent'}"
-						>
-							<div class="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0
-								{selectedChannels.has(ch.id) ? 'border-zinc-900 bg-zinc-900 dark:border-zinc-100 dark:bg-zinc-100' : 'border-zinc-200 dark:border-zinc-700'}">
-								{#if selectedChannels.has(ch.id)}<Check class="w-3 h-3 text-white" />{/if}
-							</div>
-							<div class="flex-1 min-w-0">
-								<div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{ch.name}</div>
-								<div class="text-xs text-zinc-600 dark:text-zinc-300">{ch.code}</div>
-							</div>
-							<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {providerColor(ch.provider_type)}">{ch.provider_type}</span>
-						</button>
-					{/each}
-				{/if}
-			</div>
-
-			<!-- Footer -->
-			<div class="p-4 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between flex-shrink-0">
-				<span class="text-sm text-zinc-500">{selectedChannels.size} 个已选</span>
-				<div class="flex gap-2">
-					<Button variant="outline" onclick={() => { showAddChannel = false; }}>取消</Button>
-					<Button onclick={handleAddChannels} disabled={selectedChannels.size === 0}>
-						添加选中 ({selectedChannels.size})
-					</Button>
-				</div>
-			</div>
-		</div>
-	</ModalFrame>
-{/if}

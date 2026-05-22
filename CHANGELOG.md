@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.5] — 2026-05-23
+
+**主题**：admin/groups/+page.svelte 拆 4 个 modal — 1083 → 972 行 (-10.2%)。
+
+### Refactor
+
+- `_components/CreateGroupModal.svelte` (75 行)
+- `_components/DeleteGroupModal.svelte` (39 行)
+- `_components/DisableGroupModal.svelte` (43 行)
+- `_components/AddChannelModal.svelte` (107 行)
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
 ## [0.4.4] — 2026-05-23
 
 **主题**：channels helpers 扩充 — `fmtLimit` / `fmtDate` / `statusBadgeCls` /
