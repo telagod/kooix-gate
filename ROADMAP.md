@@ -53,7 +53,7 @@
 - [x] **T2.3** 拆 `admin/pricing/+page.svelte` 640 → 633（0.4.8 抽 DeletePricingModal）。pricing wizard form 多步流程留 0.5.0+。
 - [x] **T2.4** 拆 `usage/requests/+page.svelte` 541 → 507（0.4.9 共享 helper）。
 - [x] **T2.5** `web/src/lib/components/README.md` 写组件索引。
-- [ ] **T2.6** Web bundle budget 收紧门禁阈值（与 T2.1 一并做：channels 页拆完后预计单页 ≤ 30 KB gzip）。
+- [x] **T2.6** Web bundle budget 收紧门禁阈值（0.4.18 完成：250KB → 220KB；CI 已集成；0.5.0+ 计划进一步收到 180KB）。
 - [x] **T2.7** `lucide-svelte` 锁定 `~1.0.1`（minor 锁）。
 - [x] **0.4.x 额外**：admin/groups 1083 → 972 (4 modal 拆)；admin/users 752 → 729 (2 modal)；quotas 959 → 948；admin/requests 628 → 594。共建 _components 子目录 6 个 + 共享 helper 模块 3 个。
 

@@ -6,9 +6,10 @@ const manifestPath = new URL('../.svelte-kit/output/client/.vite/manifest.json',
   .pathname;
 const generatedNodesRoot = new URL('../.svelte-kit/generated/client-optimized/nodes/', import.meta.url)
   .pathname;
-// 0.2.1 收紧门禁：拆分前 channels/+page 130 KB，拆分后 <= 130 KB；
-// 留余量到 250 KB 防止后续节点编辑回漂；可用 KOOIX_WEB_BUNDLE_MAX_BYTES 临时覆盖。
-const maxEntryBytes = Number(process.env.KOOIX_WEB_BUNDLE_MAX_BYTES ?? 250_000);
+// 0.4.18 收紧门禁：channels 页拆分后 156KB；全局 chunk 最大 ~204KB（含 svelte runtime）。
+// 阈值：220 KB（留 ~10% margin），可用 KOOIX_WEB_BUNDLE_MAX_BYTES 临时覆盖。
+// 0.5.0+ 计划：channels 页 ChannelTable + drawer 全部拆出后阈值收到 180KB。
+const maxEntryBytes = Number(process.env.KOOIX_WEB_BUNDLE_MAX_BYTES ?? 220_000);
 let failures = [];
 
 async function walk(dir) {

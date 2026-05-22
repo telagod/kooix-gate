@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.18] — 2026-05-23
+
+**主题**：Web bundle budget 阈值收紧 — 250KB → 220KB（M1.4 T2.6 ticked）。
+
+### Changed
+
+- `web/scripts/check-bundle-budget.mjs`：default `maxEntryBytes` 250_000 → 220_000
+- 实测最大 chunk 204KB（含 svelte runtime），channels page 156KB；阈值留 ~10% margin
+- CI 集成已在 `.github/workflows/ci.yml:191` 跑 `npm run bundle:budget`
+
+### Verification
+
+- `npm run build` 5.66s 净
+- `npm run bundle:budget` ok at ≤ 220000 bytes
+
+### Roadmap 同步
+
+- M1.4 T2.6 Web bundle budget 收紧门禁 — ticked
+- 0.5.0+ 计划：channels 页 ChannelTable + drawer 全部拆出后阈值收到 180KB
+
+---
+
 ## [0.4.17] — 2026-05-23
 
 **主题**：channels/[channelId] 3 modal 抽出 — 667 → 618 行 (-7.3%)。
