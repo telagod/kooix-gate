@@ -85,16 +85,28 @@ ADR-0002 verification 5/7 项已勾，剩 Azure / Bedrock 2 个 adapter + preset
   - 协议 body / response 与 OpenAI 一致 → 复用 `crate::openai::{check_status, sse_to_chunks}`。
   - 2 个 integration test 锁定：URL 模板正确性 + api-version override 透传。
 
-### Note — M3 T2d (Bedrock fast-path) 推迟到 0.4.0
+### Added — M3 T2d：Bedrock SigV4 修真 + Converse fast-path
 
-回看 `crates/gate-providers/src/bedrock.rs:69` 的 `sign_request`：写着
-"Simplified: in production this would use proper AWS SigV4 signing"，**编译期
-BedrockProvider 当前的 SigV4 是占位实现**（只发 `X-Amz-Access-Key/Secret-Key` 头）。
-而 plugin runtime 的 `custom_provider/sigv4.rs` 已经实现完整 AWS SigV4。
+- 编译期 `BedrockProvider::sign_request` 的假签名（仅发 `X-Amz-Access-Key/Secret-Key` 头）
+  换成真 AWS Signature V4：
+  - `BedrockProvider::sigv4_sign_post` 实现完整 AWS SigV4：canonical request /
+    string-to-sign / HMAC signing key 全用新提到 crate 顶层的 `crate::sigv4` helper。
+  - 输出标准 `Authorization: AWS4-HMAC-SHA256 Credential=.../bedrock/aws4_request,
+    SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=...` 头 + `x-amz-date`
+    + `x-amz-content-sha256`。
+  - AWS 已知向量 test 通过（signing key `c4afb1cc5771d871...` for
+    `20150830/us-east-1/iam/aws4_request`，AWS 官方文档 vector）。
+- `crate::sigv4` 从 `custom_provider/sigv4.rs` 提到顶层 `pub(crate) mod sigv4`，
+  让 anthropic.rs / bedrock.rs / custom_provider 都能复用。原 mod 文件保留 re-export 兼容。
+- `CustomHttpProvider::fastpath_bedrock_chat` 落地：
+  - URL: `{base_url}/model/{model}/converse`
+  - Region: `infer_aws_region_from_host` → `AWS_REGION` env → `us-east-1` 兜底
+  - Secrets: 标准 plugin slot `aws_access_key` / `aws_secret_key`，缺失时 fail-loud
+  - Body/Response: 复用 `crate::bedrock::fastpath_bedrock_request_body / _response_from_json`
+- 2 个 integration test（签名成功 + 缺 secret fail-loud）+ 2 个 unit test（sigv4 vector
+  + authorization header 格式）。
 
-如果给 Bedrock 做 fast-path 走编译期 BedrockProvider，等于**功能降级**。0.3.0
-channel migration 已经把所有 `provider_type='bedrock'` 迁到 plugin runtime，不存在
-生产路径走假签名。0.4.0 一起干掉编译期 BedrockProvider（或修真）再做 fast-path。
+ADR-0002 verification 7/8 项已勾，剩 preset bundle 拆 crate 评估留 0.4.0。
 
 ### Added — M3 T1：OpenAI fast-path dispatch 接通
 

@@ -20,6 +20,7 @@ pub mod plugin_manifest;
 pub(crate) mod plugin_preset;
 pub mod retry;
 pub mod router;
+pub(crate) mod sigv4;
 pub mod sse;
 pub mod types;
 

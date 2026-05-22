@@ -31,7 +31,7 @@ use crate::{EmbeddingProvider, Provider};
 use async_trait::async_trait;
 use base64::Engine as _;
 use futures::stream::{BoxStream, StreamExt};
-use hmac::{Hmac, Mac};
+use hmac::Mac;
 pub use replay::replay_plugin_sse;
 use replay::{StreamMapper, merge_reasoning_content, normalize_plugin_sse};
 use reqwest::Method;
@@ -40,7 +40,6 @@ use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 use sandbox::{EndpointKind, PluginHttpSandbox, SandboxDnsResolver};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sha2::Sha256;
 use std::borrow::Cow;
 use std::collections::HashMap;
 #[cfg(test)]
@@ -48,7 +47,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub(super) type HmacSha256 = Hmac<Sha256>;
+pub(super) use crate::sigv4::HmacSha256;
 
 #[derive(Debug)]
 struct AwsSigv4Signature {
@@ -1522,6 +1521,93 @@ impl CustomHttpProvider {
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
         Ok(resp.json().await?)
     }
+
+    /// Bedrock Converse fast-path：AWS SigV4 签名 + 原生 Converse body，
+    /// 复用 [`crate::sigv4`] 的 helper（与 manifest runtime 路径字节级等价），
+    /// 复用 [`crate::bedrock`] 的 request/response 转换 helper（零协议重复）。
+    ///
+    /// region 从 base_url host 推（默认 us-east-1 兜底），
+    /// AWS 凭证从 secret slot `aws_access_key` / `aws_secret_key` 拿（标准 plugin slot）。
+    async fn fastpath_bedrock_chat(&self, req: ChatRequest) -> ProviderResult<ChatResponse> {
+        use crate::bedrock::{fastpath_bedrock_request_body, fastpath_bedrock_response_from_json};
+        use crate::sigv4::{
+            aws_sigv4_signing_key, canonical_query_string, canonical_uri, hmac_sha256_hex,
+            infer_aws_region_from_host, sha256_hex,
+        };
+
+        let url = format!("{}/model/{}/converse", self.base_url, req.model);
+        let parsed = Url::parse(&url)
+            .map_err(|e| ProviderError::Config(format!("bedrock fastpath bad url '{url}': {e}")))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| ProviderError::Config("bedrock fastpath missing host".to_string()))?
+            .to_string();
+        let region = infer_aws_region_from_host(&host)
+            .or_else(|| std::env::var("AWS_REGION").ok())
+            .unwrap_or_else(|| "us-east-1".to_string());
+        let access_key = self.secret_for_slot("aws_access_key");
+        let secret_key = self.secret_for_slot("aws_secret_key");
+        if access_key.is_empty() || secret_key.is_empty() {
+            return Err(ProviderError::Config(
+                "bedrock fastpath requires aws_access_key + aws_secret_key secret slots"
+                    .to_string(),
+            ));
+        }
+
+        let body_value = fastpath_bedrock_request_body(&req);
+        let body_bytes = serde_json::to_vec(&body_value)
+            .map_err(|e| ProviderError::Config(format!("bedrock encode body: {e}")))?;
+
+        let now = chrono::Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let date = now.format("%Y%m%d").to_string();
+        let credential_scope = format!("{date}/{region}/bedrock/aws4_request");
+        let payload_hash = sha256_hex(&body_bytes);
+        let canonical_uri_str = canonical_uri(&parsed);
+        let canonical_query = canonical_query_string(&parsed);
+        let signed_headers = "host;x-amz-content-sha256;x-amz-date";
+        let canonical_headers =
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n",);
+        let canonical_request = format!(
+            "POST\n{canonical_uri_str}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}",
+        );
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{}",
+            sha256_hex(canonical_request.as_bytes())
+        );
+        let signing_key = aws_sigv4_signing_key(&secret_key, &date, &region, "bedrock")?;
+        let signature = hmac_sha256_hex(&signing_key, string_to_sign.as_bytes())?;
+        let authorization = format!(
+            "AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        );
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("authorization", authorization)
+            .header("x-amz-date", amz_date)
+            .header("x-amz-content-sha256", payload_hash)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body_bytes)
+            .send()
+            .await
+            .map_err(|e| self.sandbox.reqwest_error(e))?;
+        self.sandbox.validate_response_peer(&resp)?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(match status {
+                401 | 403 => ProviderError::Auth(format!("bedrock returned {status}: {body}")),
+                404 => ProviderError::ModelNotFound(format!("bedrock returned {status}: {body}")),
+                429 => ProviderError::RateLimited {
+                    retry_after_ms: None,
+                },
+                _ => ProviderError::Upstream { status, body },
+            });
+        }
+        let value: Value = resp.json().await?;
+        fastpath_bedrock_response_from_json(value, &req.model)
+    }
 }
 
 #[async_trait]
@@ -1552,6 +1638,14 @@ impl Provider for CustomHttpProvider {
             Some(kind @ ProviderPresetKind::AzureOpenai) => {
                 if let Some(result) = self
                     .run_fastpath(kind, "chat", self.fastpath_azure_chat(req.clone()))
+                    .await
+                {
+                    return result;
+                }
+            }
+            Some(kind @ ProviderPresetKind::BedrockConverse) => {
+                if let Some(result) = self
+                    .run_fastpath(kind, "chat", self.fastpath_bedrock_chat(req.clone()))
                     .await
                 {
                     return result;

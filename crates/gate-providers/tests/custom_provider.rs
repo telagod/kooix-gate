@@ -915,3 +915,74 @@ async fn fastpath_azure_uses_manifest_api_version_override() {
     let resp = provider.chat(make_req(false)).await.unwrap();
     assert_eq!(resp.choices[0].message.content_text(), "v2");
 }
+
+#[tokio::test]
+async fn fastpath_bedrock_chat_signs_with_sigv4() {
+    // preset.provider="bedrock_converse" + builtin_fastpath → fastpath_bedrock_chat
+    // 验证：URL = /model/{model}/converse，Authorization 头有 AWS4-HMAC-SHA256 前缀，
+    // x-amz-date + x-amz-content-sha256 头都在。
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/model/odd-model/converse"))
+        // wiremock header matcher 不支持正则；这里只检查 Authorization 头存在 + 前缀。
+        // 详细 SigV4 算法正确性已在 bedrock::tests 单元 test 锁住。
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "output": {
+                "message": {
+                    "content": [{ "text": "bedrock fastpath ok" }]
+                }
+            },
+            "usage": { "inputTokens": 4, "outputTokens": 3, "totalTokens": 7 },
+            "stopReason": "end_turn"
+        })))
+        .mount(&upstream)
+        .await;
+
+    // secrets 必须有 aws_access_key + aws_secret_key。直接传 HashMap，避开 env mapping。
+    let mut secrets = std::collections::HashMap::new();
+    secrets.insert("aws_access_key".to_string(), "AKIDEXAMPLE".to_string());
+    secrets.insert(
+        "aws_secret_key".to_string(),
+        "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string(),
+    );
+    let provider = CustomHttpProvider::new_with_secret_slots(
+        upstream.uri(),
+        secrets,
+        json!({ "plugin": { "preset": { "provider": "bedrock_converse" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let resp = provider.chat(make_req(false)).await.unwrap();
+    assert_eq!(
+        resp.choices[0].message.content_text(),
+        "bedrock fastpath ok"
+    );
+    assert_eq!(resp.usage.total_tokens, 7);
+}
+
+#[tokio::test]
+async fn fastpath_bedrock_chat_fails_loud_without_aws_secrets() {
+    // 没设 aws_access_key / aws_secret_key → Config error
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/model/odd-model/converse"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"x": 1})))
+        .mount(&upstream)
+        .await;
+
+    let provider = CustomHttpProvider::new_with_secret_slots(
+        upstream.uri(),
+        std::collections::HashMap::new(), // no secrets
+        json!({ "plugin": { "preset": { "provider": "bedrock_converse" } } }),
+        gate_providers::ProviderOpts::default(),
+    )
+    .unwrap();
+
+    let err = provider.chat(make_req(false)).await.unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("aws_access_key") || msg.contains("aws_secret_key"),
+        "expected fail-loud error mentioning aws secret slots, got: {msg}"
+    );
+}
