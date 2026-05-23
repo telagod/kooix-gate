@@ -238,7 +238,9 @@ impl CustomHttpProvider {
     }
 
     /// 0.4.44: 调 wasm stream_chunk_transform hook（每 SSE chunk 一次）。
-    /// 留 0.5.0+ 在 SSE pipeline 接通；当前已暴露但暂未链接调用点。
+    /// 0.4.44/0.4.51: 调 wasm stream_chunk_transform hook（每 SSE chunk 一次）。
+    /// 0.4.51 起 chat_stream SSE pipeline 已 inline 调用，本 helper 保留作公共 API
+    /// 供外部（如直接拼 stream）使用。
     #[allow(dead_code)]
     pub(super) async fn wasm_transform_stream_chunk(
         &self,
@@ -1519,7 +1521,43 @@ impl Provider for CustomHttpProvider {
             max_response_bytes: self.manifest.security.max_response_bytes(),
             max_sse_event_bytes: self.manifest.security.max_sse_event_bytes(),
         };
-        Ok(normalize_plugin_sse(resp.bytes_stream(), mapper).boxed())
+        // 0.4.51: SSE pipeline 内每 chunk 走 wasm stream_chunk_transform。
+        // 仅在 manifest.security.wasm 配置时启用；否则零开销 passthrough。
+        let stream = resp.bytes_stream();
+        if self.manifest.security.wasm.is_some() && self.wasm_host.is_some() {
+            let host = self.wasm_host.clone().unwrap();
+            let channel_id = self.wasm_channel_id.clone();
+            let model = req.model.clone();
+            let transformed = stream.then(move |item| {
+                let host = host.clone();
+                let channel_id = channel_id.clone();
+                let model = model.clone();
+                async move {
+                    match item {
+                        Ok(chunk) => {
+                            let ctx = gate_wasm::HookContext {
+                                channel_id: channel_id.clone(),
+                                model,
+                                request_id: String::new(),
+                                metadata: Default::default(),
+                            };
+                            let out = gate_wasm::invoke_with_fallback(
+                                host,
+                                &channel_id,
+                                gate_wasm::HookKind::StreamChunk,
+                                chunk,
+                                ctx,
+                            )
+                            .await;
+                            Ok(out)
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+            });
+            return Ok(normalize_plugin_sse(transformed, mapper).boxed());
+        }
+        Ok(normalize_plugin_sse(stream, mapper).boxed())
     }
 }
 

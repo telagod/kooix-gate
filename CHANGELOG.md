@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.51] — 2026-05-23
+
+**主题**：chat_stream SSE pipeline 真接通 stream_chunk_transform — 0.5.0 候选清第 1 项。
+
+### Changed
+
+- `Provider::chat_stream`：在 `resp.bytes_stream()` 与 `normalize_plugin_sse` 之间插 `futures::stream::then` 包装，每 chunk 走 `gate_wasm::invoke_with_fallback`
+- 仅在 `manifest.security.wasm.is_some()` 且 `wasm_host` 注入时启用；否则零开销 passthrough
+- `wasm_transform_stream_chunk` helper 保留作公共 API（仍 #[allow(dead_code)]，inline 已直接调用 invoke_with_fallback）
+
+### Verification
+
+- `cargo build -p gate-providers` 净
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+
+---
+
 ## [0.4.50] — 2026-05-23
 
 **主题**：0.4.41-0.4.50 中阶段收尾 — WASM 集成全链路 e2e 走通，gate-providers 完整产品形态。
