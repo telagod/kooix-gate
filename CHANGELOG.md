@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.23] — 2026-05-23
+
+**主题**：plugin manifest `security.wasm` 字段升为 typed — ADR-0003 v0 schema 落地。
+
+### Added
+
+- `SecurityManifest::wasm: Option<WasmModuleManifest>`
+- `WasmModuleManifest { module, module_sha256, max_memory_bytes, max_cpu_ms, hooks }`
+- 2 个新单元测试：`parses_wasm_module_manifest_field` / `wasm_field_absent_when_not_configured`
+
+### Verification
+
+- `cargo test -p gate-providers --lib plugin_manifest` 32 passed (+2)
+- `cargo build -p gate-providers` 净
+
+---
+
 ## [0.4.22] — 2026-05-23
 
 **主题**：WasmtimeHost runtime core — sha256 校验 + 模块加载 + fuel 设计。

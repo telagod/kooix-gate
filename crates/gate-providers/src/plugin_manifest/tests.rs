@@ -662,3 +662,36 @@ fn user_cannot_disable_builtin_fastpath_for_fast_path_preset() {
         "user manifest must not be able to disable builtin_fastpath for fast-path preset"
     );
 }
+
+#[test]
+fn parses_wasm_module_manifest_field() {
+    // ADR-0003 v0：wasm 字段可被用户 manifest 设置。
+    let value = json!({
+        "plugin": {
+            "version": 1,
+            "security": {
+                "wasm": {
+                    "module": "modules/transform.wasm",
+                    "module_sha256": "abc123",
+                    "max_memory_bytes": 8388608,
+                    "max_cpu_ms": 25,
+                    "hooks": ["chat_request_transform", "chat_response_transform"]
+                }
+            }
+        }
+    });
+    let manifest = PluginManifest::from_value(value, "https://upstream.example").unwrap();
+    let wasm = manifest.security.wasm.expect("wasm field present");
+    assert_eq!(wasm.module, "modules/transform.wasm");
+    assert_eq!(wasm.module_sha256, "abc123");
+    assert_eq!(wasm.max_memory_bytes, Some(8388608));
+    assert_eq!(wasm.max_cpu_ms, Some(25));
+    assert_eq!(wasm.hooks.len(), 2);
+}
+
+#[test]
+fn wasm_field_absent_when_not_configured() {
+    let value = json!({ "plugin": { "version": 1 } });
+    let manifest = PluginManifest::from_value(value, "https://upstream.example").unwrap();
+    assert!(manifest.security.wasm.is_none(), "wasm should be None by default");
+}

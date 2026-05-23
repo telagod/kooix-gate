@@ -285,6 +285,26 @@ pub struct SecurityManifest {
     ///
     /// 字段在 0.4.0 接 dispatch 实现；0.3.x 仅接 schema + 注入点。
     pub builtin_fastpath: bool,
+    /// ADR-0003 WASM Plugin ABI v0：可选 wasm transform module 配置。
+    ///
+    /// 0.4.23 起作为 typed field 接 manifest schema；runtime 接入在
+    /// gate-providers 集成层落地（0.4.24-0.4.25 接 chat / response / stream hook）。
+    pub wasm: Option<WasmModuleManifest>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(default)]
+pub struct WasmModuleManifest {
+    /// Module 文件路径或注册表 ID（runtime 解析后加载）。
+    pub module: String,
+    /// SHA256 期望摘要（hex），加载时强校验。
+    pub module_sha256: String,
+    /// Linear memory 上限（bytes），默认 ADR-0003 v0 hard limit 16 MiB。
+    pub max_memory_bytes: Option<usize>,
+    /// 单次 hook CPU 上限（ms），默认 50ms。
+    pub max_cpu_ms: Option<u64>,
+    /// 启用的 hook 集合，子集 ∈ {chat_request_transform, chat_response_transform, stream_chunk_transform}。
+    pub hooks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
