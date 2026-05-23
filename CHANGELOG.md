@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.4.61] — 2026-05-23
+
+**主题**：admin/groups 抽 GroupCard + _lib/helpers — 0.4.61-0.4.90 前端打磨阶段 A 启航。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 972 → 923（-49 行 / -5.0%）
+- 新增 `_components/GroupCard.svelte`（76 行）：grid item 整体抽出，props=group/isSelected/groupName/onSelect/onToggleEnabled
+- 新增 `_lib/helpers.ts`：`STRATEGIES` / `PROVIDER_COLOR` / `strategyMeta` / `strategyBadgeClass` / `capabilityChipClass` / `formatNumber` 6 个 helper 抽出，page 与 GroupCard 共用
+
+### Verification
+
+```bash
+npm run check    # 0 errors / 0 warnings
+npm test         # 13 / 87 passed
+cargo check --workspace  # ok
+```
+
+---
+
+## [Unreleased] (legacy — 第一/二/三轮文档收口已 push 到 main，未发版)
+
 ### Docs — 第一轮：v0.4.60 → v0.5.0 product-gaps 与 ADR-0003 实装收口
 
 - **新增** [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账清单（17 项 G-编号，按 P0/P1/P2/P3 分组，含影响面 / 当前状态 / 实施路径 / 验收门禁 / 关联引用）。0.5.0 启动会议据此筛选。

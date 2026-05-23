@@ -24,17 +24,18 @@
 	import DeleteGroupModal from './_components/DeleteGroupModal.svelte';
 	import DisableGroupModal from './_components/DisableGroupModal.svelte';
 	import AddChannelModal from './_components/AddChannelModal.svelte';
+	import GroupCard from './_components/GroupCard.svelte';
+	import {
+		STRATEGIES,
+		PROVIDER_COLOR,
+		strategyMeta,
+		strategyBadgeClass,
+		capabilityChipClass,
+		formatNumber
+	} from './_lib/helpers';
 
 	// ── Strategy metadata ──
-	const STRATEGIES: Record<string, { label: string; color: string; desc: string }> = {
-		priority:        { label: '优先级',     color: 'blue',   desc: '按优先级选择，总是使用优先级最高的可用渠道' },
-		weighted_random: { label: '加权随机',   color: 'green',  desc: '按权重随机分配，权重越高被选中概率越大' },
-		round_robin:     { label: '轮询',       color: 'purple', desc: '轮询分配，依次使用每个渠道' },
-		least_conn:      { label: '最少连接',   color: 'orange', desc: '优先使用当前并发最少的渠道' },
-		least_latency:   { label: '最低延迟',   color: 'yellow', desc: '优先使用平均响应最快的渠道' },
-	};
-
-	const PROVIDER_COLOR = 'bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200';
+	// 已抽到 ./_lib/helpers.ts（0.4.61）
 
 	// ── State ──
 	let groups = $state<ChannelGroup[]>([]);
@@ -77,26 +78,15 @@
 	let editBindingCanaryPercent = $state<number | null>(null);
 
 	// ── Helpers ──
-	function strategyMeta(s: string) { return STRATEGIES[s] ?? { label: s, color: 'gray', desc: '' }; }
+	// strategyMeta / strategyBadgeClass / capabilityChipClass / formatNumber 已抽到 ./_lib/helpers.ts（0.4.61）
 	function providerColor(_p: string) { return PROVIDER_COLOR; }
 	function bindingCapabilities(b: GroupBinding): ProviderCapabilities {
 		return b.capabilities ?? providerCapabilities(b.provider_type);
-	}
-	function capabilityChipClass(_key: ProviderCapabilityKey): string {
-		return 'bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700';
-	}
-
-	function strategyBadgeClass(_color: string) {
-		return 'bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200';
 	}
 
 	function groupName(id: string | null | undefined): string {
 		if (!id) return '';
 		return groups.find(g => g.id === id)?.name ?? shortId(id);
-	}
-
-	function formatNumber(value: number | null | undefined): string {
-		return new Intl.NumberFormat('zh-CN').format(value ?? 0);
 	}
 
 	function formatPercent(value: number | null | undefined): string {
@@ -520,52 +510,13 @@
 		<!-- ═══ Group Grid ═══ -->
 		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 			{#each groups as group (group.id)}
-				{@const meta = strategyMeta(group.strategy)}
-				{@const count = group.channel_count ?? 0}
-				{@const isSelected = selectedId === group.id}
-				<button
-					onclick={() => selectGroup(group.id)}
-					class="text-left bg-white dark:bg-zinc-800 rounded-lg border-2 p-4 transition-all hover:shadow-md
-						{isSelected ? 'border-zinc-900 dark:border-zinc-100 shadow-md ring-1 ring-zinc-900/20 dark:ring-zinc-100/20' : 'border-zinc-200 dark:border-zinc-700'}"
-				>
-					<!-- Top row: name + toggle -->
-					<div class="flex items-start justify-between gap-2">
-						<h3 class="font-medium text-zinc-900 dark:text-zinc-100 truncate">{group.name}</h3>
-						<div
-							role="switch"
-							aria-checked={group.enabled}
-							tabindex="0"
-							onclick={(e: MouseEvent) => { e.stopPropagation(); toggleEnabled(group); }}
-							onkeydown={(e: KeyboardEvent) => { e.stopPropagation(); if (e.key === 'Enter') toggleEnabled(group); }}
-							class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors
-								{group.enabled ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-600'}"
-						>
-							<span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5
-								{group.enabled ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}"></span>
-						</div>
-					</div>
-
-					<!-- Strategy badge -->
-					<div class="mt-2 flex items-center gap-2">
-						<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {strategyBadgeClass(meta.color)}">
-							{meta.label}
-						</span>
-						<span class="text-sm text-zinc-600 dark:text-zinc-300">{count} 渠道</span>
-					</div>
-
-					<!-- Description -->
-					{#if group.description}
-						<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300 truncate">{group.description}</p>
-					{/if}
-
-					<!-- Fallback -->
-					{#if group.fallback_group_id}
-						<div class="mt-2 flex items-center gap-1 text-sm text-zinc-600 dark:text-zinc-300">
-							<ArrowRight class="w-3 h-3" />
-							<span class="truncate">回退: {groupName(group.fallback_group_id)}</span>
-						</div>
-					{/if}
-				</button>
+				<GroupCard
+					{group}
+					isSelected={selectedId === group.id}
+					{groupName}
+					onSelect={selectGroup}
+					onToggleEnabled={toggleEnabled}
+				/>
 			{/each}
 		</div>
 	{/if}
