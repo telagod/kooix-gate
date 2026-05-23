@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.58] — 2026-05-23
+
+**主题**：gate_plugin_wasm_calls_total 注册到 Prometheus exporter — /metrics 显示 HELP 行。
+
+### Added
+
+- `gate-server/src/metrics.rs install_recorder`：`describe_counter!("gate_plugin_wasm_calls_total", ...)` 注入 ADR-0003 HELP 文案
+- /metrics 端点 scrape 时 wasm metric 自带说明
+
+### Verification
+
+- `cargo build -p gate-server` 净
+
+---
+
 ## [0.4.57] — 2026-05-23
 
 **主题**：ProviderRouter 持有 wasm_host — auto-mount 通路就绪。
