@@ -1002,6 +1002,29 @@ impl CustomHttpProvider {
         Ok(serde_json::from_slice(&body)?)
     }
 
+    /// 0.4.43: 读 body raw bytes，先过 wasm chat_response_transform，再 parse JSON。
+    async fn limited_json_response_with_wasm(
+        &self,
+        resp: reqwest::Response,
+        model: &str,
+    ) -> ProviderResult<Value> {
+        let limit = self.manifest.security.max_response_bytes();
+        let mut body = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if body.len().saturating_add(chunk.len()) > limit {
+                return Err(ProviderError::Decode(format!(
+                    "plugin response body too large: more than {limit} bytes"
+                )));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        // 走 wasm transform（如配置）；identity passthrough by default
+        let body = self.wasm_transform_response(body, model).await;
+        Ok(serde_json::from_slice(&body)?)
+    }
+
     async fn limited_error_body(&self, resp: reqwest::Response) -> ProviderResult<String> {
         let limit = self.manifest.security.max_response_bytes().min(64 * 1024);
         let mut body = Vec::new();
@@ -1417,7 +1440,7 @@ impl Provider for CustomHttpProvider {
         let resp = self.check_plugin_status(resp).await?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
-        let body = self.limited_json_response(resp).await?;
+        let body = self.limited_json_response_with_wasm(resp, &req.model).await?;
         self.parse_chat_response(body, &req.model)
     }
 

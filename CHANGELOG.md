@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.43] — 2026-05-23
+
+**主题**：Provider::chat 接通 wasm chat_response_transform — 集成 step 3。
+
+### Added
+
+- `limited_json_response_with_wasm(resp, model)`：读 raw body → wasm transform → parse JSON
+
+### Changed
+
+- `Provider::chat`：用 `limited_json_response_with_wasm(resp, &req.model)` 替代普通版
+
+### Verification
+
+- `cargo build -p gate-providers` 净（仅 stream_chunk dead_code，0.4.44 接通后清）
+
+---
+
 ## [0.4.42] — 2026-05-23
 
 **主题**：CustomHttpProvider chat() 接通 wasm chat_request_transform — 集成 step 2。
