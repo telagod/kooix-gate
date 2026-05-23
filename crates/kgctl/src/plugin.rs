@@ -75,6 +75,12 @@ struct RegistrySignature {
     kind: SignatureKind,
     #[serde(default)]
     value: Option<String>,
+    /// 0.4.53: pubkey fingerprint / cert identity for verify
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    key_id: Option<String>,
+    /// 0.4.53: ed25519 / rsa-pss-sha256 / ecdsa-p256-sha256
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    alg: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -272,6 +278,8 @@ pub fn registry_package(input: RegistryPackageInput) -> anyhow::Result<()> {
     let signature = RegistrySignature {
         kind: parse_signature_kind(&input.signature_kind)?,
         value: input.signature_value.filter(|v| !v.trim().is_empty()),
+        key_id: None,
+        alg: None,
     };
     if signature.kind != SignatureKind::Unsigned && signature.value.is_none() {
         bail!("signature value is required for {:?}", signature.kind);

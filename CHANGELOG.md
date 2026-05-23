@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.53] — 2026-05-23
+
+**主题**：manifest registry signature schema 加 typed key_id/alg 字段 + 文档化。
+
+### Added
+
+- `RegistrySignature.key_id` / `alg` 可选字段（serde skip_serializing_if=None）
+- `docs/manifest-registry-signature.md`：完整 cosign / minisign / sigstore_bundle / unsigned 4 种签名模式文档
+  - 工具命令示例
+  - registry.json 字段示例
+  - 当前实现进度（schema typed ✅ / 真实验签 0.4.54）
+  - Trust chain 流程图
+
+### Verification
+
+- `cargo build -p kgctl` 净
+
+---
+
 ## [0.4.52] — 2026-05-23
 
 **主题**：stream_chunk_transform e2e — wiremock SSE + 真 wasm 模块完整验证。
