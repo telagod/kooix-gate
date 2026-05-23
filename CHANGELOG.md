@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.27] — 2026-05-23
+
+**主题**：gate-wasm-sdk crate — 用户写 wasm transform 模块的 Rust SDK。
+
+### Added
+
+- `crates/gate-wasm-sdk/`：std-based crate，wasm32-unknown-unknown target 编译
+- `gate_alloc(size: i32) -> i32` bump allocator export
+- `encode_return / return_payload / with_input` 工具
+- `export_chat_request! / export_chat_response! / export_stream_chunk!` 三宏
+- ABI v0 文档说明 + 编译命令
+
+### Verification
+
+- `cargo build -p gate-wasm-sdk` 净
+- `cargo test -p gate-wasm-sdk` 0 failed (1 doctest ignored)
+
+---
+
 ## [0.4.26] — 2026-05-23
 
 **主题**：fallback policy + Prometheus metrics — wasm 失败永不 propagate。

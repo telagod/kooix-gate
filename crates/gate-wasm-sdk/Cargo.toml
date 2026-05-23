@@ -1,0 +1,25 @@
+[package]
+name = "gate-wasm-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Rust SDK for writing Kooix Gate WASM transform plugins (ADR-0003)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# 启用 std + alloc 用于宿主侧测试；wasm32 target 默认 no-std
+host-test = []
+
+[dependencies]
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
