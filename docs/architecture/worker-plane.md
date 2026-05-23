@@ -2,7 +2,7 @@
 
 Status: active
 Scope: outbox consumer、pricing sync、health check/probe、inflight quota recovery、retention 等后台任务。
-Last verified: 2026-05-22
+Last verified: 2026-05-23
 
 > 本页面是 worker plane 的运行时边界与代码锚点。具体后台任务设计见 [DESIGN.md §3-5](../../DESIGN.md)。
 

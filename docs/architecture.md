@@ -2,7 +2,7 @@
 
 Status: active
 Scope: 运行时分层、部署形态、核心数据流、代码边界与文档 source of truth。
-Last verified: 2026-05-21
+Last verified: 2026-05-23
 
 本文件是 Kooix Gate 的长期架构入口。`DESIGN.md` 负责解释核心设计原则与领域模型；本文负责回答“系统如何运转、边界在哪里、改代码时先看哪里”。
 

@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.38] — 2026-05-23
+
+**主题**：架构文档收口 — worker-plane 加 ADR-0003 WASM Plugin 章节。
+
+### Changed
+
+- `docs/architecture.md`：last_verified 2026-05-21 → 2026-05-23
+- `docs/architecture/worker-plane.md`：
+  - last_verified 更新
+  - 代码锚点新增 `crates/gate-wasm/` 完整说明
+  - 新增 "ADR-0003 WASM Plugin Worker（0.4.x）" 章节，含 chat 入站全链路图
+
+---
+
 ## [0.4.37] — 2026-05-23
 
 **主题**：gate-wasm bench — wasm_invoke_hook 单次调用开销测量。
