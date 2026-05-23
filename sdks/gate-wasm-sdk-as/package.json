@@ -1,0 +1,30 @@
+{
+  "name": "@kooix-gate/wasm-sdk-as",
+  "version": "0.4.55",
+  "description": "AssemblyScript SDK for Kooix Gate WASM transform plugins (ADR-0003 v0)",
+  "main": "build/release.js",
+  "types": "assembly/index.ts",
+  "scripts": {
+    "asbuild:debug": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release",
+    "asbuild": "npm run asbuild:debug && npm run asbuild:release",
+    "test": "node tests"
+  },
+  "keywords": [
+    "kooix-gate",
+    "wasm",
+    "assemblyscript",
+    "llm-gateway",
+    "transform"
+  ],
+  "author": "telagod",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/telagod/kooix-gate.git",
+    "directory": "sdks/gate-wasm-sdk-as"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27"
+  }
+}

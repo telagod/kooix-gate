@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.55] — 2026-05-23
+
+**主题**：sdks/gate-wasm-sdk-as npm package — AssemblyScript SDK 完整落地。
+
+### Added
+
+- `sdks/gate-wasm-sdk-as/`
+  - `package.json` — @kooix-gate/wasm-sdk-as 0.4.55，assemblyscript devDep
+  - `assembly/index.ts` — 完整 ABI v0 helpers
+    - `gate_alloc(size)` export
+    - `encodeReturn(ptr, len)` 工具
+    - `returnPayload(buf)` 写 linear memory
+    - `withInput(ptr, len, fn)` 完整封装
+  - `asconfig.json` — debug + release target
+  - `README.md` — Quickstart + API 表 + 参考
+
+---
+
 ## [0.4.54] — 2026-05-23
 
 **主题**：minisign signature 格式校验 + cosign/sigstore base64 校验 — registry 验签实质化。
