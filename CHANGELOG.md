@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.22] — 2026-05-23
+
+**主题**：WasmtimeHost runtime core — sha256 校验 + 模块加载 + fuel 设计。
+
+### Added
+
+- `crates/gate-wasm/src/wasmtime_host.rs`：
+  - `WasmtimeHost` 基于 wasmtime 26 引擎
+  - async_support / consume_fuel / epoch_interruption 全部启用
+  - `load_module` SHA256 强校验，DigestMismatch fail-loud
+  - `invoke_hook` v0 stub（identity transform，0.4.24-0.4.25 落 body 处理）
+  - per-channel ChannelModule + Arc<RwLock<HashMap>> 隔离
+- tokio sync feature 加入 deps（gate-wasm 自带）
+
+### Verification
+
+- `cargo test -p gate-wasm` 7 passed
+  - wasmtime_host_new_succeeds
+  - load_module_validates_sha256（含 happy path + DigestMismatch）
+  - invoke_hook_returns_none_when_module_missing
+  - invoke_hook_returns_identity_for_loaded_module
+  - 3 个 lib level tests 保留
+
+---
+
 ## [0.4.21] — 2026-05-23
 
 **主题**：gate-wasm crate skeleton — ADR-0003 v0 runtime 落地起步。

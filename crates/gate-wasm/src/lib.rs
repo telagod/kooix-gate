@@ -17,10 +17,12 @@
 mod error;
 pub mod host;
 pub mod limits;
+pub mod wasmtime_host;
 
 pub use error::{WasmError, WasmResult};
-pub use host::{HookKind, WasmHost, WasmHostConfig};
-pub use limits::{ResourceLimits, DEFAULT_LIMITS};
+pub use host::{HookContext, HookKind, WasmHost, WasmHostConfig};
+pub use limits::{DEFAULT_LIMITS, ResourceLimits};
+pub use wasmtime_host::WasmtimeHost;
 
 #[cfg(test)]
 mod tests {

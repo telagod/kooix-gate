@@ -19,6 +19,8 @@ bytes = "1"
 sha2 = { workspace = true }
 hex = { workspace = true }
 async-trait = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+wat = "1"

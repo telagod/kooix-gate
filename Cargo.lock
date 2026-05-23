@@ -1801,7 +1801,7 @@ dependencies = [
 
 [[package]]
 name = "gate-auth"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1829,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "gate-billing"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1854,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "gate-cache"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "async-trait",
  "fred",
@@ -1871,7 +1871,7 @@ dependencies = [
 
 [[package]]
 name = "gate-core"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "gate-crypto"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "gate-providers"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1934,7 +1934,7 @@ dependencies = [
 
 [[package]]
 name = "gate-server"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1988,7 +1988,7 @@ dependencies = [
 
 [[package]]
 name = "gate-storage"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2011,7 +2011,7 @@ dependencies = [
 
 [[package]]
 name = "gate-wasm"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2024,6 +2024,7 @@ dependencies = [
  "tokio",
  "tracing",
  "wasmtime",
+ "wat",
 ]
 
 [[package]]
@@ -2667,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "kgctl"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4230,7 +4231,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5693,6 +5694,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
 
 [[package]]
+name = "unicode-width"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
 name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5978,6 +5985,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-encoder"
+version = "0.250.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2271adb766023046af314460f1fae02cc34ea16d736d93404d3b65be44270923"
+dependencies = [
+ "leb128fmt",
+ "wasmparser 0.250.0",
+]
+
+[[package]]
 name = "wasm-metadata"
 version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6024,6 +6041,17 @@ checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
 dependencies = [
  "bitflags",
  "hashbrown 0.15.5",
+ "indexmap 2.14.0",
+ "semver",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.250.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "071d99cdfb8111603ed05500506c3298a940b58d609dd0259d3981785dd33556"
+dependencies = [
+ "bitflags",
  "indexmap 2.14.0",
  "semver",
 ]
@@ -6237,6 +6265,28 @@ dependencies = [
  "heck",
  "indexmap 2.14.0",
  "wit-parser 0.218.1",
+]
+
+[[package]]
+name = "wast"
+version = "250.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e9294a1f0204aeb5c47e95165517f43ef3cc895918c4f3e939380d4c290f4a"
+dependencies = [
+ "bumpalo",
+ "leb128fmt",
+ "memchr",
+ "unicode-width",
+ "wasm-encoder 0.250.0",
+]
+
+[[package]]
+name = "wat"
+version = "1.250.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a549ed329a70e444e0f7796391ab2a87d0aef30ddde9f60e16e429224fafd02"
+dependencies = [
+ "wast",
 ]
 
 [[package]]
