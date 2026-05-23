@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.21] — 2026-05-23
+
+**主题**：gate-wasm crate skeleton — ADR-0003 v0 runtime 落地起步。
+
+### Added
+
+- 新 crate `gate-wasm` 加入 workspace（基于 wasmtime 26）
+- `src/lib.rs` — 模块入口 + 3 个 unit tests
+- `src/error.rs` — `WasmError` / `WasmResult` 类型定义（Load / Instantiate / Call / Timeout / OutOfMemory / DigestMismatch / HostDenied / Panic）
+- `src/limits.rs` — `ResourceLimits` + `DEFAULT_LIMITS`（16 MiB / 50ms / 1 module per channel）
+- `src/host.rs` — `WasmHost` trait / `WasmHostConfig` / `HookKind` / `HookContext`
+- wasmtime 26 + cranelift + async + component-model 编译通过
+
+### Verification
+
+- `cargo build -p gate-wasm` 净（1m 02s 首次编译）
+- `cargo test -p gate-wasm` 3 passed
+
+---
+
 ## [0.4.20] — 2026-05-23
 
 **主题**：0.4.x 21 版本大收尾 — 0.5.0 债务清零，M3 全结。

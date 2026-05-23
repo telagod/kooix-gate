@@ -1,0 +1,24 @@
+[package]
+name = "gate-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "ADR-0003 WASM Plugin runtime for Kooix Gate (transform hooks)"
+
+[dependencies]
+wasmtime = { version = "26", default-features = false, features = ["cranelift", "async", "component-model"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = "1"
+sha2 = { workspace = true }
+hex = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

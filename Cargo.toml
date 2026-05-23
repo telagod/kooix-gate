@@ -9,11 +9,12 @@ members = [
     "crates/gate-providers",
     "crates/gate-server",
     "crates/gate-billing",
+    "crates/gate-wasm",
     "crates/kgctl",
 ]
 
 [workspace.package]
-version = "0.4.20"
+version = "0.4.21"
 edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-only"
