@@ -11,6 +11,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.50] — 2026-05-23
+
+**主题**：0.4.41-0.4.50 中阶段收尾 — WASM 集成全链路 e2e 走通，gate-providers 完整产品形态。
+
+### 0.4.41-0.4.50 阶段战报
+
+| 版本 | 主战 |
+|------|------|
+| 0.4.41 | CustomHttpProvider mount WasmHost (struct + with_wasm_host builder) |
+| 0.4.42 | chat_request hook 接通 (chat() build body 后 wasm transform) |
+| 0.4.43 | chat_response hook 接通 (limited_json_response_with_wasm) |
+| 0.4.44 | chat_stream request hook (stream chunk 留 0.5.0+) |
+| 0.4.45 | kgctl wasm verify/inspect 子命令 |
+| 0.4.46 | wasm e2e 测试（wiremock + 真 wasm 模块 + 完整 chat 链路） |
+| 0.4.47 | clippy 0/0 全清 |
+| 0.4.48 | admin UI WASM_MANIFEST_SAMPLE 模板 |
+| 0.4.49 | docs/wasm-sdk-as.md AssemblyScript SDK 文档 |
+| 0.4.50 | 中阶段收尾 |
+
+### WASM 集成完整能力（0.4.50 结算）
+
+```
+client → gate-server → CustomHttpProvider
+                          │
+                          ├─ wasm_transform_request   (0.4.42 ✓)
+                          ↓
+                       reqwest::post(upstream)
+                          ↓
+                          ├─ wasm_transform_response  (0.4.43 ✓)
+                          ↓
+                       parse JSON → return ChatResponse
+
+                       wasm_transform_stream_chunk    (helper ready, SSE pipeline 留 0.5.0+)
+```
+
+### 工程总账（0.4.50 结算）
+
+- Rust 后端：71047+ 行（gate-wasm + gate-wasm-sdk）
+- Tags：50 个 (v0.4.0 → v0.4.50)
+- 新增 crates：2 个（gate-wasm / gate-wasm-sdk）
+- 新增 e2e 测试：3 个（wasm_integration.rs）
+- workspace tests：485+ 通过
+- WASM 完整 runtime + Rust SDK + AssemblyScript 文档 + Helm chart + Grafana dashboard + threat model + runbook 全套就绪
+
+### 仅剩 0.5.0 候选
+
+- SSE pipeline 内 stream_chunk_transform 接通
+- Manifest registry + Sigstore 签名链
+- AssemblyScript SDK npm package
+- SaaS 多区域 / SCIM v2
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+- `cargo test --workspace --lib` 全过
+- 50 个 tag 全部 push origin/main
+
+---
+
 ## [0.4.49] — 2026-05-23
 
 **主题**：docs/wasm-sdk-as.md — AssemblyScript SDK 文档先行。

@@ -8,9 +8,9 @@
 
 写一份 JSON manifest 就能上一个新渠道，不发版；流式计费 fail-closed；多 Org RLS 兜底；编译期 SQL；强类型 ID。
 
-[![Tests](https://img.shields.io/badge/tests-485%20Rust%20%2B%2087%20web-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-485%2B%20Rust%20%2B%2087%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.4.40-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.50-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
 ## 是什么
@@ -55,15 +55,17 @@ open http://localhost:8000                # 控制台（首次进入会引导初
 - [ROADMAP.md](./ROADMAP.md) — 三里程碑路线
 - [examples/](./examples/) — SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm
 
-## 当前版本：v0.4.40
+## 当前版本：v0.4.50
 
-0.4.x 41 版本阶段大终结（2026-05-23）：
+0.4.x 50+ 版本完整产品阶段（2026-05-23）：
 
-- **M3 完结**：ADR-0001 Providers-as-Plugin / ADR-0002 Fast-path Runtime / ADR-0003 WASM Plugin ABI v0 全部 ✅
-- **WASM Plugin v0 完整 runtime**：wasmtime 26 + 3 hook 全接通 + fallback + Rust SDK + Criterion bench
-- **产品化打磨**：Helm chart / Grafana dashboard / OpenAPI spec / 三档 quickstart / 4 个 runbook / 威胁模型
-- **前端深度组件化**：channels 1864 → 1252 (-32.8%) / quotas 959 → 680 (-29.1%) / pricing 640 → 369 (-42.3%)
+- **M3 完结**：ADR-0001 / ADR-0002 / ADR-0003 全部 ✅
+- **WASM Plugin v0 完整端到端**：wasmtime 26 + 3 hook + Rust SDK + AssemblyScript SDK 文档 + e2e 测试 + kgctl wasm 工具
+- **gate-providers WASM 集成**：CustomHttpProvider chat() 接通 chat_request_transform + chat_response_transform，wiremock e2e 全过
+- **产品化打磨**：Helm chart / Grafana dashboard / OpenAPI / 三档 quickstart / 5 个 runbook / 威胁模型 / Criterion bench
+- **前端深度组件化**：channels 1864 → 1252 (-32.8%)
 - **Rust 拆解**：router / custom_provider / plugin_manifest 全部 -52%+
+- **clippy 0/0**：workspace 全 lint 净
 
 详见 [CHANGELOG.md](./CHANGELOG.md)。
 
