@@ -208,3 +208,81 @@ cargo run -p gate-server --release
 - Docker workflow success。
 - GHCR 出现 `v0.2.0` 与 `latest`。
 - GitHub Release 页面可见。
+
+---
+
+## 0.4.x 阶段补充（2026-05-23）
+
+0.4.x 21+ 版本积累的 release 经验：
+
+### 标准 commit pipeline（每个 patch 版）
+
+```bash
+# 1. bump 版本号（root + web）
+sed -i 's/^version = "0\.4\.X"/version = "0.4.Y"/' Cargo.toml
+sed -i 's/"version": "0\.4\.X"/"version": "0.4.Y"/' web/package.json
+
+# 2. 跑 fmt / clippy / test 三连
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --lib
+
+# 3. CHANGELOG 加段
+# 4. cargo build 触发 Cargo.lock 同步
+cargo build -p gate-server --quiet
+
+# 5. commit + tag + push
+git add -A
+git commit -m 'release: vX.Y.Z — 主题'
+git tag vX.Y.Z -m 'vX.Y.Z — 简描'
+git push origin main
+git push origin vX.Y.Z
+```
+
+### Docker / Release artifact（手工绕过 GHA billing）
+
+如果 GitHub Actions 因 billing block 失败，本地补：
+
+```bash
+# Build
+docker build -t ghcr.io/telagod/kooix-gate:v0.4.X -f Dockerfile .
+
+# 推 GHCR（host docker daemon 不走代理时用 crane）
+HTTPS_PROXY=http://127.0.0.1:7897 \
+  crane push ghcr.io/telagod/kooix-gate:v0.4.X \
+  --auth-token=$(gh auth token)
+
+# 也推 latest
+HTTPS_PROXY=http://127.0.0.1:7897 \
+  crane copy ghcr.io/telagod/kooix-gate:v0.4.X ghcr.io/telagod/kooix-gate:latest
+
+# GitHub Release 手工创建
+gh release create v0.4.X \
+  --title 'v0.4.X — 主题' \
+  --notes-from-tag
+```
+
+### WASM 模块发布（0.4.x 起）
+
+如果版本含 wasm 模块：
+
+```bash
+# Build wasm 产物
+cd examples/wasm-transform
+cargo build --target wasm32-unknown-unknown --release
+sha256sum ../../target/wasm32-unknown-unknown/release/wasm_transform_example.wasm > sha256.txt
+
+# 上传到 GitHub Release attachments
+gh release upload v0.4.X \
+  ../../target/wasm32-unknown-unknown/release/wasm_transform_example.wasm \
+  sha256.txt
+```
+
+### 阶段大版（每 10 patch 一次）
+
+每跑完 10 个 patch 版（如 0.4.10 / 0.4.20 / 0.4.30 / 0.4.40），加：
+
+1. ROADMAP 同步（如 M1.4 全 ticked）
+2. CHANGELOG 写完整阶段战报（含全 patch 表）
+3. README 当前版本段更新（第一屏）
+4. docs/getting-started.md 引用版本号校对

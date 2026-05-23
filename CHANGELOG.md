@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.39] — 2026-05-23
+
+**主题**：RELEASE.md 0.4.x 阶段补充 — 标准 commit pipeline + GHA fallback + WASM 模块发布。
+
+### Added
+
+- `RELEASE.md` 末尾追加 "0.4.x 阶段补充（2026-05-23）" 章节
+  - 标准 commit pipeline（bump / fmt-clippy-test / CHANGELOG / commit / tag / push）
+  - Docker / Release artifact 本地手工补（GHA billing fallback）
+  - WASM 模块发布流程（编译 + sha256 + gh release upload）
+  - 阶段大版每 10 patch 一次的固定动作（ROADMAP / CHANGELOG / README / getting-started）
+
+---
+
 ## [0.4.38] — 2026-05-23
 
 **主题**：架构文档收口 — worker-plane 加 ADR-0003 WASM Plugin 章节。
