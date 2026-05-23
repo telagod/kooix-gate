@@ -10,7 +10,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-485%2B%20Rust%20%2B%2087%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.4.50-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.60-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
 ## 是什么
@@ -55,19 +55,19 @@ open http://localhost:8000                # 控制台（首次进入会引导初
 - [ROADMAP.md](./ROADMAP.md) — 三里程碑路线
 - [examples/](./examples/) — SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm
 
-## 当前版本：v0.4.50
+## 当前版本：v0.4.60 — 完整产品形态
 
-0.4.x 50+ 版本完整产品阶段（2026-05-23）：
+0.4.x 60 版本阶段（2026-05-23）：
 
 - **M3 完结**：ADR-0001 / ADR-0002 / ADR-0003 全部 ✅
-- **WASM Plugin v0 完整端到端**：wasmtime 26 + 3 hook + Rust SDK + AssemblyScript SDK 文档 + e2e 测试 + kgctl wasm 工具
-- **gate-providers WASM 集成**：CustomHttpProvider chat() 接通 chat_request_transform + chat_response_transform，wiremock e2e 全过
-- **产品化打磨**：Helm chart / Grafana dashboard / OpenAPI / 三档 quickstart / 5 个 runbook / 威胁模型 / Criterion bench
+- **WASM Plugin v0 完整产品**：wasmtime 26 + 3 hook 含 SSE + Rust SDK + AssemblyScript SDK npm pkg + e2e 测试 + kgctl wasm 工具 + manifest 验签 schema + Grafana dashboard
+- **gate-providers WASM 集成**：CustomHttpProvider chat / chat_stream 全链路 wiremock e2e 通过
+- **产品化**：Helm chart / Grafana dashboard / OpenAPI / 三档 quickstart / 5 runbook / threat model / Criterion bench
 - **前端深度组件化**：channels 1864 → 1252 (-32.8%)
 - **Rust 拆解**：router / custom_provider / plugin_manifest 全部 -52%+
 - **clippy 0/0**：workspace 全 lint 净
 
-详见 [CHANGELOG.md](./CHANGELOG.md)。
+详见 [CHANGELOG.md](./CHANGELOG.md)。下一阶段 v0.5.0 候选见 [ROADMAP.md § M4](./ROADMAP.md)。
 
 ## 核心能力
 

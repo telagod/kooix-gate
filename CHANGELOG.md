@@ -11,6 +11,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.60] — 2026-05-23
+
+**主题**：0.4.x 60 版本完整产品阶段宣告 — M3 全部产品化交付，0.5.0 真正进入下一阶段。
+
+### 0.4.51-0.4.60 阶段战报
+
+| 版本 | 主战 | 0.5.0 候选清单 |
+|------|------|---------------|
+| 0.4.51 | SSE pipeline stream_chunk_transform 真接通 | ✓ 第 1 项清零 |
+| 0.4.52 | SSE e2e 测试 (wiremock + 真模块) | — |
+| 0.4.53 | manifest registry signature schema 加 typed key_id/alg + 文档 | — |
+| 0.4.54 | minisign 格式校验 + cosign base64 校验 | ✓ 第 2 项部分清零（schema/format ✓ / 真公钥验签留 0.5.0） |
+| 0.4.55 | sdks/gate-wasm-sdk-as npm package | ✓ 第 3 项清零（本地包 ✓ / npm publish 留 0.5.0） |
+| 0.4.56 | examples/wasm-transform-as 实战示例 | — |
+| 0.4.57 | ProviderRouter wasm_host setter/getter | — |
+| 0.4.58 | gate_plugin_wasm_calls_total Prometheus describe | — |
+| 0.4.59 | ROADMAP M3 完整产品形态 + M4 候选 | — |
+| 0.4.60 | 完整产品宣告 | — |
+
+### 完整产品形态最终验收
+
+#### M3 ADR-0003 v0 全栈
+
+```
+[wasm 模块作者]
+   │  Rust SDK (gate-wasm-sdk)              ✓ 0.4.27
+   │  AssemblyScript SDK (sdks/gate-wasm-sdk-as)  ✓ 0.4.55
+   │  examples/wasm-transform (Rust)         ✓ 0.4.33
+   │  examples/wasm-transform-as (AS)        ✓ 0.4.56
+   ↓
+[模块二进制]
+   │  kgctl wasm verify/inspect              ✓ 0.4.45
+   │  manifest registry signature schema     ✓ 0.4.53
+   │  cosign / minisign / sigstore_bundle  format ✓ 0.4.54
+   ↓
+[manifest 注册]
+   │  channel.security.wasm typed schema     ✓ 0.4.23
+   │  WASM_MANIFEST_SAMPLE admin UI 提示     ✓ 0.4.48
+   │  ProviderRouter wasm_host setter/getter ✓ 0.4.57
+   ↓
+[runtime]
+   │  gate-wasm crate (wasmtime 26)          ✓ 0.4.21
+   │  WasmtimeHost + sha256 + fuel + memcap  ✓ 0.4.22
+   │  3 hook 全接通 (chat_request/response/stream_chunk) ✓ 0.4.24/25/51
+   │  fallback policy + Prometheus metric    ✓ 0.4.26
+   │  CustomHttpProvider 集成 (chat / chat_stream) ✓ 0.4.42-0.4.44/51
+   │  e2e 测试 (chat + stream)               ✓ 0.4.46/52
+   │  /metrics describe HELP                 ✓ 0.4.58
+   ↓
+[运营]
+   │  docs/wasm-runbook.md 故障手册          ✓ 0.4.35
+   │  docs/threat-model.md WASM 表面分析     ✓ 0.4.36
+   │  docs/manifest-registry-signature.md    ✓ 0.4.53
+   │  Criterion bench wasm_invoke            ✓ 0.4.37
+```
+
+#### 工程总账（0.4.60 结算）
+
+```
+Tags                    60 个 (v0.4.0 → v0.4.60)
+Rust 后端                71047+ 行 (含 gate-wasm + gate-wasm-sdk 2 个新 crate)
+SDK npm package          1 个 (sdks/gate-wasm-sdk-as)
+前端 web                 21720 行
+前端 _components         22+ 个
+前端 _lib helper         5+ 个
+ADR                      3 个 (ADR-0001 / 0002 / 0003 全部 ✅)
+Helm chart               1 套 (deploy/helm/gate)
+Grafana dashboard        1 个
+WASM 端到端 e2e 测试     5 个 (3 unit + 2 stream + integration)
+Bench                    4 个 (plugin_vs_builtin + sse + routing + wasm_invoke)
+clippy                   workspace 0/0
+```
+
+### 0.5.0 真候选（不再标 deferred，等启动会议筛选）
+
+详见 [ROADMAP.md M4 章节](./ROADMAP.md#m4--v050--enterprise--saas-进阶候选)。
+
+### 完整产品宣告
+
+> 0.4.60 起 Kooix Gate 进入 **完整产品形态**：
+> - LLM 网关核心：18+ provider preset / 多 Org RLS / 流式 fail-closed 计费 / typed ID
+> - WASM Plugin v0：双 SDK + 4 hook（含 SSE）+ fallback + 验签 schema + 完整运维
+> - 部署：Helm chart + 三档 quickstart + 5 个 runbook + 威胁模型
+> - DX：OpenAPI / Postman / Bruno / examples × 11 / kgctl 全套
+
+可正式 release 0.5.0 启动会议。
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+- `cargo test --workspace --lib` 全过
+- `cargo test -p gate-providers --test wasm_integration` 4 passed (含 SSE stream e2e)
+- `cargo build` 净
+
+---
+
 ## [0.4.59] — 2026-05-23
 
 **主题**：ROADMAP 同步 — M3 完整产品形态宣告 + M4 v0.5.0 候选方向章节。
