@@ -1,0 +1,14 @@
+{
+  "name": "wasm-transform-example-as",
+  "version": "0.1.0",
+  "description": "AssemblyScript wasm transform example for Kooix Gate (ADR-0003 v0)",
+  "scripts": {
+    "asbuild:debug": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release"
+  },
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "devDependencies": {
+    "assemblyscript": "^0.27"
+  }
+}

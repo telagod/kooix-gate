@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.56] — 2026-05-23
+
+**主题**：examples/wasm-transform-as AssemblyScript 实战示例。
+
+### Added
+
+- `examples/wasm-transform-as/`：完整可编译 AssemblyScript transform 示例
+  - `package.json` + `asconfig.json`
+  - `assembly/index.ts`：完整 gate_alloc / chat_request / chat_response identity transform
+  - `README.md`：编译/部署 + 与 Rust SDK 示例对比表
+
+### Fixed
+
+- `examples/README.md`：补回 0.4.33 漏的 `wasm-transform/` 索引行 + 加 `wasm-transform-as/`
+
+---
+
 ## [0.4.55] — 2026-05-23
 
 **主题**：sdks/gate-wasm-sdk-as npm package — AssemblyScript SDK 完整落地。
