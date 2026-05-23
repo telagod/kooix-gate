@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.33] — 2026-05-23
+
+**主题**：examples/wasm-transform 实战示例 — gate-wasm-sdk 用法 + system prompt 注入。
+
+### Added
+
+- `examples/wasm-transform/`：完整 WASM transform 示例
+  - `Cargo.toml`：依赖 gate-wasm-sdk + serde_json + cdylib + wasm32-unknown-unknown 编译指引
+  - `src/lib.rs`：`export_chat_request!` 宏使用，JSON parse + 在 messages 头部插 system prompt
+  - `README.md`：编译、部署、验证、失败模式
+- `examples/README.md` 索引加 `wasm-transform/` 行
+
+---
+
 ## [0.4.32] — 2026-05-23
 
 **主题**：OpenAPI 3.1 spec bump + API 参考文档。
