@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.54] — 2026-05-23
+
+**主题**：minisign signature 格式校验 + cosign/sigstore base64 校验 — registry 验签实质化。
+
+### Added
+
+- `verify_minisign_format`：base64 解码 + 长度 ≥ 64B 检查 + key_id base64 校验
+- cosign / sigstore_bundle：base64 strict decode 校验
+- `validate_signature` 升级为 per-kind dispatch
+- deps：`ed25519-dalek = "2"` (留 0.5.0+ 真公钥验签用) + `base64.workspace`
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+
+---
+
 ## [0.4.53] — 2026-05-23
 
 **主题**：manifest registry signature schema 加 typed key_id/alg 字段 + 文档化。
