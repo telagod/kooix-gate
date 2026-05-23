@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.62] — 2026-05-23
+
+**主题**：admin/groups 抽 FallbackChainPanel — 回退链路面板独立组件。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 923 → 845（-78 行 / -8.5%）
+- 新增 `_components/FallbackChainPanel.svelte`（90 行）：fallback chain stats grid + 链路 visualizer 整体抽出
+- `_lib/helpers.ts` 扩 2 个：`formatPercent` / `formatCanaryPercent`
+
+### Verification
+
+```bash
+npm run check    # 0/0
+npm test         # 13/87
+```
+
+---
+
 ## [0.4.61] — 2026-05-23
 
 **主题**：admin/groups 抽 GroupCard + _lib/helpers — 0.4.61-0.4.90 前端打磨阶段 A 启航。

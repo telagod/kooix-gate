@@ -29,3 +29,12 @@ export function capabilityChipClass(_key?: string): string {
 export function formatNumber(value: number | null | undefined): string {
 	return new Intl.NumberFormat('zh-CN').format(value ?? 0);
 }
+
+export function formatPercent(value: number | null | undefined): string {
+	return `${((value ?? 0) * 100).toFixed(1)}%`;
+}
+
+export function formatCanaryPercent(bps: number | null | undefined): string {
+	if (bps === null || bps === undefined) return '关闭';
+	return `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+}
