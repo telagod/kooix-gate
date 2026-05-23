@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.28] — 2026-05-23
+
+**主题**：README 第一屏更新到 0.4.x 战果 — 285→485 tests / WASM Plugin 加入对比表。
+
+### Changed
+
+- Badge：tests 285 + 85 → 485 + 87；version 0.2.1 → 0.4.27
+- "跟谁不同" 表新增 **WASM Plugin** 行（ADR-0003 v0）
+- "当前版本" 段：替换 0.2.1 收尾叙事为 0.4.x 21 版本阶段战果
+  - M3 完结
+  - WASM Plugin v0 runtime + Rust SDK
+  - 前端组件化数据
+  - Rust 三巨兽拆解
+
+---
+
 ## [0.4.27] — 2026-05-23
 
 **主题**：gate-wasm-sdk crate — 用户写 wasm transform 模块的 Rust SDK。

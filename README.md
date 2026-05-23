@@ -8,9 +8,9 @@
 
 写一份 JSON manifest 就能上一个新渠道，不发版；流式计费 fail-closed；多 Org RLS 兜底；编译期 SQL；强类型 ID。
 
-[![Tests](https://img.shields.io/badge/tests-285%20Rust%20%2B%2085%20web-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-485%20Rust%20%2B%2087%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.2.1-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.27-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
 ## 是什么
@@ -28,6 +28,7 @@
 | **多 Org 租户** | ✅ 三层 + RLS 兜底 | ❌ 单租户 | ⚠ 用户级 | ☁ SaaS |
 | **流式计费** | ✅ fail-closed + outbox | ⚠ 有跳过窗口 | ⚠ 静默漏扣 | ☁ SaaS |
 | **私有协议接入** | ✅ JSON manifest（5 分钟）| ✅ Python config | ⚠ 改 Go 代码 | ❌ |
+| **WASM Plugin** | ✅ ADR-0003 v0 transform hook（0.4.x） | ❌ | ❌ | ❌ |
 | **配额维度** | rpm/tpm/concurrent/budget/lifetime + dry-run | rpm/tpm | rpm/tpm | quota |
 | **运行时** | Rust + 编译期 SQL | Python | Go | 闭源 |
 | **典型 binary** | 17 MB | ~500 MB image | ~30 MB | n/a |
@@ -54,9 +55,17 @@ open http://localhost:8000                # 控制台（首次进入会引导初
 - [ROADMAP.md](./ROADMAP.md) — 三里程碑路线
 - [examples/](./examples/) — SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm
 
-## 当前版本：v0.2.1
+## 当前版本：v0.4.27
 
-收尾与大范围优化版本：dev profile 调优、ADR 文档化、ROADMAP 收敛三里程碑、provider 全插件化迁移路径锁定、三巨兽源文件拆解、前端 1949 行核弹拆分。详见 [CHANGELOG.md](./CHANGELOG.md)。
+0.4.x 21+ 版本阶段战果（2026-05-23）：
+
+- **M3 完结**：ADR-0001 Providers-as-Plugin / ADR-0002 Fast-path Runtime / ADR-0003 WASM Plugin ABI v0 全部 ✅
+- **WASM Plugin v0 runtime**：wasmtime 26 引擎托管，chat/response/stream 三 hook 端到端走通，fallback policy + Prometheus metrics
+- **Rust SDK**：`gate-wasm-sdk` 用户写 transform 模块（`export_chat_request!` / `export_chat_response!` / `export_stream_chunk!` 宏）
+- **前端深度组件化**：channels 1864 → 1252 (-32.8%) / quotas 959 → 680 (-29.1%) / pricing 640 → 369 (-42.3%)
+- **三巨兽 Rust 拆解**：router / custom_provider / plugin_manifest 全部 -52%+
+
+详见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 核心能力
 
