@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.64] — 2026-05-23
+
+**主题**：admin/groups 抽 BindingTable — 渠道列表 + inline editing 整体抽出。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 739 → 655（-84 行 / -11.4%）
+- 新增 `_components/BindingTable.svelte`（180 行）：渠道列表 DataTable + inline editing + Project references；用 17 props（detail/refs/4 editing state/bindingCapabilities + 9 callback）
+- 父保留 inline editing state（editingBindingId / editBindingPriority / editBindingWeight / editBindingCanaryPercent），子通过 onUpdate* 回调更新
+
+### Verification
+
+```bash
+npm run check    # 0/0
+npm test         # 13/87
+```
+
+---
+
 ## [0.4.63] — 2026-05-23
 
 **主题**：admin/groups 抽 CanaryComparePanel — Canary 对比面板独立组件 + 6 个 canary helper 移至 _lib。
