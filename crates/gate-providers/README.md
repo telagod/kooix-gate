@@ -65,15 +65,16 @@ use gate_providers::{
 
 子模块内部细节走 `pub(super)` / `pub(crate)`，外部访问统一通过 lib.rs re-export。
 
-## 演进方向（ADR-0001）
+## 演进方向（ADR-0001 / ADR-0002 / ADR-0003）
 
 | 版本 | 动作 |
 |------|------|
-| **0.2.1**（当前） | 三巨兽拆分完成；编译期 thin wrapper provider 标 `#[deprecated]`；plugin runtime 与编译期 provider 共存 |
+| **0.2.1** | 三巨兽拆分完成；编译期 thin wrapper provider 标 `#[deprecated]`；plugin runtime 与编译期 provider 共存 |
 | **0.3.0** | 删除 5 个 thin wrapper（cohere/deepseek/gemini/mistral/ollama）；ChannelRecord 自动 migration 到 plugin preset |
 | **0.4.0** | `gate-providers` 收敛为「1 plugin runtime + N preset bundle」；`builtin_fastpath: true` manifest 标志保留性能保险 |
+| **0.4.21-0.4.60** | WASM transform 集成：`CustomHttpProvider.wasm_host` + `with_wasm_host` builder + 3 hook（chat_request / chat_response / stream_chunk）+ `ProviderRouter::with_wasm_host` setter/getter；e2e wiremock 4 用例 |
 
-详见 [ADR-0001 Provider 全插件化迁移](../../docs/architecture/decisions/ADR-0001-providers-as-plugin.md)。
+详见 [ADR-0001](../../docs/architecture/decisions/ADR-0001-providers-as-plugin.md) / [ADR-0002](../../docs/architecture/decisions/ADR-0002-fastpath-runtime.md) / [ADR-0003](../../docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)。
 
 ## 关键约束
 
@@ -112,5 +113,8 @@ cargo bench -p gate-providers --bench sse               # SSE parser 压测
 
 - [DESIGN.md §4 Channel & Key 池](../../DESIGN.md) — 路由策略与 plugin 整流设计
 - [docs/plugin-manifest.md](../../docs/plugin-manifest.md) — Plugin manifest v1 完整规范 + 示例
-- [docs/wasm-plugin-abi.md](../../docs/wasm-plugin-abi.md) — WASM ABI vNext 设计稿
+- [docs/wasm-plugin-abi.md](../../docs/wasm-plugin-abi.md) — WASM ABI v0 设计与 0.4.x 实装对账
+- [crates/gate-wasm/](../gate-wasm/) — WASM runtime crate（wasmtime 26 + 3 hook + fallback）
+- [crates/gate-wasm-sdk/](../gate-wasm-sdk/) — Rust SDK（写 wasm transform 用）
 - [ADR-0001](../../docs/architecture/decisions/ADR-0001-providers-as-plugin.md) — Provider 全插件化迁移决议
+- [ADR-0003](../../docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md) — WASM Plugin ABI v0

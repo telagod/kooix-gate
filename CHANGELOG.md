@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Docs
+### Docs — 第一轮：v0.4.60 → v0.5.0 product-gaps 与 ADR-0003 实装收口
 
 - **新增** [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账清单（17 项 G-编号，按 P0/P1/P2/P3 分组，含影响面 / 当前状态 / 实施路径 / 验收门禁 / 关联引用）。0.5.0 启动会议据此筛选。
 - **修订** [ADR-0003](./docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md) Status: PoC accepted → **Implemented (0.4.16 PoC → 0.4.60 完整产品形态)**；Verification 章节按 0.4.16 / 0.4.21-0.4.60 / v0.5.0 候选三段重写，对账实际命中位置；Negative/Risks 与 References 同步更新。
@@ -19,11 +19,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **修订** [docs/getting-started.md](./docs/getting-started.md) Helm `image.tag` v0.4.28 → v0.4.60。
 - **修订** [ROADMAP.md § M4](./ROADMAP.md#m4--v050--enterprise--saas-进阶候选) v0.5.0 候选改为 P0/P1/P2 三档分组（17 项 G-编号），并链入 product-gaps.md。
 
+> 第一轮已 commit `a5eabc1`（本地未 push）。
+
+### Docs — 第二轮文档收口（漂移修复 + crate README 全覆盖）
+
+- **修订** README badge 与测试段：`tests-485+ Rust + 87 web` 与正文 263 行 `285 Rust` 互相矛盾，改为统一 `485 Rust + 86 web tests`（实测：lib 242 + 全量 485；web 86 pass / 1 fail 漂移留待单独修）。
+- **修订** [README.md](./README.md) 文档地图：从 8 行扩为分组（入门/部署、架构/设计、扩展面、API/接入、可观测/运维、路线/缺口），收录 product-gaps / wasm-plugin-abi / wasm-sdk-as / manifest-registry-signature / getting-started / observability / api-reference / wasm-runbook / threat-model 共 9 篇。
+- **修订** [README.md](./README.md) Workspace 结构：补 `crates/gate-wasm/` `crates/gate-wasm-sdk/` `sdks/` `deploy/` `bench/` 五项；`gate-providers` 注释加 WASM 集成。
+- **修订** [DESIGN.md](./DESIGN.md) 四处过期表述：原则 #5 / § 4 plugin 整流尾段 / § 关键决策表第 7 行 / § 核心交付清单（WASM ABI 设计稿 → v0 完整实装；master key 轮换工具改回 [ ] 与现状一致）。
+- **修订** [ROADMAP.md](./ROADMAP.md) 测试基线：`285 Rust test list entries` → `485 Rust（lib 242 + integration/doctest 243）+ 86 web tests`。
+- **新增** 9 个 crate README：`gate-core` / `gate-storage` / `gate-crypto` / `gate-auth` / `gate-cache` / `gate-billing` / `gate-server` / `gate-wasm` / `gate-wasm-sdk`。两个新 crate（`gate-wasm` `gate-wasm-sdk`）写完整模块表 + 资源限制 + 失败语义；7 个老 crate 写最小自介，避免无效膨胀。
+- **修订** [crates/gate-providers/README.md](./crates/gate-providers/README.md) 演进表：补 0.4.21-0.4.60 WASM transform 集成行；参考链接补 ADR-0002 / ADR-0003 / gate-wasm / gate-wasm-sdk。
+- **修订** [docs/plugin-manifest.md](./docs/plugin-manifest.md) 后续计划段：删除「WASM runtime PoC」（已实装）+ 链入 ADR-0003 + product-gaps G-103。
+- **修订** [docs/architecture.md](./docs/architecture.md) 设计选择表第 5 行：`compile-time provider + HTTP Plugin manifest` → 加 WASM transform v0；触发条件改 ABI v1 / wit-bindgen。
+
+### Notes
+
+- web 测试发现 1 处漂移：`web/src/tests/ui-copy.test.ts` 仍期望 `pricing/+page.svelte` 包含字面量 `'Pricing wizard 向导'`，但已抽到 `_components/PricingWizard.svelte`。属前次组件化拆分遗留，**不在本轮 docs scope**，留作后续单独修。
+
 ### Verification
 
 ```bash
-git diff --stat                      # 仅文档：7 files modified + 1 new
-rg 'TODO|FIXME' docs/                # 历史时间戳保留，无新 TODO
+KOOIX_SKIP_PG_TESTS=1 cargo test --workspace --no-fail-fast | grep 'test result' | awk '{s+=$4}END{print s}'  # 485
+git diff --stat                                                                                                # 6 modified
+git ls-files --others --exclude-standard | wc -l                                                               # 9 new READMEs
 ```
 
 ---

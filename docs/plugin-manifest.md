@@ -660,7 +660,7 @@ v0.2.0 必须遵守：
 - 私有 URL / header / body 都视为不可信配置，发布前需要人工 review；生产环境仍建议用网络层 egress firewall 作为 runtime allowlist 外的兜底。
 - 不在日志、request log、audit 中写出 `api_key`、secret header、Bearer token 或 query secret；probe/debug 输出必须使用 redacted headers / URL。
 
-后续计划补齐：plugin image/audio/batch runtime、signed manifest package、跨版本 fixture 批量回放与 WASM runtime PoC。WASM ABI vNext 设计稿见 [wasm-plugin-abi.md](./wasm-plugin-abi.md)。
+后续计划补齐：plugin image/audio/batch runtime、signed manifest package、跨版本 fixture 批量回放。WASM transform v0 已在 0.4.21-0.4.60 完整实装（[ADR-0003](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md) + [wasm-plugin-abi.md](./wasm-plugin-abi.md)）；ABI v1 走 wit-bindgen 见 [product-gaps.md § G-103](./product-gaps.md#g-103-wasm-abi-v1-走-wit-bindgen)。
 
 ## 当前测试覆盖
 

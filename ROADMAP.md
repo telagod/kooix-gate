@@ -178,7 +178,7 @@ cd web && npm run build                               # ✅ built in 7.17s
 - typed ID API response + `FlexUuid` path 兼容。
 - SvelteKit 控制台：Channel、Group、Pricing、Quota、Usage、Requests、Billing、SSO、Users、Incidents、Audit、Playground 等管理面。
 - 前端设计模板：`PageShell` / `SectionCard` / `DataToolbar` / `DataTable` 等。
-- CI：Rust fmt / clippy / check / tests + Web build；当前 285 Rust test list entries（280 unit/integration + 5 doctest）+ 85 web tests。
+- CI：Rust fmt / clippy / check / tests + Web build；当前 485 Rust tests（lib 242 + integration / doctest 243）+ 86 web tests。
 
 ## 战略主线：渠道插件化（不变）
 

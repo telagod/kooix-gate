@@ -46,14 +46,41 @@ open http://localhost:8000                # 控制台（首次进入会引导初
 
 ## 文档地图
 
+入门 / 部署：
+
+- [docs/getting-started.md](./docs/getting-started.md) — 三档接入：30 秒 Docker / 5 分钟 Helm / 10 分钟本地源码
+- [RELEASE.md](./RELEASE.md) — 发布、回滚、smoke runbook
+
+架构 / 设计：
+
 - [DESIGN.md](./DESIGN.md) — 领域模型、运行时边界、数据流
 - [docs/architecture.md](./docs/architecture.md) — C4 架构总览（control / data / worker plane）
-- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADR（架构决议）
+- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADR（架构决议，ADR-0001/0002/0003 全部 Accepted/Implemented）
+
+扩展面：
+
 - [docs/plugin-manifest.md](./docs/plugin-manifest.md) — HTTP Plugin manifest 规范与示例
+- [docs/wasm-plugin-abi.md](./docs/wasm-plugin-abi.md) — WASM Plugin ABI v0 完整设计与实装对账
+- [docs/wasm-sdk-as.md](./docs/wasm-sdk-as.md) — AssemblyScript SDK 用法
+- [docs/manifest-registry-signature.md](./docs/manifest-registry-signature.md) — Registry 签名 schema
+
+API / 接入：
+
+- [docs/api-reference.md](./docs/api-reference.md) — OpenAPI / Postman / Bruno + 关键 API 索引
+- [examples/](./examples/) — SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm
+
+可观测 / 运维：
+
+- [docs/observability.md](./docs/observability.md) — Prometheus / Grafana / OTLP
 - [docs/observability-runbook.md](./docs/observability-runbook.md) — SLO 指标 / 故障处置
 - [docs/security-runbook.md](./docs/security-runbook.md) — 密钥轮换 / master key 丢失
-- [ROADMAP.md](./ROADMAP.md) — 三里程碑路线
-- [examples/](./examples/) — SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm
+- [docs/wasm-runbook.md](./docs/wasm-runbook.md) — WASM 模块故障处置
+- [docs/threat-model.md](./docs/threat-model.md) — 威胁模型
+
+路线 / 缺口：
+
+- [ROADMAP.md](./ROADMAP.md) — 四里程碑路线（M1/M2/M3 已交付，M4 候选）
+- [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账
 
 ## 当前版本：v0.4.60 — 完整产品形态
 
@@ -115,7 +142,7 @@ kooix-gate/
 ├── RELEASE.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
-├── docs/                       # 文档索引 / runbooks / waivers / stages
+├── docs/                       # 文档索引 / runbooks / waivers / stages / product-gaps
 ├── crates/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）
 │   ├── gate-crypto/            # Envelope encryption + KMS 抽象
@@ -123,10 +150,19 @@ kooix-gate/
 │   │   └── migrations/         # 34 SQL 文件，含 RLS / pricing_rules / inflight recovery / request log retention
 │   ├── gate-auth/              # Password / JWT / API Key / OIDC / AuthContext
 │   ├── gate-cache/             # Redis Lua（rate limit + quota）
-│   ├── gate-providers/         # Provider trait + 9 adapters + ProviderRouter
+│   ├── gate-providers/         # Provider trait + 9 adapters + ProviderRouter + WASM 集成
 │   ├── gate-billing/           # Outbox + Multi-dimensional Pricing + LiteLLM sync
+│   ├── gate-wasm/              # WASM runtime（wasmtime 26 + 3 hook + fallback + Prometheus）
+│   ├── gate-wasm-sdk/          # Rust SDK：写 wasm transform 用
 │   ├── gate-server/            # Axum HTTP 网关（主二进制）
 │   └── kgctl/                  # 部署运维 CLI
+├── sdks/
+│   └── gate-wasm-sdk-as/       # AssemblyScript SDK 包（@kooix-gate/wasm-sdk-as）
+├── deploy/
+│   ├── helm/gate/              # Helm chart（values + templates）
+│   └── grafana/dashboards/     # Grafana dashboard JSON
+├── bench/                      # 50k rpm 负载测试 + mock upstream
+├── examples/                   # SDK / curl / Postman / Bruno / OpenAPI / Terraform / Helm / manifest-packages
 └── web/                        # SvelteKit 控制台
 ```
 
@@ -260,7 +296,7 @@ P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim
 ## 测试
 
 ```bash
-# 全量（当前 285 Rust test list entries：280 unit/integration + 5 doctest，含 testcontainers 集成测试，需要 Docker）
+# 全量（当前 485 Rust + 86 web tests，含 testcontainers 集成测试，需要 Docker）
 cargo test --workspace
 
 # 仅快速 unit（无 Docker）
