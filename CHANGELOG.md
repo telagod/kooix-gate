@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.46] — 2026-05-23
+
+**主题**：WASM e2e 集成测试 — wiremock + 真 wasm 模块 + CustomHttpProvider 完整链路。
+
+### Added
+
+- `crates/gate-providers/tests/wasm_integration.rs`（3 测试，全过）：
+  - `custom_provider_with_wasm_host_round_trips_chat` — 真 wasm 模块 + manifest.security.wasm + with_wasm_host()，完整 chat() 往返
+  - `custom_provider_without_wasm_skips_transform` — 未配置 wasm 字段时跳过路径
+  - `invoke_with_fallback_wraps_real_module` — fallback wrapper + real 模块联动
+- gate-providers dev-dep：`wat = "1"` + `gate-wasm = { path = "../gate-wasm" }`
+
+### Verification
+
+- `cargo test -p gate-providers --test wasm_integration` 3 passed
+
+### M3 → M4 里程碑
+
+WASM 集成已 e2e 走通 — 0.4.40 阶段总结里 "gate-providers WASM 集成" 不再 deferred 到 0.5.0。
+
+---
+
 ## [0.4.45] — 2026-05-23
 
 **主题**：`kgctl wasm verify / inspect` 子命令 — wasm 模块工具链。
