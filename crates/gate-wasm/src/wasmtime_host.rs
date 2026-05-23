@@ -13,6 +13,8 @@ use wasmtime::{Caller, Config, Engine, Extern, Linker, Module, Store};
 /// 每 channel 一个 module instance（v0：no shared state）。
 struct ChannelModule {
     module: Module,
+    /// 加载时 sha256 校验通过的摘要；保留作 audit / observability 使用。
+    #[allow(dead_code)]
     sha256: String,
 }
 

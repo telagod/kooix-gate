@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.47] — 2026-05-23
+
+**主题**：lint 全清 — `cargo clippy --workspace --all-targets -- -D warnings` 0/0。
+
+### Fixed
+
+- `crates/gate-wasm/src/wasmtime_host.rs` `ChannelModule.sha256` 加 `#[allow(dead_code)]` + 注释（保留作 audit/observability）
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 净
+- 工程 0 warning 0 error 状态
+
+---
+
 ## [0.4.46] — 2026-05-23
 
 **主题**：WASM e2e 集成测试 — wiremock + 真 wasm 模块 + CustomHttpProvider 完整链路。
