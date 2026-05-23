@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.41] — 2026-05-23
+
+**主题**：CustomHttpProvider mount 可选 WasmHost — wasm 集成第一步。
+
+### Added
+
+- `gate-providers/Cargo.toml`：依赖 `gate-wasm = { path = "../gate-wasm" }`
+- `CustomHttpProvider` struct 加两字段：
+  - `wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>`
+  - `wasm_channel_id: String`
+- `with_wasm_host(host, channel_id)` builder：router 创建 provider 后注入 wasm host
+
+### Verification
+
+- `cargo build -p gate-providers` 净
+
+---
+
 ## [0.4.40] — 2026-05-23
 
 **主题**：0.4.x 41 版本大终结篇 — M3 全结、WASM v0 落地、产品化打磨完毕。准备 0.5.0 启动。

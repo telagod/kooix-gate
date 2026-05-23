@@ -8,6 +8,7 @@ license.workspace = true
 gate-core = { path = "../gate-core" }
 gate-crypto = { path = "../gate-crypto" }
 gate-storage = { path = "../gate-storage" }
+gate-wasm = { path = "../gate-wasm" }
 reqwest.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

@@ -75,6 +75,10 @@ pub struct CustomHttpProvider {
     secrets: Arc<HashMap<String, String>>,
     manifest: Arc<PluginManifest>,
     oauth_token: Arc<Mutex<Option<CachedOauthToken>>>,
+    /// 0.4.41：可选 WASM host，channel manifest.security.wasm 配置时启用
+    wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>,
+    /// channel id（用于 wasm hook 隔离），未传则用 base_url hash
+    wasm_channel_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -157,7 +161,21 @@ impl CustomHttpProvider {
             secrets: Arc::new(normalize_secret_slots(secrets)),
             manifest: Arc::new(manifest),
             oauth_token: Arc::new(Mutex::new(None)),
+            wasm_host: None,
+            wasm_channel_id: String::new(),
         })
+    }
+
+    /// 0.4.41：注入 wasm host + channel id，启用 ADR-0003 transform hook 链。
+    /// 由 router 在创建 provider 后按 manifest.security.wasm 字段决定是否调用。
+    pub fn with_wasm_host(
+        mut self,
+        host: Arc<dyn gate_wasm::WasmHost>,
+        channel_id: impl Into<String>,
+    ) -> Self {
+        self.wasm_host = Some(host);
+        self.wasm_channel_id = channel_id.into();
+        self
     }
 
     pub fn env_secret_slots(channel_code: &str) -> HashMap<String, String> {
