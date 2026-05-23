@@ -11,6 +11,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.40] — 2026-05-23
+
+**主题**：0.4.x 41 版本大终结篇 — M3 全结、WASM v0 落地、产品化打磨完毕。准备 0.5.0 启动。
+
+### 0.4.x 全程战报（41 版本 0.4.0 → 0.4.40）
+
+| 阶段 | 版本范围 | 主战 |
+|------|---------|------|
+| **里程碑收口** | 0.4.0 | M3 Fast-path Runtime (ADR-0002) |
+| **Rust 拆解** | 0.4.1 | 三巨兽全部 -52%+ |
+| **前端组件化 P1** | 0.4.2-0.4.10 | channels 1864 → 1487 (-20.2%) |
+| **前端组件化 P2** | 0.4.11-0.4.15 | ChannelTable / QuotaWizard / PricingWizard / SessionModal |
+| **WASM PoC** | 0.4.16 | ADR-0003 v0 设计稿冻结 |
+| **前端清债** | 0.4.17-0.4.19 | channelId modals / bundle 220KB / billing helpers |
+| **0.4.x 中盘大收尾** | 0.4.20 | M3 全结 ticked |
+| **WASM Runtime 落地** | 0.4.21-0.4.27 | gate-wasm crate + 3 hook + fallback + SDK |
+| **产品化打磨** | 0.4.28-0.4.39 | README / getting-started / kgctl / Helm / OpenAPI / examples / observability / runbook / threat-model / bench / architecture / RELEASE |
+| **大终结** | 0.4.40 | 准备 0.5.0 |
+
+### 0.4.x WASM Plugin 完整能力（ADR-0003 v0）
+
+- ✅ `crates/gate-wasm` 基于 wasmtime 26
+- ✅ 3 hook 全接通：chat_request / chat_response / stream_chunk
+- ✅ SHA256 强校验 + fuel/memory hard limit + sandbox
+- ✅ fallback policy：panic / OOM / timeout 全降级 identity，业务不挂
+- ✅ `crates/gate-wasm-sdk` 用户写 Rust transform
+- ✅ `examples/wasm-transform/` 实战示例
+- ✅ Prometheus metric `gate_plugin_wasm_calls_total{channel,hook,status}`
+- ✅ `docs/wasm-runbook.md` 故障手册
+- ✅ `docs/threat-model.md` 威胁建模含 WASM 表面
+- ✅ Criterion bench `wasm_invoke`
+
+### 工程总账（0.4.40 结算）
+
+```
+Rust 后端       71047 行 (含 gate-wasm 新 crate + gate-wasm-sdk)
+前端 web       21720 行 (svelte + ts)
+工程全量      103400 行 (含 docs / examples / migrations)
+Tags           41 个 (v0.4.0 → v0.4.40)
+新增 crate     2 个 (gate-wasm + gate-wasm-sdk)
+新增 _components 22+ 个
+新增 _lib 模块 5+ 个
+新增 ADR        1 个 (ADR-0003 WASM Plugin ABI v0)
+新增 dashboard 1 个 (kooix-gate-overview)
+新增 Helm chart 1 套 (deploy/helm/gate)
+```
+
+### M3 完结声明
+
+- ADR-0001 Providers as Plugin ✅
+- ADR-0002 Fast-path Runtime ✅
+- **ADR-0003 WASM Plugin ABI v0 ✅** (0.4.16 设计 + 0.4.21-0.4.27 实现)
+
+### 0.5.0 启动书
+
+下一阶段候选主战：
+
+| 候选 | 描述 | 估时 |
+|------|------|------|
+| **gate-providers WASM 集成** | 把 gate-wasm 集成到 `CustomHttpProvider` chat / response / stream 路径 | 2 周 |
+| **manifest registry + 签名** | cosign / Sigstore 模块信任链 | 2 周 |
+| **AssemblyScript SDK** | gate-wasm-sdk-as：用 TypeScript 写 transform | 1 周 |
+| **SaaS 多区域路由** | 跨 region failover / data sovereignty | 3 周 |
+| **企业 SCIM 完整化** | user / group / role sync v2 | 1 周 |
+
+详见即将开 `ROADMAP.md` 的 M4 / M5 章节。
+
+### Verification
+
+- `cargo build` 净
+- `cargo test --workspace --lib` 全过（含 gate-wasm 13 tests / gate-wasm-sdk 1 doctest ignored / 既有 485 测试）
+- 41 个 tag 全部 push origin/main
+- CHANGELOG / ROADMAP / README / docs/architecture / docs/getting-started 全部同步
+
+---
+
 ## [0.4.39] — 2026-05-23
 
 **主题**：RELEASE.md 0.4.x 阶段补充 — 标准 commit pipeline + GHA fallback + WASM 模块发布。
