@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.59] — 2026-05-23
+
+**主题**：ROADMAP 同步 — M3 完整产品形态宣告 + M4 v0.5.0 候选方向章节。
+
+### Changed
+
+- `ROADMAP.md` M3 WASM 行：从 "PoC 收口 + runtime 留 0.5.0+" 改为 "**完整产品形态**"（0.4.16 → 0.4.58 全程脉络）
+- `ROADMAP.md` 新增 **M4 v0.5.0 候选方向** 章节：
+  - 真公钥验签链（sigstore-rs 接入）
+  - SaaS 多区域路由
+  - SCIM v2
+  - WASM auto-mount runtime（builder 集成）
+  - AssemblyScript SDK npm publish
+  - Web bundle 220 → 180KB
+  - 管理面 wasm form UI
+
+---
+
 ## [0.4.58] — 2026-05-23
 
 **主题**：gate_plugin_wasm_calls_total 注册到 Prometheus exporter — /metrics 显示 HELP 行。

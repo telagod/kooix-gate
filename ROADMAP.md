@@ -124,7 +124,25 @@ cd web && npm run build                               # ✅ built in 7.17s
 - [x] Plugin runtime 性能基准：fast-path × 0.74-1.00（远好于 × 1.02 预算），manifest runtime × 1.27-1.45。
 - [x] Capability matrix golden test：fastpath × 9 capability + 全 23 preset，`tests/capability_matrix.rs` 锁定。
 - [x] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime（`run_fastpath` helper）。
-- [x] WASM Plugin ABI vNext PoC（不在 v0.4.0 暴露，仅 PoC 收口）— 0.4.16 落地 ADR-0003 v0 + sample manifest（`examples/manifest-registry/community/wasm-transform/0.1.0/`），wasmtime runtime 留 0.5.0+。
+- [x] WASM Plugin ABI vNext — 0.4.16 落地 ADR-0003 v0 + sample manifest；0.4.21-0.4.27 wasmtime runtime + Rust SDK + fallback + 3 hook + bench；0.4.41-0.4.46 集成到 CustomHttpProvider + e2e；0.4.51-0.4.52 SSE stream_chunk 真接通 + e2e；0.4.55-0.4.56 AssemblyScript SDK + 示例；0.4.57-0.4.58 ProviderRouter wasm_host + Prometheus describe。**完整产品形态**。
+
+---
+
+## M4 · v0.5.0 — Enterprise / SaaS 进阶（候选）
+
+**主题**：M3 完整产品形态已交付（0.4.58）；v0.5.0 进入企业级 / SaaS 多区域路由方向。
+
+候选方向（待筛选）：
+
+- **真公钥验签链**：cosign / sigstore-rs / minisign 真实公钥验签（0.4.54 已落 schema + 格式校验，0.5.0 接 ed25519-dalek / sigstore-rs 真实签名验签）
+- **SaaS 多区域路由**：跨 region failover、data sovereignty、按 latency 分区
+- **SCIM v2**：用户/组同步、role mapping 完整
+- **WASM auto-mount runtime**：ProviderRouter 按 channel manifest 自动 load_module + with_wasm_host（0.4.57 已落 setter/getter，0.5.0 接外部存储读模块字节）
+- **AssemblyScript SDK npm publish**：`@kooix-gate/wasm-sdk-as` 真发到 npm registry（0.4.55 已落本地 package）
+- **Web bundle budget 220 → 180KB**：channels 页继续收敛后达成
+- **管理面 wasm form UI**：drawer 内独立 wasm 模块字段，避免手填 manifest JSON
+
+具体优先级与时间盒待 0.5.0 启动会议确定。
 
 ---
 
