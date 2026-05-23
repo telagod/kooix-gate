@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.29] — 2026-05-23
+
+**主题**：getting-started.md 三档接入文档 — Docker / Helm / 本地源码 + WASM Plugin Quickstart。
+
+### Added
+
+- `docs/getting-started.md`：
+  - A. Docker Compose（30 秒）
+  - B. Helm Chart（5 分钟，0.4.31 完善 values）
+  - C. 本地源码（10 分钟开发用）
+  - WASM Plugin transform Quickstart（gate-wasm-sdk 用法 + manifest 配置示例）
+  - 故障排查 + 下一步索引
+- `docs/README.md` 顶部加 Quickstart 索引
+
+---
+
 ## [0.4.28] — 2026-05-23
 
 **主题**：README 第一屏更新到 0.4.x 战果 — 285→485 tests / WASM Plugin 加入对比表。
