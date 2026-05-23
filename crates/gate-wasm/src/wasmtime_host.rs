@@ -203,29 +203,17 @@ impl WasmHost for WasmtimeHost {
             None => return Ok(None),
         };
 
-        // 0.4.24：chat_request_transform 真实调用；其他 hook 仍走 identity stub
-        // 直至 0.4.25 全接通。
-        if matches!(hook, HookKind::ChatRequest) {
-            // 检查模块是否 export 该 hook（无则降级为 identity）
-            if entry.module.get_export(hook.as_str()).is_none() {
-                tracing::trace!(
-                    channel_id,
-                    hook = hook.as_str(),
-                    "hook not exported, identity passthrough"
-                );
-                return Ok(Some(payload));
-            }
-            let result = self.invoke_hook_real(&entry.module, hook, &payload).await?;
-            return Ok(Some(result));
+        // 0.4.25：3 个 hook 全部走真实路径，未 export 则 identity passthrough。
+        if entry.module.get_export(hook.as_str()).is_none() {
+            tracing::trace!(
+                channel_id,
+                hook = hook.as_str(),
+                "hook not exported, identity passthrough"
+            );
+            return Ok(Some(payload));
         }
-
-        // 其他 hook 保持 identity（0.4.25 接通）
-        tracing::debug!(
-            channel_id,
-            hook = hook.as_str(),
-            "wasm hook stub (0.4.24, identity for non-chat-request)"
-        );
-        Ok(Some(payload))
+        let result = self.invoke_hook_real(&entry.module, hook, &payload).await?;
+        Ok(Some(result))
     }
 
     async fn unload_module(&self, channel_id: &str) -> WasmResult<()> {
@@ -350,7 +338,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_response_and_stream_chunk_invoke_real_module() {
+        // 模块同时 export 三个 hook，同样的 identity copy 实现。
+        let wat = r#"
+            (module
+              (memory (export "memory") 1)
+              (func $alloc (export "gate_alloc") (param i32) (result i32)
+                i32.const 4096)
+              (func $copy (param $ptr i32) (param $len i32) (result i64)
+                (local $i i32)
+                (block $done
+                  (loop $copy
+                    (br_if $done (i32.ge_s (local.get $i) (local.get $len)))
+                    (i32.store8
+                      (i32.add (i32.const 4096) (local.get $i))
+                      (i32.load8_u (i32.add (local.get $ptr) (local.get $i))))
+                    (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                    (br $copy)))
+                (i64.or
+                  (i64.shl (i64.extend_i32_u (i32.const 4096)) (i64.const 32))
+                  (i64.extend_i32_u (local.get $len))))
+              (func (export "chat_request_transform") (param i32 i32) (result i64)
+                (call $copy (local.get 0) (local.get 1)))
+              (func (export "chat_response_transform") (param i32 i32) (result i64)
+                (call $copy (local.get 0) (local.get 1)))
+              (func (export "stream_chunk_transform") (param i32 i32) (result i64)
+                (call $copy (local.get 0) (local.get 1)))
+            )
+        "#;
+        let module_bytes = wat::parse_str(wat).unwrap();
+        let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
+        let sha = WasmtimeHost::sha256_hex(&module_bytes);
+        host.load_module("ch-2", &module_bytes, &sha).await.unwrap();
+
+        for hook in [HookKind::ChatRequest, HookKind::ChatResponse, HookKind::StreamChunk] {
+            let payload = Bytes::from(format!("payload-for-{}", hook.as_str()));
+            let result = host
+                .invoke_hook("ch-2", hook, payload.clone(), HookContext::default())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                result.as_ref(),
+                payload.as_ref(),
+                "hook {} mismatch",
+                hook.as_str()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn other_hooks_remain_identity_in_v024() {
+        // 0.4.25 起仍兼容：模块未 export 时 identity passthrough。
         let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
         let minimal_wasm = wat::parse_str("(module)").unwrap();
         let sha = WasmtimeHost::sha256_hex(&minimal_wasm);

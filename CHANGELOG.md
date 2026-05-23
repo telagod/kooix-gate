@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.25] — 2026-05-23
+
+**主题**：3 个 hook 全部接通真实路径 — chat_request / chat_response / stream_chunk。
+
+### Changed
+
+- `WasmtimeHost::invoke_hook` 统一走真实路径；模块未 export hook 则 identity passthrough
+- 移除 0.4.24 的 chat_request 单独分支
+
+### Tests
+
+- `chat_response_and_stream_chunk_invoke_real_module`：模块同时 export 3 hook，全部 e2e 验证
+- 10 passed
+
+---
+
 ## [0.4.24] — 2026-05-23
 
 **主题**：chat_request_transform hook 真实接通 — wasm 端到端往返。
