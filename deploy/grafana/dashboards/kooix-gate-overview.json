@@ -1,0 +1,90 @@
+{
+  "title": "Kooix Gate Overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["kooix-gate", "llm-gateway"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requests / sec",
+      "targets": [
+        { "expr": "sum(rate(gate_chat_requests_total[1m]))" }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "p95 Latency",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(gate_chat_latency_ms_bucket[5m])) by (le))" }
+      ],
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "Upstream 5xx",
+      "targets": [
+        { "expr": "sum(rate(gate_upstream_errors_total{status=~\"5..\"}[1m]))" }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "Quota Denies",
+      "targets": [
+        { "expr": "sum(rate(gate_quota_denies_total[1m]))" }
+      ],
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by model",
+      "targets": [
+        { "expr": "sum(rate(gate_chat_requests_total[1m])) by (model)", "legendFormat": "{{model}}" }
+      ],
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Upstream errors by channel",
+      "targets": [
+        { "expr": "sum(rate(gate_upstream_errors_total[1m])) by (channel, status)", "legendFormat": "{{channel}} {{status}}" }
+      ],
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "WASM plugin calls (ADR-0003)",
+      "targets": [
+        { "expr": "sum(rate(gate_plugin_wasm_calls_total[1m])) by (hook, status)", "legendFormat": "{{hook}} / {{status}}" }
+      ],
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Billing settle lag",
+      "targets": [
+        { "expr": "max(gate_billing_settle_lag_seconds) by (org)", "legendFormat": "{{org}}" }
+      ],
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox backlog",
+      "targets": [
+        { "expr": "sum(gate_outbox_backlog) by (table)", "legendFormat": "{{table}}" }
+      ],
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Channel health by status",
+      "targets": [
+        { "expr": "sum(gate_channel_health_status) by (channel, health)", "legendFormat": "{{channel}} {{health}}" }
+      ],
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 }
+    }
+  ]
+}

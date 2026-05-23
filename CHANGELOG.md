@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.34] — 2026-05-23
+
+**主题**：Observability — Prometheus metrics 命名审计 + Grafana dashboard + OTLP trace 字段表。
+
+### Added
+
+- `docs/observability.md`：完整 metric 表（request lifecycle / upstream / routing / quota / billing / WASM）+ OTLP span 字段表 + sampling 策略
+- `deploy/grafana/dashboards/kooix-gate-overview.json`：10 panel 概览 dashboard
+  - Requests / sec / p95 Latency / Upstream 5xx / Quota Denies (4 个 stat)
+  - Request rate by model / Upstream errors by channel
+  - **WASM plugin calls (新 0.4.x)**
+  - Billing settle lag / Outbox backlog / Channel health
+
+### Verification
+
+- grafana JSON 通过 lint
+
+---
+
 ## [0.4.33] — 2026-05-23
 
 **主题**：examples/wasm-transform 实战示例 — gate-wasm-sdk 用法 + system prompt 注入。
