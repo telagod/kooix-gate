@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.35] — 2026-05-23
+
+**主题**：docs/wasm-runbook.md — WASM 故障处理手册。
+
+### Added
+
+- `docs/wasm-runbook.md`：完整 WASM 故障手册
+  - 模块加载失败（DigestMismatch / Load: compile / 路径错误）
+  - hook 频繁超时 / OOM
+  - panic 暴风雨（fallback 行为已保证业务不挂）
+  - 上游全挂 / Redis 不可用 / 版本回滚
+  - 联系人
+
+---
+
 ## [0.4.34] — 2026-05-23
 
 **主题**：Observability — Prometheus metrics 命名审计 + Grafana dashboard + OTLP trace 字段表。
