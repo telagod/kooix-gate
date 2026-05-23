@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.44] — 2026-05-23
+
+**主题**：Provider::chat_stream 接通 wasm chat_request_transform — stream chunk hook 留 0.5.0+。
+
+### Changed
+
+- `Provider::chat_stream`：build body 后插 `wasm_transform_request(body, &req)`
+- `wasm_transform_stream_chunk` 标 `#[allow(dead_code)]` — SSE pipeline 接通留 0.5.0+
+  - 原因：SSE normalizer 在 host 端做归一，wasm transform 与 sse_to_chunks 顺序需仔细设计
+  - 当前 helper 已就绪，只缺调用点
+
+### Verification
+
+- `cargo build -p gate-providers` 净 (0 warning)
+
+---
+
 ## [0.4.43] — 2026-05-23
 
 **主题**：Provider::chat 接通 wasm chat_response_transform — 集成 step 3。

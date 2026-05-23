@@ -238,6 +238,8 @@ impl CustomHttpProvider {
     }
 
     /// 0.4.44: 调 wasm stream_chunk_transform hook（每 SSE chunk 一次）。
+    /// 留 0.5.0+ 在 SSE pipeline 接通；当前已暴露但暂未链接调用点。
+    #[allow(dead_code)]
     pub(super) async fn wasm_transform_stream_chunk(
         &self,
         chunk: Vec<u8>,
@@ -1489,6 +1491,7 @@ impl Provider for CustomHttpProvider {
         }
         req.stream = true;
         let body = self.request_json_body(&req)?;
+        let body = self.wasm_transform_request(body, &req).await;
         let endpoint = self.endpoint_url_for(&req)?;
         let method = self.request_method();
         let mut headers = self
