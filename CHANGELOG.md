@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.36] — 2026-05-23
+
+**主题**：docs/threat-model.md — STRIDE 威胁建模 + WASM 表面分析。
+
+### Added
+
+- `docs/threat-model.md`：完整威胁模型
+  - 资产清单（master key / channel keys / API keys / JWT / OIDC / audit log / billing）
+  - 边界与信任图（Untrusted Internet → Kooix Gate → PostgreSQL/Upstream）
+  - STRIDE 5 大类威胁清单 + 现状 + 缓解
+  - 0.4.x WASM Plugin 新增表面分析（恶意 wasm / 供应链 / 审查盲区）
+  - 0.5.0+ 安全 roadmap（模块签名 / cosign / registry 信任链）
+
+---
+
 ## [0.4.35] — 2026-05-23
 
 **主题**：docs/wasm-runbook.md — WASM 故障处理手册。
