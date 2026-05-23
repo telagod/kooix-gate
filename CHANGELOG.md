@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.37] — 2026-05-23
+
+**主题**：gate-wasm bench — wasm_invoke_hook 单次调用开销测量。
+
+### Added
+
+- `crates/gate-wasm/benches/wasm_invoke.rs`：Criterion bench
+  - `wasm_invoke_hook/memory_copy/{128,1024,10240}` — payload scaling
+  - `wasm_no_module_passthrough` — 0 cost baseline
+- `criterion 0.5 (async_tokio)` 加 dev-dep
+- bench 配置 harness=false
+
+### Verification
+
+- `cargo build -p gate-wasm --benches` 净
+- 实际跑参考：`cargo bench --package gate-wasm --bench wasm_invoke`
+
+---
+
 ## [0.4.36] — 2026-05-23
 
 **主题**：docs/threat-model.md — STRIDE 威胁建模 + WASM 表面分析。

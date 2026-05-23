@@ -26,3 +26,8 @@ futures = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 wat = "1"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "wasm_invoke"
+harness = false
