@@ -15,11 +15,13 @@
 //! 推进（0.4.22-0.4.26）。
 
 mod error;
+pub mod fallback;
 pub mod host;
 pub mod limits;
 pub mod wasmtime_host;
 
 pub use error::{WasmError, WasmResult};
+pub use fallback::invoke_with_fallback;
 pub use host::{HookContext, HookKind, WasmHost, WasmHostConfig};
 pub use limits::{DEFAULT_LIMITS, ResourceLimits};
 pub use wasmtime_host::WasmtimeHost;

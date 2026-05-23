@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.26] — 2026-05-23
+
+**主题**：fallback policy + Prometheus metrics — wasm 失败永不 propagate。
+
+### Added
+
+- `fallback::invoke_with_fallback`：所有 hook 调用走此 wrapper
+  - 模块未加载 → identity passthrough（status="no_module"）
+  - 调用成功 → return transform 后 payload（status="ok"）
+  - 失败（Timeout / OOM / DigestMismatch / Call / Load / Instantiate / HostDenied / Panic）→ `tracing::error!` + 降级
+  - `FutureExt::catch_unwind` 双 safety
+- Prometheus metric: `gate_plugin_wasm_calls_total{channel,hook,status}`
+- 3 个新单元测试：FailingHost mock / 真 wasmtime success / module missing
+
+### Verification
+
+- `cargo test -p gate-wasm` 13 passed (+3)
+- 失败永不 panic 上层 caller
+
+---
+
 ## [0.4.25] — 2026-05-23
 
 **主题**：3 个 hook 全部接通真实路径 — chat_request / chat_response / stream_chunk。
