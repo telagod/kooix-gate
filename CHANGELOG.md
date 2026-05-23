@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.52] — 2026-05-23
+
+**主题**：stream_chunk_transform e2e — wiremock SSE + 真 wasm 模块完整验证。
+
+### Added
+
+- `custom_provider_with_wasm_host_streams_chunks` 测试
+  - mock SSE 端点：2 个 chunk + [DONE]
+  - 真 wasm 模块 export chat_request_transform + stream_chunk_transform
+  - chat_stream() 完整链路，concat content 与原 SSE payload 一致
+
+### Verification
+
+- `cargo test -p gate-providers --test wasm_integration` 4 passed (+1 stream)
+
+---
+
 ## [0.4.51] — 2026-05-23
 
 **主题**：chat_stream SSE pipeline 真接通 stream_chunk_transform — 0.5.0 候选清第 1 项。
