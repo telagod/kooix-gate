@@ -6,19 +6,31 @@ import { fileURLToPath } from 'node:url';
 const routesDir = resolve(dirname(fileURLToPath(import.meta.url)), '../routes');
 const route = (path: string) => readFileSync(resolve(routesDir, path), 'utf8');
 
-// 把页面 + 同目录 _components/* 当作一个文案单元读
-// 抽组件后不再误判文案丢失（0.4.x 起 wizard 都搬到 _components）
+// 递归收 _components 下所有 .svelte（含子目录）
+function collectSvelteFiles(dir: string, out: string[]): void {
+	if (!existsSync(dir) || !statSync(dir).isDirectory()) return;
+	for (const entry of readdirSync(dir)) {
+		const full = join(dir, entry);
+		const st = statSync(full);
+		if (st.isDirectory()) {
+			collectSvelteFiles(full, out);
+		} else if (st.isFile() && entry.endsWith('.svelte')) {
+			out.push(full);
+		}
+	}
+}
+
+// 把页面 + 同目录 _components/**/*.svelte 当作一个文案单元读
+// 抽组件后不再误判文案丢失（0.4.x 起 wizard 都搬到 _components；递归支持以后多层嵌套）
 function routeBundle(pagePath: string): string {
 	const pageFile = resolve(routesDir, pagePath);
 	const pageDir = dirname(pageFile);
-	const componentsDir = join(pageDir, '_components');
 	const parts: string[] = [readFileSync(pageFile, 'utf8')];
-	if (existsSync(componentsDir) && statSync(componentsDir).isDirectory()) {
-		for (const entry of readdirSync(componentsDir)) {
-			if (entry.endsWith('.svelte')) {
-				parts.push(readFileSync(join(componentsDir, entry), 'utf8'));
-			}
-		}
+	const componentFiles: string[] = [];
+	collectSvelteFiles(join(pageDir, '_components'), componentFiles);
+	componentFiles.sort(); // 稳定顺序，便于 debug
+	for (const file of componentFiles) {
+		parts.push(readFileSync(file, 'utf8'));
 	}
 	return parts.join('\n');
 }
