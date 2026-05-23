@@ -135,3 +135,20 @@ export function healthDot(health: string): string {
 	if (health === 'unhealthy') return 'bg-red-500';
 	return 'bg-zinc-400';
 }
+
+/// 0.4.48: ADR-0003 v0 wasm 字段 sample（用户在 Manifest 文本框可粘贴）
+export const WASM_MANIFEST_SAMPLE = `{
+  "plugin": {
+    "version": 1,
+    "preset": { "provider": "openai_compatible" },
+    "security": {
+      "wasm": {
+        "module": "modules/transform.wasm",
+        "module_sha256": "<paste sha256 hex>",
+        "max_memory_bytes": 16777216,
+        "max_cpu_ms": 50,
+        "hooks": ["chat_request_transform"]
+      }
+    }
+  }
+}`;

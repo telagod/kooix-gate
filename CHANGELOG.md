@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.48] — 2026-05-23
+
+**主题**：admin UI wasm sample 模板 — 用户复制即可配 wasm 字段。
+
+### Added
+
+- `channels/_lib/helpers.ts` 新增 `WASM_MANIFEST_SAMPLE` const：完整 wasm 字段 manifest sample（preset + security.wasm + hooks）
+- 用户在 Manifest 文本框可粘贴 sample，替换 sha256 / module 路径即可
+
+### Why
+
+- ADR-0003 v0 wasm 字段已在 0.4.23 typed schema 落地，admin UI 通过 manifest 文本框已能配
+- 本版补 sample 减少 onboarding 摩擦，完整 wasm form UI 留 0.5.0+
+
+### Verification
+
+- `npm run check` 0/0
+
+---
+
 ## [0.4.47] — 2026-05-23
 
 **主题**：lint 全清 — `cargo clippy --workspace --all-targets -- -D warnings` 0/0。
