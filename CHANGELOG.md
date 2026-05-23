@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.49] — 2026-05-23
+
+**主题**：docs/wasm-sdk-as.md — AssemblyScript SDK 文档先行。
+
+### Added
+
+- `docs/wasm-sdk-as.md`：完整 AssemblyScript SDK 文档
+  - 初始化 + 实现 `chat_request_transform` / `chat_response_transform`
+  - ABI v0 helpers 在 AS 中的最小实现（gate_alloc / readInput / returnPayload）
+  - asconfig.json + 编译命令
+  - 限制对比表（AS vs Rust SDK）
+  - 0.5.0+ npm package 计划
+
+---
+
 ## [0.4.48] — 2026-05-23
 
 **主题**：admin UI wasm sample 模板 — 用户复制即可配 wasm 字段。

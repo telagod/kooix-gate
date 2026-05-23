@@ -1871,7 +1871,7 @@ dependencies = [
 
 [[package]]
 name = "gate-auth"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1899,7 +1899,7 @@ dependencies = [
 
 [[package]]
 name = "gate-billing"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "gate-cache"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "async-trait",
  "fred",
@@ -1941,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "gate-core"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "gate-crypto"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "gate-providers"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "gate-server"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2060,7 +2060,7 @@ dependencies = [
 
 [[package]]
 name = "gate-storage"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2083,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "gate-wasm"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "gate-wasm-sdk"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "serde",
  "serde_json",
@@ -2771,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "kgctl"
-version = "0.4.48"
+version = "0.4.49"
 dependencies = [
  "anyhow",
  "assert_cmd",
