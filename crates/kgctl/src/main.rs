@@ -24,6 +24,7 @@ mod pricing;
 mod setup;
 mod smoke;
 mod usage_storage;
+mod wasm;
 
 #[derive(Parser)]
 #[command(name = "kgctl", version, about = "Kooix Gate 部署/运维工具", long_about = None)]
@@ -103,6 +104,25 @@ enum Cmd {
     Plugin {
         #[command(subcommand)]
         sub: Box<PluginCmd>,
+    },
+    /// ADR-0003 v0 WASM 模块工具
+    Wasm {
+        #[command(subcommand)]
+        sub: WasmCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum WasmCmd {
+    /// 计算 sha256 + 文件大小，输出可粘贴的 manifest 片段
+    Verify {
+        /// wasm 模块路径
+        path: std::path::PathBuf,
+    },
+    /// 检查 ABI v0 必要 export（memory / gate_alloc / hooks）
+    Inspect {
+        /// wasm 模块路径
+        path: std::path::PathBuf,
     },
 }
 
@@ -614,6 +634,10 @@ fn main() {
                     include_private,
                 }),
             },
+        },
+        Cmd::Wasm { sub } => match sub {
+            WasmCmd::Verify { path } => wasm::verify(path),
+            WasmCmd::Inspect { path } => wasm::inspect(path),
         },
     };
 

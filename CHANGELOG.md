@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.45] — 2026-05-23
+
+**主题**：`kgctl wasm verify / inspect` 子命令 — wasm 模块工具链。
+
+### Added
+
+- `kgctl wasm verify <path>`：sha256 + 文件大小，输出可粘贴的 manifest 片段
+- `kgctl wasm inspect <path>`：检查 ABI v0 必要 export（memory / gate_alloc）+ 列出 hooks
+- `crates/kgctl/src/wasm.rs`：实现
+- 依赖 `wasmparser 0.218`
+
+### Verification
+
+- `cargo build -p kgctl` 净
+
+---
+
 ## [0.4.44] — 2026-05-23
 
 **主题**：Provider::chat_stream 接通 wasm chat_request_transform — stream chunk hook 留 0.5.0+。
