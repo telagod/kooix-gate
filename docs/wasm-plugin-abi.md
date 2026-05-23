@@ -1,11 +1,13 @@
 # WASM Plugin ABI vNext 设计稿
 
-Status: **PoC v0 — ADR-0003 收口（2026-05-23）**；wasmtime runtime 留 0.5.0+
+Status: **v0 完整产品形态（0.4.16 PoC → 0.4.60 实装）**；wit-bindgen / component-model 留 v0.5.0+（见 [product-gaps.md G-103](./product-gaps.md#g-103-wasm-abi-v1-走-wit-bindgen)）
 Scope: HTTP Plugin manifest v1 稳定后的可执行插件 ABI、sandbox、secret access、determinism、resource limits 与 audit 边界
 Last verified: 2026-05-23
 
 > 本设计稿在 0.4.16 升级为 [ADR-0003 v0](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)，
+> 0.4.21-0.4.60 完成全栈实装（runtime + Rust/AS SDK + e2e + observability + signature schema）。
 > sample manifest 见 `examples/manifest-registry/community/wasm-transform/0.1.0/`。
+> 当前实装状态对账见 [ADR-0003 § Verification](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md#verification) 与 [product-gaps.md](./product-gaps.md)。
 
 ## 结论
 
@@ -28,7 +30,7 @@ WASM 插件只作为 **vNext 的受限 transform runtime** 引入，不替代当
 
 ## 非目标
 
-- 不在 v0.2.0 实装 WASM sandbox runtime。
+- ~~不在 v0.2.0 实装 WASM sandbox runtime。~~ **已在 0.4.21-0.4.27 落地 wasmtime 26 runtime**。
 - 不开放任意 WASI capabilities。
 - 不让 WASM 插件直接发 HTTP 请求、读 DB、写 Redis 或调用 OpenTelemetry exporter。
 - 不把 Plugin ABI 设计成通用 FaaS；它只服务 Kooix Gate 的 Provider transform。
@@ -384,3 +386,23 @@ Trace attributes：
 3. manifest registry 对 WASM package 的 signature / digest 校验。
 4. `docs/security-runbook.md` WASM 插件事故处置。
 5. gitleaks + malicious fixture regression。
+
+## 0.4.x 实装对账（2026-05-23）
+
+| 验收项 | 0.4.x 命中位置 |
+| --- | --- |
+| runtime 落地 | `crates/gate-wasm/`（0.4.21-0.4.27），wasmtime 26 + 3 hook + fallback + ResourceLimits |
+| ABI adapter / fixture replay | `crates/gate-providers/src/custom_provider/mod.rs::wasm_transform_*`（0.4.41-0.4.46）+ `crates/gate-providers/tests/wasm_integration.rs` 4 e2e |
+| kgctl WASM 校验 | `crates/kgctl/src/wasm.rs::verify|inspect`（0.4.45）+ `crates/kgctl/src/plugin.rs verify_minisign_format`（0.4.54） |
+| Registry signature schema | typed `kind/value/key_id/alg`（0.4.53）+ [manifest-registry-signature.md](./manifest-registry-signature.md) |
+| 故障 runbook | [wasm-runbook.md](./wasm-runbook.md)（6 个场景） |
+| Prometheus / Grafana | `gate_plugin_wasm_calls_total{channel,hook,status}` + dashboard WASM panel（0.4.34/0.4.58） |
+| SDK | Rust [`crates/gate-wasm-sdk`](../crates/gate-wasm-sdk/) + AssemblyScript [`sdks/gate-wasm-sdk-as`](../sdks/gate-wasm-sdk-as/) |
+
+未命中项（留 v0.5.0+）：
+
+- 真实公钥验签（cosign / sigstore / minisign 调用） → [G-001](./product-gaps.md#g-001-真实公钥验签链)
+- WASM 模块外部存储 + auto-mount → [G-002](./product-gaps.md#g-002-wasm-模块外部存储--auto-mount)
+- host functions 真实暴露 → [G-003](./product-gaps.md#g-003-真实-host-functions-暴露)
+- SSE event-by-event transform → [G-004](./product-gaps.md#g-004-完整-stream_chunk_transform-双向解码)
+- ABI v1 走 wit-bindgen + component-model → [G-103](./product-gaps.md#g-103-wasm-abi-v1-走-wit-bindgen)

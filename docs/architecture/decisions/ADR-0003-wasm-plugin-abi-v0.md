@@ -1,8 +1,8 @@
-# ADR-0003: WASM Plugin ABI v0（M3 收口 / 0.4.16 PoC）
+# ADR-0003: WASM Plugin ABI v0（M3 收口 / 0.4.16 → 0.4.60 实装）
 
-- Status: **PoC accepted (0.4.16)** — host hook 设计 + sample manifest 落地，runtime 实现留 0.5.0
+- Status: **Implemented (0.4.16 PoC → 0.4.60 完整产品形态)** — host hook 设计 + sample manifest（0.4.16） + wasmtime runtime + Rust SDK + AssemblyScript SDK + 3 hook 含 SSE + ProviderRouter 集成 + e2e + Prometheus + Grafana + runbook + signature schema 全栈落地（0.4.21-0.4.60）
 - Deciders: telagod
-- Affected: `crates/gate-providers/src/wasm_plugin/`（待落地）, `docs/wasm-plugin-abi.md`, `docs/architecture/decisions/ADR-0001-providers-as-plugin.md`
+- Affected: `crates/gate-wasm/`, `crates/gate-wasm-sdk/`, `sdks/gate-wasm-sdk-as/`, `crates/gate-providers/src/{custom_provider,plugin_manifest,router}/`, `crates/kgctl/src/{wasm,plugin}.rs`, `docs/wasm-plugin-abi.md`, `docs/wasm-runbook.md`, `docs/wasm-sdk-as.md`, `docs/manifest-registry-signature.md`
 
 ## Context
 
@@ -111,18 +111,44 @@ manifest 仍负责 auth / endpoint / SSE basic normalization。
 
 ### Negative / Risks
 
-- **PoC 仅落 ABI 设计 + sample**：0.4.16 不出 runtime 实现，wasmtime crate 引入留 0.5.0
-- **WASM cold start**：模块 instantiation 有~ms 级开销，fast-path 不应走 WASM
-- **跨语言 ABI 维护成本**：Rust SDK 先做，AssemblyScript / Go 等社区跟进
+- **0.4.x 已落 v0 完整产品形态**：runtime + 3 hook + Rust/AS SDK + e2e + observability。**v0.5.0+ 风险**：ABI v0 手写 calling convention 维护成本高，wit-bindgen / component-model 是迁移方向（见 G-103）。
+- **WASM cold start**：模块 instantiation 有 ~ms 级开销，fast-path 不应走 WASM；`Module::serialize` 持久化缓存留 0.5.0+（见 G-104）。
+- **跨语言 ABI 维护成本**：Rust SDK 与 AssemblyScript SDK 已 v0 落地；Go / Python / Zig 等留待 v0.6.0+（见 G-301）。
 
 ### Verification
+
+#### M3 0.4.16 PoC（设计冻结）
 
 - [x] 0.4.16：ADR-0003 v0 设计冻结
 - [x] 0.4.16：`examples/manifest-registry/wasm-transform.toml` sample 占位
 - [x] 0.4.16：`docs/wasm-plugin-abi.md` 同步指向 ADR-0003
-- [ ] 0.5.0：`crates/gate-providers/src/wasm_plugin/` runtime 落地（wasmtime 引擎 + secrets bridge + sandbox）
-- [ ] 0.5.0：`SecurityManifest::wasm_*` 字段接 runtime（当前仅 schema 占位）
-- [ ] 0.5.0：sample Rust SDK + golden test 模块
+
+#### M3 0.4.21-0.4.60 完整产品形态实装
+
+- [x] 0.4.21-0.4.27：`crates/gate-wasm` runtime（wasmtime 26 + async + cranelift + consume_fuel + ResourceLimits + 3 hook + fallback panic-safe + Prometheus）
+- [x] 0.4.21：`crates/gate-wasm-sdk` Rust SDK（`gate_alloc` + `export_chat_request!/response!/stream_chunk!` macros）
+- [x] 0.4.23：`SecurityManifest::wasm` 字段接通 runtime（`WasmModuleManifest { module, module_sha256, max_memory_bytes, max_cpu_ms, hooks }`）
+- [x] 0.4.41-0.4.46：`CustomHttpProvider` 集成 `wasm_host` + `with_wasm_host` builder + chat / chat_stream 全链路 wiremock e2e
+- [x] 0.4.45：`kgctl wasm verify|inspect`（sha256 + manifest 片段 + wasmparser 校验 export 表）
+- [x] 0.4.51-0.4.52：SSE pipeline 内 `stream_chunk_transform` 真接通 + 4 个 wiremock e2e（含 SSE chunk）
+- [x] 0.4.53-0.4.54：Manifest registry 签名 schema typed（`kind/value/key_id/alg`）+ 格式校验
+- [x] 0.4.55-0.4.56：AssemblyScript SDK npm package（`@kooix-gate/wasm-sdk-as`）+ `examples/wasm-transform-as/`
+- [x] 0.4.57：`ProviderRouter::with_wasm_host` / `wasm_host()` setter+getter
+- [x] 0.4.58：Prometheus `metrics::describe_counter!("gate_plugin_wasm_calls_total", ...)` 注册
+- [x] 0.4.31：Helm chart 暴露 wasm 资源限制 values
+- [x] 0.4.34：Grafana dashboard 含 WASM panel
+- [x] 0.4.x：`docs/wasm-runbook.md` 故障处置手册
+
+#### v0.5.0 候选（设计已就绪，等启动会议筛选 — 详见 [docs/product-gaps.md](../../product-gaps.md)）
+
+- [ ] G-001：cosign / sigstore-rs / minisign 真实公钥验签链（0.4.54 schema 已落，runtime 调用未起）
+- [ ] G-002：WASM 模块外部存储 + auto-mount（0.4.57 setter/getter 已落，BlobStore + auto-load 未起）
+- [ ] G-003：host functions 真实暴露（host_log / host_get_secret_slot / host_record_metric）
+- [ ] G-004：stream event-by-event transform（当前 chunk 是 raw bytes 穿透，未按 SSE event 解码后再喂）
+- [ ] G-101：AssemblyScript SDK npm publish
+- [ ] G-102：管理面 wasm form UI
+- [ ] G-103：ABI v1 走 wit-bindgen + component-model
+- [ ] G-104：WASM 编译产物持久化缓存（`Module::serialize`）
 
 ## References
 
@@ -130,3 +156,7 @@ manifest 仍负责 auth / endpoint / SSE basic normalization。
 - [ADR-0002 Fast-path Runtime](./ADR-0002-fastpath-runtime.md)
 - [WASM Plugin ABI 设计稿](../../wasm-plugin-abi.md)
 - [HTTP Plugin Manifest 文档](../../plugin-manifest.md)
+- [Product gaps v0.4.60 → v0.5.0](../../product-gaps.md)
+- [WASM Runbook](../../wasm-runbook.md)
+- [Manifest Registry Signature](../../manifest-registry-signature.md)
+- [AssemblyScript SDK](../../wasm-sdk-as.md)

@@ -132,15 +132,32 @@ cd web && npm run build                               # ✅ built in 7.17s
 
 **主题**：M3 完整产品形态已交付（0.4.58）；v0.5.0 进入企业级 / SaaS 多区域路由方向。
 
-候选方向（待筛选）：
+完整缺口对账见 [docs/product-gaps.md](./docs/product-gaps.md)，本节只列分组：
 
-- **真公钥验签链**：cosign / sigstore-rs / minisign 真实公钥验签（0.4.54 已落 schema + 格式校验，0.5.0 接 ed25519-dalek / sigstore-rs 真实签名验签）
-- **SaaS 多区域路由**：跨 region failover、data sovereignty、按 latency 分区
-- **SCIM v2**：用户/组同步、role mapping 完整
-- **WASM auto-mount runtime**：ProviderRouter 按 channel manifest 自动 load_module + with_wasm_host（0.4.57 已落 setter/getter，0.5.0 接外部存储读模块字节）
-- **AssemblyScript SDK npm publish**：`@kooix-gate/wasm-sdk-as` 真发到 npm registry（0.4.55 已落本地 package）
-- **Web bundle budget 220 → 180KB**：channels 页继续收敛后达成
-- **管理面 wasm form UI**：drawer 内独立 wasm 模块字段，避免手填 manifest JSON
+**P0 — 信任链与运行时收口（v0.5.0 必交付）**
+
+- G-001 真实公钥验签链：cosign / sigstore-rs / minisign 真实签名验签（0.4.54 schema 已落）
+- G-002 WASM 模块外部存储 + auto-mount（0.4.57 setter/getter 已落）
+- G-003 host functions 真实暴露（host_log / host_get_secret_slot / host_record_metric）
+- G-004 SSE event-by-event transform（当前 chunk raw bytes 穿透）
+
+**P1 — DX 与生态铺路（v0.5.0 推荐交付）**
+
+- G-101 AssemblyScript SDK npm publish（0.4.55 本地 package 已落）
+- G-102 管理面 WASM 表单 UI
+- G-103 ABI v1 走 wit-bindgen + component-model
+- G-104 WASM 编译产物持久化缓存（`Module::serialize`）
+- G-105 SCIM v2 实装
+- G-106 Web bundle 220 → 180 KB
+
+**P2 — 企业 / SaaS 进阶（v0.5.x 后续筛选）**
+
+- G-201 SaaS 多区域路由
+- G-202 SAML 2.0 SSO
+- G-203 OpenTelemetry log export
+- G-204 Cost forecasting / 预算预测
+- G-205 Stripe 支付 gateway
+- G-206 Playground 收尾（M1.5 残留 4 项）
 
 具体优先级与时间盒待 0.5.0 启动会议确定。
 

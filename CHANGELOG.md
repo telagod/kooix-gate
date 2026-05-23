@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- **新增** [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账清单（17 项 G-编号，按 P0/P1/P2/P3 分组，含影响面 / 当前状态 / 实施路径 / 验收门禁 / 关联引用）。0.5.0 启动会议据此筛选。
+- **修订** [ADR-0003](./docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md) Status: PoC accepted → **Implemented (0.4.16 PoC → 0.4.60 完整产品形态)**；Verification 章节按 0.4.16 / 0.4.21-0.4.60 / v0.5.0 候选三段重写，对账实际命中位置；Negative/Risks 与 References 同步更新。
+- **修订** [docs/wasm-plugin-abi.md](./docs/wasm-plugin-abi.md) Status: PoC v0 → **v0 完整产品形态**；末尾新增 0.4.x 实装对账表 + v0.5.0 未命中项指向 product-gaps；非目标节标注 wasmtime runtime 已落地。
+- **修订** [docs/wasm-sdk-as.md](./docs/wasm-sdk-as.md) Status: 文档先行 → **v0 package 已落地（0.4.55-0.4.56）**；进度章节标完成项；参考链接新增 sdks/examples/G-101 入口。
+- **修订** [docs/README.md](./docs/README.md) — 关键文档表收录 6 篇 0.4.x 新文档（getting-started / observability / wasm-runbook / wasm-sdk-as / manifest-registry-signature / api-reference / playground）+ product-gaps；阅读顺序补 getting-started 与 product-gaps。
+- **修订** [docs/getting-started.md](./docs/getting-started.md) Helm `image.tag` v0.4.28 → v0.4.60。
+- **修订** [ROADMAP.md § M4](./ROADMAP.md#m4--v050--enterprise--saas-进阶候选) v0.5.0 候选改为 P0/P1/P2 三档分组（17 项 G-编号），并链入 product-gaps.md。
+
+### Verification
+
+```bash
+git diff --stat                      # 仅文档：7 files modified + 1 new
+rg 'TODO|FIXME' docs/                # 历史时间戳保留，无新 TODO
+```
+
 ---
 
 ## [0.4.60] — 2026-05-23

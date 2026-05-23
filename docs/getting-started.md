@@ -33,7 +33,7 @@ curl http://localhost:8080/v1/chat/completions \
 ```bash
 helm repo add kooix-gate https://telagod.github.io/kooix-gate-charts  # TBD
 helm install gate kooix-gate/gate \
-  --set image.tag=v0.4.28 \
+  --set image.tag=v0.4.60 \
   --set master_key.fromSecret=kooix-master-key \
   --set postgres.dsn=postgres://gate@pg:5432/gate \
   --set redis.url=redis://redis:6379/0

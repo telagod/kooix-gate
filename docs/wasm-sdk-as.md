@@ -1,6 +1,6 @@
 # AssemblyScript SDK — Kooix Gate WASM Transform
 
-> Status: **文档先行（0.4.49）**；npm package + 完整 SDK 留 0.5.0+。
+> Status: **v0 package 已落地（0.4.55-0.4.56）**：`sdks/gate-wasm-sdk-as/`（`@kooix-gate/wasm-sdk-as`）+ 示例 `examples/wasm-transform-as/`；npm registry 发布留 v0.5.0+（[G-101](./product-gaps.md#g-101-assemblyscript-sdk-npm-发布)）。
 
 ADR-0003 v0 不限制写 wasm transform 用什么语言；本文档描述用 AssemblyScript（TypeScript-like）写 transform 的最小可用方案。
 
@@ -111,11 +111,16 @@ sha256sum build/transform.wasm
 ## 进度
 
 - [x] 0.4.49 文档落地
-- [ ] 0.5.0+ `gate-wasm-sdk-as` npm package（封装 helpers + 类型）
-- [ ] 0.5.0+ asbuild 集成 CI
+- [x] 0.4.55 `sdks/gate-wasm-sdk-as/` 本地 package（含 `gate_alloc` + `encodeReturn` + `returnPayload` + `withInput` helpers）
+- [x] 0.4.56 `examples/wasm-transform-as/` 示例
+- [ ] v0.5.0+ `@kooix-gate/wasm-sdk-as` 发到 npm registry（[G-101](./product-gaps.md#g-101-assemblyscript-sdk-npm-发布)）
+- [ ] v0.5.0+ asbuild 集成 CI
 
 ## 参考
 
 - [ADR-0003 v0](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)
 - [Rust SDK (gate-wasm-sdk)](../crates/gate-wasm-sdk/) — 推荐生产用
+- [AssemblyScript SDK package](../sdks/gate-wasm-sdk-as/)
+- [Example: `examples/wasm-transform-as/`](../examples/wasm-transform-as/)
+- [Product gaps § G-101 npm publish](./product-gaps.md#g-101-assemblyscript-sdk-npm-发布)
 - [AssemblyScript 官方文档](https://www.assemblyscript.org/)
