@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gate.fullname" . }}
+  labels:
+    {{- include "gate.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gate.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gate.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- if .Values.observability.prometheus.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.observability.prometheus.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: KOOIX_PUBLIC_URL
+              value: {{ .Values.public_url | quote }}
+            - name: KOOIX_MASTER_KEY
+              {{- if .Values.master_key.fromSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.master_key.fromSecret }}
+                  key: master_key
+              {{- else }}
+              value: {{ .Values.master_key.value | quote }}
+              {{- end }}
+            - name: KOOIX_JWT_SECRET
+              {{- if .Values.jwt.secret_fromSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jwt.secret_fromSecret }}
+                  key: jwt_secret
+              {{- else }}
+              value: {{ .Values.jwt.secret | quote }}
+              {{- end }}
+            {{- if .Values.jwt.previous_secrets_fromSecret }}
+            - name: KOOIX_JWT_PREVIOUS_SECRETS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jwt.previous_secrets_fromSecret }}
+                  key: jwt_previous_secrets
+            {{- end }}
+            - name: KOOIX_DATABASE_URL
+              {{- if .Values.postgres.dsnFromSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.dsnFromSecret }}
+                  key: dsn
+              {{- else }}
+              value: {{ .Values.postgres.dsn | quote }}
+              {{- end }}
+            - name: KOOIX_REDIS_URL
+              {{- if .Values.redis.urlFromSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.urlFromSecret }}
+                  key: url
+              {{- else }}
+              value: {{ .Values.redis.url | quote }}
+              {{- end }}
+            {{- if .Values.wasm.enabled }}
+            - name: KOOIX_WASM_MAX_MEMORY_BYTES
+              value: {{ .Values.wasm.max_memory_bytes | quote }}
+            - name: KOOIX_WASM_MAX_CPU_MS
+              value: {{ .Values.wasm.max_cpu_ms | quote }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

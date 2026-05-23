@@ -1,0 +1,120 @@
+# Default values for Kooix Gate Helm chart.
+# 详细文档：https://github.com/telagod/kooix-gate/blob/main/deploy/helm/README.md
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/telagod/kooix-gate
+  tag: v0.4.31
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# === Secrets：生产必须从外部 Secret 注入 ===
+# 推荐用法：先用 kubectl create secret 单独创建，再 helm install 传 fromSecret
+master_key:
+  # 32 字节 base64；丢失 → channel keys 全部不可解密
+  fromSecret: ""  # secret name；优先级最高
+  value: ""        # 仅 dev/PoC
+
+jwt:
+  secret_fromSecret: ""
+  secret: ""        # 仅 dev
+  previous_secrets_fromSecret: ""  # rotation 窗口
+
+# === 外部依赖 ===
+postgres:
+  # 推荐：用 RDS / Cloud SQL；本 chart 不嵌入 postgres subchart
+  dsn: "postgres://gate:gate@postgres:5432/gate"
+  dsnFromSecret: ""
+
+redis:
+  url: "redis://redis:6379/0"
+  urlFromSecret: ""
+
+# === Public URL（用户访问入口）===
+public_url: "https://gate.example.com"
+
+# === ADR-0003 WASM plugin runtime ===
+wasm:
+  enabled: true
+  # 默认 hard limits 与 gate-wasm DEFAULT_LIMITS 一致
+  max_memory_bytes: 16777216  # 16 MiB
+  max_cpu_ms: 50
+  # Module cache 持久化（可选）；不设则纯内存
+  module_cache:
+    enabled: false
+    storageClass: ""
+    size: 1Gi
+
+# === Service / Ingress ===
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: gate.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# === Resources ===
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# === Autoscale ===
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# === Probes ===
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# === Observability ===
+observability:
+  prometheus:
+    enabled: true
+    port: 9090
+  otlp:
+    enabled: false
+    endpoint: "http://otel-collector:4317"
+
+# === Pod-level ===
+podAnnotations: {}
+podSecurityContext: {}
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

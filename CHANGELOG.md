@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.31] — 2026-05-23
+
+**主题**：deploy/helm/gate Helm chart 完善 — production-grade K8s 部署。
+
+### Added
+
+- `deploy/helm/gate/Chart.yaml`（v 0.4.31, appVersion 0.4.31）
+- `deploy/helm/gate/values.yaml`：完整 values（master_key / jwt / postgres / redis / wasm limits / probes / autoscaling / observability / securityContext）
+- `deploy/helm/gate/templates/_helpers.tpl`
+- `deploy/helm/gate/templates/deployment.yaml`：完整 env 注入（含 *_fromSecret 双路径）
+- `deploy/helm/gate/templates/service.yaml`：HTTP + Prometheus metrics 双端口
+- `deploy/helm/README.md`：完整使用文档
+
+### Verification
+
+- yaml lint 通过（Chart.yaml / values.yaml）
+- templates 在 helm CLI 渲染验证留 0.5.0+（本机未装 helm）
+
+---
+
 ## [0.4.30] — 2026-05-23
 
 **主题**：kgctl doctor 加 WASM runtime check —部署体检覆盖 ADR-0003 v0。

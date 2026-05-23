@@ -1,0 +1,18 @@
+apiVersion: v2
+name: gate
+description: Kooix Gate — Rust LLM gateway with multi-tenant, fail-closed streaming billing, ADR-0003 WASM plugin runtime
+type: application
+version: 0.4.31
+appVersion: "0.4.31"
+home: https://github.com/telagod/kooix-gate
+sources:
+  - https://github.com/telagod/kooix-gate
+keywords:
+  - llm
+  - gateway
+  - openai-compatible
+  - wasm
+  - multi-tenant
+maintainers:
+  - name: telagod
+    url: https://github.com/telagod
