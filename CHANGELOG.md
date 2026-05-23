@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.57] — 2026-05-23
+
+**主题**：ProviderRouter 持有 wasm_host — auto-mount 通路就绪。
+
+### Added
+
+- `ProviderRouter`:
+  - `wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>` 字段
+  - `with_wasm_host(host)` builder
+  - `wasm_host()` getter
+- `build_provider` 注释说明 0.5.0 完整 auto-mount 路径
+
+### Verification
+
+- `cargo build -p gate-providers` 净
+
+### Note
+
+完整 auto-mount（builder 自动调 host.load_module + with_wasm_host）需要 channel manifest 解析后从 wasm.module 字段拿 module bytes 并加载——涉及外部存储读写，0.5.0 接 ChannelKeyRepo 模式落地。当前 setter/getter 就绪，调用方可手工组合。
+
+---
+
 ## [0.4.56] — 2026-05-23
 
 **主题**：examples/wasm-transform-as AssemblyScript 实战示例。

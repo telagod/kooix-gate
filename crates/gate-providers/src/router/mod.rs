@@ -132,6 +132,9 @@ pub struct ProviderRouter {
     snapshot_version: AtomicU64,
     /// Atomically replaceable compiled snapshot metadata for hot-path observability.
     runtime_snapshot: RwLock<Arc<ProviderRuntimeSnapshot>>,
+    /// 0.4.57: ADR-0003 v0 WASM Plugin runtime host（全局共享）。
+    /// 若 channel manifest.security.wasm 配置则由 builder 自动 mount + 调用 with_wasm_host。
+    wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>,
 }
 
 impl ProviderRouter {
@@ -153,7 +156,21 @@ impl ProviderRouter {
             rate_limiter: Arc::new(InMemoryChannelRateLimiter::new()),
             snapshot_version: AtomicU64::new(1),
             runtime_snapshot: RwLock::new(Arc::new(ProviderRuntimeSnapshot::new(1, Vec::new()))),
+            wasm_host: None,
         }
+    }
+
+    /// 0.4.57: 挂载 ADR-0003 v0 WASM Plugin runtime host。
+    /// 配置后 builder 创建 CustomHttpProvider 时按 channel manifest.security.wasm
+    /// 自动 with_wasm_host(host, channel_id)。
+    pub fn with_wasm_host(mut self, host: Arc<dyn gate_wasm::WasmHost>) -> Self {
+        self.wasm_host = Some(host);
+        self
+    }
+
+    /// 0.4.57: 当前注入的 wasm host（getter，用于 builder 调用）。
+    pub fn wasm_host(&self) -> Option<Arc<dyn gate_wasm::WasmHost>> {
+        self.wasm_host.clone()
     }
 
     /// 挂载 ModelAliasRepo，启用 alias 解析。
