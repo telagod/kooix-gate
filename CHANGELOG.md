@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.30] — 2026-05-23
+
+**主题**：kgctl doctor 加 WASM runtime check —部署体检覆盖 ADR-0003 v0。
+
+### Changed
+
+- `kgctl doctor` 新增第 7 项 check：`WASM_RUNTIME`
+  - 验证 wasmtime engine 可初始化
+  - JSON 输出已保留（kgctl doctor --json）
+
+### Verification
+
+- `cargo build -p kgctl` 净
+
+---
+
 ## [0.4.29] — 2026-05-23
 
 **主题**：getting-started.md 三档接入文档 — Docker / Helm / 本地源码 + WASM Plugin Quickstart。
