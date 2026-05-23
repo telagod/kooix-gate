@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.63] — 2026-05-23
+
+**主题**：admin/groups 抽 CanaryComparePanel — Canary 对比面板独立组件 + 6 个 canary helper 移至 _lib。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 845 → 739（-106 行 / -12.5%）
+- 新增 `_components/CanaryComparePanel.svelte`（87 行）：Canary stats DataTable + delta 渲染
+- `_lib/helpers.ts` 扩 6 个：`metricDelta` / `weightedBaseline` / `formatMaybeMs` / `formatMaybeMicros` / `formatSignedPercentDelta` / `formatSignedNumberDelta`
+
+### Verification
+
+```bash
+npm run check    # 0/0
+npm test         # 13/87
+```
+
+---
+
 ## [0.4.62] — 2026-05-23
 
 **主题**：admin/groups 抽 FallbackChainPanel — 回退链路面板独立组件。

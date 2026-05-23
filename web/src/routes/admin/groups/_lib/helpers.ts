@@ -38,3 +38,68 @@ export function formatCanaryPercent(bps: number | null | undefined): string {
 	if (bps === null || bps === undefined) return '关闭';
 	return `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
 }
+
+// ── Canary 对比 helpers ──
+
+import type { CanaryStats } from '$lib/api.js';
+
+export function metricDelta(
+	row: CanaryStats,
+	baseline: CanaryStats | null,
+	field: 'error_rate' | 'avg_latency_ms' | 'avg_cost_micros'
+): number | null {
+	if (!baseline) return null;
+	const current = row[field];
+	const base = baseline[field];
+	if (current === null || current === undefined || base === null || base === undefined) return null;
+	return current - base;
+}
+
+export function weightedBaseline(rows: CanaryStats[]): CanaryStats | null {
+	if (rows.length === 0) return null;
+	const totalRequests = rows.reduce((sum, row) => sum + row.requests, 0);
+	const weighted = (field: 'error_rate' | 'avg_latency_ms' | 'avg_cost_micros'): number | null => {
+		const values = rows.filter((row) => row[field] !== null && row[field] !== undefined);
+		if (values.length === 0) return null;
+		if (totalRequests > 0) {
+			const weightedRequests = values.reduce((sum, row) => sum + row.requests, 0);
+			if (weightedRequests > 0) {
+				return values.reduce((sum, row) => sum + (row[field] ?? 0) * row.requests, 0) / weightedRequests;
+			}
+		}
+		return values.reduce((sum, row) => sum + (row[field] ?? 0), 0) / values.length;
+	};
+	return {
+		channel_id: 'baseline',
+		channel_code: 'baseline',
+		channel_name: 'Baseline',
+		provider_type: 'baseline',
+		canary_percent_bps: null,
+		is_canary: false,
+		requests: totalRequests,
+		error_rate: weighted('error_rate') ?? 0,
+		avg_latency_ms: weighted('avg_latency_ms'),
+		avg_cost_micros: weighted('avg_cost_micros')
+	};
+}
+
+export function formatMaybeMs(value: number | null | undefined): string {
+	return value === null || value === undefined ? '—' : `${Math.round(value)}ms`;
+}
+
+export function formatMaybeMicros(value: number | null | undefined): string {
+	return value === null || value === undefined
+		? '—'
+		: `${Math.round(value).toLocaleString('zh-CN')}µ`;
+}
+
+export function formatSignedPercentDelta(delta: number | null): string {
+	if (delta === null) return '—';
+	const value = delta * 100;
+	return `${value >= 0 ? '+' : ''}${value.toFixed(1)}pp`;
+}
+
+export function formatSignedNumberDelta(delta: number | null, suffix = ''): string {
+	if (delta === null) return '—';
+	return `${delta >= 0 ? '+' : ''}${Math.round(delta).toLocaleString('zh-CN')}${suffix}`;
+}
