@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use wasmtime::{Engine, Module, Store, Config};
+use wasmtime::{Caller, Config, Engine, Extern, Linker, Module, Store};
 
 /// 每 channel 一个 module instance（v0：no shared state）。
 struct ChannelModule {
@@ -16,13 +16,13 @@ struct ChannelModule {
     sha256: String,
 }
 
-/// 基于 wasmtime engine 的 host 实现。
+/// ABI v0：
+/// - module export `gate_alloc(size: i32) -> i32`：分配 linear memory，返回 ptr
+/// - module export `<hook_name>(ptr_in: i32, len_in: i32) -> i64`：
+///   返回 i64 = (ptr_out as u32) << 32 | (len_out as u32)
+/// - host 通过 wasmtime memory 读 ptr_out / len_out 拿回 transform 后 payload
 ///
-/// v0 行为：
-/// - lazy compile：load_module 时编译并验证 sha256
-/// - fuel-based timeout：每次 invoke_hook 注入 fuel 限制
-/// - memory cap：通过 `wasmtime::ResourceLimiter` 设置
-/// - panic safe：所有 host call 经 `catch_unwind`，panic 转 `WasmError::Panic`
+/// 0.4.24 接通 chat_request_transform 一条；0.4.25 加 response/stream。
 pub struct WasmtimeHost {
     engine: Engine,
     config: WasmHostConfig,
@@ -34,7 +34,6 @@ impl WasmtimeHost {
         let mut wasm_config = Config::new();
         wasm_config.async_support(true);
         wasm_config.consume_fuel(true);
-        wasm_config.epoch_interruption(true);
         let engine = Engine::new(&wasm_config)
             .map_err(|e| WasmError::Load(format!("engine init: {e}")))?;
         Ok(Self {
@@ -49,6 +48,113 @@ impl WasmtimeHost {
         h.update(bytes);
         hex::encode(h.finalize())
     }
+
+    async fn invoke_hook_real(
+        &self,
+        module: &Module,
+        hook: HookKind,
+        payload: &[u8],
+    ) -> WasmResult<Bytes> {
+        // 1. 创建 store，注入 fuel
+        let mut store: Store<()> = Store::new(&self.engine, ());
+        // wasmtime fuel 单位：约 1 fuel ≈ 1 instr。50ms 内大致 5_000_000 instr 上限。
+        // v0 用 max_cpu_ms × 1_000_000_000 给宽松 budget；v1 校准到真实 instr 数。
+        let fuel = self.config.limits.max_cpu_ms.saturating_mul(1_000_000_000);
+        store
+            .set_fuel(fuel)
+            .map_err(|e| WasmError::Instantiate(format!("set_fuel: {e}")))?;
+
+        // 2. 准备 linker（v0：仅 host_log 一个 host fn 占位）
+        let mut linker = Linker::new(&self.engine);
+        linker
+            .func_wrap(
+                "env",
+                "host_log",
+                |_caller: Caller<'_, ()>, level: i32, ptr: i32, len: i32| {
+                    tracing::debug!(level, ptr, len, "wasm host_log called");
+                },
+            )
+            .map_err(|e| WasmError::Instantiate(format!("linker host_log: {e}")))?;
+
+        // 3. 实例化（async）
+        let instance = linker
+            .instantiate_async(&mut store, module)
+            .await
+            .map_err(|e| WasmError::Instantiate(format!("instantiate: {e}")))?;
+
+        // 4. 拿 memory + alloc
+        let memory = match instance.get_export(&mut store, "memory") {
+            Some(Extern::Memory(m)) => m,
+            _ => return Err(WasmError::Call {
+                hook: hook.as_str(),
+                message: "module missing exported `memory`".into(),
+            }),
+        };
+        let alloc = instance
+            .get_typed_func::<i32, i32>(&mut store, "gate_alloc")
+            .map_err(|e| WasmError::Call {
+                hook: hook.as_str(),
+                message: format!("missing gate_alloc: {e}"),
+            })?;
+
+        // 5. 写 payload
+        let len_in = payload.len() as i32;
+        let ptr_in = alloc
+            .call_async(&mut store, len_in)
+            .await
+            .map_err(|e| WasmError::Call {
+                hook: hook.as_str(),
+                message: format!("alloc call: {e}"),
+            })?;
+        memory
+            .write(&mut store, ptr_in as usize, payload)
+            .map_err(|e| WasmError::Call {
+                hook: hook.as_str(),
+                message: format!("memory write: {e}"),
+            })?;
+
+        // 6. 调 hook
+        let hook_fn = instance
+            .get_typed_func::<(i32, i32), i64>(&mut store, hook.as_str())
+            .map_err(|e| WasmError::Call {
+                hook: hook.as_str(),
+                message: format!("missing export: {e}"),
+            })?;
+        let result = hook_fn
+            .call_async(&mut store, (ptr_in, len_in))
+            .await
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg.contains("fuel") {
+                    WasmError::Timeout {
+                        limit_ms: self.config.limits.max_cpu_ms,
+                    }
+                } else {
+                    WasmError::Call {
+                        hook: hook.as_str(),
+                        message: msg,
+                    }
+                }
+            })?;
+
+        // 7. 读 ptr_out / len_out
+        let ptr_out = (result >> 32) as i32;
+        let len_out = result as i32;
+        if len_out < 0 || ptr_out < 0 {
+            return Err(WasmError::Call {
+                hook: hook.as_str(),
+                message: format!("invalid result encoding: ptr={ptr_out} len={len_out}"),
+            });
+        }
+        let mut buf = vec![0u8; len_out as usize];
+        memory
+            .read(&store, ptr_out as usize, &mut buf)
+            .map_err(|e| WasmError::Call {
+                hook: hook.as_str(),
+                message: format!("memory read: {e}"),
+            })?;
+        Ok(Bytes::from(buf))
+    }
 }
 
 #[async_trait]
@@ -59,7 +165,6 @@ impl WasmHost for WasmtimeHost {
         module_bytes: &[u8],
         expected_sha256: &str,
     ) -> WasmResult<()> {
-        // 1. SHA256 校验
         let actual = Self::sha256_hex(module_bytes);
         if !expected_sha256.is_empty() && actual != expected_sha256.to_ascii_lowercase() {
             return Err(WasmError::DigestMismatch {
@@ -67,12 +172,8 @@ impl WasmHost for WasmtimeHost {
                 actual,
             });
         }
-
-        // 2. compile
         let module = Module::new(&self.engine, module_bytes)
             .map_err(|e| WasmError::Load(format!("compile: {e}")))?;
-
-        // 3. 入表
         let mut modules = self.modules.write().await;
         modules.insert(
             channel_id.to_string(),
@@ -81,7 +182,6 @@ impl WasmHost for WasmtimeHost {
                 sha256: actual,
             },
         );
-
         tracing::info!(
             channel_id = channel_id,
             sha256 = %expected_sha256,
@@ -100,25 +200,31 @@ impl WasmHost for WasmtimeHost {
         let modules = self.modules.read().await;
         let entry = match modules.get(channel_id) {
             Some(m) => m,
-            None => return Ok(None), // 模块未加载 = hook 不可用
+            None => return Ok(None),
         };
 
-        // 0.4.22 阶段：only check module + hook 名校验，body transform 留 0.4.24-0.4.25 接通。
-        // 占位实现：return payload 原样（identity transform）。
+        // 0.4.24：chat_request_transform 真实调用；其他 hook 仍走 identity stub
+        // 直至 0.4.25 全接通。
+        if matches!(hook, HookKind::ChatRequest) {
+            // 检查模块是否 export 该 hook（无则降级为 identity）
+            if entry.module.get_export(hook.as_str()).is_none() {
+                tracing::trace!(
+                    channel_id,
+                    hook = hook.as_str(),
+                    "hook not exported, identity passthrough"
+                );
+                return Ok(Some(payload));
+            }
+            let result = self.invoke_hook_real(&entry.module, hook, &payload).await?;
+            return Ok(Some(result));
+        }
+
+        // 其他 hook 保持 identity（0.4.25 接通）
         tracing::debug!(
-            channel_id = channel_id,
+            channel_id,
             hook = hook.as_str(),
-            sha256 = %entry.sha256,
-            payload_bytes = payload.len(),
-            "wasm hook invoked (identity stub, 0.4.22 placeholder)"
+            "wasm hook stub (0.4.24, identity for non-chat-request)"
         );
-
-        // 注入 fuel = max_cpu_ms × 1_000_000 (wasmtime 约 1M fuel/ms 经验值)
-        let _store: Store<()> = Store::new(&self.engine, ());
-        let fuel_budget = self.config.limits.max_cpu_ms.saturating_mul(1_000_000);
-        // store.set_fuel(fuel_budget) 等价 — v0 stub 先记日志
-        tracing::trace!(fuel_budget, "wasm fuel budget set");
-
         Ok(Some(payload))
     }
 
@@ -137,25 +243,23 @@ mod tests {
     #[tokio::test]
     async fn wasmtime_host_new_succeeds() {
         let host = WasmtimeHost::new(WasmHostConfig::default()).expect("engine init");
-        // 卸载不存在的 channel 不报错
         host.unload_module("non-existent").await.unwrap();
     }
 
     #[tokio::test]
     async fn load_module_validates_sha256() {
         let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
-        // 最小有效 wasm 模块：(module)
         let minimal_wasm = wat::parse_str("(module)").unwrap();
         let correct_sha = WasmtimeHost::sha256_hex(&minimal_wasm);
-
-        // 正确 sha 通过
         host.load_module("ch-1", &minimal_wasm, &correct_sha)
             .await
             .expect("load with correct sha");
-
-        // 错 sha 拒绝
         let err = host
-            .load_module("ch-2", &minimal_wasm, "0000000000000000000000000000000000000000000000000000000000000000")
+            .load_module(
+                "ch-2",
+                &minimal_wasm,
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            )
             .await
             .unwrap_err();
         match err {
@@ -180,17 +284,88 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invoke_hook_returns_identity_for_loaded_module() {
+    async fn chat_request_passthrough_when_hook_not_exported() {
+        // 模块只有 (module)，没 export chat_request_transform → identity
         let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
         let minimal_wasm = wat::parse_str("(module)").unwrap();
         let sha = WasmtimeHost::sha256_hex(&minimal_wasm);
         host.load_module("ch-1", &minimal_wasm, &sha).await.unwrap();
 
-        let payload = Bytes::from_static(b"{\"model\":\"gpt\"}");
+        let payload = Bytes::from_static(b"{\"model\":\"gpt-4o\"}");
         let result = host
-            .invoke_hook("ch-1", HookKind::ChatRequest, payload.clone(), HookContext::default())
+            .invoke_hook(
+                "ch-1",
+                HookKind::ChatRequest,
+                payload.clone(),
+                HookContext::default(),
+            )
             .await
             .unwrap();
         assert_eq!(result, Some(payload));
     }
+
+    #[tokio::test]
+    async fn chat_request_transforms_via_real_module() {
+        // 真实 wasm：alloc 返回固定 buffer 起点；transform 把 input 拷到 buffer，
+        // 返回 (ptr<<32 | len)。避免 memory.copy/bulk-memory 依赖。
+        let wat = r#"
+            (module
+              (memory (export "memory") 1)
+              (func (export "gate_alloc") (param $size i32) (result i32)
+                i32.const 4096)
+              (func (export "chat_request_transform")
+                (param $ptr i32) (param $len i32) (result i64)
+                (local $i i32)
+                (local.set $i (i32.const 0))
+                (block $done
+                  (loop $copy
+                    (br_if $done (i32.ge_s (local.get $i) (local.get $len)))
+                    (i32.store8
+                      (i32.add (i32.const 4096) (local.get $i))
+                      (i32.load8_u (i32.add (local.get $ptr) (local.get $i))))
+                    (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                    (br $copy)))
+                (i64.or
+                  (i64.shl (i64.extend_i32_u (i32.const 4096)) (i64.const 32))
+                  (i64.extend_i32_u (local.get $len))))
+            )
+        "#;
+        let module_bytes = wat::parse_str(wat).unwrap();
+        let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
+        let sha = WasmtimeHost::sha256_hex(&module_bytes);
+        host.load_module("ch-1", &module_bytes, &sha).await.unwrap();
+
+        let payload = Bytes::from_static(b"hello-wasm-transform");
+        let result = host
+            .invoke_hook(
+                "ch-1",
+                HookKind::ChatRequest,
+                payload.clone(),
+                HookContext::default(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.as_ref(), payload.as_ref());
+    }
+
+    #[tokio::test]
+    async fn other_hooks_remain_identity_in_v024() {
+        let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
+        let minimal_wasm = wat::parse_str("(module)").unwrap();
+        let sha = WasmtimeHost::sha256_hex(&minimal_wasm);
+        host.load_module("ch-1", &minimal_wasm, &sha).await.unwrap();
+        let payload = Bytes::from_static(b"data");
+        let resp = host
+            .invoke_hook("ch-1", HookKind::ChatResponse, payload.clone(), HookContext::default())
+            .await
+            .unwrap();
+        assert_eq!(resp, Some(payload.clone()));
+        let stream = host
+            .invoke_hook("ch-1", HookKind::StreamChunk, payload.clone(), HookContext::default())
+            .await
+            .unwrap();
+        assert_eq!(stream, Some(payload));
+    }
 }
+

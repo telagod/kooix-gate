@@ -9,7 +9,7 @@ authors.workspace = true
 description = "ADR-0003 WASM Plugin runtime for Kooix Gate (transform hooks)"
 
 [dependencies]
-wasmtime = { version = "26", default-features = false, features = ["cranelift", "async", "component-model"] }
+wasmtime = { version = "26", features = ["async"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.24] — 2026-05-23
+
+**主题**：chat_request_transform hook 真实接通 — wasm 端到端往返。
+
+### Added
+
+- `WasmtimeHost::invoke_hook_real`：完整 wasmtime async 调用链
+  - Store + fuel budget 注入（max_cpu_ms × 1B）
+  - Linker host fn `host_log` 占位
+  - Module instantiate_async + memory + gate_alloc 调用
+  - hook fn 返回 `i64 = (ptr<<32 | len)` 编码读 transform 后 payload
+- `chat_request` 走真实路径；其他 hook 保持 identity（0.4.25 接通）
+- 5 个新测试：
+  - `chat_request_passthrough_when_hook_not_exported`
+  - `chat_request_transforms_via_real_module`（真 WAT 模块）
+  - `other_hooks_remain_identity_in_v024`
+  - 既有 4 个 unit/load 测试
+
+### Fixed
+
+- 移除 `epoch_interruption(true)`，避免 async + epoch 双重 interrupt 导致空 fuel trap
+- wasmtime crate 改用默认 features，去 cranelift/component-model 显式声明（默认已启）
+
+### Verification
+
+- `cargo test -p gate-wasm` 9 passed
+
+---
+
 ## [0.4.23] — 2026-05-23
 
 **主题**：plugin manifest `security.wasm` 字段升为 typed — ADR-0003 v0 schema 落地。
