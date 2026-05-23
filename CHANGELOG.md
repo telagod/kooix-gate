@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.32] — 2026-05-23
+
+**主题**：OpenAPI 3.1 spec bump + API 参考文档。
+
+### Changed
+
+- `examples/openapi/kooix-gate.openapi.json`：version 0.2.0 → 0.4.31；description 加 ADR-0003 提及
+
+### Added
+
+- `docs/api-reference.md`：API 参考索引
+  - OpenAPI 3.1 spec 用法（Swagger UI / Redocly）
+  - Postman / Bruno collection 用法
+  - 关键 API 路径表（Data Plane / Admin）
+  - 错误码统一 shape 文档
+
+---
+
 ## [0.4.31] — 2026-05-23
 
 **主题**：deploy/helm/gate Helm chart 完善 — production-grade K8s 部署。

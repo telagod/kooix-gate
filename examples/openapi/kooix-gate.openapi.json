@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kooix Gate API",
-    "version": "0.2.0",
-    "description": "Lightweight DX spec for quickstart, smoke, admin channel, pricing, quota, and OpenAI-compatible chat routes. Full route inventory is available at /route-manifest.json."
+    "version": "0.4.31",
+    "description": "Kooix Gate REST API. 0.4.x 起 ADR-0003 WASM Plugin v0 已落地，security.wasm.* 字段加入 manifest。"
   },
   "servers": [
     {
