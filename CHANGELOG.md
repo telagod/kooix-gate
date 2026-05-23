@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.42] — 2026-05-23
+
+**主题**：CustomHttpProvider chat() 接通 wasm chat_request_transform — 集成 step 2。
+
+### Added
+
+- 3 个 wasm transform helper（一次性加完，0.4.43/0.4.44 接 response/stream 调用即可）：
+  - `wasm_transform_request(body, req)` — 已在 0.4.42 chat() 接通
+  - `wasm_transform_response(body, model)` — 0.4.43 接通
+  - `wasm_transform_stream_chunk(chunk, model)` — 0.4.44 接通
+- 全部走 `gate_wasm::invoke_with_fallback`：失败永不 propagate，identity passthrough
+
+### Changed
+
+- `Provider::chat`：build body 后插入 `wasm_transform_request(body, &req)`
+
+### Verification
+
+- `cargo build -p gate-providers` 净（仅 dead_code warning，0.4.43/0.4.44 接调用后清）
+
+---
+
 ## [0.4.41] — 2026-05-23
 
 **主题**：CustomHttpProvider mount 可选 WasmHost — wasm 集成第一步。

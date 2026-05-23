@@ -182,6 +182,90 @@ impl CustomHttpProvider {
         env_secret_slots(channel_code)
     }
 
+    /// 0.4.42: 调 wasm chat_request_transform hook（如配置）。
+    /// 失败永不 propagate — fallback policy 内部已降级 identity。
+    pub(super) async fn wasm_transform_request(
+        &self,
+        body: Vec<u8>,
+        req: &ChatRequest,
+    ) -> Vec<u8> {
+        let Some(host) = self.wasm_host.clone() else {
+            return body;
+        };
+        if self.manifest.security.wasm.is_none() {
+            return body;
+        }
+        let ctx = gate_wasm::HookContext {
+            channel_id: self.wasm_channel_id.clone(),
+            model: req.model.clone(),
+            request_id: String::new(),
+            metadata: Default::default(),
+        };
+        let result = gate_wasm::invoke_with_fallback(
+            host,
+            &self.wasm_channel_id,
+            gate_wasm::HookKind::ChatRequest,
+            bytes::Bytes::from(body.clone()),
+            ctx,
+        )
+        .await;
+        result.to_vec()
+    }
+
+    /// 0.4.43: 调 wasm chat_response_transform hook。
+    pub(super) async fn wasm_transform_response(&self, body: Vec<u8>, model: &str) -> Vec<u8> {
+        let Some(host) = self.wasm_host.clone() else {
+            return body;
+        };
+        if self.manifest.security.wasm.is_none() {
+            return body;
+        }
+        let ctx = gate_wasm::HookContext {
+            channel_id: self.wasm_channel_id.clone(),
+            model: model.to_string(),
+            request_id: String::new(),
+            metadata: Default::default(),
+        };
+        let result = gate_wasm::invoke_with_fallback(
+            host,
+            &self.wasm_channel_id,
+            gate_wasm::HookKind::ChatResponse,
+            bytes::Bytes::from(body.clone()),
+            ctx,
+        )
+        .await;
+        result.to_vec()
+    }
+
+    /// 0.4.44: 调 wasm stream_chunk_transform hook（每 SSE chunk 一次）。
+    pub(super) async fn wasm_transform_stream_chunk(
+        &self,
+        chunk: Vec<u8>,
+        model: &str,
+    ) -> Vec<u8> {
+        let Some(host) = self.wasm_host.clone() else {
+            return chunk;
+        };
+        if self.manifest.security.wasm.is_none() {
+            return chunk;
+        }
+        let ctx = gate_wasm::HookContext {
+            channel_id: self.wasm_channel_id.clone(),
+            model: model.to_string(),
+            request_id: String::new(),
+            metadata: Default::default(),
+        };
+        let result = gate_wasm::invoke_with_fallback(
+            host,
+            &self.wasm_channel_id,
+            gate_wasm::HookKind::StreamChunk,
+            bytes::Bytes::from(chunk.clone()),
+            ctx,
+        )
+        .await;
+        result.to_vec()
+    }
+
     pub async fn build_probe_request(&self) -> ProviderResult<PluginProbeRequest> {
         let probe = &self.manifest.probe;
         let model = probe
@@ -1312,6 +1396,7 @@ impl Provider for CustomHttpProvider {
         }
         req.stream = false;
         let body = self.request_json_body(&req)?;
+        let body = self.wasm_transform_request(body, &req).await;
         let endpoint = self.endpoint_url_for(&req)?;
         let method = self.request_method();
         let mut headers = self
