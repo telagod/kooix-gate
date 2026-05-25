@@ -58,6 +58,26 @@
 | Metric | Type | Labels | 说明 |
 |--------|------|--------|------|
 | `gate_plugin_wasm_calls_total` | counter | `channel, hook, status` (ok/timeout/oom/panic/no_module/call_error/digest_mismatch/...) | WASM transform 调用数 |
+| `gate_plugin_wasm_host_log_total` | counter | `level` (0-4) | 插件经 host_log 上报的日志计数（0.4.80） |
+| `gate_wasm_cache_hit_total` | counter | — | cwasm 持久化缓存命中（0.4.83；启用 `KOOIX_WASM_CACHE_DIR`） |
+| `gate_wasm_cache_miss_total` | counter | — | cwasm 缓存未命中 → 走 compile + 写盘 |
+| `gate_wasm_cache_corrupt_total` | counter | — | cwasm 文件 deserialize 失败 → 删除 + recompile（异常告警源） |
+| `gate_wasm_cache_write_total` | counter | — | cwasm 写盘成功次数 |
+
+### Plugin user metrics (0.4.81)
+
+| Metric | Type | Labels | 说明 |
+|--------|------|--------|------|
+| `plugin_wasm_user_*` | gauge | — | 插件经 `host_record_metric` 自定义的 gauge；name 强制前缀防 namespace 污染 |
+
+### Upstream HTTP client (0.4.94)
+
+| Metric | Type | Labels | 说明 |
+|--------|------|--------|------|
+| `gate_providers_shared_client_hits_total` | counter | — | 4 fast-path provider 共享的 reqwest::Client cache hit |
+| `gate_providers_shared_client_misses_total` | counter | — | cache miss（首次或 evict 后） |
+| `gate_providers_shared_client_evictions_total` | counter | — | LRU 满 8 → clear all（频繁触发说明 timeout 维度爆炸） |
+| `gate_providers_shared_client_size` | gauge | — | 当前 cache 内 Client 实例数（≤ 8） |
 
 ## Grafana Dashboard
 

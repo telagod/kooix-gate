@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.95] — 2026-05-26
+
+**主题**：observability.md 补 0.4.80-0.4.94 新增 9 个指标。
+
+### Docs
+
+- `docs/observability.md` 三个 section 扩充：
+  - `WASM Plugin` 补 `gate_plugin_wasm_host_log_total{level}` + 4 个 cwasm cache 指标（hit/miss/corrupt/write）
+  - 新增 `Plugin user metrics` 段：`plugin_wasm_user_*` namespace（来自 host_record_metric）
+  - 新增 `Upstream HTTP client` 段：4 个 SharedHttpClient 指标（hits/misses/evictions/size）
+
+### Why
+
+0.4.80 host_log / 0.4.81 host_record_metric / 0.4.83 cwasm cache / 0.4.94 SharedClient 共加 9 个新指标但都没进 observability 表格 —— 运维拿表当 dashboard 工程蓝图，遗漏即变 silent metric。
+
+---
+
 ## [0.4.94] — 2026-05-26
 
 **主题**：SharedHttpClient 加 hit/miss/evict/size 指标（0.4.65 配套可观测）。
