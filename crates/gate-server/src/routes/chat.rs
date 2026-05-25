@@ -238,6 +238,14 @@ async fn chat_completions(
                     &model,
                 )
                 .await;
+                // 0.4.66: 流式上游建立失败也算一次 chat 请求（streaming=true, outcome=error）
+                crate::metrics::record_chat_request(
+                    &model,
+                    &provider_type,
+                    true,
+                    "error",
+                    route_start.elapsed().as_secs_f64(),
+                );
                 return Err(AppError::Provider(e));
             }
         };
@@ -257,6 +265,21 @@ async fn chat_completions(
         let captured_usage: Arc<Mutex<Option<Usage>>> = Arc::new(Mutex::new(None));
         let captured_clone = captured_usage.clone();
 
+        // 0.4.66 metrics: TTFB + chunk count（流式专属）
+        let chunk_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stream_outcome_ok = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let first_chunk_at: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+        let chunk_count_inspect = chunk_count.clone();
+        let stream_outcome_inspect = stream_outcome_ok.clone();
+        let first_chunk_inspect = first_chunk_at.clone();
+        let chunk_count_trigger = chunk_count.clone();
+        let stream_outcome_trigger = stream_outcome_ok.clone();
+        let stream_metrics_start = route_start;
+        let metrics_model_inspect = model.clone();
+        let metrics_provider_inspect = provider_type.clone();
+        let metrics_model_trigger = model.clone();
+        let metrics_provider_trigger = provider_type.clone();
+
         let app_for_billing = app.clone();
         let billing_ctx_clone = billing_ctx.clone();
         let billing_parent_span = data_span.clone();
@@ -274,11 +297,27 @@ async fn chat_completions(
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
         let wrapped = upstream.inspect(move |item| match item {
             Ok(chunk) => {
+                let prev = chunk_count_inspect
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if prev == 0 {
+                    let mut slot = first_chunk_inspect.lock();
+                    if slot.is_none() {
+                        let ttfb = stream_metrics_start.elapsed();
+                        *slot = Some(Instant::now());
+                        crate::metrics::record_chat_ttfb(
+                            &metrics_model_inspect,
+                            &metrics_provider_inspect,
+                            ttfb.as_secs_f64(),
+                        );
+                    }
+                }
                 if let Some(u) = &chunk.usage {
                     *captured_clone.lock() = Some(u.clone());
                 }
             }
             Err(err) => {
+                stream_outcome_inspect
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 let channel = crate::metrics::channel_label(channel_id);
                 let failure = provider_failure_policy(err);
                 crate::metrics::record_upstream_error_with_context(
@@ -337,6 +376,28 @@ async fn chat_completions(
                     .instrument(billing_parent_span),
                 );
             }
+
+            // 0.4.66: emit gate_chat_* 收口指标（流式）
+            let outcome = if stream_outcome_trigger.load(std::sync::atomic::Ordering::Relaxed) {
+                "ok"
+            } else {
+                "error"
+            };
+            let chunks = chunk_count_trigger.load(std::sync::atomic::Ordering::Relaxed);
+            crate::metrics::record_chat_stream_chunks(
+                &metrics_model_trigger,
+                &metrics_provider_trigger,
+                outcome,
+                chunks,
+            );
+            crate::metrics::record_chat_request(
+                &metrics_model_trigger,
+                &metrics_provider_trigger,
+                true,
+                outcome,
+                stream_metrics_start.elapsed().as_secs_f64(),
+            );
+
             // 占位返回值，会被 filter_map 过滤掉
             None::<gate_providers::ProviderResult<gate_providers::ChatStreamChunk>>
         })
@@ -424,6 +485,14 @@ async fn chat_completions(
                     StageOutcome::Error,
                     start.elapsed().as_secs_f64(),
                 );
+                // 0.4.66: 非流式失败收口
+                crate::metrics::record_chat_request(
+                    &model,
+                    &provider_type,
+                    false,
+                    "error",
+                    route_start.elapsed().as_secs_f64(),
+                );
                 return Err(AppError::Provider(e));
             }
         };
@@ -463,6 +532,14 @@ async fn chat_completions(
                 .instrument(data_span.clone()),
             );
         }
+        // 0.4.66: 非流式成功收口
+        crate::metrics::record_chat_request(
+            &model,
+            &provider_type,
+            false,
+            "ok",
+            route_start.elapsed().as_secs_f64(),
+        );
         Ok(Json(resp).into_response())
     }
 }

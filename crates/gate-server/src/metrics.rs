@@ -28,6 +28,10 @@
 //! | `billing_settle_failures_total`  | Counter   | reason                             |
 //! | `usage_rollup_lag_seconds`       | Gauge     | (none)                             |
 //! | `worker_lease_owner`             | Gauge     | job                                |
+//! | `gate_chat_duration_seconds`     | Histogram | model, provider_type, streaming, outcome |
+//! | `gate_chat_ttfb_seconds`         | Histogram | model, provider_type               |
+//! | `gate_chat_stream_chunks_total`  | Counter   | model, provider_type, outcome      |
+//! | `gate_chat_requests_total`       | Counter   | model, provider_type, streaming, outcome |
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -99,7 +103,17 @@ pub fn install_recorder() -> bool {
             Matcher::Full("provider_health_probe_duration_seconds".to_string()),
             REQUEST_DURATION_BUCKETS,
         )
-        .expect("provider health duration histogram buckets are non-empty");
+        .expect("provider health duration histogram buckets are non-empty")
+        .set_buckets_for_metric(
+            Matcher::Full("gate_chat_duration_seconds".to_string()),
+            REQUEST_DURATION_BUCKETS,
+        )
+        .expect("chat duration histogram buckets are non-empty")
+        .set_buckets_for_metric(
+            Matcher::Full("gate_chat_ttfb_seconds".to_string()),
+            REQUEST_DURATION_BUCKETS,
+        )
+        .expect("chat ttfb histogram buckets are non-empty");
 
     match builder.install_recorder() {
         Ok(handle) => {
@@ -422,6 +436,87 @@ pub fn record_health_probe(
     .record(duration_secs);
 }
 
+// ============================================================================
+// Chat-specific metrics (0.4.66 — product-review A2)
+//
+// gate_chat_duration_seconds   — e2e chat handler latency (model, provider, streaming, outcome)
+// gate_chat_ttfb_seconds       — first chunk latency for streaming chat (model, provider)
+// gate_chat_stream_chunks_total — SSE chunk count per stream (model, provider, outcome)
+// gate_chat_requests_total     — chat handler request count (model, provider, streaming, outcome)
+//
+// 标签卡死有限基数：
+// - model：normalize_label_value 截 96 字符
+// - provider_type：上游枚举固定（openai/anthropic/azure/bedrock/plugin/...）
+// - streaming："true"/"false"
+// - outcome："ok"/"error"
+// ============================================================================
+
+/// Record one chat handler invocation.
+///
+/// `outcome="ok"` 表示 handler 成功返回响应（非流式：JSON 200；流式：stream
+/// 建立成功）。`outcome="error"` 表示 handler 异常出错（不区分上游错误 vs gate
+/// 内部错误，前者另由 record_upstream_error 区分）。
+pub fn record_chat_request(
+    model: &str,
+    provider_type: &str,
+    streaming: bool,
+    outcome: &'static str,
+    duration_secs: f64,
+) {
+    let model = normalize_label_value(model);
+    let provider_type = normalize_label_value(provider_type);
+    let streaming_str = if streaming { "true" } else { "false" };
+    metrics::counter!(
+        "gate_chat_requests_total",
+        "model" => model.clone(),
+        "provider_type" => provider_type.clone(),
+        "streaming" => streaming_str,
+        "outcome" => outcome,
+    )
+    .increment(1);
+    metrics::histogram!(
+        "gate_chat_duration_seconds",
+        "model" => model,
+        "provider_type" => provider_type,
+        "streaming" => streaming_str,
+        "outcome" => outcome,
+    )
+    .record(duration_secs);
+}
+
+/// Record time-to-first-byte for streaming chat (i.e. first SSE chunk arrives).
+pub fn record_chat_ttfb(model: &str, provider_type: &str, ttfb_secs: f64) {
+    let model = normalize_label_value(model);
+    let provider_type = normalize_label_value(provider_type);
+    metrics::histogram!(
+        "gate_chat_ttfb_seconds",
+        "model" => model,
+        "provider_type" => provider_type,
+    )
+    .record(ttfb_secs);
+}
+
+/// Record total SSE chunk count for one stream.
+pub fn record_chat_stream_chunks(
+    model: &str,
+    provider_type: &str,
+    outcome: &'static str,
+    chunks: u64,
+) {
+    if chunks == 0 {
+        return;
+    }
+    let model = normalize_label_value(model);
+    let provider_type = normalize_label_value(provider_type);
+    metrics::counter!(
+        "gate_chat_stream_chunks_total",
+        "model" => model,
+        "provider_type" => provider_type,
+        "outcome" => outcome,
+    )
+    .increment(chunks);
+}
+
 /// Normalize URL paths to avoid label cardinality explosion.
 ///
 /// Replaces UUID-like segments with `:id`:
@@ -555,5 +650,39 @@ mod tests {
         assert_eq!(upstream[0].kind, "authentication_error");
         assert_eq!(upstream[0].provider_type, "openai");
         assert_eq!(upstream[0].errors, 1);
+    }
+
+    #[test]
+    fn chat_metrics_emit_through_recorder() {
+        // Recorder may already be installed by another test in the same binary
+        // — that's fine, we just need it usable.
+        install_recorder();
+
+        record_chat_request("gpt-4o-mini", "openai", true, "ok", 0.456);
+        record_chat_ttfb("gpt-4o-mini", "openai", 0.087);
+        record_chat_stream_chunks("gpt-4o-mini", "openai", "ok", 42);
+        record_chat_request("claude-3-5-sonnet", "anthropic", false, "error", 1.234);
+
+        let render = render_for_tests().expect("recorder renders prometheus output");
+        assert!(
+            render.contains("gate_chat_requests_total"),
+            "expected gate_chat_requests_total in output:\n{render}"
+        );
+        assert!(
+            render.contains("gate_chat_duration_seconds"),
+            "expected gate_chat_duration_seconds in output"
+        );
+        assert!(
+            render.contains("gate_chat_ttfb_seconds"),
+            "expected gate_chat_ttfb_seconds in output"
+        );
+        assert!(
+            render.contains("gate_chat_stream_chunks_total"),
+            "expected gate_chat_stream_chunks_total in output"
+        );
+        // 验标签真的带上
+        assert!(render.contains("provider_type=\"openai\""));
+        assert!(render.contains("streaming=\"true\""));
+        assert!(render.contains("outcome=\"ok\""));
     }
 }

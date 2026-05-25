@@ -11,6 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.66] — 2026-05-26
+
+**主题**：gate_chat_* 维度 metrics — chat handler 加 e2e latency / TTFB / SSE chunk count（product-review A2）。
+
+### Added
+
+- `gate_chat_requests_total{model, provider_type, streaming, outcome}` — chat handler 请求计数
+- `gate_chat_duration_seconds{model, provider_type, streaming, outcome}` — chat handler e2e 耗时 histogram
+- `gate_chat_ttfb_seconds{model, provider_type}` — 流式首 chunk 延迟 histogram
+- `gate_chat_stream_chunks_total{model, provider_type, outcome}` — 单个 stream 累计 chunk 数
+
+### Changed
+
+- `crates/gate-server/src/metrics.rs` 新增 3 个 emit 函数：`record_chat_request` / `record_chat_ttfb` / `record_chat_stream_chunks`，标签经 `normalize_label_value` 卡死基数。
+- `crates/gate-server/src/routes/chat.rs` 在 4 个收口点埋指标：
+  - 流式上游建立失败 → `chat_request(streaming=true, error)`
+  - 流式 inspect 首 chunk → `chat_ttfb`
+  - 流式 trigger 收尾 → `chat_request(streaming=true, ok|error)` + `chat_stream_chunks`
+  - 非流式 Ok / Err 各一次 → `chat_request(streaming=false, ok|error)`
+- `install_recorder` 为新 histogram 设置 `REQUEST_DURATION_BUCKETS`。
+
+### Why
+
+product-review §1.2 判词：metrics 套件设计齐但**chat 维度盲区**——已有 `gateway_stage_duration_seconds` / `gateway_requests_total` 是按 HTTP method/path/stage 维度，无法按 model+provider 切片 LLM 体验。缺 TTFB → 用户感知首包延迟没法 SLO；缺 chunk count → 流式吞吐无法监控；缺 outcome 维度的 chat latency → 错误请求和成功请求 p99 混在一起。
+
+### Verification
+
+```bash
+cargo check --workspace                              # 0 errors
+cargo test -p gate-server --lib                      # 45 passed (44 既有 + 1 新增 chat_metrics_emit)
+cargo test -p gate-server --lib metrics::            # 8 passed
+```
+
+新增测试 `chat_metrics_emit_through_recorder`：调 4 个 record_chat_* fn 后 render prometheus，断言输出包含全部 4 个 metric name + 关键标签（streaming/outcome/provider_type）。
+
+---
+
 ## [0.4.65] — 2026-05-26
 
 **主题**：SharedHttpClient — 4 个 fast-path provider 共享 reqwest::Client，避免每 channel 一个独立连接池（product-review A1）。
