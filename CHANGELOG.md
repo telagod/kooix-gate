@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.70] — 2026-05-26
+
+**主题**：Retry 加 ±25% jitter + stream-safe factory（product-review §2.4）。
+
+### Added
+
+- `RetryConfig.jitter: bool` — 默认 true。开启后 `backoff_ms(attempt)` 在 base ± 25% 范围内随机取值，防止 N 个客户端同步退避形成"雷暴"。
+- `RetryConfig::stream_safe()` factory — `max_retries=0`。流式路径（chat_stream）一旦失败不能 retry（客户端已收 chunks + inflight pre-debit），用此 config 显式表达"非幂等"。
+
+### Changed
+
+- `backoff_ms` 实现改用 `saturating_pow` / `saturating_mul` 防 attempt 过大溢出。
+- `rand::thread_rng().gen_range` 在 base ± span（base/4，最小 1ms）之间取 jitter。
+
+### Why
+
+product-review §2.4 判词：
+- 原 retry 无 jitter，多客户端同时遇上游 502 后会在精确同一毫秒退避并重试 → 二次冲击放大问题；
+- 流式 retry 没有明文禁止（chat.rs 现在恰好流式分支没调 with_retry，但 API 没语义表达"流式不能 retry"）；
+- `backoff_ms` 用 `2u64.pow(attempt)` 在 attempt ≥ 64 时 panic。
+
+### Verification
+
+```bash
+cargo check --workspace                       # 0 errors
+cargo test -p gate-providers --lib            # 139 passed (134 + 5 新增 retry::tests)
+cargo test -p gate-providers --lib retry::    # 5 passed
+```
+
+新测试：
+- `stream_safe_disables_retry` — max_retries=0
+- `backoff_without_jitter_is_deterministic_exponential` — 500/1000/2000/4000/cap10000
+- `backoff_with_jitter_stays_within_25_percent_band` — 200 次采样落在 [1500, 2500]
+- `backoff_ms_does_not_panic_on_huge_attempt` — attempt=64 不 panic
+- `stream_safe_returns_immediately_on_first_error` — fn 只调一次
+
+---
+
 ## [0.4.69] — 2026-05-26
 
 **主题**：Provider error body 脱敏 — 截 512 字节 + SHA-256 哈希尾，防长 body 撑爆日志、防泄漏 PII（product-review A5）。
