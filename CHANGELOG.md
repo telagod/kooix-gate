@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.85] — 2026-05-26
+
+**主题**：DataTable.svelte 加 `maxHeight` + `stickyHead` prop（product-review B4 step 1/3，长表头可见）。
+
+### Added
+
+- `web/src/lib/components/templates/DataTable.svelte`：
+  - `maxHeight?: string`（默认空 = 无限高）—— 容器纵向滚动上限
+  - `stickyHead?: boolean`（默认 false）—— thead `sticky top-0 z-10`，滚动时表头始终可见
+
+### Why
+
+product-review §4.3 判词：admin/requests 大概率万行数据，无虚拟滚动 → 滚到 100 行后表头看不见，体验差。先用 sticky thead + 容器 max-height 解决"看不见列名"的痛点。真正的窗口化虚拟滚动（row recycle）涉及 row renderer 接口重构，留 step 2/3。
+
+零行为变化（默认 prop 全 false / 空），现有调用方不受影响。
+
+### Verification
+
+```bash
+npm --prefix web run check     # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.84] — 2026-05-26
 
 **主题**：`WasmHostConfig::from_env()` + `KOOIX_WASM_CACHE_DIR` env 接入。
