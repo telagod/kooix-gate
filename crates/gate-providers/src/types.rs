@@ -225,6 +225,11 @@ pub struct Usage {
     pub total_tokens: u32,
     #[serde(default)]
     pub cached_tokens: u32,
+    /// 0.4.68: Anthropic cache_creation_input_tokens —— 首次写 prompt cache
+    /// 时计入；与 `cached_tokens`（cache_read 命中）分别记账，定价不同
+    /// （一般 1.25× / 0.1× 标准 input）。
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub cache_creation_input_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -233,6 +238,10 @@ pub struct Usage {
     pub audio_seconds: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<serde_json::Value>,
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

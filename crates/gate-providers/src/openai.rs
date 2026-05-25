@@ -79,7 +79,12 @@ impl Provider for OpenAiProvider {
             .await?;
         check_status(&resp)?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
-        let parsed: ChatResponse = resp.json().await?;
+        // 0.4.68: 先解为 Value，捞 prompt_tokens_details.cached_tokens 与
+        // completion_tokens_details.reasoning_tokens 提到 usage 顶层，再反序成
+        // ChatResponse。o1 / o3 / o4-mini-reasoning 等模型必有这两组 details。
+        let raw: serde_json::Value = resp.json().await?;
+        let raw = lift_openai_usage_details(raw);
+        let parsed: ChatResponse = serde_json::from_value(raw).map_err(ProviderError::from)?;
         Ok(parsed)
     }
 
@@ -253,7 +258,116 @@ where
 
     sse::sse_to_json_values(byte_stream).map(|item| {
         item.and_then(|value| {
+            // 0.4.68: 与非流路径一致地提升 usage.prompt_tokens_details /
+            // completion_tokens_details 到顶层。
+            let value = lift_openai_usage_details(value);
             serde_json::from_value::<ChatStreamChunk>(value).map_err(ProviderError::from)
         })
     })
+}
+
+/// 0.4.68: 把 OpenAI 嵌套 usage details 提升到顶级 usage 字段。
+///
+/// OpenAI 在 o1/o3/o4-mini-reasoning 等模型上返回：
+/// ```json
+/// "usage": {
+///   "prompt_tokens": 100,
+///   "completion_tokens": 200,
+///   "prompt_tokens_details": {"cached_tokens": 80},
+///   "completion_tokens_details": {"reasoning_tokens": 50}
+/// }
+/// ```
+/// 而 `Usage` 结构体期望 `cached_tokens` / `reasoning_tokens` 在 usage 顶级。
+/// 此 helper 把嵌套字段拷贝出来；保留原 details 在 raw 里以供审计。
+pub(crate) fn lift_openai_usage_details(mut v: serde_json::Value) -> serde_json::Value {
+    let Some(usage) = v.get_mut("usage").and_then(|u| u.as_object_mut()) else {
+        return v;
+    };
+
+    // 把整个 usage 备份到 raw 之前操作
+    let original = serde_json::Value::Object(usage.clone());
+
+    if let Some(prompt_details) = usage.get("prompt_tokens_details").and_then(|d| d.as_object()) {
+        if let Some(cached) = prompt_details.get("cached_tokens").and_then(|x| x.as_u64()) {
+            usage
+                .entry("cached_tokens")
+                .or_insert(serde_json::json!(cached as u32));
+        }
+    }
+    if let Some(comp_details) = usage
+        .get("completion_tokens_details")
+        .and_then(|d| d.as_object())
+    {
+        if let Some(reasoning) = comp_details.get("reasoning_tokens").and_then(|x| x.as_u64()) {
+            usage
+                .entry("reasoning_tokens")
+                .or_insert(serde_json::json!(reasoning as u32));
+        }
+    }
+    // 留原始 details 在 raw 用于审计 / debugging
+    usage
+        .entry("raw")
+        .or_insert(original);
+    v
+}
+
+#[cfg(test)]
+mod openai_lift_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn lift_cached_and_reasoning_tokens_from_details() {
+        let raw = json!({
+            "id": "chatcmpl-x",
+            "model": "o3-mini",
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 200,
+                "total_tokens": 300,
+                "prompt_tokens_details": {"cached_tokens": 80, "audio_tokens": 0},
+                "completion_tokens_details": {"reasoning_tokens": 50, "accepted_prediction_tokens": 0}
+            }
+        });
+        let lifted = lift_openai_usage_details(raw);
+        let usage = lifted.get("usage").unwrap();
+        assert_eq!(usage["cached_tokens"], 80);
+        assert_eq!(usage["reasoning_tokens"], 50);
+        // 原始 details 仍可在 raw 里找回
+        assert!(usage.get("raw").is_some());
+        assert_eq!(
+            usage["raw"]["prompt_tokens_details"]["cached_tokens"],
+            80
+        );
+    }
+
+    #[test]
+    fn lift_no_details_is_noop() {
+        let raw = json!({
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        });
+        let lifted = lift_openai_usage_details(raw.clone());
+        let usage = lifted.get("usage").unwrap();
+        assert_eq!(usage["prompt_tokens"], 10);
+        // 没有 cached/reasoning 字段被加进来
+        assert!(usage.get("cached_tokens").is_none());
+        assert!(usage.get("reasoning_tokens").is_none());
+    }
+
+    #[test]
+    fn lift_does_not_overwrite_explicit_top_level() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "cached_tokens": 999,  // 上游已经在顶级写了
+                "prompt_tokens_details": {"cached_tokens": 80}
+            }
+        });
+        let lifted = lift_openai_usage_details(raw);
+        // 顶级显式值优先，不被 details 覆盖
+        assert_eq!(lifted["usage"]["cached_tokens"], 999);
+    }
 }

@@ -353,6 +353,7 @@ pub(super) fn merge_usage_state(usage: Usage, state: &mut StreamState) -> Usage 
         completion_tokens,
         total_tokens,
         cached_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
         reasoning_tokens: usage.reasoning_tokens,
         image_units: usage.image_units,
         audio_seconds: usage.audio_seconds,

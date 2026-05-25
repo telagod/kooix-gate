@@ -271,6 +271,9 @@ struct AnthropicUsage {
     output_tokens: u32,
     #[serde(default)]
     cache_read_input_tokens: u32,
+    /// 0.4.68: cache 写入 tokens（首次填 prompt cache 时计入，定价 ~1.25× input）。
+    #[serde(default)]
+    cache_creation_input_tokens: u32,
 }
 
 fn map_stop_reason(reason: Option<&str>) -> Option<FinishReason> {
@@ -330,10 +333,12 @@ fn from_anthropic_response(resp: AnthropicResponse) -> ChatResponse {
             completion_tokens: resp.usage.output_tokens,
             total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
             cached_tokens: resp.usage.cache_read_input_tokens,
+            cache_creation_input_tokens: resp.usage.cache_creation_input_tokens,
             raw: Some(serde_json::json!({
                 "input_tokens": resp.usage.input_tokens,
                 "output_tokens": resp.usage.output_tokens,
-                "cache_read_input_tokens": resp.usage.cache_read_input_tokens
+                "cache_read_input_tokens": resp.usage.cache_read_input_tokens,
+                "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens
             })),
             ..Default::default()
         },
@@ -521,6 +526,8 @@ struct StreamState {
     model: String,
     input_tokens: u32,
     cached_tokens: u32,
+    /// 0.4.68: anthropic stream message_start 携带的 cache_creation_input_tokens。
+    cache_creation_tokens: u32,
     current_tool_id: Option<String>,
     current_tool_name: Option<String>,
 }
@@ -559,6 +566,7 @@ fn drain_anthropic_events(
                 if let Some(u) = message.usage {
                     st.input_tokens = u.input_tokens;
                     st.cached_tokens = u.cache_read_input_tokens;
+                    st.cache_creation_tokens = u.cache_creation_input_tokens;
                 }
                 out.push(Ok(ChatStreamChunk {
                     id: st.id.clone(),
@@ -657,10 +665,12 @@ fn drain_anthropic_events(
                     completion_tokens: u.output_tokens,
                     total_tokens: st.input_tokens + u.output_tokens,
                     cached_tokens: st.cached_tokens,
+                    cache_creation_input_tokens: st.cache_creation_tokens,
                     raw: Some(serde_json::json!({
                         "input_tokens": st.input_tokens,
                         "output_tokens": u.output_tokens,
-                        "cache_read_input_tokens": st.cached_tokens
+                        "cache_read_input_tokens": st.cached_tokens,
+                        "cache_creation_input_tokens": st.cache_creation_tokens
                     })),
                     ..Default::default()
                 });

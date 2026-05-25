@@ -11,6 +11,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.68] — 2026-05-26
+
+**主题**：Usage 加 `cache_creation_input_tokens` + OpenAI o1/o3 reasoning_tokens 自动解析（product-review A4 真实剩余缺口）。
+
+### Added
+
+- `Usage.cache_creation_input_tokens: u32` — Anthropic prompt cache 写入 tokens（与 `cached_tokens` 即 cache_read 命中分别记账，定价不同）。
+- `crates/gate-providers/src/openai.rs::lift_openai_usage_details` — 把 OpenAI 嵌套 `prompt_tokens_details.cached_tokens` 与 `completion_tokens_details.reasoning_tokens` 提到 `usage` 顶级。chat (非流) 与 sse_to_chunks (流) 路径都接入。
+
+### Changed
+
+- `crates/gate-providers/src/anthropic.rs`：
+  - `AnthropicUsage` 新增 `cache_creation_input_tokens` 解析
+  - `from_anthropic_response`（非流）回填 `Usage.cache_creation_input_tokens`
+  - `StreamState` 加 `cache_creation_tokens` 字段；`MessageStart` 写入；`MessageDelta` 收尾回填到 final_usage
+- `crates/gate-providers/src/openai.rs`：chat 路径改为 `bytes → Value → lift → ChatResponse`，比 `resp.json::<ChatResponse>` 多一道嵌套字段提升步骤
+- `plugin_preset.rs` / `custom_provider/replay.rs`：Usage struct literal 补 `cache_creation_input_tokens: 0` / clone 字段
+
+### Why
+
+product-review §2.5 原判错（Anthropic 已经回填 `cached_tokens`）；正确剩余缺口：
+
+1. Anthropic `cache_creation_input_tokens` 完全没解析 → billing 用 cache_creation 单独定价时少收
+2. OpenAI o1/o3/o4-mini-reasoning 必返 nested details → gate 解析后丢失，下游 billing 拿不到 reasoning_tokens
+3. Bedrock invocationMetrics 不在本版（留下版处理）
+
+修后影响：Anthropic prompt caching 用户、OpenAI reasoning 模型用户，billing/usage rollup 拿到完整字段。
+
+### Verification
+
+```bash
+cargo check --workspace                                  # 0 errors
+cargo test -p gate-providers --lib                       # 130 passed (127 + 3 新增 lift_openai_usage_details)
+```
+
+新测试：
+- `openai::openai_lift_tests::lift_cached_and_reasoning_tokens_from_details`
+- `openai::openai_lift_tests::lift_no_details_is_noop`
+- `openai::openai_lift_tests::lift_does_not_overwrite_explicit_top_level`
+
+---
+
 ## [0.4.67] — 2026-05-26
 
 **主题**：转译型 provider 透传 ChatRequest.extra — Anthropic / Bedrock 修补，OpenAI/Azure 已通过 `.json(&req)` 自动透传（product-review A3 修正）。

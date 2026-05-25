@@ -306,6 +306,7 @@ impl UsageManifest {
                 completion_tokens: completion,
                 total_tokens: total,
                 cached_tokens: cached,
+                cache_creation_input_tokens: 0,
                 reasoning_tokens,
                 image_units,
                 audio_seconds,
