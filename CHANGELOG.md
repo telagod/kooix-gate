@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.93] — 2026-05-26
+
+**主题**：threat-model.md 加 "Upstream error body leakage" 威胁条目（0.4.69 STRIDE 文档化）。
+
+### Docs
+
+- `docs/threat-model.md` 新增第 7 个 STRIDE 条目：
+  - Threats: 上游回显 PII / key；长 body 放大日志压力
+  - Controls: `ProviderError::upstream` 工厂 + 512B 截断 + sha256 哈希；audit_redaction 链
+  - Verification: `error::tests` 4 case + manual 4xx body 验证
+
+### Why
+
+0.4.69 实装代码 + 0.4.92 写 runbook 步骤，但还差正式威胁建模条目。补齐 STRIDE 链路。
+
+---
+
 ## [0.4.92] — 2026-05-26
 
 **主题**：security-runbook 加 "Provider 上游 error body 泄漏" 段（0.4.69 配套）。

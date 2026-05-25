@@ -145,3 +145,23 @@ Scope: control plane, data plane, provider plugin runtime, billing and admin ope
 
 - `cargo test -p gate-server --test admin_users_e2e platform_admin_can_create_list_suspend_and_reset_password`
 - Review `/admin/audit` expanded rows for request_id / IP / user-agent / before / after.
+
+### Upstream error body leakage
+
+**Threats**
+
+- Upstream LLM providers occasionally echo back portions of the request body in 4xx error responses (OpenAI tool_use validation errors known to do this). If gate stores the raw body in `ProviderError::Upstream { body }` and writes it to logs, audit, or returns it to the client, PII / API keys / sensitive prompts may leak.
+- Long error bodies (multi-MB HTML / stack traces from misconfigured proxies) can amplify log volume + memory pressure.
+
+**Controls**
+
+- 0.4.69+: All `Upstream` constructors go through `ProviderError::upstream(status, body)` factory, which calls `redact_upstream_body`:
+  - Bodies ≤ 512 bytes preserved verbatim.
+  - Bodies > 512 bytes truncated to 512 bytes + `[truncated N bytes; sha256=<first 16 hex>]` annotation. UTF-8 boundary aware (no panic on multibyte characters).
+  - sha256 prefix lets operators correlate truncated logs with full body if it lands elsewhere (e.g. upstream's own logs).
+- Server-layer `audit_redaction` chain still applies on top, masking known-sensitive headers / query params.
+
+**Verification**
+
+- `cargo test -p gate-providers --lib error::tests` — 4 cases including `upstream_factory_redacts_long_body` and `redact_handles_utf8_boundary`.
+- Manual: send a request that triggers a 4xx with verbose body; verify gate logs / audit only contain truncated form.
