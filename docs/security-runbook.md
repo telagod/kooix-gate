@@ -100,3 +100,21 @@ Manifest 是不可信输入，尤其是私有 URL、headers、body 模板与 SSE
 - request body、response body、单个 SSE event 与 `request.timeout_ms` 都有上限；新增私有渠道前按预期返回体调小 limit/timeout。
 - 记录错误时必须 redaction：Authorization、api-key、x-api-key、cookie、set-cookie，以及 query 中的 key/token/secret/password。
 - 新增私有 manifest 前先保存 request/response/SSE fixture，并在 `security.permissions.secret_slots` 声明实际使用的 secret slot，方便复盘与回放。
+
+## Provider 上游 error body 泄漏
+
+0.4.69 起所有 `ProviderError::Upstream { body }` 走 `redact_upstream_body` 自动脱敏：
+
+- body ≤ 512 字节：原样保留
+- body > 512 字节：截前 512 字节 + `[truncated N bytes; sha256=<前16 hex>]` 标注
+- UTF-8 边界感知（多字节字符跨越 512 时不会 panic 或产生非法 UTF-8）
+
+**为什么这条是必修**：上游 4xx/5xx 偶尔回显请求体片段（OpenAI tool_use error 已知会回显参数）或敏感 header echo —— 直接进 audit / log sink 会泄漏 PII / key。512 字节足够 debug 用，超长部分截掉但保留 hash 让排查时仍能定位原始 body。
+
+如发现日志中有完整原始 body，检查：
+
+1. 该 ProviderError 构造点是否走 `ProviderError::upstream(status, body)` 工厂（0.4.69 引入）。
+2. 自定义 provider（custom plugin）的 error handler 是否绕过工厂直接 `Upstream { status, body }` 字面构造。
+3. 全局 audit_redaction 链是否禁用。
+
+构造点白名单见 commit `v0.4.69 — Provider error body 脱敏`。

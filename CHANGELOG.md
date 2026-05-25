@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.92] — 2026-05-26
+
+**主题**：security-runbook 加 "Provider 上游 error body 泄漏" 段（0.4.69 配套）。
+
+### Docs
+
+- `docs/security-runbook.md` 新增段，覆盖：
+  - 0.4.69 redact_upstream_body 行为（≤512 原样 / >512 截断 + sha256）
+  - UTF-8 边界感知
+  - 必修原因（上游回显 PII / key 风险）
+  - 排查 3 项：构造点是否走 `ProviderError::upstream` 工厂 / 自定义 provider 是否绕过 / audit_redaction 是否禁用
+
+---
+
 ## [0.4.91] — 2026-05-26
 
 **主题**：ROADMAP.md 加 product-review 第一刀完成项段（0.4.65-0.4.90 已 ticked 14 条）。
