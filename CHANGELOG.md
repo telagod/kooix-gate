@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.97] — 2026-05-26
+
+**主题**：`.env.example` 加 request log buffered writer 占位 env（0.5.x 实装前文档化）。
+
+### Docs
+
+- `.env.example` 新增段：
+  - `KOOIX_REQUEST_LOG_BUFFER_SIZE` — 单 batch 上限（默认 512）
+  - `KOOIX_REQUEST_LOG_FLUSH_INTERVAL_MS` — 强制 flush 间隔（默认 200ms）
+  - `KOOIX_REQUEST_LOG_BACKPRESSURE` — block / drop_oldest / drop_newest 三种背压策略
+
+### Why
+
+product-review §1 P1-3：`request_logs` 写入热路径同步 insert，写放大严重。本版本先文档化 env 接口，runtime 实装到 0.5.x（涉及 PgRequestLogRepo + 后台 flush 任务 + 错误恢复，不在本 sprint 范围）。
+
+文档化锁住 API 形状，让运维提前规划部署参数；同时明示"未实装"避免 runtime 误读。
+
+---
+
 ## [0.4.96] — 2026-05-26
 
 **主题**：.gitignore 排除 cwasm 缓存（0.4.83 配套）。
