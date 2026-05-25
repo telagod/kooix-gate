@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.96] — 2026-05-26
+
+**主题**：.gitignore 排除 cwasm 缓存（0.4.83 配套）。
+
+### Changed
+
+- `.gitignore` 加 `.wasm-cache/` 与 `*.cwasm` —— 本地开发若 `KOOIX_WASM_CACHE_DIR` 不慎指到 repo 内，不会污染 `git status`。
+
+---
+
 ## [0.4.95] — 2026-05-26
 
 **主题**：observability.md 补 0.4.80-0.4.94 新增 9 个指标。

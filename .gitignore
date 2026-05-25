@@ -31,3 +31,7 @@ logs/
 Thumbs.db
 .claude/
 .ace-tool/
+
+# WASM cache (0.4.83+ cwasm 持久化产物，本地开发若 KOOIX_WASM_CACHE_DIR 指到 repo 内)
+.wasm-cache/
+*.cwasm
