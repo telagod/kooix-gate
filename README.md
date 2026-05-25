@@ -8,7 +8,7 @@
 
 写一份 JSON manifest 就能上一个新渠道，不发版；流式计费 fail-closed；多 Org RLS 兜底；编译期 SQL；强类型 ID。
 
-[![Tests](https://img.shields.io/badge/tests-485%2B%20Rust%20%2B%2087%20web-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-498%2B%20Rust%20%2B%2093%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/version-0.4.60-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
@@ -82,19 +82,30 @@ API / 接入：
 - [ROADMAP.md](./ROADMAP.md) — 四里程碑路线（M1/M2/M3 已交付，M4 候选）
 - [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账
 
-## 当前版本：v0.4.60 — 完整产品形态
+## 当前版本：v0.4.78 — product-review 第一刀打磨中
 
-0.4.x 60 版本阶段（2026-05-23）：
+0.4.65-0.4.78（2026-05-26，14 个 patch）—— [product-review-2026-05-26](./docs/product-review-2026-05-26.md) 第一刀已合 main：
+
+- **性能**：SharedHttpClient（4 fast-path provider 共享 reqwest pool），多 channel 同 base_url 不再爆连接
+- **可观测**：`gate_chat_*` 4 个 metric（duration / ttfb / stream_chunks / requests_total），按 model+provider+streaming+outcome 切片
+- **渠道一致性**：Anthropic / Bedrock 透传 `ChatRequest.extra`；OpenAI/Azure o1/o3 nested details auto-lift
+- **Usage 字段**：`cache_creation_input_tokens` + reasoning_tokens 完整路径
+- **安全**：ProviderError body 脱敏（512B + sha256 哈希）防泄漏
+- **可靠性**：Retry ±25% jitter + `RetryConfig::stream_safe()`
+- **配置**：PgPool 显式化（`KOOIX_DB_*` 5 env）+ `.env.example` 补齐
+- **重构**：admin.rs pricing 内联 mod；channels page plugin samples 抽 `_lib`
+
+### 0.4.60 — 完整产品形态（基线）
 
 - **M3 完结**：ADR-0001 / ADR-0002 / ADR-0003 全部 ✅
 - **WASM Plugin v0 完整产品**：wasmtime 26 + 3 hook 含 SSE + Rust SDK + AssemblyScript SDK npm pkg + e2e 测试 + kgctl wasm 工具 + manifest 验签 schema + Grafana dashboard
 - **gate-providers WASM 集成**：CustomHttpProvider chat / chat_stream 全链路 wiremock e2e 通过
 - **产品化**：Helm chart / Grafana dashboard / OpenAPI / 三档 quickstart / 5 runbook / threat model / Criterion bench
-- **前端深度组件化**：channels 1864 → 1252 (-32.8%)
+- **前端深度组件化**：channels 1864 → 1199（含 0.4.76 拆分）
 - **Rust 拆解**：router / custom_provider / plugin_manifest 全部 -52%+
 - **clippy 0/0**：workspace 全 lint 净
 
-详见 [CHANGELOG.md](./CHANGELOG.md)。下一阶段 v0.5.0 候选见 [ROADMAP.md § M4](./ROADMAP.md)。
+详见 [CHANGELOG.md](./CHANGELOG.md)。下一阶段 v0.5.0-rc1 候选见 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26)。
 
 ## 核心能力
 

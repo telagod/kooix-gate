@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.79] — 2026-05-26
+
+**主题**：README 当前版本段更新到 0.4.78 + tests badge 498/93。
+
+### Docs
+
+- `README.md` "当前版本" 段重写：把 product-review 第一刀 14 个 patch 的成果列出来，原 0.4.60 段降为"基线"小节
+- tests badge 485/87 → 498/93（providers 124→139=+15，server 41→45=+4，storage +5，channels samples +6）
+- 入口链接指向 `RELEASE.md § rc1 准备清单`
+
+---
+
 ## [0.4.78] — 2026-05-26
 
 **主题**：RELEASE.md 加 v0.5.0-rc1 准备清单 + 已完成项检视表。
