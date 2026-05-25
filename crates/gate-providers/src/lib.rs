@@ -122,9 +122,11 @@ pub fn shared_http_client(opts: &ProviderOpts) -> ProviderResult<Arc<reqwest::Cl
     };
     let mut cache = shared_client_cache().lock();
     if let Some(c) = cache.get(&key) {
+        metrics::counter!("gate_providers_shared_client_hits_total").increment(1);
         return Ok(Arc::clone(c));
     }
     if cache.len() >= SHARED_CLIENT_CACHE_LIMIT {
+        metrics::counter!("gate_providers_shared_client_evictions_total").increment(1);
         cache.clear();
     }
     let client = reqwest::Client::builder()
@@ -134,6 +136,8 @@ pub fn shared_http_client(opts: &ProviderOpts) -> ProviderResult<Arc<reqwest::Cl
         .map_err(|e| ProviderError::Config(e.to_string()))?;
     let arc = Arc::new(client);
     cache.insert(key, Arc::clone(&arc));
+    metrics::counter!("gate_providers_shared_client_misses_total").increment(1);
+    metrics::gauge!("gate_providers_shared_client_size").set(cache.len() as f64);
     Ok(arc)
 }
 

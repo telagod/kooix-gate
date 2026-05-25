@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.94] — 2026-05-26
+
+**主题**：SharedHttpClient 加 hit/miss/evict/size 指标（0.4.65 配套可观测）。
+
+### Added
+
+- `crates/gate-providers/src/lib.rs::shared_http_client` 三处 emit：
+  - cache hit → `gate_providers_shared_client_hits_total`
+  - eviction → `gate_providers_shared_client_evictions_total`（LRU 满 8 时 clear all）
+  - miss + insert → `gate_providers_shared_client_misses_total` + gauge `gate_providers_shared_client_size`
+- `gate-providers/Cargo.toml` 加 `metrics = { workspace = true }` 依赖
+
+### Why
+
+0.4.65 实装 SharedHttpClient 时只暴露 cache 行为，没有指标。运营时无法知道 cache 是否在工作（hit 率高低 / 是否频繁 evict 触发重连）。补足这 4 个指标让 LRU 容量调优有数据支撑。
+
+### Verification
+
+```bash
+cargo check -p gate-providers          # 0 errors
+cargo test -p gate-providers --lib     # 139 passed (无回归)
+```
+
+---
+
 ## [0.4.93] — 2026-05-26
 
 **主题**：threat-model.md 加 "Upstream error body leakage" 威胁条目（0.4.69 STRIDE 文档化）。
