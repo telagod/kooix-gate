@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.78] — 2026-05-26
+
+**主题**：RELEASE.md 加 v0.5.0-rc1 准备清单 + 已完成项检视表。
+
+### Docs
+
+- `RELEASE.md` 文末加 "v0.5.0-rc1 准备清单"：
+  - **已完成项检视**（0.4.65-0.4.77）：11 类改动表，含验证数据点
+  - **rc1 候选门禁**：fmt / clippy / test / web check / bundle budget / gitleaks 7 条
+  - **rc1 验收清单**：6 项 checklist（CHANGELOG / README badge / product-gaps / ROADMAP / docs / tag&push）
+
+### Why
+
+product-review 之后的 11 个 patch 已合 main，但 RELEASE.md 没把"做了什么"与"还差什么"放在一起。rc1 准备清单让发版者一眼看到当前进度与剩余项；门禁清单让 CI/手工跑都有参照。
+
+---
+
 ## [0.4.77] — 2026-05-26
 
 **主题**：plugin-samples 加 sanity test（6 case），防止示例文本失效。

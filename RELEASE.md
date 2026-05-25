@@ -286,3 +286,49 @@ gh release upload v0.4.X \
 2. CHANGELOG 写完整阶段战报（含全 patch 表）
 3. README 当前版本段更新（第一屏）
 4. docs/getting-started.md 引用版本号校对
+
+---
+
+## v0.5.0-rc1 准备清单（基于 product-review-2026-05-26）
+
+> 第一刀（A1-A5 + Retry + Pool + admin step1 + docs）已在 0.4.65-0.4.75 合 main。
+> 0.4.76-0.4.99 持续打磨；0.4.100 触发 rc1 候选评估。
+
+### 已完成（0.4.65-0.4.78 节点检视）
+
+| 类别 | 内容 | 验证 |
+|------|------|------|
+| 性能 | SharedHttpClient（4 fast-path provider 共享 reqwest pool） | 124 providers tests |
+| 可观测 | `gate_chat_*` 4 metric（duration / ttfb / stream_chunks / requests_total） | 45 server tests |
+| 渠道一致性 | Anthropic / Bedrock 透传 `ChatRequest.extra`；Azure 接入 `lift_openai_usage_details` | 139 providers tests |
+| Usage 字段 | `cache_creation_input_tokens` + OpenAI o1/o3 nested details lift | 130 providers tests |
+| 安全 | `ProviderError` body 脱敏（512B 截断 + sha256 哈希） | 134 providers tests |
+| 可靠性 | Retry ±25% jitter + `RetryConfig::stream_safe()` | 139 providers tests |
+| 配置 | PgPool 显式化（`KOOIX_DB_*` 5 env） | 5 storage tests |
+| DX | `.env.example` 补 `KOOIX_DB_*` + worker env | manual |
+| 文档 | observability.md / product-gaps.md / RELEASE.md 与实装对齐 | grep |
+| 重构 | admin.rs pricing 块封装内联 mod | 45 server tests |
+| 重构 | channels page plugin samples 抽 `_lib` + sanity tests | 0/0 + 6 tests |
+
+### rc1 候选门禁（0.4.100 触发评估）
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace                        # 期望 ≥ 500 Rust + ≥ 90 web
+npm --prefix web run check                    # 0/0
+npm --prefix web test
+npm --prefix web run build
+npm --prefix web run bundle:budget            # ≤ 220KB
+node scripts/quality-gate.mjs
+gitleaks detect --source . --redact --verbose
+```
+
+### rc1 验收清单
+
+- [ ] CHANGELOG 写完整 0.4.65-0.4.100 大版战报
+- [ ] README badge 更新到 0.5.0-rc1
+- [ ] product-gaps.md 已收口表新增 0.4.78-0.4.100 项
+- [ ] ROADMAP § M1 → M3 全 ticked 或迁移
+- [ ] docs/getting-started.md 引用版本号校对
+- [ ] git tag v0.5.0-rc1，docker push manifest
