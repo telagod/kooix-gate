@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.88] — 2026-05-26
+
+**主题**：`provider_capabilities_returns_full_matrix` 单测覆盖 0.4.87 新 endpoint。
+
+### Added
+
+- `crates/gate-server/src/routes/admin.rs::tests::provider_capabilities_returns_full_matrix` — 验证：
+  - 至少 5 个 entry（4 编译期 + ≥1 plugin preset）
+  - 4 个编译期 provider（openai/anthropic/azure/bedrock）都在 + `kind=compile_time`
+  - `plugin:openai_compatible` 存在 + `kind=plugin_preset`
+  - `openai.capabilities.chat == true`（基本能力非空）
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 46 passed (45 + 1 新增)
+```
+
+---
+
 ## [0.4.87] — 2026-05-26
 
 **主题**：`GET /v1/admin/providers/capabilities` endpoint（product-review B5）。
