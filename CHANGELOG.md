@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.83] — 2026-05-26
+
+**主题**：WASM cwasm 编译产物持久化缓存（product-gaps G-104）。
+
+### Added
+
+- `WasmHostConfig.cache_dir: Option<PathBuf>` — `None` 即旧行为（每次 compile）；`Some(path)` 启用持久化 cache。
+- `WasmtimeHost::load_module_with_cache` — 路径 `{cache_dir}/{sha256}-wt26-0.cwasm`：
+  - 文件存在 → `Module::deserialize_file` 直接复用编译产物
+  - deserialize 失败 → 删除 + fallback compile + warn
+  - compile 后 → `module.serialize` + 写盘（写盘失败不阻断 load）
+- 3 个新 metric：`gate_wasm_cache_hit_total` / `gate_wasm_cache_miss_total` / `gate_wasm_cache_corrupt_total` / `gate_wasm_cache_write_total`
+
+### Why
+
+product-gaps G-104：之前每次 gate-server 启动都重新 compile 所有 wasm 模块。50 channel × 5 wasm 启动慢；持久化后第二次冷启动直接 deserialize（~ms 级 vs ~100ms compile）。
+
+### Verification
+
+```bash
+cargo check -p gate-wasm                                # 0 errors
+cargo test -p gate-wasm --lib cwasm_cache               # 1 passed
+cargo test -p gate-wasm --lib                           # 18 passed (17 + 1 新)
+```
+
+`cwasm_cache_writes_and_hits_on_second_load` 测试：第一次 load 写 cwasm，第二次新 host 实例 + 同 cache_dir 命中（mtime 不变）。
+
+---
+
 ## [0.4.82] — 2026-05-26
 
 **主题**：WASM host_record_metric sanitize 规则 4 个 sanity test。

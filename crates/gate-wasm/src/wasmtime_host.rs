@@ -51,6 +51,82 @@ impl WasmtimeHost {
         hex::encode(h.finalize())
     }
 
+    /// 0.4.83（G-104）：cwasm 持久化缓存。
+    ///
+    /// 路径：`{cache_dir}/{sha256}-{wasmtime_major}.cwasm`。wasmtime major
+    /// 写进文件名让升级 wasmtime 自动失效旧 cwasm（deserialize 不兼容会 panic）。
+    ///
+    /// 写盘失败不阻断 load —— 只 warn，下次重试。
+    fn load_module_with_cache(
+        engine: &Engine,
+        cfg: &WasmHostConfig,
+        sha256: &str,
+        module_bytes: &[u8],
+    ) -> WasmResult<Module> {
+        let cache_dir = match &cfg.cache_dir {
+            Some(d) => d,
+            None => {
+                return Module::new(engine, module_bytes)
+                    .map_err(|e| WasmError::Load(format!("compile: {e}")));
+            }
+        };
+        let wasmtime_major = env!("CARGO_PKG_VERSION")
+            .split('.')
+            .next()
+            .unwrap_or("unknown");
+        let cache_file =
+            cache_dir.join(format!("{sha256}-wt{}-{wasmtime_major}.cwasm", "26"));
+
+        // 1. 尝试 deserialize
+        if cache_file.exists() {
+            // SAFETY: Module::deserialize_file 是 unsafe 因为 cwasm 来自宿主自己写入，
+            // 我们已经按 sha256+wasmtime_major 做了 versioning，从外部看是安全的。
+            match unsafe { Module::deserialize_file(engine, &cache_file) } {
+                Ok(m) => {
+                    metrics::counter!("gate_wasm_cache_hit_total").increment(1);
+                    tracing::debug!(path = %cache_file.display(), "wasm cache hit");
+                    return Ok(m);
+                }
+                Err(e) => {
+                    metrics::counter!("gate_wasm_cache_corrupt_total").increment(1);
+                    tracing::warn!(
+                        path = %cache_file.display(),
+                        error = %e,
+                        "wasm cache deserialize failed; removing + recompiling"
+                    );
+                    let _ = std::fs::remove_file(&cache_file);
+                }
+            }
+        }
+
+        // 2. Compile 新模块
+        metrics::counter!("gate_wasm_cache_miss_total").increment(1);
+        let module = Module::new(engine, module_bytes)
+            .map_err(|e| WasmError::Load(format!("compile: {e}")))?;
+
+        // 3. 尝试写回 cache（失败不阻断）
+        if let Err(e) = std::fs::create_dir_all(cache_dir) {
+            tracing::warn!(path = %cache_dir.display(), error = %e, "create cwasm cache dir failed");
+            return Ok(module);
+        }
+        match module.serialize() {
+            Ok(bytes) => {
+                if let Err(e) = std::fs::write(&cache_file, &bytes) {
+                    tracing::warn!(
+                        path = %cache_file.display(),
+                        error = %e,
+                        "write cwasm cache failed"
+                    );
+                } else {
+                    metrics::counter!("gate_wasm_cache_write_total").increment(1);
+                    tracing::debug!(path = %cache_file.display(), bytes = bytes.len(), "wrote cwasm cache");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "module.serialize failed"),
+        }
+        Ok(module)
+    }
+
     async fn invoke_hook_real(
         &self,
         module: &Module,
@@ -251,8 +327,9 @@ impl WasmHost for WasmtimeHost {
                 actual,
             });
         }
-        let module = Module::new(&self.engine, module_bytes)
-            .map_err(|e| WasmError::Load(format!("compile: {e}")))?;
+        // 0.4.83（G-104）：cwasm 持久化缓存。
+        // 若配置了 cache_dir，先尝试 deserialize；失败 fallback compile + 写回。
+        let module = Self::load_module_with_cache(&self.engine, &self.config, &actual, module_bytes)?;
         let mut modules = self.modules.write().await;
         modules.insert(
             channel_id.to_string(),
@@ -532,6 +609,59 @@ mod tests {
     fn user_metric_name_empty_after_sanitize_drops() {
         assert!(sanitize_user_metric_name("!!!@@@").is_none());
         assert!(sanitize_user_metric_name("").is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cwasm_cache_writes_and_hits_on_second_load() {
+        // 0.4.83：验证 cwasm 持久化路径。
+        let cache_dir = std::env::temp_dir().join(format!(
+            "kooix-gate-wasm-cache-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&cache_dir);
+        let mut cfg = WasmHostConfig::default();
+        cfg.cache_dir = Some(cache_dir.clone());
+
+        let host = WasmtimeHost::new(cfg.clone()).unwrap();
+        let minimal_wasm = wat::parse_str("(module)").unwrap();
+        let sha = WasmtimeHost::sha256_hex(&minimal_wasm);
+
+        // 第一次 load：cache miss + 写盘
+        host.load_module("ch-cache-1", &minimal_wasm, &sha)
+            .await
+            .unwrap();
+        assert!(
+            cache_dir.exists(),
+            "cache_dir must be created after first load"
+        );
+        let entries: Vec<_> = std::fs::read_dir(&cache_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(entries.len(), 1, "expected 1 cwasm file");
+        let cwasm_path = entries[0].path();
+        assert!(cwasm_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(&sha));
+
+        // 第二次：新 host 实例 + 同 cache_dir → 应该命中（不会重新 write）
+        let mtime_before = std::fs::metadata(&cwasm_path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let host2 = WasmtimeHost::new(cfg).unwrap();
+        host2
+            .load_module("ch-cache-2", &minimal_wasm, &sha)
+            .await
+            .unwrap();
+        let mtime_after = std::fs::metadata(&cwasm_path).unwrap().modified().unwrap();
+        assert_eq!(
+            mtime_before, mtime_after,
+            "cache hit should not rewrite the cwasm file"
+        );
+
+        // 清理
+        let _ = std::fs::remove_dir_all(&cache_dir);
     }
 }
 

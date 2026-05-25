@@ -30,6 +30,11 @@ pub struct WasmHostConfig {
     pub allow_fs: bool,
     pub allow_net: bool,
     pub deterministic: bool,
+    /// 0.4.83（product-gaps G-104）：cwasm 编译产物缓存目录。
+    /// `None` = 禁用缓存，每次 load 都重新 compile（旧行为）。
+    /// `Some(path)` = 启动优先 `Module::deserialize_file`，失败 fallback 到 compile +
+    /// 写回 `{path}/{sha256}-{wasmtime_version}.cwasm`。
+    pub cache_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for WasmHostConfig {
@@ -39,6 +44,7 @@ impl Default for WasmHostConfig {
             allow_fs: false,
             allow_net: false,
             deterministic: true,
+            cache_dir: None,
         }
     }
 }
