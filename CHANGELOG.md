@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.81] — 2026-05-26
+
+**主题**：WASM `host_record_metric` 实装（B3a step 2/3，G-003 续）。
+
+### Changed
+
+- `crates/gate-wasm/src/wasmtime_host.rs` 加 `host_record_metric(name_ptr, name_len, value_i64)`：
+  - 读 wasm memory 取 metric name，按 [a-z0-9_] sanitize + 截断 64 字符
+  - 强制前缀 `plugin_wasm_user_` 防止 plugin 污染 gate 内置 namespace
+  - 越界保护与 `host_log` 一致
+  - emit `metrics::gauge!` 设 value（i64 → f64）
+  - name 为空（sanitize 后）时 silently drop
+
+### Why
+
+product-gaps G-003：插件需要把内部状态（如 cache hit 率、自定义计数）暴露给运维。强制前缀 + sanitize 让 plugin 自定义 metric 与 gate 内置指标在 Prometheus 里清晰隔离，运维一眼看到 `plugin_wasm_user_*` 就知道是插件出的。
+
+剩 `host_get_secret_slot` 在 0.4.82 落地（依赖 manifest secret slot 声明，需要更小心的 audit 链路）。
+
+### Verification
+
+```bash
+cargo check -p gate-wasm        # 0 errors
+cargo test -p gate-wasm         # 13 passed (无回归)
+```
+
+---
+
 ## [0.4.80] — 2026-05-26
 
 **主题**：WASM `host_log` 真实实装（B3a step 1/3，product-gaps G-003）。

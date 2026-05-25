@@ -116,6 +116,45 @@ impl WasmtimeHost {
             )
             .map_err(|e| WasmError::Instantiate(format!("linker host_log: {e}")))?;
 
+        // 0.4.81（B3a step 2/3）：host_record_metric 实装。
+        // 接收 (name_ptr, name_len, value_i64)，emit gauge metric。
+        // 强制 metric name 前缀 `plugin_wasm_user_` 防 namespace 污染；
+        // name 字符过滤为 [a-z0-9_]，超长截断 64。
+        linker
+            .func_wrap(
+                "env",
+                "host_record_metric",
+                |mut caller: Caller<'_, ()>, name_ptr: i32, name_len: i32, value: i64| {
+                    let memory = match caller.get_export("memory") {
+                        Some(Extern::Memory(m)) => m,
+                        _ => return,
+                    };
+                    let data = memory.data(&caller);
+                    let p = name_ptr as usize;
+                    let n = name_len as usize;
+                    if p.saturating_add(n) > data.len() {
+                        tracing::warn!(
+                            "wasm host_record_metric: out-of-bounds name slice; dropping"
+                        );
+                        return;
+                    }
+                    let raw_name = String::from_utf8_lossy(&data[p..p + n]);
+                    // sanitize: 只允许 [a-z0-9_]
+                    let sanitized: String = raw_name
+                        .to_ascii_lowercase()
+                        .chars()
+                        .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .take(64)
+                        .collect();
+                    if sanitized.is_empty() {
+                        return;
+                    }
+                    let final_name = format!("plugin_wasm_user_{sanitized}");
+                    metrics::gauge!(final_name).set(value as f64);
+                },
+            )
+            .map_err(|e| WasmError::Instantiate(format!("linker host_record_metric: {e}")))?;
+
         // 3. 实例化（async）
         let instance = linker
             .instantiate_async(&mut store, module)
