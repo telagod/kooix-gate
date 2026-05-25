@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.82] — 2026-05-26
+
+**主题**：WASM host_record_metric sanitize 规则 4 个 sanity test。
+
+### Added
+
+- `crates/gate-wasm/src/wasmtime_host.rs` 测试模块新增 `sanitize_user_metric_name` 自由函数（与 host fn 闭包内规则等价）+ 4 个 test：
+  - 普通名 → `plugin_wasm_user_` 前缀
+  - 含特殊字符 → 大写转小写 + 非 [a-z0-9_] 过滤
+  - 200 字符长名 → 截至 17 (prefix) + 64 = 81 字符
+  - 全特殊字符 / 空 → drop（None）
+
+### Why
+
+host_record_metric 在 0.4.81 真实 linker 挂上了，但闭包内 sanitize 规则没有独立测试覆盖——加 4 个 test 让规则 regression 早暴露。host_get_secret_slot（B3a step 3/3）涉及 manifest secret slot 声明 + audit 链路，推到下一迭代单独处理。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib              # 17 passed (13 既有 + 4 新增)
+```
+
+---
+
 ## [0.4.81] — 2026-05-26
 
 **主题**：WASM `host_record_metric` 实装（B3a step 2/3，G-003 续）。

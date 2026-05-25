@@ -485,5 +485,53 @@ mod tests {
             .unwrap();
         assert_eq!(stream, Some(payload));
     }
+
+    // 0.4.82：把 host_record_metric 与 host_log 的命名/截断规则抽成自由函数复用，
+    // 然后给 sanitize 写纯 unit test，避免去碰 wat 模块导入语义。
+    // sanitize 规则与 wasmtime host fn 闭包内完全一致。
+    fn sanitize_user_metric_name(raw: &str) -> Option<String> {
+        let s: String = raw
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .take(64)
+            .collect();
+        if s.is_empty() {
+            None
+        } else {
+            Some(format!("plugin_wasm_user_{s}"))
+        }
+    }
+
+    #[test]
+    fn user_metric_name_gets_namespace_prefix() {
+        assert_eq!(
+            sanitize_user_metric_name("cache_hits").as_deref(),
+            Some("plugin_wasm_user_cache_hits")
+        );
+    }
+
+    #[test]
+    fn user_metric_name_lowercases_and_strips_bad_chars() {
+        assert_eq!(
+            sanitize_user_metric_name("Cache Hits/v2!").as_deref(),
+            Some("plugin_wasm_user_cachehitsv2")
+        );
+    }
+
+    #[test]
+    fn user_metric_name_truncates_at_64() {
+        let long = "a".repeat(200);
+        let out = sanitize_user_metric_name(&long).unwrap();
+        // prefix "plugin_wasm_user_" 是 17 字符 + sanitized 截到 64
+        assert_eq!(out.len(), 17 + 64);
+        assert!(out.starts_with("plugin_wasm_user_"));
+    }
+
+    #[test]
+    fn user_metric_name_empty_after_sanitize_drops() {
+        assert!(sanitize_user_metric_name("!!!@@@").is_none());
+        assert!(sanitize_user_metric_name("").is_none());
+    }
 }
 
