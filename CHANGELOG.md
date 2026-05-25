@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.87] — 2026-05-26
+
+**主题**：`GET /v1/admin/providers/capabilities` endpoint（product-review B5）。
+
+### Added
+
+- `crates/gate-server/src/routes/admin.rs::list_provider_capabilities` —— 一次返完整 provider capability 矩阵：
+  - 4 个编译期 fast-path provider（openai / anthropic / azure / bedrock）
+  - 7 个 plugin preset（openai_compatible / anthropic_messages / google_gemini / cohere / mistral / deepseek / ollama）
+- 每条返 `{id, name, capabilities, base_url_hint, kind=compile_time|plugin_preset}`
+
+### Why
+
+product-review §2.3 + G-206：playground 节点联动、channel drawer 默认填值需要按 provider 拿全能力矩阵。之前只能逐 channel 查 `/v1/admin/channels/:id`，前端拉一次 admin endpoint 就能拿到全部，免去 N+1 请求。
+
+### Verification
+
+```bash
+cargo check -p gate-server      # 0 errors
+cargo test -p gate-server --lib # 45 passed (无回归)
+```
+
+---
+
 ## [0.4.86] — 2026-05-26
 
 **主题**：DataTable maxHeight / stickyHead 加 3 个 sanity test。
