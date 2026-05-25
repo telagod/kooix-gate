@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.99] — 2026-05-26
+
+**主题**：`docs/chaos-testing.md` 设计稿（0.5.x 实装路径文档化）。
+
+### Added
+
+- 新增 `docs/chaos-testing.md`：
+  - 目标 / 不做什么
+  - Phase 1 故障矩阵：27 个 case（PG 9 / Redis 6 / 上游 12）含工具 + 期望行为
+  - Phase 2 自动化（`tests/chaos/` 目录 + `make chaos` target + metric 断言）
+  - Phase 3 drill-friendly fixtures（with_pg_latency helper / blast radius 注释）
+  - Coverage targets + 关联文档
+
+### Why
+
+product-review §5.2 判词："缺 deterministic 复现 case，限流挂掉 / Redis 闪断 / 上游 503 风暴 / pool 耗尽只能事后复盘"。本版本不实装（涉及 toxiproxy 容器 + 多 case，工作量超 patch 范围），先把方案锁定让 0.5.x 实装时有图纸。
+
+---
+
 ## [0.4.98] — 2026-05-26
 
 **主题**：hot_paths.rs 顶部加 chat e2e bench 实施 TODO（0.5.x 实装方向）。
