@@ -59,6 +59,13 @@ struct AnthropicRequest {
     stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<AnthropicTool>>,
+
+    /// 0.4.67：透传 ChatRequest.extra 中尚未被识别的字段（例：`top_k`,
+    /// `metadata`, `service_tier`, `thinking`, `system_prompt_caching_*`），
+    /// 不让 gate 充当语法过滤器。flatten + Map<String,Value> 保证调用方写新
+    /// 字段不需要 gate 升级。
+    #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -227,6 +234,8 @@ fn to_anthropic_request(req: &ChatRequest) -> AnthropicRequest {
         temperature: req.temperature,
         stream: if req.stream { Some(true) } else { None },
         tools,
+        // 0.4.67: 透传 extra（top_k / metadata / service_tier / thinking 等）
+        extra: req.extra.clone(),
     }
 }
 
@@ -715,4 +724,63 @@ where
 /// Anthropic-specific status check (401/403/429/404 → typed errors).
 pub(crate) fn fastpath_anthropic_check_status(resp: &reqwest::Response) -> ProviderResult<()> {
     check_status(resp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_chat_req() -> ChatRequest {
+        ChatRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: Some(MessageContent::Text("hi".to_string())),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn extra_fields_passthrough_into_anthropic_body() {
+        let mut req = base_chat_req();
+        // 模拟用户在 ChatRequest 顶层传了 anthropic 特有字段
+        req.extra
+            .insert("top_k".to_string(), serde_json::json!(40));
+        req.extra.insert(
+            "thinking".to_string(),
+            serde_json::json!({"type": "enabled", "budget_tokens": 1000}),
+        );
+        req.extra.insert(
+            "metadata".to_string(),
+            serde_json::json!({"user_id": "abc"}),
+        );
+
+        let body = to_anthropic_request(&req);
+        let v = serde_json::to_value(&body).expect("serialize");
+
+        // 已识别字段仍正确
+        assert_eq!(v["model"], "claude-3-5-sonnet");
+        assert_eq!(v["max_tokens"], DEFAULT_MAX_TOKENS);
+        // extra 字段 flatten 到顶层
+        assert_eq!(v["top_k"], 40);
+        assert_eq!(v["thinking"]["type"], "enabled");
+        assert_eq!(v["thinking"]["budget_tokens"], 1000);
+        assert_eq!(v["metadata"]["user_id"], "abc");
+    }
+
+    #[test]
+    fn empty_extra_does_not_emit_keys() {
+        let req = base_chat_req();
+        let body = to_anthropic_request(&req);
+        let v = serde_json::to_value(&body).expect("serialize");
+        let map = v.as_object().expect("object");
+        // 不应出现 "extra" 字面 key —— flatten 应该是透明的
+        assert!(!map.contains_key("extra"));
+        // 也不应出现 anthropic 不识别的随机字段
+        assert!(!map.contains_key("top_k"));
+    }
 }

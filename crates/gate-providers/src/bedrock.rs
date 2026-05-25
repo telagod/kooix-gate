@@ -144,6 +144,12 @@ struct ConverseRequest {
     system: Option<Vec<ConverseSystem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     inference_config: Option<InferenceConfig>,
+
+    /// 0.4.67：透传 ChatRequest.extra（如 `additionalModelRequestFields`,
+    /// `guardrailConfig`, `toolConfig`, `promptVariables`）。Bedrock Converse
+    /// 接受 camelCase + 任意未来字段；flatten 让 gate 不必每次都升级。
+    #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -252,6 +258,8 @@ fn to_converse_request(req: &ChatRequest) -> ConverseRequest {
             temperature: req.temperature,
             top_p: req.top_p,
         }),
+        // 0.4.67: 透传 extra（Converse 顶级字段 additionalModelRequestFields 等）
+        extra: req.extra.clone(),
     }
 }
 
@@ -478,5 +486,36 @@ mod tests {
         // 旧版假签名头必须不存在
         assert!(headers.get("X-Amz-Access-Key").is_none());
         assert!(headers.get("X-Amz-Secret-Key").is_none());
+    }
+
+    #[test]
+    fn extra_fields_passthrough_into_converse_body() {
+        let mut req = ChatRequest {
+            model: "anthropic.claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: Some(MessageContent::Text("hi".into())),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            ..Default::default()
+        };
+        // Bedrock Converse 接受顶级 additionalModelRequestFields 等任意字段
+        req.extra.insert(
+            "additionalModelRequestFields".to_string(),
+            serde_json::json!({"top_k": 40, "anthropic_version": "bedrock-2023-05-31"}),
+        );
+        req.extra.insert(
+            "guardrailConfig".to_string(),
+            serde_json::json!({"guardrailIdentifier": "g-abc", "guardrailVersion": "1"}),
+        );
+
+        let body = to_converse_request(&req);
+        let v = serde_json::to_value(&body).expect("serialize");
+        assert_eq!(v["additionalModelRequestFields"]["top_k"], 40);
+        assert_eq!(v["guardrailConfig"]["guardrailIdentifier"], "g-abc");
+        // 已识别字段照常
+        assert!(v["messages"].is_array());
     }
 }

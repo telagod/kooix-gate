@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.67] — 2026-05-26
+
+**主题**：转译型 provider 透传 ChatRequest.extra — Anthropic / Bedrock 修补，OpenAI/Azure 已通过 `.json(&req)` 自动透传（product-review A3 修正）。
+
+### Changed
+
+- `crates/gate-providers/src/anthropic.rs` `AnthropicRequest` 加 `#[serde(flatten)] extra: Map<String, Value>`，`to_anthropic_request` 复制 `req.extra.clone()`。覆盖 `top_k` / `thinking` / `metadata` / `service_tier` 等 anthropic 特有字段。
+- `crates/gate-providers/src/bedrock.rs` `ConverseRequest` 同样加 flatten extra，覆盖 `additionalModelRequestFields` / `guardrailConfig` / `toolConfig` / `promptVariables`。
+
+### Why
+
+OpenAI / Azure provider 用 `client.post().json(&req)` 直接序列化 `ChatRequest`，由于 `ChatRequest.extra` 已经是 `#[serde(flatten)]` 字段，这两条路径其实早就透传了。原审查报告 §2.2 判错。
+
+但 Anthropic / Bedrock 走的是"转译"路径（`to_anthropic_request` / `to_converse_request`），把 ChatRequest 字段一一映射成 provider 私有结构体后再序列化——`extra` 在转译过程中被丢弃，前端用户传的 `top_k`、`thinking`、`additionalModelRequestFields` 等字段会"看上去能传但实际丢"。这是真缺口。
+
+### Verification
+
+```bash
+cargo check --workspace                                     # 0 errors
+cargo test -p gate-providers --lib                          # 127 passed (124 既有 + 3 新增)
+cargo test -p gate-providers --lib extra_fields             # 2 passed (anthropic + bedrock)
+cargo test -p gate-providers --lib empty_extra              # 1 passed
+```
+
+新增测试：
+- `anthropic::tests::extra_fields_passthrough_into_anthropic_body` — 验 `top_k` / `thinking` / `metadata` 透传到顶级 JSON
+- `anthropic::tests::empty_extra_does_not_emit_keys` — 验空 extra 不污染输出
+- `bedrock::tests::extra_fields_passthrough_into_converse_body` — 验 `additionalModelRequestFields` / `guardrailConfig` 透传
+
+---
+
 ## [0.4.66] — 2026-05-26
 
 **主题**：gate_chat_* 维度 metrics — chat handler 加 e2e latency / TTFB / SSE chunk count（product-review A2）。
