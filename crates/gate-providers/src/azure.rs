@@ -79,7 +79,13 @@ impl Provider for AzureProvider {
             .await?;
         check_status(&resp)?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
-        Ok(resp.json().await?)
+        // 0.4.75：Azure OpenAI 也走 lift_openai_usage_details，与 OpenAI provider
+        // 一致地解析 nested prompt_tokens_details / completion_tokens_details。
+        // Azure 上 o1/o3-mini deployment 行为与 OpenAI 一致。
+        let raw: serde_json::Value = resp.json().await?;
+        let raw = crate::openai::lift_openai_usage_details(raw);
+        let parsed: ChatResponse = serde_json::from_value(raw).map_err(ProviderError::from)?;
+        Ok(parsed)
     }
 
     async fn chat_stream(

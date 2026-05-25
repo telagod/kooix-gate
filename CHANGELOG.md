@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.75] — 2026-05-26
+
+**主题**：Azure provider 非流路径也走 `lift_openai_usage_details`（一致性补漏，0.4.68 范围扩大）。
+
+### Changed
+
+- `crates/gate-providers/src/azure.rs::chat` 改用 `bytes → Value → lift → ChatResponse` 流程，与 OpenAI provider 对齐。流式路径无需改动（azure.rs 复用 `openai::sse_to_chunks`，已在 0.4.68 接入 lift）。
+
+### Why
+
+Azure OpenAI 与 OpenAI API 协议一致，o1 / o3-mini deployment 同样会回 `prompt_tokens_details.cached_tokens` 与 `completion_tokens_details.reasoning_tokens`。0.4.68 只改了 openai.rs::chat 路径，azure 漏了——同样会丢失 cache/reasoning 计费维度。
+
+### Verification
+
+```bash
+cargo check --workspace                       # 0 errors
+cargo test -p gate-providers --lib            # 139 passed (无回归)
+```
+
+---
+
 ## [0.4.74] — 2026-05-26
 
 **主题**：.env.example 补 KOOIX_DB_* + KOOIX_OUTBOX_* 等可调 env 文档化。
