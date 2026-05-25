@@ -301,7 +301,7 @@ impl Provider for BedrockProvider {
                 } else {
                     body
                 }),
-                _ => ProviderError::Upstream { status, body },
+                _ => ProviderError::upstream(status, body),
             });
         }
 

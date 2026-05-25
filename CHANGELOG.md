@@ -11,6 +11,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.69] — 2026-05-26
+
+**主题**：Provider error body 脱敏 — 截 512 字节 + SHA-256 哈希尾，防长 body 撑爆日志、防泄漏 PII（product-review A5）。
+
+### Added
+
+- `crates/gate-providers/src/error.rs::redact_upstream_body(&str) -> String` — body ≤ 512 字节原样保留；超过则截断 + 标注被截字节数 + SHA-256 前 16 字符哈希。UTF-8 边界感知。
+- `ProviderError::upstream(status, body)` 工厂构造函数 — 所有上游 4xx/5xx 构造点统一走此入口，自动脱敏。
+- `pub use error::redact_upstream_body` — server 层 audit 链可复用。
+
+### Changed
+
+- `crates/gate-providers/src/bedrock.rs`、`custom_provider/fastpath.rs` 的 `ProviderError::Upstream { body }` 改用 `ProviderError::upstream(status, body)` 工厂。
+
+### Why
+
+product-review §1.3 判词：`ProviderError::Upstream { body }` 是上游响应原文，上游 4xx 偶尔回显请求体（OpenAI tool_use error 已知）或敏感 header echo，进 audit/log/客户端响应可能泄漏 PII / key。
+
+512 字节足够 debug 用，超长部分截掉但保留 hash 让排查时能定位原始 body；这是"防御性减少 blast radius"，不是替代 audit_redaction 的内容过滤。
+
+### Verification
+
+```bash
+cargo check --workspace                       # 0 errors
+cargo test -p gate-providers --lib            # 134 passed (130 + 4 新增 error::tests)
+cargo test -p gate-providers --lib error::    # 4 passed
+```
+
+新测试：
+- `redact_short_body_is_passthrough` — 短 body 原样
+- `redact_long_body_truncates_with_hash` — 长 body 含 sha256 + 长度 < 原长
+- `upstream_factory_redacts_long_body` — 工厂构造自动脱敏
+- `redact_handles_utf8_boundary` — 多字节 UTF-8 跨越 512 不 panic
+
+---
+
 ## [0.4.68] — 2026-05-26
 
 **主题**：Usage 加 `cache_creation_input_tokens` + OpenAI o1/o3 reasoning_tokens 自动解析（product-review A4 真实剩余缺口）。

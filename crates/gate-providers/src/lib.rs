@@ -29,7 +29,7 @@ pub use capabilities::{
     plugin_preset_capabilities, provider_base_url_suggestion, provider_capabilities,
 };
 pub use custom_provider::{CustomHttpProvider, replay_plugin_sse};
-pub use error::{ProviderError, ProviderResult};
+pub use error::{ProviderError, ProviderResult, redact_upstream_body};
 pub use plugin_manifest::{
     CapabilitiesManifest, ChannelPluginMapping, PluginManifest, PluginPermissionsManifest,
     ProbeManifest, plugin_manifest, plugin_manifest_schema_json, validate_plugin_manifest,

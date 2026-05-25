@@ -383,7 +383,7 @@ impl CustomHttpProvider {
                 429 => ProviderError::RateLimited {
                     retry_after_ms: None,
                 },
-                _ => ProviderError::Upstream { status, body },
+                _ => ProviderError::upstream(status, body),
             });
         }
         let value: Value = resp.json().await?;

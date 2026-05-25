@@ -4,8 +4,53 @@
 //! - `Network`：连不上、超时、TLS
 //! - `Decode`：拿到 200 但 JSON 解不出
 //! - `Auth`：上游 401/403（key 失效）
+//!
+//! ## Body 脱敏（0.4.69，product-review A5）
+//!
+//! `Upstream { body }` 与 `Mapped { message }` 都可能包含上游响应原文。
+//! 上游 4xx/5xx 偶尔会回显请求体片段（OpenAI tool_use error 已知会回显
+//! 参数）或敏感 header echo —— 直接进 audit / log sink 会泄漏 PII / key。
+//!
+//! 解决方案：用 [`redact_upstream_body`] 截 512 字节 + 末尾哈希，配合 server 层
+//! `audit_redaction` 进一步过滤；构造点统一走 [`ProviderError::upstream`] 工厂。
 
 use thiserror::Error;
+
+/// 0.4.69: Provider error body 进入 log/audit/客户端响应前的最大保留长度。
+/// 超过部分截断，并附 SHA-256 哈希前 16 字符方便事后定位完整内容。
+const ERROR_BODY_KEEP_BYTES: usize = 512;
+
+/// 0.4.69：脱敏上游错误 body。
+/// - 长度 ≤ 512 字节：原样保留
+/// - 超过：保留前 512 字节 + 标注被截断的字节数 + body 整体 SHA-256 前 16 字符
+///
+/// 不做内容过滤（如 key 检测）—— 那是 server 层 `audit_redaction` 的职责。
+/// 这里只防"长 body 撑爆日志 / 拷贝放大内存压力"。
+pub fn redact_upstream_body(body: &str) -> String {
+    if body.len() <= ERROR_BODY_KEEP_BYTES {
+        return body.to_string();
+    }
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(body.as_bytes());
+    let digest = h.finalize();
+    let digest_hex: String = digest
+        .iter()
+        .take(8)
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    let truncated_at = ERROR_BODY_KEEP_BYTES.min(body.len());
+    // 在合法 UTF-8 边界截断
+    let mut keep_end = truncated_at;
+    while keep_end > 0 && !body.is_char_boundary(keep_end) {
+        keep_end -= 1;
+    }
+    let kept = &body[..keep_end];
+    let dropped = body.len().saturating_sub(keep_end);
+    format!(
+        "{kept}…[truncated {dropped} bytes; sha256={digest_hex}]"
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NormalizedProviderErrorKind {
@@ -64,6 +109,18 @@ pub enum ProviderError {
     Config(String),
 }
 
+impl ProviderError {
+    /// 0.4.69：构造 `Upstream` error，body 自动经 [`redact_upstream_body`] 脱敏。
+    /// 所有 provider 在拿到上游 4xx/5xx body 后都应走此构造函数，保证日志 /
+    /// audit / 错误响应里不会出现完整原始 body。
+    pub fn upstream(status: u16, body: impl Into<String>) -> Self {
+        Self::Upstream {
+            status,
+            body: redact_upstream_body(&body.into()),
+        }
+    }
+}
+
 impl From<reqwest::Error> for ProviderError {
     fn from(e: reqwest::Error) -> Self {
         if let Some(status) = e.status() {
@@ -98,3 +155,49 @@ impl From<serde_json::Error> for ProviderError {
 }
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_short_body_is_passthrough() {
+        let body = "{\"error\":\"boom\"}";
+        assert_eq!(redact_upstream_body(body), body);
+    }
+
+    #[test]
+    fn redact_long_body_truncates_with_hash() {
+        let body = "x".repeat(2048);
+        let r = redact_upstream_body(&body);
+        assert!(r.starts_with(&"x".repeat(ERROR_BODY_KEEP_BYTES)));
+        assert!(r.contains("[truncated"));
+        assert!(r.contains("sha256="));
+        assert!(r.len() < body.len());
+    }
+
+    #[test]
+    fn upstream_factory_redacts_long_body() {
+        let body = "y".repeat(8192);
+        let err = ProviderError::upstream(502, body);
+        match err {
+            ProviderError::Upstream { status, body } => {
+                assert_eq!(status, 502);
+                assert!(body.len() < 8192, "body should be truncated");
+                assert!(body.contains("sha256="));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn redact_handles_utf8_boundary() {
+        // 把多字节 UTF-8 边界跨过 512 字节
+        let mut s = "a".repeat(510);
+        s.push_str("中文测试");
+        let r = redact_upstream_body(&s);
+        // 不能 panic，且产物是合法 UTF-8
+        assert!(r.is_char_boundary(0));
+        assert!(r.contains("[truncated"));
+    }
+}
