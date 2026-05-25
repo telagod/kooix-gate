@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.76] — 2026-05-26
+
+**主题**：channels page B2 step 1/4 — plugin builder 静态示例文本抽到 `_lib/plugin-samples.ts`。
+
+### Changed
+
+- 新增 `web/src/routes/channels/_lib/plugin-samples.ts`（76 行）：6 个常量 + 1 个类型
+  - `PLUGIN_MANIFEST_EXAMPLE` / `PRIVATE_PLUGIN_MANIFEST_EXAMPLE` — manifest 例子
+  - `PLUGIN_REPLAY_SAMPLE` — SSE replay 样例
+  - `RESPONSE_SAMPLE_PLACEHOLDER` / `PROBE_BODY_PLACEHOLDER` — placeholder 字符串
+  - `PLUGIN_BUILDER_STEPS` + `PluginBuilderStep` 类型 — 7 步 builder 标签
+- `web/src/routes/channels/+page.svelte` 1252 → 1199 行（-53 / -4.2%）：移除 inline 常量定义，改用 import alias 保持本地变量名不变（最小侵入）
+
+### Why
+
+product-review §4.2 判词：channels/+page.svelte 1252 行 god page 拆分。这是 4 步拆分的第 1 步——先把"零依赖只读静态数据"上提。这部分不涉及 state / 组件协调，搬出来风险最低，验证套路可行后再拆 dialog manager / store。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.75] — 2026-05-26
 
 **主题**：Azure provider 非流路径也走 `lift_openai_usage_details`（一致性补漏，0.4.68 范围扩大）。

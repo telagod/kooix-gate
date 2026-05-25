@@ -63,6 +63,14 @@
 		statusBadgeCls,
 		healthDot,
 	} from './_lib/helpers';
+	import {
+		PLUGIN_MANIFEST_EXAMPLE as SAMPLE_PLUGIN_MANIFEST,
+		PRIVATE_PLUGIN_MANIFEST_EXAMPLE as SAMPLE_PRIVATE_PLUGIN_MANIFEST,
+		PLUGIN_REPLAY_SAMPLE as SAMPLE_PLUGIN_REPLAY,
+		RESPONSE_SAMPLE_PLACEHOLDER as SAMPLE_RESPONSE_PLACEHOLDER,
+		PROBE_BODY_PLACEHOLDER as SAMPLE_PROBE_BODY_PLACEHOLDER,
+		PLUGIN_BUILDER_STEPS as PLUGIN_BUILDER_STEP_LABELS,
+	} from './_lib/plugin-samples';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 	import {
@@ -522,76 +530,15 @@
 		}
 	}
 
-	const PLUGIN_MANIFEST_EXAMPLE = `{
-  "plugin": {
-    "preset": { "provider": "openai_compatible" }
-  }
-}`;
+	const PLUGIN_MANIFEST_EXAMPLE = SAMPLE_PLUGIN_MANIFEST;
+	const PRIVATE_PLUGIN_MANIFEST_EXAMPLE = SAMPLE_PRIVATE_PLUGIN_MANIFEST;
 
-	const PRIVATE_PLUGIN_MANIFEST_EXAMPLE = `{
-  "plugin": {
-    "request": {
-      "chat_path": "/private/chat",
-      "headers": { "X-Api-Key": "{{api_key}}" },
-      "body": {
-        "modelName": "{{model}}",
-        "prompt": "{{last_user_message}}",
-        "stream": "{{stream}}",
-        "limit": "{{max_tokens}}"
-      }
-    },
-    "response": {
-      "openai_compatible": false,
-      "content_path": "result.text",
-      "finish_reason_path": "result.finish",
-      "usage": {
-        "prompt_tokens_path": "usage.input",
-        "completion_tokens_path": "usage.output"
-      }
-    },
-    "stream": {
-      "openai_compatible": false,
-      "event_path": "payload",
-      "ignore_events": ["ping"],
-      "done_events": ["close"],
-      "content_path": "token",
-      "tool_calls_path": "tool_calls",
-      "finish_reason_path": "finish",
-      "done": ["[DONE]", "EOF"],
-      "done_path": "type",
-      "done_values": ["message_stop"],
-      "usage": {
-        "prompt_tokens_path": "usage.input",
-        "completion_tokens_path": "usage.output"
-      }
-    }
-  }
-}`;
+	const PLUGIN_REPLAY_SAMPLE = SAMPLE_PLUGIN_REPLAY;
 
-	const PLUGIN_REPLAY_SAMPLE = `event: token
-data: {"payload":{"rid":"r1","model_name":"native","speaker":"assistant"}}
+	const RESPONSE_SAMPLE_PLACEHOLDER = SAMPLE_RESPONSE_PLACEHOLDER;
+	const PROBE_BODY_PLACEHOLDER = SAMPLE_PROBE_BODY_PLACEHOLDER;
 
-data: {"payload":{"token":"he"}}
-
-data: {"payload":{"token":"llo"}}
-
-data: {"payload":{"finish":"done","usage":{"input":3,"output":2}}}
-
-data: {"payload":{"type":"message_stop"}}
-`;
-
-	const RESPONSE_SAMPLE_PLACEHOLDER = `{"result":{"text":"hello"},"usage":{"input":1,"output":2}}`;
-	const PROBE_BODY_PLACEHOLDER = `{"model":"{{model}}","messages":[{"role":"user","content":"Hi"}]}`;
-
-	const PLUGIN_BUILDER_STEPS = [
-		'Preset',
-		'Auth',
-		'Request',
-		'Response',
-		'SSE',
-		'Test',
-		'Save'
-	];
+	const PLUGIN_BUILDER_STEPS = PLUGIN_BUILDER_STEP_LABELS;
 
 	function applyBaseUrlSuggestion(kind: 'create' | 'edit') {
 		if (kind === 'create') {
