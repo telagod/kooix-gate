@@ -16,6 +16,26 @@
 
 ---
 
+## 已收口（0.4.65-0.4.72，product-review 第一刀）
+
+> 来自 [product-review-2026-05-26.md](./product-review-2026-05-26.md) 的批判清单。
+> 第一刀（A1-A5 + Retry + Pool + admin step 1）共 8 个 patch，已合入 main。
+
+| 项 | 版本 | 内容 | 验证 |
+|----|------|------|------|
+| A1 | 0.4.65 | SharedHttpClient — 4 fast-path provider 共享 reqwest pool | 124 providers tests |
+| A2 | 0.4.66 | `gate_chat_*` 4 个 metric（duration / ttfb / stream_chunks / requests_total） | 45 server tests |
+| A3 | 0.4.67 | Anthropic / Bedrock 转译型 provider 透传 ChatRequest.extra | 127 providers tests |
+| A4 | 0.4.68 | Usage 增 `cache_creation_input_tokens` + OpenAI o1/o3 details 自动 lift | 130 providers tests |
+| A5 | 0.4.69 | ProviderError body 脱敏（512B 截断 + sha256 哈希尾） | 134 providers tests |
+| —  | 0.4.70 | Retry ±25% jitter + `RetryConfig::stream_safe()` | 139 providers tests |
+| —  | 0.4.71 | PgPool 配置显式化（`KOOIX_DB_*` env，5 字段） | 5 storage tests |
+| —  | 0.4.72 | admin.rs B1 step 1/4: pricing 块封装内联 mod | 45 server tests |
+
+剩余 product-review 项见下方 P0/P1/P2，与原 product-gaps 合并维护。
+
+---
+
 ## P0 — 信任链与运行时收口（v0.5.0 必交付）
 
 ### G-001 真实公钥验签链

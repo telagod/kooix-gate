@@ -10,9 +10,18 @@
 
 | Metric | Type | Labels | 说明 |
 |--------|------|--------|------|
-| `gate_chat_requests_total` | counter | `model, provider, status` | OpenAI-compatible 入站请求数 |
-| `gate_chat_latency_ms` | histogram | `model, provider` | 完整 chat 链路延迟 |
-| `gate_chat_tokens` | histogram | `model, provider, kind` (prompt/completion) | token 用量 |
+| `gate_chat_requests_total` | counter | `model, provider_type, streaming, outcome` (ok/error) | chat handler 请求计数（0.4.66 加 streaming + outcome） |
+| `gate_chat_duration_seconds` | histogram | `model, provider_type, streaming, outcome` | chat handler e2e 耗时（流式 = stream 从建立到结束；非流 = upstream 返回到 JSON 写完） |
+| `gate_chat_ttfb_seconds` | histogram | `model, provider_type` | 流式首 chunk 延迟，用户感知首包时间 SLO 用（0.4.66 新增） |
+| `gate_chat_stream_chunks_total` | counter | `model, provider_type, outcome` | 单 stream 累计 chunk 数（0.4.66 新增；监控吞吐 / 早终止） |
+| `gate_tokens_total` | counter | `type` (prompt/completion), `model` | token 累计计数 |
+| `gate_request_duration_seconds` | histogram | `method, path` | 全 HTTP 请求 e2e 延迟（不限 chat） |
+| `gate_active_requests` | gauge | — | 当前 inflight HTTP 请求数 |
+| `gateway_stage_duration_seconds` | histogram | `stage, outcome` | 网关分阶段耗时（route/adapt/execute/settle × ok/error） |
+
+> **历史指标变更**（0.4.66）：原 `gate_chat_latency_ms` 与 `gate_chat_tokens` 已合并为本节列表。
+> labels 字段名 `provider` → `provider_type`、`status` → `outcome`，旧 dashboard 需更新；
+> 新增 streaming 维度（"true"/"false"）让流式与非流式 latency 分桶看，避免长流污染 p99。
 
 ### Upstream
 

@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.73] — 2026-05-26
+
+**主题**：observability.md + product-gaps.md 与 0.4.65-72 实装对齐。
+
+### Docs
+
+- `docs/observability.md § Request lifecycle` 重写：
+  - 4 个 chat metric 名/labels 与代码对齐：`gate_chat_requests_total{streaming, outcome}` / `gate_chat_duration_seconds` / `gate_chat_ttfb_seconds` / `gate_chat_stream_chunks_total`
+  - 补 `gate_tokens_total` / `gate_request_duration_seconds` / `gate_active_requests` / `gateway_stage_duration_seconds`
+  - 加 0.4.66 历史变更说明（旧 `gate_chat_latency_ms` / `gate_chat_tokens` 已合并；旧 dashboard 需更新；streaming 新维度避免长流污染 p99）
+
+- `docs/product-gaps.md` 顶部加"已收口（0.4.65-0.4.72）"章节：8 个 patch 摘要表 + 验证数据，与 [product-review-2026-05-26.md](./product-review-2026-05-26.md) 双向交叉引用。
+
+### Why
+
+product-review 第一刀（A1-A5 + Retry + Pool + admin step 1）8 个 patch 已合 main，但 observability.md 仍写旧指标名（`gate_chat_latency_ms` 不存在 / labels `provider` 应为 `provider_type`）—— 这是文档漂移，运维拿旧名做 dashboard 会扑空。同步修。
+
+### Verification
+
+```bash
+grep gate_chat_ docs/observability.md         # 4 occurrences for new names
+git log --oneline v0.4.64..HEAD               # 9 commits since pre-review
+```
+
+---
+
 ## [0.4.72] — 2026-05-26
 
 **主题**：admin.rs B1 step 1/4 — pricing 块封装为内联子模块（product-review §1.4）。
