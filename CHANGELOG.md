@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.77] — 2026-05-26
+
+**主题**：plugin-samples 加 sanity test（6 case），防止示例文本失效。
+
+### Added
+
+- `web/src/tests/plugin-samples.test.ts`（6 个 case）：
+  - `PLUGIN_MANIFEST_EXAMPLE` / `PRIVATE_PLUGIN_MANIFEST_EXAMPLE` / `RESPONSE_SAMPLE_PLACEHOLDER` — JSON 可解析
+  - `PROBE_BODY_PLACEHOLDER` — 含 `{{model}}` 占位
+  - `PLUGIN_REPLAY_SAMPLE` — 含 SSE `event:`/`data:` 标记
+  - `PLUGIN_BUILDER_STEPS` — 长度 7、首尾固定
+
+### Why
+
+0.4.76 把这些常量上提到 `_lib`，但用户复制到 channel manifest 时若字符串里语法错（如缺逗号），编辑器只在用户保存时才报错。加 sanity test 在 CI 早期就拦截示例文本的格式 regression。
+
+### Verification
+
+```bash
+npm --prefix web test -- plugin-samples       # 6 passed
+```
+
+总测数：87 → 93。
+
+---
+
 ## [0.4.76] — 2026-05-26
 
 **主题**：channels page B2 step 1/4 — plugin builder 静态示例文本抽到 `_lib/plugin-samples.ts`。
