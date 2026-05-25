@@ -49,6 +49,21 @@ impl Default for WasmHostConfig {
     }
 }
 
+impl WasmHostConfig {
+    /// 0.4.84：从 env 读 `KOOIX_WASM_CACHE_DIR` 注入 cache_dir。
+    /// 空字符串或未设 → None（不启用 cwasm 缓存）。
+    /// 设置后即 `Some(PathBuf)`；不做 dir-exists 检查（首次 load 会自动 create_dir_all）。
+    pub fn from_env() -> Self {
+        let mut cfg = Self::default();
+        if let Ok(dir) = std::env::var("KOOIX_WASM_CACHE_DIR") {
+            if !dir.is_empty() {
+                cfg.cache_dir = Some(std::path::PathBuf::from(dir));
+            }
+        }
+        cfg
+    }
+}
+
 /// Hook 调用上下文。
 #[derive(Debug, Clone, Default)]
 pub struct HookContext {

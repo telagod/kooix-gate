@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.84] — 2026-05-26
+
+**主题**：`WasmHostConfig::from_env()` + `KOOIX_WASM_CACHE_DIR` env 接入。
+
+### Added
+
+- `WasmHostConfig::from_env()` — 读 `KOOIX_WASM_CACHE_DIR`，空字符串 / 未设 → `None`；设置后即 cwasm 缓存目录。
+- `.env.example` 新增 WASM Plugin 持久化缓存段，含路径建议（`/var/cache/kooix-gate/wasm`）与文件名约定。
+
+### Why
+
+0.4.83 实装了 cwasm 缓存机制，但要求 caller 显式构造 `WasmHostConfig.cache_dir`。生产场景应该走 env 注入。配合 `.env.example` 让运维一眼可启用。
+
+---
+
 ## [0.4.83] — 2026-05-26
 
 **主题**：WASM cwasm 编译产物持久化缓存（product-gaps G-104）。
