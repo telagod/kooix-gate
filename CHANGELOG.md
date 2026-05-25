@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.80] — 2026-05-26
+
+**主题**：WASM `host_log` 真实实装（B3a step 1/3，product-gaps G-003）。
+
+### Changed
+
+- `crates/gate-wasm/src/wasmtime_host.rs::host_log` 从 placeholder 升级为真实实现：
+  - 通过 `Caller::get_export("memory")` 拿到 wasm 线性内存
+  - 按 (ptr, len) 切片读取 UTF-8 字符串（越界保护：检查 `ptr+len ≤ data.len()` 否则丢弃 + warn）
+  - 防 plugin 撑爆日志：单条 ≤ 1KB（超出截断 + `truncated=true` 字段）
+  - level 约定：0=trace / 1=debug / 2=info / 3=warn / 4=error，其它走 debug
+  - 路由到 `tracing::{trace,debug,info,warn,error}!` + 加 `plugin=true` 字段
+  - emit `gate_plugin_wasm_host_log_total{level}` counter
+
+### Why
+
+product-gaps G-003：ABI v0 三个 transform hook 已通，但 `host_log` / `host_get_secret_slot` / `host_record_metric` 都是 placeholder——插件无法记录 log，DX 残废。host_log 是最简单一个，先做。后续 81-82 补 secret_slot 与 metric。
+
+### Verification
+
+```bash
+cargo check -p gate-wasm        # 0 errors
+cargo test -p gate-wasm         # 13 passed (无回归)
+```
+
+---
+
 ## [0.4.79] — 2026-05-26
 
 **主题**：README 当前版本段更新到 0.4.78 + tests badge 498/93。

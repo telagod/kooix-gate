@@ -66,14 +66,52 @@ impl WasmtimeHost {
             .set_fuel(fuel)
             .map_err(|e| WasmError::Instantiate(format!("set_fuel: {e}")))?;
 
-        // 2. 准备 linker（v0：仅 host_log 一个 host fn 占位）
+        // 2. 准备 linker
+        // 0.4.80（product-review B3a）：host_log 升级为真实读 wasm memory + 按
+        // level 路由到 tracing 事件。其余 host fn（host_get_secret_slot /
+        // host_record_metric）见 v0.4.81-82。
         let mut linker = Linker::new(&self.engine);
         linker
             .func_wrap(
                 "env",
                 "host_log",
-                |_caller: Caller<'_, ()>, level: i32, ptr: i32, len: i32| {
-                    tracing::debug!(level, ptr, len, "wasm host_log called");
+                |mut caller: Caller<'_, ()>, level: i32, ptr: i32, len: i32| {
+                    let memory = match caller.get_export("memory") {
+                        Some(Extern::Memory(m)) => m,
+                        _ => {
+                            tracing::warn!("wasm host_log: plugin has no exported memory");
+                            return;
+                        }
+                    };
+                    let data = memory.data(&caller);
+                    let p = ptr as usize;
+                    let n = len as usize;
+                    let bytes = if p.saturating_add(n) <= data.len() {
+                        &data[p..p + n]
+                    } else {
+                        tracing::warn!(
+                            ptr = p,
+                            len = n,
+                            mem_size = data.len(),
+                            "wasm host_log: out-of-bounds string slice; dropping"
+                        );
+                        return;
+                    };
+                    // 截 1KB 防 plugin 把日志撑爆
+                    const MAX_LOG: usize = 1024;
+                    let truncated = bytes.len() > MAX_LOG;
+                    let slice = &bytes[..bytes.len().min(MAX_LOG)];
+                    let msg = String::from_utf8_lossy(slice);
+                    // level 约定：0=trace 1=debug 2=info 3=warn 4=error；其它走 debug
+                    match level {
+                        0 => tracing::trace!(plugin = true, truncated, "{msg}"),
+                        1 => tracing::debug!(plugin = true, truncated, "{msg}"),
+                        2 => tracing::info!(plugin = true, truncated, "{msg}"),
+                        3 => tracing::warn!(plugin = true, truncated, "{msg}"),
+                        4 => tracing::error!(plugin = true, truncated, "{msg}"),
+                        _ => tracing::debug!(plugin = true, level, truncated, "{msg}"),
+                    }
+                    metrics::counter!("gate_plugin_wasm_host_log_total", "level" => level.to_string()).increment(1);
                 },
             )
             .map_err(|e| WasmError::Instantiate(format!("linker host_log: {e}")))?;
