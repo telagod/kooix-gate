@@ -16,7 +16,7 @@ pub(crate) const FASTPATH_ANTHROPIC_VERSION: &str = ANTHROPIC_VERSION;
 
 #[derive(Clone)]
 pub struct AnthropicProvider {
-    client: reqwest::Client,
+    client: std::sync::Arc<reqwest::Client>,
     base_url: String,
     api_key: String,
 }
@@ -31,11 +31,7 @@ impl AnthropicProvider {
         api_key: impl Into<String>,
         opts: crate::ProviderOpts,
     ) -> ProviderResult<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(opts.connect_timeout())
-            .timeout(opts.timeout_duration())
-            .build()
-            .map_err(|e| ProviderError::Config(e.to_string()))?;
+        let client = crate::shared_http_client(&opts)?;
         Ok(Self {
             client,
             base_url: base_url.into().trim_end_matches('/').to_string(),

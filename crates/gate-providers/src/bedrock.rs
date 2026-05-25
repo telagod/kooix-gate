@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub struct BedrockProvider {
-    client: reqwest::Client,
+    client: std::sync::Arc<reqwest::Client>,
     region: String,
     access_key: String,
     secret_key: String,
@@ -50,11 +50,7 @@ impl BedrockProvider {
         secret_key: impl Into<String>,
         opts: crate::ProviderOpts,
     ) -> ProviderResult<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(opts.connect_timeout())
-            .timeout(opts.timeout_duration())
-            .build()
-            .map_err(|e| ProviderError::Config(e.to_string()))?;
+        let client = crate::shared_http_client(&opts)?;
         Ok(Self {
             client,
             region: region.into(),

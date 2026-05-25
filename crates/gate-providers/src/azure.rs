@@ -11,7 +11,7 @@ use futures::stream::{BoxStream, StreamExt};
 
 #[derive(Clone)]
 pub struct AzureProvider {
-    client: reqwest::Client,
+    client: std::sync::Arc<reqwest::Client>,
     endpoint: String,
     api_key: String,
     api_version: String,
@@ -37,11 +37,7 @@ impl AzureProvider {
         api_version: Option<String>,
         opts: crate::ProviderOpts,
     ) -> ProviderResult<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(opts.connect_timeout())
-            .timeout(opts.timeout_duration())
-            .build()
-            .map_err(|e| ProviderError::Config(e.to_string()))?;
+        let client = crate::shared_http_client(&opts)?;
         Ok(Self {
             client,
             endpoint: endpoint.into().trim_end_matches('/').to_string(),

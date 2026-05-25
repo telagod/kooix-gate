@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.65] — 2026-05-26
+
+**主题**：SharedHttpClient — 4 个 fast-path provider 共享 reqwest::Client，避免每 channel 一个独立连接池（product-review A1）。
+
+### Changed
+
+- `crates/gate-providers/src/lib.rs` 新增 `shared_http_client(&ProviderOpts)`：按 (connect_timeout, total_timeout) 维度缓存 `Arc<reqwest::Client>`，LRU 上限 8。
+- `OpenAiProvider` / `AnthropicProvider` / `AzureProvider` / `BedrockProvider` 改持 `Arc<reqwest::Client>`，构造时调 `shared_http_client(&opts)` 复用全局池。
+- `CustomHttpProvider` 不变：仍走独立 builder（依赖 sandbox DNS resolver + redirect=none + manifest 自带 timeout override）。
+- 暴露测试辅助 `_reset_shared_http_clients()`。
+
+### Why
+
+每个 channel 一份独立 reqwest pool 在多 channel 共享同上游 base_url 场景下浪费 TCP/TLS 握手与 HTTP2 multiplexing。SharedHttpClient 让相同 timeout bucket 内 N channel 走同一 connection pool，高并发下连接数从 O(N×C) 降到 O(C)（C ≤ 8）。
+
+### Verification
+
+```bash
+cargo check --workspace                                    # 0 errors
+cargo test -p gate-providers --lib                         # 124 passed (122 既有 + 2 新增 SharedHttpClient)
+cargo test -p gate-providers --lib shared_client_tests     # 2 passed
+```
+
+新增测试：
+- `shared_clients_with_same_opts_are_identical_arc` — 验证 same opts → Arc::ptr_eq
+- `shared_clients_with_different_opts_are_distinct` — 验证不同 timeout 桶不混用
+
+---
+
 ## [0.4.64] — 2026-05-23
 
 **主题**：admin/groups 抽 BindingTable — 渠道列表 + inline editing 整体抽出。
