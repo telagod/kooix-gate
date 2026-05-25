@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.89] — 2026-05-26
+
+**主题**：wasm-runbook.md 加 cwasm 持久化缓存运维段（0.4.83 配套）。
+
+### Docs
+
+- `docs/wasm-runbook.md` 新增 `## 7. cwasm 持久化缓存`：
+  - 启用方式（`KOOIX_WASM_CACHE_DIR`）
+  - 路径约定（`{sha256}-wt26-0.cwasm`）
+  - 4 个运维要点：wasmtime 升级、wasm 模块更新清理、cache miss 抖动告警、多 replica 共享 PVC
+
+### Why
+
+0.4.83 + 0.4.84 实装了 cwasm cache + env 注入，但 wasm-runbook 没收录运维细节。运维只看 runbook 来调线上，文档闭环。
+
+---
+
 ## [0.4.88] — 2026-05-26
 
 **主题**：`provider_capabilities_returns_full_matrix` 单测覆盖 0.4.87 新 endpoint。

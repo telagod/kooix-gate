@@ -99,6 +99,31 @@ kgctl plugin update-channel-wasm --channel <id> \
   --sha256 <old-hex>
 ```
 
+## 7. cwasm 持久化缓存（0.4.83 起）
+
+启用 `KOOIX_WASM_CACHE_DIR` 后，gate-server 把 wasmtime 编译结果序列化到 disk，第二次冷启动直接 `Module::deserialize_file` 不再 compile。
+
+```bash
+# 启用
+export KOOIX_WASM_CACHE_DIR=/var/cache/kooix-gate/wasm
+
+# 路径约定
+ls $KOOIX_WASM_CACHE_DIR
+# {sha256-hex}-wt26-0.cwasm
+```
+
+### 运维要点
+
+- **wasmtime 升级**：cwasm 文件名带 `wt26-0` 是 wasmtime major 标记。升级 wasmtime（例：26 → 27）时**所有旧 cwasm 自动失效**——会 deserialize 失败 → 自动 fallback compile + 重写。无需手工清理。
+- **wasm 模块更新**：新 sha256 产生新 cwasm 文件，旧文件不会自动清理。可周期性清理：
+  ```bash
+  # 删 30 天前的 cwasm（按 atime）
+  find $KOOIX_WASM_CACHE_DIR -name '*.cwasm' -atime +30 -delete
+  ```
+- **cache miss 抖动**：观察指标 `gate_wasm_cache_miss_total` / `gate_wasm_cache_corrupt_total`。
+  正常运营时 miss 应只在首次冷启或新模块上线时出现，corrupt > 0 触发告警（cwasm 文件损坏 = 磁盘问题或 wasmtime 版本错位）。
+- **多 replica 共享**：cwasm 文件 byte-identical（sha256 内容寻址），可挂 ReadWriteMany PVC 让所有 replica 共享同一 cache（避免每个 replica 各自 compile）。
+
 ## 联系人
 
 - ON-CALL: oncall@example.com
