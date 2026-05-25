@@ -56,7 +56,17 @@ async fn main() -> anyhow::Result<()> {
             (Arc::new(InMemoryLoader::new()), Repos::in_memory())
         } else {
             tracing::info!(url = %redact_db_url(&cfg.database_url), "connecting postgres");
-            let pool = gate_storage::connect(&cfg.database_url, 16)
+            // 0.4.71: 走 PoolConfig::from_env，可通过 KOOIX_DB_* 调优
+            let pool_cfg = gate_storage::PoolConfig::from_env();
+            tracing::info!(
+                max = pool_cfg.max_connections,
+                min = pool_cfg.min_connections,
+                acquire_timeout_secs = pool_cfg.acquire_timeout_secs,
+                idle_timeout_secs = ?pool_cfg.idle_timeout_secs,
+                max_lifetime_secs = ?pool_cfg.max_lifetime_secs,
+                "postgres pool config"
+            );
+            let pool = gate_storage::connect_with_config(&cfg.database_url, &pool_cfg)
                 .await
                 .context("connect postgres")?;
             gate_storage::run_migrations(&pool)

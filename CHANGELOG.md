@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.71] — 2026-05-26
+
+**主题**：PgPool 配置显式化 — `KOOIX_DB_*` env 可调，默认值生产友好（product-review §1.5）。
+
+### Added
+
+- `crates/gate-storage/src/lib.rs::PoolConfig` 结构体：max_connections / min_connections / acquire_timeout_secs / idle_timeout_secs / max_lifetime_secs。
+- `PoolConfig::from_env()` — 读 `KOOIX_DB_MAX_CONNECTIONS` / `KOOIX_DB_MIN_CONNECTIONS` / `KOOIX_DB_ACQUIRE_TIMEOUT_SECS` / `KOOIX_DB_IDLE_TIMEOUT_SECS` / `KOOIX_DB_MAX_LIFETIME_SECS`，解析失败保留默认。
+- `connect_with_config(url, &PoolConfig)` — 显式 API；旧 `connect(url, max)` 仍可用（自动 from_env + max 覆盖）。
+
+### Changed
+
+- 默认 max 16 → 20；新增 min=2（warm pool）；acquire_timeout 5s → 3s；新增 idle_timeout=600s + max_lifetime=1800s。这些值生产场景更合理：
+  - **min=2 warm pool**：冷启后第一波突发流量不用排队等连接握手
+  - **idle_timeout=600s**：多数云 LB（RDS / cloud SQL）5-15min 后回收空连接，提前 sqlx 内部关闭，避免下次 acquire 拿到死连接
+  - **max_lifetime=1800s**：强制 30min 轮换，防长连接累积内存
+- `crates/gate-server/src/main.rs`：postgres 启动改用 `PoolConfig::from_env()` + `connect_with_config`，并打 info log 显示生效参数。
+
+### Why
+
+product-review §1.5 判词：之前 pool 配置 silent / 不可调，只有 max（main.rs 硬编码 16）和 acquire_timeout（5s），缺 min / idle / lifetime —— 生产 LB 回收 + 突发流量 + 长连接累积三件套全踩坑。`from_env` 让运维不改代码即可调优。
+
+### Verification
+
+```bash
+cargo check --workspace                          # 0 errors
+cargo test -p gate-storage --lib pool_config     # 5 passed
+```
+
+新测试：
+- `default_pool_config_is_safe` — 默认值合理性
+- `env_override_max_connections` — 50 生效
+- `env_min_connections_capped_by_max` — min 不超过 max
+- `env_idle_timeout_zero_disables` — 0 → None（关闭 idle 回收）
+- `env_bogus_values_fall_back_to_default` — parse 失败保留 default
+
+---
+
 ## [0.4.70] — 2026-05-26
 
 **主题**：Retry 加 ±25% jitter + stream-safe factory（product-review §2.4）。
