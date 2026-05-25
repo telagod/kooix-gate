@@ -60,7 +60,8 @@ Playground 启用 lazy load：
 
 参考 [ROADMAP.md M1.5](../ROADMAP.md#m15-playground-收编为产品线)：
 
-- [ ] Playground 节点共享 `ProviderCapability` 矩阵（前端从 `/v1/models` 拉 capability union）
+- [x] **Backend** Playground 节点共享 `ProviderCapability` 矩阵 — 0.4.87 加 `GET /v1/admin/providers/capabilities` 一次返完整矩阵（4 编译期 + 7 plugin preset）
+- [ ] **Frontend** 接入上述 endpoint：FlowEditor 启动时拉一次 + 写入 store，节点根据当前选中 channel/model 联动禁用
 - [ ] 7 种节点 vitest 覆盖（input/output schema 与 capability gating）
 - [ ] 工作流执行链路接入 `request_events`，落 audit
 - [ ] 工作流持久化（`playground_workflows` 表）

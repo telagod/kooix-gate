@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.90] — 2026-05-26
+
+**主题**：playground.md M1.5 路线第 1 项标 backend 已收口。
+
+### Docs
+
+- `docs/playground.md § 路线（M1.5）` 更新：
+  - 第 1 项拆为 Backend / Frontend，Backend 已通（0.4.87 endpoint）
+  - Frontend 接入还在路上（FlowEditor 拉 endpoint + store + 节点联动）
+
+### Why
+
+0.4.87 的 `GET /v1/admin/providers/capabilities` 让 playground capability 联动的"数据源"已通。前端接入工作单独迭代。文档同步真相。
+
+---
+
 ## [0.4.89] — 2026-05-26
 
 **主题**：wasm-runbook.md 加 cwasm 持久化缓存运维段（0.4.83 配套）。
