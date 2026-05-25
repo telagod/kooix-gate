@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.98] — 2026-05-26
+
+**主题**：hot_paths.rs 顶部加 chat e2e bench 实施 TODO（0.5.x 实装方向）。
+
+### Docs
+
+- `crates/gate-server/benches/hot_paths.rs` 顶部 doc-comment 加 4 行 TODO 块：
+  - 当前覆盖范围（quota / billing 微观路径）
+  - 缺口（"request 进 axum → response 出 axum" 端到端 latency）
+  - 0.5.x 实装方向 4 步（wiremock mock 上游 / reqwest 打内部 router / criterion group chat_e2e + chat_stream_e2e / baseline JSON 入 bench/results/）
+  - 与 plugin_vs_builtin bench 区别说明
+
+### Why
+
+product-review §5.2 列 "chat e2e bench 缺" 为 P1 项。本版本只锁 API 形状与实施路径，避免后续 refactor 时方向漂移。
+
+---
+
 ## [0.4.97] — 2026-05-26
 
 **主题**：`.env.example` 加 request log buffered writer 占位 env（0.5.x 实装前文档化）。

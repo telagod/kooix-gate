@@ -5,6 +5,22 @@
 //! middleware and billing/outbox enqueue code paths.
 //!
 //! Run: cargo bench --package gate-server --bench hot_paths
+//!
+//! ## TODO (0.4.98 占位 → 0.5.x 实装)
+//!
+//! 真正的 chat e2e bench 需要 mock 上游 + criterion 量 chat handler 内部各 stage
+//! 耗时（route → adapt → execute → settle）。目前 hot_paths 只覆盖 quota + billing
+//! 微观路径，没量"从 request 进 axum 到 response 出 axum"端到端 latency。
+//!
+//! 0.5.x 实装方向：
+//!
+//! 1. 用 `wiremock` 起 mock OpenAI upstream（已有于 tests/）
+//! 2. 用 reqwest 直接打 axum::Router 内部（绕过 TCP）
+//! 3. criterion group "chat_e2e" + "chat_stream_e2e"，分别量非流与流
+//! 4. 输出 baseline 写到 `bench/results/chat_e2e.json`，CI compare
+//!
+//! 与 [crates/gate-providers/benches/plugin_vs_builtin] 区别：那里量 provider
+//! 适配层，本 bench 量 server 层（含 metrics / quota / billing 旁路）。
 
 use std::sync::Arc;
 
