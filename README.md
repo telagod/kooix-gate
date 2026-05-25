@@ -82,18 +82,56 @@ API / 接入：
 - [ROADMAP.md](./ROADMAP.md) — 四里程碑路线（M1/M2/M3 已交付，M4 候选）
 - [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账
 
-## 当前版本：v0.4.78 — product-review 第一刀打磨中
+## 当前版本：v0.4.100 — product-review 第一刀打磨完成
 
-0.4.65-0.4.78（2026-05-26，14 个 patch）—— [product-review-2026-05-26](./docs/product-review-2026-05-26.md) 第一刀已合 main：
+0.4.65-0.4.100（2026-05-26，**36 个 patch**）—— [product-review-2026-05-26](./docs/product-review-2026-05-26.md) 第一刀全部收口：
 
-- **性能**：SharedHttpClient（4 fast-path provider 共享 reqwest pool），多 channel 同 base_url 不再爆连接
-- **可观测**：`gate_chat_*` 4 个 metric（duration / ttfb / stream_chunks / requests_total），按 model+provider+streaming+outcome 切片
-- **渠道一致性**：Anthropic / Bedrock 透传 `ChatRequest.extra`；OpenAI/Azure o1/o3 nested details auto-lift
-- **Usage 字段**：`cache_creation_input_tokens` + reasoning_tokens 完整路径
-- **安全**：ProviderError body 脱敏（512B + sha256 哈希）防泄漏
-- **可靠性**：Retry ±25% jitter + `RetryConfig::stream_safe()`
-- **配置**：PgPool 显式化（`KOOIX_DB_*` 5 env）+ `.env.example` 补齐
-- **重构**：admin.rs pricing 内联 mod；channels page plugin samples 抽 `_lib`
+### 性能 / 可靠性
+
+- **SharedHttpClient**：4 fast-path provider 共享 reqwest pool（连接复用 + 监控指标，0.4.65 / 0.4.94）
+- **Retry 防雷暴**：±25% jitter + `RetryConfig::stream_safe()`（0.4.70）
+- **PgPool 显式化**：5 个 `KOOIX_DB_*` env，默认 max=20 / min=2 / idle=600s / lifetime=1800s（0.4.71 / 0.4.74）
+
+### 可观测性
+
+- **gate_chat_* 4 指标**：duration / ttfb / stream_chunks / requests_total，按 model+provider+streaming+outcome 切片（0.4.66）
+- **WASM 9 指标**：host_log{level} / cwasm hit-miss-corrupt-write / shared_client hits-misses-evictions-size（0.4.80-0.4.95）
+- **文档对齐**：observability.md 完整指标表 + product-gaps / ROADMAP / RELEASE / playground / wasm-runbook / security-runbook / threat-model 全部同步
+
+### 渠道一致性
+
+- **ChatRequest.extra 透传**：Anthropic / Bedrock 转译型 provider 补漏（0.4.67）
+- **Usage 字段完整**：`cache_creation_input_tokens` + OpenAI/Azure o1/o3 nested details 自动 lift（0.4.68 / 0.4.75）
+
+### 安全
+
+- **ProviderError body 脱敏**：512B 截断 + sha256 哈希尾，UTF-8 边界感知（0.4.69 + runbook 0.4.92 + threat-model 0.4.93）
+
+### WASM Plugin
+
+- **host_log 真实实装**：5 个 level + 1KB 截断 + 越界保护（0.4.80）
+- **host_record_metric**：sanitize + `plugin_wasm_user_` 前缀 namespace（0.4.81 / 0.4.82）
+- **cwasm 持久化缓存**：`KOOIX_WASM_CACHE_DIR` + `Module::deserialize_file` 走 ms 级冷启（0.4.83 / 0.4.84 / 0.4.89）
+
+### 前端
+
+- **channels page 拆分**：plugin samples 抽 `_lib` + 6 sanity test，1252 → 1199 行（0.4.76 / 0.4.77）
+- **DataTable 长表头**：`maxHeight` + `stickyHead` + 3 测试（0.4.85 / 0.4.86）
+- **Provider capabilities endpoint**：`GET /v1/admin/providers/capabilities` 一次返 11 项完整能力矩阵（0.4.87 / 0.4.88）
+
+### 重构
+
+- **admin.rs 拆分启动**：pricing 块封装内联 mod（0.4.72；4235 → 4248，logic 边界清晰）
+
+### 文档与流程
+
+- **product-gaps.md** 加"已收口"章节
+- **RELEASE.md** v0.5.0-rc1 准备清单 + 候选门禁 7 条 + 验收 6 项
+- **chaos-testing.md** 设计稿（27 case 矩阵）
+- **playground.md / threat-model.md / security-runbook.md / wasm-runbook.md / observability.md / ROADMAP.md** 与实装对齐
+
+详见 [CHANGELOG.md](./CHANGELOG.md) 0.4.65-0.4.100 段。
+v0.5.0-rc1 候选门禁见 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26)。
 
 ### 0.4.60 — 完整产品形态（基线）
 
@@ -104,8 +142,6 @@ API / 接入：
 - **前端深度组件化**：channels 1864 → 1199（含 0.4.76 拆分）
 - **Rust 拆解**：router / custom_provider / plugin_manifest 全部 -52%+
 - **clippy 0/0**：workspace 全 lint 净
-
-详见 [CHANGELOG.md](./CHANGELOG.md)。下一阶段 v0.5.0-rc1 候选见 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26)。
 
 ## 核心能力
 

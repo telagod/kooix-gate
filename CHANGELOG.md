@@ -11,6 +11,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.100] — 2026-05-26 — 阶段大版 · product-review 第一刀收口
+
+> 36 个 patch（0.4.65 → 0.4.100）完整覆盖 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) 第一刀。
+> v0.5.0-rc1 候选门禁见 [RELEASE.md § rc1 准备清单](./RELEASE.md)。
+
+### 阶段战报
+
+| 域 | 完成项 | 关联 patch |
+|----|------|-----------|
+| **性能** | SharedHttpClient 4 fast-path 共享 reqwest pool + hit/miss/evict/size 指标 | 0.4.65 / 0.4.94 |
+| **可观测** | `gate_chat_*` 4 指标（duration/ttfb/stream_chunks/requests_total）+ WASM 9 指标 + observability.md 完整对齐 | 0.4.66 / 0.4.73 / 0.4.95 |
+| **渠道一致性** | Anthropic/Bedrock 透传 ChatRequest.extra；OpenAI/Azure nested usage details auto-lift | 0.4.67 / 0.4.75 |
+| **Usage 字段** | cache_creation_input_tokens；o1/o3 reasoning_tokens/cached_tokens 自动提升 | 0.4.68 |
+| **安全** | ProviderError body 脱敏（512B + sha256 + UTF-8 边界感知）+ runbook + threat-model | 0.4.69 / 0.4.92 / 0.4.93 |
+| **可靠性** | Retry ±25% jitter + `RetryConfig::stream_safe()` factory | 0.4.70 |
+| **配置** | PgPool 5 env 显式化 + `.env.example` 4 段补全 | 0.4.71 / 0.4.74 / 0.4.97 |
+| **重构** | admin.rs pricing 内联 mod；channels page plugin samples 抽 `_lib` + 6 测试 | 0.4.72 / 0.4.76 / 0.4.77 |
+| **WASM host functions** | host_log 真实实装 + host_record_metric sanitize（B3a） | 0.4.80 / 0.4.81 / 0.4.82 |
+| **WASM cache** | cwasm 持久化（`KOOIX_WASM_CACHE_DIR` env + Module::deserialize_file + 4 指标 + runbook） | 0.4.83 / 0.4.84 / 0.4.89 / 0.4.96 |
+| **DataTable** | maxHeight + stickyHead + 3 sanity tests | 0.4.85 / 0.4.86 |
+| **Provider capabilities** | `GET /v1/admin/providers/capabilities` 11 项矩阵 + endpoint sanity test | 0.4.87 / 0.4.88 |
+| **文档** | RELEASE.md rc1 清单 / ROADMAP / product-gaps / playground / README badges / chaos-testing.md 设计稿 | 0.4.73 / 0.4.78 / 0.4.79 / 0.4.90 / 0.4.91 / 0.4.99 |
+| **bench TODO** | hot_paths.rs 加 chat e2e bench 实施 TODO（0.5.x 实装） | 0.4.98 |
+
+### 验证
+
+```bash
+cargo check --workspace                                       # 0 errors
+cargo test -p gate-providers --lib                            # 139 passed (从 122 增 +17)
+cargo test -p gate-server --lib                               # 46 passed (从 41 增 +5)
+cargo test -p gate-wasm --lib                                 # 18 passed (从 13 增 +5)
+cargo test -p gate-storage --lib pool_config_tests            # 5 passed (新增)
+npm --prefix web run check                                    # 0 errors / 0 warnings
+npm --prefix web test                                         # 93 web tests (从 87 增 +6)
+```
+
+### 阶段亮点
+
+- **零回归**：36 个 patch 全部 cargo check + 涉及 crate 测试通过；前端 0/0 维持。
+- **每 patch 独立可逆**：commit 粒度细，git revert 单个 patch 不影响其他。
+- **CHANGELOG 完整**：每个 patch 都写 主题 / Changed / Why / Verification 四段，回看 36 个 commit 清晰可读。
+- **文档与代码同步**：observability / ROADMAP / product-gaps / RELEASE / playground / wasm-runbook / security-runbook / threat-model / chaos-testing 9 个文档全部对齐 0.4.65-0.4.99 实装。
+
+### 下一步：v0.5.0-rc1
+
+按 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26) 跑候选门禁。剩余 product-review P1/P2 项（playground frontend / channels page deep 拆 / request_logs buffered runtime / chat e2e bench 真实装 / chaos test runtime / host_get_secret_slot）进入 v0.5.x 迭代。
+
+---
+
 ## [0.4.99] — 2026-05-26
 
 **主题**：`docs/chaos-testing.md` 设计稿（0.5.x 实装路径文档化）。
