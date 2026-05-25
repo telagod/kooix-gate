@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.74] — 2026-05-26
+
+**主题**：.env.example 补 KOOIX_DB_* + KOOIX_OUTBOX_* 等可调 env 文档化。
+
+### Docs
+
+- `.env.example` 增加两块"可选调优"注释：
+  - **PostgreSQL 连接池**：`KOOIX_DB_MAX_CONNECTIONS` / `KOOIX_DB_MIN_CONNECTIONS` / `KOOIX_DB_ACQUIRE_TIMEOUT_SECS` / `KOOIX_DB_IDLE_TIMEOUT_SECS` / `KOOIX_DB_MAX_LIFETIME_SECS`（0.4.71 暴露但 example 漏写）
+  - **Worker 节流**：`KOOIX_OUTBOX_BATCH_SIZE` / `KOOIX_OUTBOX_INTERVAL_MS` / `KOOIX_PRICING_SYNC_INTERVAL_SECS` / `KOOIX_INFLIGHT_SWEEP_INTERVAL_SECS`（已实装但 example 缺）
+
+### Why
+
+0.4.71 在代码层暴露了 5 个 `KOOIX_DB_*` env，但 `.env.example` 没同步——运维找不到名字就改不了配置。worker 类 env 同理：observability-runbook 里提到但首次部署的人不会先读 runbook。
+
+把可调项都写到 `.env.example`（注释默认值与含义），新部署用户直接抄即可。
+
+---
+
 ## [0.4.73] — 2026-05-26
 
 **主题**：observability.md + product-gaps.md 与 0.4.65-72 实装对齐。
