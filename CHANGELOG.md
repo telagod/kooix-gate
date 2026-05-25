@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.72] — 2026-05-26
+
+**主题**：admin.rs B1 step 1/4 — pricing 块封装为内联子模块（product-review §1.4）。
+
+### Changed
+
+- `crates/gate-server/src/routes/admin.rs`：把 `list_pricing_rules` / `upsert_pricing_rule` / `delete_pricing_rule` + 私有类型 `UpsertPricingRuleRequest` + helper `rule_to_row` 全部搬进 `mod pricing { use super::*; ... }` 内联子模块。3 个 handler 标 `pub(super)` 让父 router 引用；`UpsertPricingRuleRequest` 同步 `pub(super)`。
+- 主 `router()` 中 `/pricing-rules` / `/pricing-rules/:id` 改用 `pricing::list_pricing_rules` 等限定路径。
+
+### Why
+
+product-review §1.4 判词：admin.rs 4235 行 god file，关注点混杂。这是 4 步拆分的第 1 步，先把最独立的 pricing 块（180 行 / 不依赖其他业务域 helper 除 `audit_meta`/`require_confirmation`/`pricing_rule_audit_snapshot`）封装为内联模块——对外只暴露 3 个 handler，内部类型隐藏。
+
+下一步（v0.4.73-75）同样套路处理 invitations、groups、users，最终物理拆 `admin/{mod.rs, pricing.rs, ...}`。
+
+### Verification
+
+```bash
+cargo check -p gate-server                     # 0 errors
+cargo test -p gate-server --lib                # 45 passed (无回归)
+```
+
+行数变化：admin.rs 4235 行 → 4248 行（+13 行：`mod pricing { use super::*; }` 包裹与 pub(super) 标注）。物理行数小增但逻辑边界清晰：pricing 内部 11 个符号（3 fn + 1 enum + 2 struct + 1 helper）从顶层符号表移入 mod，admin.rs 顶层 fn 数 -3。
+
+---
+
 ## [0.4.71] — 2026-05-26
 
 **主题**：PgPool 配置显式化 — `KOOIX_DB_*` env 可调，默认值生产友好（product-review §1.5）。
