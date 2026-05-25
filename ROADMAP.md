@@ -126,6 +126,27 @@ cd web && npm run build                               # ✅ built in 7.17s
 - [x] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime（`run_fastpath` helper）。
 - [x] WASM Plugin ABI vNext — 0.4.16 落地 ADR-0003 v0 + sample manifest；0.4.21-0.4.27 wasmtime runtime + Rust SDK + fallback + 3 hook + bench；0.4.41-0.4.46 集成到 CustomHttpProvider + e2e；0.4.51-0.4.52 SSE stream_chunk 真接通 + e2e；0.4.55-0.4.56 AssemblyScript SDK + 示例；0.4.57-0.4.58 ProviderRouter wasm_host + Prometheus describe。**完整产品形态**。
 
+### M3 后 — product-review 第一刀（0.4.65-0.4.90，2026-05-26）
+
+详见 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) 第一刀打磨。
+
+- [x] **性能** SharedHttpClient（4 fast-path provider 共享 reqwest pool）— 0.4.65
+- [x] **可观测** `gate_chat_*` 4 个 metric（duration / ttfb / stream_chunks / requests_total）— 0.4.66 / observability.md 同步 0.4.73
+- [x] **渠道一致性** Anthropic / Bedrock 透传 `ChatRequest.extra`；Azure 接入 lift_openai_usage_details — 0.4.67 / 0.4.75
+- [x] **Usage 字段** `cache_creation_input_tokens` + OpenAI o1/o3 nested details lift — 0.4.68
+- [x] **安全** `ProviderError` body 脱敏（512B + sha256） — 0.4.69
+- [x] **可靠性** Retry ±25% jitter + `RetryConfig::stream_safe()` — 0.4.70
+- [x] **配置** PgPool 显式化（`KOOIX_DB_*` 5 env） — 0.4.71 / .env.example 0.4.74
+- [x] **重构** admin.rs pricing 内联 mod — 0.4.72
+- [x] **重构** channels page plugin samples 抽 `_lib` + sanity tests — 0.4.76-0.4.77
+- [x] **WASM** host_log + host_record_metric 实装 + sanitize tests — 0.4.80-0.4.82
+- [x] **WASM** cwasm 持久化缓存 + `KOOIX_WASM_CACHE_DIR` env + runbook — 0.4.83 / 0.4.84 / 0.4.89
+- [x] **前端** DataTable.svelte `maxHeight` + `stickyHead` + 3 测试 — 0.4.85 / 0.4.86
+- [x] **能力面** `GET /v1/admin/providers/capabilities` 完整能力矩阵 endpoint + 测试 — 0.4.87 / 0.4.88
+- [x] **文档** RELEASE.md v0.5.0-rc1 准备清单 + README badge 更新 — 0.4.78 / 0.4.79
+
+剩余打磨进行中：playground capability 前端联动 / WASM module blob store / request_logs buffered writer / chat e2e bench / chaos test。
+
 ---
 
 ## M4 · v0.5.0 — Enterprise / SaaS 进阶（候选）

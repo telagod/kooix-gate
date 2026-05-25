@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.91] — 2026-05-26
+
+**主题**：ROADMAP.md 加 product-review 第一刀完成项段（0.4.65-0.4.90 已 ticked 14 条）。
+
+### Docs
+
+- `ROADMAP.md` § M3 后新增 "M3 后 — product-review 第一刀" 章节：
+  - 14 条已完成项 ticked，按性能/可观测/渠道/Usage/安全/可靠/配置/重构/WASM/前端/能力面/文档分类
+  - 与 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) / [product-gaps.md](./docs/product-gaps.md) 三向引用
+
+---
+
 ## [0.4.90] — 2026-05-26
 
 **主题**：playground.md M1.5 路线第 1 项标 backend 已收口。
