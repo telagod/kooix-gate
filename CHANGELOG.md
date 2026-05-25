@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.86] — 2026-05-26
+
+**主题**：DataTable maxHeight / stickyHead 加 3 个 sanity test。
+
+### Added
+
+- `web/src/tests/data-table.test.ts`：
+  - 默认无 maxHeight / 不 sticky
+  - `maxHeight='480px'` 写入 `style="max-height: 480px; overflow-y: auto"`
+  - `stickyHead=true` 单独不渲染 thead（需 head snippet）
+
+### Verification
+
+```bash
+npm --prefix web test -- data-table    # 3 passed
+```
+
+---
+
 ## [0.4.85] — 2026-05-26
 
 **主题**：DataTable.svelte 加 `maxHeight` + `stickyHead` prop（product-review B4 step 1/3，长表头可见）。
