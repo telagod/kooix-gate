@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.158] — 2026-05-26 — 第四刀 · 第 2 项真还收口
+
+**Type**: refactor · **主题**：admin/audit 双轨真接 DataTable virtualize；incidents 评审定无需。
+
+### Changed
+
+- `admin/audit/+page.svelte`：
+  - 抽 `auditHead` / `auditEmpty` / `logRowSnippet(log, i)` / `expandedLogRowSnippet(log)` 4 个 snippet
+  - 双轨：无展开 + ≥40 行 → virtualize；其他退 legacy `#each`
+  - import `type Snippet` from svelte
+
+### Why
+
+第四刀 #2 step 3 收口。audit 是 admin 区第二大表，行数 50/page 易达 200+（管理员一次拉一周）。
+策略与 admin/requests 一致：变高展开行无法等高 virtualize，双轨规避。
+
+`admin/incidents` 评审定无需 virtualize — 该页是聚合视图（recent_errors top 10、error_classes top N、top_failing_channels top N 等），每个子表 < 20 行，virtualize overhead 大于收益。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158）
+- [ ] #3 playground 节点按 capability gating
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
 ## [0.4.157] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/requests 双轨真接 DataTable virtualize。

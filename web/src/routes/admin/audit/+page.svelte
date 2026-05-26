@@ -1,7 +1,7 @@
 <!-- /admin/audit — 审计日志 (platform admin only) -->
 <script lang="ts">
 	import { shortId } from '$lib/id.js';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from "svelte";
 	import { getMe, listAuditLogs } from '$lib/api.js';
 	import type { AuditLog, AuditLogSortBy, SortDir } from '$lib/api.js';
 	import { Badge, Button, Select, Skeleton } from '$lib/components/ui';
@@ -311,121 +311,147 @@
 				{/snippet}
 			</StatePanel>
 		{:else}
-			<DataTable isEmpty={logs.length === 0} emptyColspan={visibleColumns.length + 1}>
-				{#snippet head()}
-					<tr>
-						{#if isVisible('ts')}
-							<th class={dataTemplate.th}>
-								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('ts', 'desc')}>时间{sortLabel('ts')}</button>
-							</th>
-						{/if}
-						{#if isVisible('actor')}
-							<th class={dataTemplate.th}>
-								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('actor_kind')}>操作者{sortLabel('actor_kind')}</button>
-							</th>
-						{/if}
-						{#if isVisible('request_id')}
-							<th class={dataTemplate.th}>Request ID</th>
-						{/if}
-						{#if isVisible('action')}
-							<th class={dataTemplate.th}>
-								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('action')}>动作{sortLabel('action')}</button>
-							</th>
-						{/if}
-						{#if isVisible('resource_kind')}
-							<th class={dataTemplate.th}>
-								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('resource_kind')}>资源类型{sortLabel('resource_kind')}</button>
-							</th>
-						{/if}
-						{#if isVisible('resource_id')}
-							<th class={dataTemplate.th}>资源 ID</th>
-						{/if}
-						{#if isVisible('outcome')}
-							<th class={dataTemplate.th}>
-								<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('outcome')}>结果{sortLabel('outcome')}</button>
-							</th>
-						{/if}
-						<th class="px-4 py-3 w-8"></th>
-					</tr>
-				{/snippet}
-
-				{#snippet empty()}
-					<div class="flex flex-col items-center gap-2 py-4">
-						<ScrollText size={28} class={text.disabled} />
-						<p>此 Org 暂无审计记录。</p>
-					</div>
-				{/snippet}
-
-				{#each logs as log}
-					<tr
-						class={cn(dataTemplate.rowInteractive, expandedId === log.id && dataTemplate.rowSelected)}
-						onclick={() => toggleExpand(log.id)}
-					>
-						{#if isVisible('ts')}
-							<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatDate(log.ts)}</td>
-						{/if}
-						{#if isVisible('actor')}
-							<td class={dataTemplate.tdMono}>
-								<span class={text.muted}>{log.actor_kind}/</span>{log.actor_id ? shortId(log.actor_id) : '—'}
-							</td>
-						{/if}
-						{#if isVisible('request_id')}
-							<td class={dataTemplate.tdMono}>{log.request_id ? shortId(log.request_id) : '—'}</td>
-						{/if}
-						{#if isVisible('action')}
-							<td class={dataTemplate.tdMonoStrong}>{log.action}</td>
-						{/if}
-						{#if isVisible('resource_kind')}
-							<td class={dataTemplate.td}>{log.resource_kind}</td>
-						{/if}
-						{#if isVisible('resource_id')}
-							<td class={dataTemplate.tdMono}>{log.resource_id ? shortId(log.resource_id) : '—'}</td>
-						{/if}
-						{#if isVisible('outcome')}
-							<td class="px-4 py-3"><Badge variant={outcomeVariant(log.outcome)}>{log.outcome}</Badge></td>
-						{/if}
-						<td class="px-4 py-3 text-right">
-							{#if hasDetails(log)}
-								{#if expandedId === log.id}
-									<ChevronUp size={14} class={text.muted} />
-								{:else}
-									<ChevronDown size={14} class={text.muted} />
-								{/if}
-							{/if}
-						</td>
-					</tr>
-					{#if expandedId === log.id && hasDetails(log)}
-						<tr class={dataTemplate.rowSelected}>
-							<td colspan={visibleColumns.length + 1} class="px-4 py-3">
-								<div class="grid gap-3 lg:grid-cols-3">
-									<div class="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-										<div class="mb-2 text-xs font-medium {text.muted}">Trace metadata</div>
-										<div class="space-y-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
-											<div>request_id: {log.request_id ?? '—'}</div>
-											<div>ip: {log.actor_ip ?? '—'}</div>
-											<div class="break-all">ua: {log.actor_user_agent ?? '—'}</div>
-											<div>project_id: {log.project_id ?? '—'}</div>
-											{#if log.error_message}
-												<div class="text-red-600 dark:text-red-400">error: {log.error_message}</div>
-											{/if}
-										</div>
-									</div>
-									<div class="lg:col-span-2 grid gap-3 md:grid-cols-2">
-										<div>
-											<div class="mb-1 text-xs font-medium {text.muted}">Before 变更前</div>
-											<pre class="min-h-24 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.before ?? null, null, 2)}</pre>
-										</div>
-										<div>
-											<div class="mb-1 text-xs font-medium {text.muted}">After 变更后</div>
-											<pre class="min-h-24 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.after ?? null, null, 2)}</pre>
-										</div>
-									</div>
-								</div>
-							</td>
-						</tr>
+			{#snippet auditHead()}
+				<tr>
+					{#if isVisible('ts')}
+						<th class={dataTemplate.th}>
+							<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('ts', 'desc')}>时间{sortLabel('ts')}</button>
+						</th>
 					{/if}
-				{/each}
-			</DataTable>
+					{#if isVisible('actor')}
+						<th class={dataTemplate.th}>
+							<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('actor_kind')}>操作者{sortLabel('actor_kind')}</button>
+						</th>
+					{/if}
+					{#if isVisible('request_id')}
+						<th class={dataTemplate.th}>Request ID</th>
+					{/if}
+					{#if isVisible('action')}
+						<th class={dataTemplate.th}>
+							<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('action')}>动作{sortLabel('action')}</button>
+						</th>
+					{/if}
+					{#if isVisible('resource_kind')}
+						<th class={dataTemplate.th}>
+							<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('resource_kind')}>资源类型{sortLabel('resource_kind')}</button>
+						</th>
+					{/if}
+					{#if isVisible('resource_id')}
+						<th class={dataTemplate.th}>资源 ID</th>
+					{/if}
+					{#if isVisible('outcome')}
+						<th class={dataTemplate.th}>
+							<button type="button" class="uppercase tracking-wider" onclick={() => sortColumn('outcome')}>结果{sortLabel('outcome')}</button>
+						</th>
+					{/if}
+					<th class="px-4 py-3 w-8"></th>
+				</tr>
+			{/snippet}
+
+			{#snippet auditEmpty()}
+				<div class="flex flex-col items-center gap-2 py-4">
+					<ScrollText size={28} class={text.disabled} />
+					<p>此 Org 暂无审计记录。</p>
+				</div>
+			{/snippet}
+
+			{#snippet logRowSnippet(log: AuditLog, _i: number)}
+				<tr
+					class={cn(dataTemplate.rowInteractive, expandedId === log.id && dataTemplate.rowSelected)}
+					onclick={() => toggleExpand(log.id)}
+				>
+					{#if isVisible('ts')}
+						<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatDate(log.ts)}</td>
+					{/if}
+					{#if isVisible('actor')}
+						<td class={dataTemplate.tdMono}>
+							<span class={text.muted}>{log.actor_kind}/</span>{log.actor_id ? shortId(log.actor_id) : '—'}
+						</td>
+					{/if}
+					{#if isVisible('request_id')}
+						<td class={dataTemplate.tdMono}>{log.request_id ? shortId(log.request_id) : '—'}</td>
+					{/if}
+					{#if isVisible('action')}
+						<td class={dataTemplate.tdMonoStrong}>{log.action}</td>
+					{/if}
+					{#if isVisible('resource_kind')}
+						<td class={dataTemplate.td}>{log.resource_kind}</td>
+					{/if}
+					{#if isVisible('resource_id')}
+						<td class={dataTemplate.tdMono}>{log.resource_id ? shortId(log.resource_id) : '—'}</td>
+					{/if}
+					{#if isVisible('outcome')}
+						<td class="px-4 py-3"><Badge variant={outcomeVariant(log.outcome)}>{log.outcome}</Badge></td>
+					{/if}
+					<td class="px-4 py-3 text-right">
+						{#if hasDetails(log)}
+							{#if expandedId === log.id}
+								<ChevronUp size={14} class={text.muted} />
+							{:else}
+								<ChevronDown size={14} class={text.muted} />
+							{/if}
+						{/if}
+					</td>
+				</tr>
+			{/snippet}
+
+			{#snippet expandedLogRowSnippet(log: AuditLog)}
+				<tr class={dataTemplate.rowSelected}>
+					<td colspan={visibleColumns.length + 1} class="px-4 py-3">
+						<div class="grid gap-3 lg:grid-cols-3">
+							<div class="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+								<div class="mb-2 text-xs font-medium {text.muted}">Trace metadata</div>
+								<div class="space-y-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+									<div>request_id: {log.request_id ?? '—'}</div>
+									<div>ip: {log.actor_ip ?? '—'}</div>
+									<div class="break-all">ua: {log.actor_user_agent ?? '—'}</div>
+									<div>project_id: {log.project_id ?? '—'}</div>
+									{#if log.error_message}
+										<div class="text-red-600 dark:text-red-400">error: {log.error_message}</div>
+									{/if}
+								</div>
+							</div>
+							<div class="lg:col-span-2 grid gap-3 md:grid-cols-2">
+								<div>
+									<div class="mb-1 text-xs font-medium {text.muted}">Before 变更前</div>
+									<pre class="min-h-24 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.before ?? null, null, 2)}</pre>
+								</div>
+								<div>
+									<div class="mb-1 text-xs font-medium {text.muted}">After 变更后</div>
+									<pre class="min-h-24 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{JSON.stringify(log.after ?? null, null, 2)}</pre>
+								</div>
+							</div>
+						</div>
+					</td>
+				</tr>
+			{/snippet}
+
+			<!-- 0.4.158（第四刀 #2 step 3）：audit 表同 admin/requests 双轨策略。
+			     无展开 + ≥40 行 → virtualize；其他退 legacy。 -->
+			{#if expandedId === null && logs.length >= 40}
+				<DataTable
+					stickyHead
+					maxHeight="70vh"
+					rows={logs}
+					rowSnippet={logRowSnippet as unknown as Snippet<[AuditLog, number]>}
+					rowHeight={48}
+					overscan={6}
+				>
+					{#snippet head()}{@render auditHead()}{/snippet}
+				</DataTable>
+			{:else}
+				<DataTable isEmpty={logs.length === 0} emptyColspan={visibleColumns.length + 1} stickyHead maxHeight="70vh">
+					{#snippet head()}{@render auditHead()}{/snippet}
+					{#snippet empty()}{@render auditEmpty()}{/snippet}
+
+					{#each logs as log, i (log.id)}
+						{@render logRowSnippet(log, i)}
+						{#if expandedId === log.id && hasDetails(log)}
+							{@render expandedLogRowSnippet(log)}
+						{/if}
+					{/each}
+				</DataTable>
+			{/if}
 
 			<div class={dataTemplate.pagination}>
 				<span class="text-xs">
