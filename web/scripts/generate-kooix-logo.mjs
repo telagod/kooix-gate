@@ -4,16 +4,25 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Kooix logo generator.
+ * Kooix Gate · 空衍 logo generator (v2 — 0.4.101)
  *
- * Design math:
- * - D4 symmetry as the base grammar: every non-central accent is generated once,
- *   then repeated by 90deg rotation.
- * - Core: polar super-star r(θ)=inner+(outer-inner)|cos(2θ)|^γ.
- *   This gives a clean four-point star with concave negative space.
- * - Orbit: tapered polar ribbon around diagonal axes. The width is
- *   w(t)=min+(max-min)sin(πt)^0.62, so the ends are pointed and the middle is calm.
- * - Nodes/dust: polar points at cardinal/diagonal extrema, never hand-placed.
+ * 设计语言 —— 「空」与「衍」的几何对话：
+ *
+ * - **空**：中心是同心方形的负空间（rounded square inset），不画实心点，
+ *   让观看者眼睛"落到空里"。这是 LLM 网关的"路由"隐喻——所有请求都
+ *   先经过这道空门。
+ *
+ * - **衍**：四个螺旋臂从中心向外推衍，每个臂用近似 archimedean spiral，
+ *   跨越 ~145° 角度，自然形成"风车 / 旋涡"——表达 token 流式生成的推
+ *   演节奏。臂之间留 ~75° 空隙避免拥挤。
+ *
+ * - **栅**：对角线 4 主 + 4 副网格节点，模拟"网关入口"——
+ *   多 channel 离散流量分发。
+ *
+ * - **气**：四个主基本方向 (上下左右) 用虚线短戟营造"光晕呼吸"，
+ *   仅 8 段 stroke，克制不喧宾夺主。
+ *
+ * 配色：zinc 单色，currentColor 让父级 CSS 切换 light/dark 自动反转。
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,174 +31,275 @@ const componentPath = resolve(root, 'src/lib/components/brand/KooixLogo.svelte')
 const logoPath = resolve(root, 'src/lib/assets/kooix-logo.svg');
 const faviconPath = resolve(root, 'src/lib/assets/favicon.svg');
 
-const C = { x: 128, y: 128 };
+const VB = 256;
+const C = { x: VB / 2, y: VB / 2 };
 const fmt = (n) => Number(n.toFixed(2)).toString();
-const point = (x, y) => ({ x, y });
-const polar = (deg, radius) => {
-	const a = (deg * Math.PI) / 180;
-	return point(C.x + Math.cos(a) * radius, C.y + Math.sin(a) * radius);
-};
-const pstr = ({ x, y }) => `${fmt(x)} ${fmt(y)}`;
-const attrPoint = ({ x, y }) => `cx="${fmt(x)}" cy="${fmt(y)}"`;
+const pstr = (x, y) => `${fmt(x)} ${fmt(y)}`;
 
-const closedCatmullRom = (pts, tension = 0.72) => {
-	const n = pts.length;
-	const d = [`M${pstr(pts[0])}`];
-	for (let i = 0; i < n; i += 1) {
-		const p0 = pts[(i - 1 + n) % n];
-		const p1 = pts[i];
-		const p2 = pts[(i + 1) % n];
-		const p3 = pts[(i + 2) % n];
-		const c1 = point(p1.x + ((p2.x - p0.x) * tension) / 6, p1.y + ((p2.y - p0.y) * tension) / 6);
-		const c2 = point(p2.x - ((p3.x - p1.x) * tension) / 6, p2.y - ((p3.y - p1.y) * tension) / 6);
-		d.push(`C${pstr(c1)} ${pstr(c2)} ${pstr(p2)}`);
-	}
-	d.push('Z');
-	return d.join(' ');
-};
-
-const openCatmullRom = (pts, tension = 0.62) => {
-	const d = [`M${pstr(pts[0])}`];
-	for (let i = 0; i < pts.length - 1; i += 1) {
-		const p0 = pts[Math.max(0, i - 1)];
-		const p1 = pts[i];
-		const p2 = pts[i + 1];
-		const p3 = pts[Math.min(pts.length - 1, i + 2)];
-		const c1 = point(p1.x + ((p2.x - p0.x) * tension) / 6, p1.y + ((p2.y - p0.y) * tension) / 6);
-		const c2 = point(p2.x - ((p3.x - p1.x) * tension) / 6, p2.y - ((p3.y - p1.y) * tension) / 6);
-		d.push(`C${pstr(c1)} ${pstr(c2)} ${pstr(p2)}`);
-	}
-	return d.join(' ');
-};
-
-const polarSuperStarPoints = ({ inner, outer, gamma, samples, rotateDeg = -90 }) => {
-	const pts = [];
-	for (let i = 0; i < samples; i += 1) {
-		const theta = (i / samples) * Math.PI * 2 + (rotateDeg * Math.PI) / 180;
-		const wave = Math.abs(Math.cos(2 * theta));
-		const r = inner + (outer - inner) * wave ** gamma;
-		pts.push(point(C.x + Math.cos(theta) * r, C.y + Math.sin(theta) * r));
-	}
-	return pts;
-};
-
-const taperedRibbonPath = ({ centerDeg, spanDeg, radius, minWidth, maxWidth, samples, bow = 4 }) => {
-	const outer = [];
-	const inner = [];
-	for (let i = 0; i <= samples; i += 1) {
-		const t = i / samples;
-		const u = Math.sin(Math.PI * t);
-		const deg = centerDeg - spanDeg / 2 + spanDeg * t;
-		const mid = radius + bow * Math.sin(Math.PI * (t - 0.5));
-		const width = minWidth + (maxWidth - minWidth) * u ** 0.62;
-		outer.push(polar(deg, mid + width / 2));
-		inner.unshift(polar(deg, mid - width / 2));
-	}
-	return closedCatmullRom([...outer, ...inner], 0.55);
-};
-
-const diamond = ({ deg, radius, size, opacity = 1 }) => {
-	const p = polar(deg, radius);
-	const half = size / 2;
-	return `<rect x="${fmt(p.x - half)}" y="${fmt(p.y - half)}" width="${fmt(size)}" height="${fmt(size)}" rx="${fmt(size * 0.12)}" opacity="${fmt(opacity)}" transform="rotate(45 ${fmt(p.x)} ${fmt(p.y)})"/>`;
-};
-
-const outerStar = closedCatmullRom(polarSuperStarPoints({ inner: 23, outer: 78, gamma: 1.72, samples: 88 }), 0.72);
-const innerVoid = closedCatmullRom(polarSuperStarPoints({ inner: 5.5, outer: 17, gamma: 1.55, samples: 48 }).reverse(), 0.7);
-const corePath = `${outerStar} ${innerVoid}`;
-const blade = taperedRibbonPath({ centerDeg: 45, spanDeg: 70, radius: 103, minWidth: 1.4, maxWidth: 13.5, samples: 16, bow: 3.2 });
-const halo = openCatmullRom(Array.from({ length: 34 }, (_, i) => polar(-29 + (58 * i) / 33, 103)), 0.4);
-
-const rotations = [0, 90, 180, 270];
-const rotatedPaths = (d, attrs = '') => rotations.map((r) => `<path d="${d}"${r ? ` transform="rotate(${r} 128 128)"` : ''}${attrs}/>`).join('\n\t\t');
-const nodes = [0, 90, 180, 270]
-	.map((deg) => `<circle ${attrPoint(polar(deg, 104))} r="5.8"/>`)
-	.join('\n\t\t');
-const dust = [45, 135, 225, 315]
-	.map((deg) => `${diamond({ deg, radius: 72, size: 5.8, opacity: 0.58 })}\n\t\t${diamond({ deg, radius: 91, size: 3.8, opacity: 0.42 })}`)
-	.join('\n\t\t');
-
-const markInner = (color = 'currentColor') => `<g fill="${color}" fill-rule="evenodd">
-		<path d="${corePath}"/>
-	</g>
-	<g fill="${color}" opacity="0.94">
-		${rotatedPaths(blade)}
-	</g>
-	<g fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" opacity="0.24">
-		${rotatedPaths(halo)}
-	</g>
-	<g fill="${color}">
-		${nodes}
-	</g>
-	<g fill="${color}">
-		${dust}
+// ────────────────────────────────────────────────────────────────────────────
+// 1. 中心负空间方框 —— 「空」
+// ────────────────────────────────────────────────────────────────────────────
+function centerVoid() {
+	const outerSize = 38;
+	const outerR = 6;
+	const innerSize = 22;
+	const innerR = 4;
+	const half1 = outerSize / 2;
+	const half2 = innerSize / 2;
+	return `<g class="void">
+		<rect x="${fmt(C.x - half1)}" y="${fmt(C.y - half1)}" width="${fmt(outerSize)}" height="${fmt(outerSize)}" rx="${outerR}" ry="${outerR}" fill="none" stroke="currentColor" stroke-width="3"/>
+		<rect x="${fmt(C.x - half2)}" y="${fmt(C.y - half2)}" width="${fmt(innerSize)}" height="${fmt(innerSize)}" rx="${innerR}" ry="${innerR}" fill="currentColor" opacity="0.16"/>
 	</g>`;
+}
 
-const svelte = `<script lang="ts">
-	import { cn } from '$lib/design';
+// ────────────────────────────────────────────────────────────────────────────
+// 2. 螺旋臂 —— 「衍」
+//
+// 调参（v2 final）：
+//   - 起 r=26（贴中心方框外约 4px）
+//   - 终 r=86（外圈节点 r=104 之内 18px，留视觉衔接空间）
+//   - sweep=95°（4 臂 × 95° = 380°，不会缠绕；相邻臂端起距 60px）
+//   - 端点离 viewBox 边 ≥ 42px，安全不被裁
+// ────────────────────────────────────────────────────────────────────────────
+function spiralArm(startDeg) {
+	const a = 26;
+	const b = 60;
+	const sweepDeg = 95;
+	const steps = 32;
+	const points = [];
+	for (let i = 0; i <= steps; i += 1) {
+		const t = i / steps;
+		const r = a + b * t;
+		const theta = ((startDeg + sweepDeg * t) * Math.PI) / 180;
+		points.push({ x: C.x + Math.cos(theta) * r, y: C.y + Math.sin(theta) * r });
+	}
+	const tension = 0.6;
+	let d = `M${pstr(points[0].x, points[0].y)}`;
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const p0 = points[Math.max(0, i - 1)];
+		const p1 = points[i];
+		const p2 = points[i + 1];
+		const p3 = points[Math.min(points.length - 1, i + 2)];
+		const cp1x = p1.x + ((p2.x - p0.x) / 6) * tension;
+		const cp1y = p1.y + ((p2.y - p0.y) / 6) * tension;
+		const cp2x = p2.x - ((p3.x - p1.x) / 6) * tension;
+		const cp2y = p2.y - ((p3.y - p1.y) / 6) * tension;
+		d += ` C${pstr(cp1x, cp1y)} ${pstr(cp2x, cp2y)} ${pstr(p2.x, p2.y)}`;
+	}
+	const tip = points[points.length - 1];
+	return { path: d, tip };
+}
 
-	type LogoTone = 'plain' | 'tile';
+function arms() {
+	const startAngles = [-90, 0, 90, 180];
+	const parts = [];
+	for (const a of startAngles) {
+		const { path, tip } = spiralArm(a - 8);
+		parts.push(
+			`<path d="${path}" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" opacity="0.92"/>`
+		);
+		parts.push(
+			`<circle cx="${fmt(tip.x)}" cy="${fmt(tip.y)}" r="3.6" fill="currentColor"/>`
+		);
+	}
+	return `<g class="arms">\n\t\t${parts.join('\n\t\t')}\n\t</g>`;
+}
 
-	let {
-		class: className = '',
-		tone = 'plain',
-		title = 'Kooix 空衍',
-		size = 24
-	}: {
-		class?: string;
-		tone?: LogoTone;
-		title?: string;
-		size?: number | string;
-	} = $props();
+// ────────────────────────────────────────────────────────────────────────────
+// 3. 外圈网格节点 —— 「栅」
+// ────────────────────────────────────────────────────────────────────────────
+function gateNodes() {
+	const nodes = [];
+	const diagDegs = [45, 135, 225, 315];
+	for (const deg of diagDegs) {
+		const theta = (deg * Math.PI) / 180;
+		const r1 = 104;
+		const cx1 = C.x + Math.cos(theta) * r1;
+		const cy1 = C.y + Math.sin(theta) * r1;
+		const s = 5.6;
+		nodes.push(
+			`<rect x="${fmt(cx1 - s / 2)}" y="${fmt(cy1 - s / 2)}" width="${fmt(s)}" height="${fmt(s)}" rx="1.3" ry="1.3" fill="currentColor" transform="rotate(45 ${fmt(cx1)} ${fmt(cy1)})"/>`
+		);
+		const r2 = 118;
+		const cx2 = C.x + Math.cos(theta) * r2;
+		const cy2 = C.y + Math.sin(theta) * r2;
+		nodes.push(
+			`<circle cx="${fmt(cx2)}" cy="${fmt(cy2)}" r="2.4" fill="currentColor" opacity="0.55"/>`
+		);
+	}
+	return `<g class="gates">\n\t\t${nodes.join('\n\t\t')}\n\t</g>`;
+}
 
-	const rootCls = $derived(cn('inline-block shrink-0', className));
-	const tileCls = $derived(
-		cn(
-			'fill-zinc-50 stroke-zinc-200 dark:fill-zinc-950 dark:stroke-zinc-800',
-			tone === 'tile' ? 'opacity-100' : 'opacity-0'
-		)
-	);
-</script>
+// ────────────────────────────────────────────────────────────────────────────
+// 4. 灵气短戟 —— 「气」
+// ────────────────────────────────────────────────────────────────────────────
+function aura() {
+	const cardinals = [
+		[0, -1],
+		[1, 0],
+		[0, 1],
+		[-1, 0]
+	];
+	const segs = [];
+	for (const [dx, dy] of cardinals) {
+		const r1 = 110;
+		const r2 = 118;
+		const r3 = 122;
+		const r4 = 126;
+		const x1 = C.x + dx * r1;
+		const y1 = C.y + dy * r1;
+		const x2 = C.x + dx * r2;
+		const y2 = C.y + dy * r2;
+		const x3 = C.x + dx * r3;
+		const y3 = C.y + dy * r3;
+		const x4 = C.x + dx * r4;
+		const y4 = C.y + dy * r4;
+		segs.push(
+			`<line x1="${fmt(x1)}" y1="${fmt(y1)}" x2="${fmt(x2)}" y2="${fmt(y2)}" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" opacity="0.85"/>`
+		);
+		segs.push(
+			`<line x1="${fmt(x3)}" y1="${fmt(y3)}" x2="${fmt(x4)}" y2="${fmt(y4)}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.5"/>`
+		);
+	}
+	return `<g class="aura">\n\t\t${segs.join('\n\t\t')}\n\t</g>`;
+}
 
-<!-- Generated by web/scripts/generate-kooix-logo.mjs. Edit the generator, not these points. -->
-<svg
-	class={rootCls}
-	width={size}
-	height={size}
-	viewBox="0 0 256 256"
-	role="img"
-	aria-label={title}
-	xmlns="http://www.w3.org/2000/svg"
->
-	<title>{title}</title>
-	<rect x="8" y="8" width="240" height="240" rx="60" class={tileCls} stroke-width="3" />
-	${markInner()}
-</svg>
-`;
-
-const logo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Kooix 空衍 logo">
-  <title>Kooix 空衍</title>
+// ────────────────────────────────────────────────────────────────────────────
+// 5. 完整 logo
+// ────────────────────────────────────────────────────────────────────────────
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VB} ${VB}" role="img" aria-label="Kooix Gate · 空衍 logo">
+  <title>Kooix Gate · 空衍</title>
   <style>
     .mark { color: #09090b; }
     @media (prefers-color-scheme: dark) { .mark { color: #fafafa; } }
   </style>
-  <!-- Generated by web/scripts/generate-kooix-logo.mjs. Edit the generator, not these points. -->
+  <!-- Generated by web/scripts/generate-kooix-logo.mjs. Edit the generator, not these paths. -->
   <g class="mark">
-	${markInner()}
+	${arms()}
+	${aura()}
+	${gateNodes()}
+	${centerVoid()}
   </g>
 </svg>
 `;
 
-const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="60" fill="#09090b"/>
-  <!-- Generated by web/scripts/generate-kooix-logo.mjs. Edit the generator, not these points. -->
-  ${markInner('#fafafa')}
+// ────────────────────────────────────────────────────────────────────────────
+// 6. Favicon — 简化版
+// ────────────────────────────────────────────────────────────────────────────
+function faviconArm(startDeg) {
+	// 64×64 viewBox 缩放：起 r=7、终 r=22、sweep=85°
+	const a = 7;
+	const b = 15;
+	const sweepDeg = 85;
+	const steps = 16;
+	const points = [];
+	for (let i = 0; i <= steps; i += 1) {
+		const t = i / steps;
+		const r = a + b * t;
+		const theta = ((startDeg + sweepDeg * t) * Math.PI) / 180;
+		points.push({ x: 32 + Math.cos(theta) * r, y: 32 + Math.sin(theta) * r });
+	}
+	let d = `M${pstr(points[0].x, points[0].y)}`;
+	for (let i = 1; i < points.length; i += 1) {
+		d += ` L${pstr(points[i].x, points[i].y)}`;
+	}
+	return { path: d, tip: points[points.length - 1] };
+}
+
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kooix Gate">
+  <title>Kooix Gate · 空衍</title>
+  <style>
+    .mark { color: #09090b; }
+    @media (prefers-color-scheme: dark) { .mark { color: #fafafa; } }
+  </style>
+  <g class="mark">
+    <g class="arms">
+${[-90, 0, 90, 180]
+	.map((a) => {
+		const { path, tip } = faviconArm(a - 8);
+		return `      <path d="${path}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" opacity="0.94"/>\n      <circle cx="${fmt(tip.x)}" cy="${fmt(tip.y)}" r="1.8" fill="currentColor"/>`;
+	})
+	.join('\n')}
+    </g>
+    <g class="void">
+      <rect x="24" y="24" width="16" height="16" rx="2.6" ry="2.6" fill="none" stroke="currentColor" stroke-width="2.2"/>
+      <rect x="28" y="28" width="8" height="8" rx="1.6" ry="1.6" fill="currentColor" opacity="0.2"/>
+    </g>
+  </g>
 </svg>
 `;
 
-writeFileSync(componentPath, svelte);
-writeFileSync(logoPath, logo);
-writeFileSync(faviconPath, favicon);
-console.log('generated', componentPath);
-console.log('generated', logoPath);
-console.log('generated', faviconPath);
+// ────────────────────────────────────────────────────────────────────────────
+// 7. Svelte 组件包装 — 直接 import 用
+//
+// 兼容旧调用方：保留 `tone` prop（'mark' | 'tile'）作为视觉变体。
+// - 'mark'（默认）：透明背景，纯线条 + 节点，currentColor 跟父级
+// - 'tile'：圆角方块底（zinc-100 / zinc-800），头像 / sidebar 槽位适用
+// ────────────────────────────────────────────────────────────────────────────
+const COMPONENT = `<!-- Generated by web/scripts/generate-kooix-logo.mjs -->
+<script lang="ts">
+	let {
+		size = 32,
+		class: className = '',
+		tone = 'mark',
+		title = 'Kooix Gate · 空衍'
+	}: {
+		size?: number;
+		class?: string;
+		tone?: 'mark' | 'tile';
+		title?: string;
+	} = $props();
+
+	const tileBg =
+		'inline-flex items-center justify-center rounded-xl bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100';
+	const tilePadding = 4;
+</script>
+
+{#if tone === 'tile'}
+	<span
+		class="{tileBg} {className}"
+		style="width: {size + tilePadding * 2}px; height: {size + tilePadding * 2}px;"
+		aria-label={title}
+	>
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 ${VB} ${VB}"
+			width={size}
+			height={size}
+			role="img"
+			aria-hidden="true"
+		>
+			<title>{title}</title>
+			${arms()}
+			${aura()}
+			${gateNodes()}
+			${centerVoid()}
+		</svg>
+	</span>
+{:else}
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 ${VB} ${VB}"
+		width={size}
+		height={size}
+		role="img"
+		aria-label={title}
+		class={className}
+	>
+		<title>{title}</title>
+		${arms()}
+		${aura()}
+		${gateNodes()}
+		${centerVoid()}
+	</svg>
+{/if}
+`;
+
+writeFileSync(logoPath, LOGO_SVG);
+writeFileSync(faviconPath, FAVICON_SVG);
+writeFileSync(componentPath, COMPONENT);
+
+console.log(`generated:
+  - ${logoPath}
+  - ${faviconPath}
+  - ${componentPath}`);

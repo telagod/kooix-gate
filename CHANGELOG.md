@@ -11,6 +11,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.101] — 2026-05-26
+
+**主题**：「空衍」logo 重新设计 — 中心负空间方框 + 4 螺旋臂 + 角点 + 灵气短戟。
+
+### Changed
+
+- `web/scripts/generate-kooix-logo.mjs` 重写设计语言（D4 静态对称 → 风车螺旋）：
+  - **空**：中心同心方框（38×38 + 22×22 rounded square），currentColor stroke + 16% opacity fill，表达「路由门户 / 负空间」
+  - **衍**：4 个螺旋臂，起 r=26 终 r=86 sweep=95°，Catmull-Rom 平滑成 cubic bezier，每臂末端缀 token 圆点。-8° 起始偏移营造逆时针风车动感
+  - **栅**：对角线 4 主圆角方 (r=104) + 4 副小圆点 (r=118)
+  - **气**：4 个主基本方向 8 段虚线短戟（近 stroke=2.6 远 stroke=2.2）
+- 几何参数预先用 `ctx_execute` 跑通：相邻臂端起距 60px ≥ 50px 不缠绕，端点离 viewBox 边 ≥ 42px 安全
+- `KooixLogo.svelte` 兼容旧 caller：保留 `tone='mark' | 'tile'` prop，'tile' 模式带 zinc 圆角方块底（用于 Sidebar）
+- favicon (64×64) 同步简化版：去 aura + 短螺旋臂 (sweep=85°, 直线段) + 中心方框
+
+### Why
+
+原 logo 是 D4 90° 旋转对称的四角星 + 4 条飘带 + 12 点节点，**克制有余、灵动不足**——更像"佛印"而非"衍"。「空衍」的语义需要：
+
+- **空**：留白作为主角（不是装饰）— 改用中心方框的"门"
+- **衍**：演化、推衍、流动 — 改用螺旋而非对称飘带
+- 仍保留 D4 对称作为骨架，让识别度不变
+
+### Verification
+
+```bash
+node web/scripts/generate-kooix-logo.mjs   # 3 文件生成
+npm --prefix web run check                  # 0 errors / 0 warnings
+```
+
+### 视觉对比
+
+| 项 | v1 (0.4.x baseline) | v2 (0.4.101) |
+|----|---------------------|--------------|
+| 中心 | 实心四角星 | 同心负空间方框 |
+| 主元素 | 4 条对称飘带 | 4 个螺旋臂（风车感） |
+| 节点 | 4 主 + 8 副粒子 | 4 主圆角方 + 4 副圆点 |
+| 装饰 | 4 条点画曲线 | 8 段虚线灵气短戟 |
+| 动势 | 静态对称 | 逆时针风车螺旋 |
+| 寓意 | 几何均衡 | 空（路由门）+ 衍（token 推演） |
+
+---
+
 ## [0.4.100] — 2026-05-26 — 阶段大版 · product-review 第一刀收口
 
 > 36 个 patch（0.4.65 → 0.4.100）完整覆盖 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) 第一刀。
