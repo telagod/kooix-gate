@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.123] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/org_members.rs 物理拆出（B1 真还债 step 2/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/org_members.rs`（100 行，3 handler）
+- `admin/mod.rs` 4204 → 4104（**真减 100 行**）
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.122] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/pricing.rs 物理拆出（B1 真还债 step 1/8）。
