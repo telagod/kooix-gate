@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.155] — 2026-05-26 — 第四刀 · 第 1 项真还收口
+
+**Type**: refactor · **主题**：sibling 改 `super::shared::*`，反向依赖断绝。
+
+### Changed
+
+- 7 sibling（org_members / invitations / users / sso / groups / pricing / probe）
+  `use super::channels::{...}` → `use super::shared::{...}`，13 helper 全切
+- `admin/mod.rs` 头注释更新「跨文件共享 helper」章节为已完成态
+- `admin/shared.rs` 头注释更新为 4 步真还时间线（0.4.151-155）
+
+### Why
+
+第四刀 5 项真还之第 1 项收口。0.4.151-154 物理迁好 13 helper 后，本步切断
+sibling → channels 的事实反向依赖。channels.rs 仍保留 13 个 thin wrapper 供
+自身 handler 调用，不破坏 channels.rs 内部使用，未来可分批清理。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+grep -rn 'use super::channels::' crates/gate-server/src/routes/admin/  # 0 hits
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155，5 patch）
+- [ ] #2 DataTable virtualize 真接 admin/requests caller
+- [ ] #3 playground 节点按 capability gating
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
 ## [0.4.154] — 2026-05-26
 
 **Type**: refactor · **主题**：迁 channel/key 6 个 helper 到 admin/shared.rs（第 3 批 · 完）。

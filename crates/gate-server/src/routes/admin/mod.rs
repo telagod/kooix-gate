@@ -21,12 +21,9 @@
 //!
 //! ## 跨文件共享 helper
 //!
-//! `channels.rs` 包含的 13 个 helper（require_confirmation / audit_meta /
-//! *_audit_snapshot / channel_capabilities 等）通过 `pub(super)` 暴露给 sibling，
-//! sibling 文件头声明 `#[allow(unused_imports)] use super::channels::{...}`。
-//!
-//! 进一步把这些 helper 抽到独立 `admin/shared.rs` 推到 v0.5.x（避免 sibling
-//! 之间 channels.rs 形成"事实共享"反向依赖）。
+//! 0.4.151-0.4.155 已把 13 个共享 helper 物理迁到 `admin/shared.rs`，
+//! sibling 文件头声明 `use super::shared::{...}`，channels.rs 不再被反向依赖。
+//! channels.rs 内部保留 17 个 thin wrapper（`super::shared::xxx`）兼容自身 handler。
 //!
 //! ## Channels CRUD（in channels.rs）
 //!
