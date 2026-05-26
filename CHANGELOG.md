@@ -11,6 +11,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.150] — 2026-05-26 — 阶段大版 · 三刀打磨收口
+
+> 30 patch（0.4.121 → 0.4.150）的第三刀真还债阶段收口。
+> 累计：第一刀 37 + 第二刀 19 + 第三刀 30 = **86 patch（0.4.65-0.4.150）**。
+
+### 第三刀战报（30 patch · 真还债）
+
+| 类型 | 数量 | 代表 patch |
+|------|-----|----------|
+| **真还 B1 god file** | 8 | admin.rs 4368 → 553 行（-87%），分 8 patch 抽 pricing / org_members / invitations / probe / sso / groups / users / channels |
+| **真还 B2 channels page** | 2 | list-state / dialog-state 工厂 + 8 tests |
+| **真还 B4 DataTable virtualize** | 3 | rows + rowSnippet + rowHeight 实装 + 3 测试 + admin/requests stickyHead |
+| **真还 G-003 host_get_secret_slot** | 4 | HookContext.secrets 字段 / wasmtime Linker 注册 / CustomHttpProvider 接通 / 2 测试 |
+| **真还 chat e2e bench** | 2 | bench_chat_provider_dispatch + 3 sub-case |
+| **真还 G-002 WASM blob store** | 2 | WasmBlobStore trait + LocalFsBlobStore / ProviderRouter setter |
+| **真还 playground capability frontend** | 2 | API client + store + 3 测试 |
+| **真还 chaos test fixture** | 2 | trait + NoopChaos + ProbeChaos + ToxiproxyInjector builder |
+| **metric const 全覆盖** | 1 | 6 处剩余 metric 字面接 names const |
+| **admin/mod.rs 头 doc 更新** | 1 | B1 完成态文档化 |
+| **第三刀汇总** | 2 | product-gaps + 本版 |
+| **rename admin.rs → admin/** | 1 | git mv 准备目录壳 |
+
+### 累计核心成果
+
+#### admin.rs god file 收口表
+
+| Step | Patch | mod.rs 行数 | Δ | 累计 |
+|------|-------|------------|---|-----|
+| 0.4.120 起点 | — | 4368 | — | — |
+| inline org_members | 0.4.109 | (旧) | 4 | -4（伪拆） |
+| **0.4.121 admin → admin/mod.rs** | — | 4368 | 0 | 0（git mv） |
+| 0.4.122 pricing | -164 | 4204 | -164 | -164 |
+| 0.4.123 org_members | -100 | 4104 | -100 | -264 |
+| 0.4.124 invitations | -270 | 3834 | -270 | -534 |
+| 0.4.125 probe | -482 | 3352 | -482 | -1016 |
+| 0.4.126 sso | -593 | 2759 | -593 | -1609 |
+| 0.4.127 groups | -839 | 1920 | -839 | -2448 |
+| 0.4.128 users | -522 | 1398 | -522 | -2970 |
+| **0.4.129 channels** | **-845** | **553** | **-845** | **-3815** |
+
+**4368 → 553 = -87%**，分 9 个子文件，**50 server tests 0 回归**。
+
+#### G-003 WASM host fn 三件套终结
+
+| Host fn | 实装版本 | 状态 |
+|---------|---------|------|
+| host_log | 0.4.80 | ✅ |
+| host_record_metric | 0.4.81 | ✅ |
+| **host_get_secret_slot** | **0.4.137 linker + 0.4.138 caller** | ✅ |
+
+第二刀 followup §1 标的"step 3/3 未做"债务还清。
+
+### 测试基线（0.4.64 → 0.4.150）
+
+| crate | 0.4.64 | 0.4.150 | Δ |
+|-------|--------|---------|---|
+| gate-providers | 122 | 143 | +21 |
+| gate-server | 41 | 50 + 5 (chaos) | +14 |
+| gate-wasm | 13 | 23 | +10 |
+| gate-storage | 25 | 30 | +5 |
+| web | 86 | 109+ | +23 |
+| **合计 Rust** | **201** | **251** | **+50** |
+| 新文档稿 | — | 7 docs | followup / wasm-secret-slot / data-table-virtualize / chaos-testing / product-review / 第二三刀汇总 |
+
+### 真实债务（推 v0.5.x）
+
+明示在 [ROADMAP](./ROADMAP.md) 与 [product-gaps.md](./product-gaps.md)：
+
+- **admin/shared.rs** 物理拆（helper 仍在 channels.rs，sibling 反向依赖事实存在）
+- **DataTable virtualize 真接** admin/requests caller（机制已装但仍走 legacy passthrough）
+- **playground 节点真按 capability gating**（FlowEditor / 5 node component 改）
+- **chaos test 真启 toxiproxy + testcontainers 容器**
+- **WASM blob store 自动 mount 业务流**（reload + fetch + load_module + 失败回滚）
+
+### 阶段亮点
+
+- **真改 vs 文档化诚实标记**：每个 patch CHANGELOG 顶部 `**Type:** runtime/test/refactor/design/docs` 让 reader 一眼分辨
+- **零回归**：86 patch 全 cargo check + tests 通过
+- **第三刀 22 真改 runtime / 接口**：admin 物理拆 / G-003 全装 / DataTable virtualize / blob store / capability frontend
+- **批判收口 + 第三刀真还债 = 完整闭环**：第一刀建基 → 第二刀自审揭粉饰 → 第三刀按 followup 单一一项还
+
+### 下一步：v0.5.0-rc1
+
+按 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26) 跑候选门禁。剩 5 项真重构进 v0.5.x 主线。
+
+---
+
 ## [0.4.149] — 2026-05-26
 
 **Type**: docs · **主题**：product-gaps 加第三刀完成项汇总 + 诚实评。
