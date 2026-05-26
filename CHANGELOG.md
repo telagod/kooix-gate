@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.136] — 2026-05-26
+
+**Type**: runtime · **主题**：HookContext 加 `secrets` + `allowed_slots`（按 0.4.111 设计稿）。
+
+### Changed
+
+- `crates/gate-wasm/src/host.rs::HookContext` 加 2 个字段：
+  - `pub secrets: HashMap<String, String>` — 调用方解密后过滤好的明文 map
+  - `pub allowed_slots: HashSet<String>` — manifest `security.permissions.secret_slots` 声明的合法 slot 名
+
+### Why
+
+按 [docs/wasm-secret-slot-design.md](./docs/wasm-secret-slot-design.md) 的"Host context 传递路线"：secret 解密发生在调用方（CustomHttpProvider），host 拿到的就是明文 map，不再自己查 manifest。
+
+实装 host_get_secret_slot fn 在下一 patch (0.4.137)。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib    # 18 passed (无回归)
+```
+
+---
+
 ## [0.4.135] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/requests page DataTable 开启 stickyHead + maxHeight。
