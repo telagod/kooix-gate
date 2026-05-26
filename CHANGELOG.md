@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.165] — 2026-05-26
+
+**Type**: test · **主题**：chaos case #1 · 拒绝连接 + add_proxy/set_proxy_enabled admin API helper。
+
+### Added
+
+- `ToxiproxyContainer::add_proxy(name, listen_port, upstream_host, upstream_port)` — admin REST POST /proxies
+- `ToxiproxyContainer::set_proxy_enabled(name, enabled)` — POST /proxies/{name}
+- `toxiproxy_disabled_proxy_refuses_connection` chaos case #1（`#[ignore]` opt-in）
+
+### Why
+
+第四刀 #4 step 2 — 「PG 拒绝连接」chaos 原语真实化。先建 admin API helper（add_proxy / set_enabled）。
+完整 PG container 接通推 v0.5.x（涉及 host.docker.internal 网络打通；docker 内 toxiproxy 连宿主 PG 需要 host-network 模式或宿主 IP 显式解析，工程量稍大）。
+本步先验「toxiproxy 真能 disable 后拒绝连接」这个原语 — 是后续 PG/Redis/Upstream 三类 chaos 的共同地基。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 6 passed; 2 ignored
+```
+
+---
+
 ## [0.4.164] — 2026-05-26
 
 **Type**: test · **主题**：chaos_toxiproxy 加真实 testcontainers launcher。

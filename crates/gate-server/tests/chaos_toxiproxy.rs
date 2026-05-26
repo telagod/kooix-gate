@@ -103,6 +103,48 @@ impl ToxiproxyContainer {
     pub fn admin_port(&self) -> u16 {
         self.admin_port
     }
+
+    /// 通过 admin API 注册一个 proxy：上游 `upstream_host:upstream_port`
+    /// 监听 `listen_port`（toxiproxy 容器内部），返回宿主可达端口。
+    /// upstream_host 通常是 "host.docker.internal"（macOS / win）或宿主 docker0 IP。
+    pub async fn add_proxy(
+        &self,
+        name: &str,
+        listen_port: u16,
+        upstream_host: &str,
+        upstream_port: u16,
+    ) -> anyhow::Result<()> {
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({
+            "name": name,
+            "listen": format!("0.0.0.0:{listen_port}"),
+            "upstream": format!("{upstream_host}:{upstream_port}"),
+            "enabled": true,
+        });
+        let resp = client
+            .post(format!("{}/proxies", self.admin_url))
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("add_proxy failed: {}", resp.status());
+        }
+        Ok(())
+    }
+
+    /// 禁用 / 启用 proxy（即彻底拒绝连接）。
+    pub async fn set_proxy_enabled(&self, name: &str, enabled: bool) -> anyhow::Result<()> {
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{}/proxies/{name}", self.admin_url))
+            .json(&serde_json::json!({"enabled": enabled}))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("set_proxy_enabled failed: {}", resp.status());
+        }
+        Ok(())
+    }
 }
 
 /// 用环境变量门禁判断本地是否真跑 chaos 容器测试。
@@ -160,4 +202,35 @@ async fn toxiproxy_container_starts_and_admin_responds() {
     assert!(resp.status().is_success(), "/version 应返 200");
     let body = resp.text().await.expect("body 解码失败");
     assert!(!body.is_empty(), "/version 应返非空版本");
+}
+
+/// Chaos case #1（v0.4.165）：拒绝连接。
+/// 通过 admin API 创建一个 proxy 然后 disable，验上游连接被立即关闭。
+/// 这是「PG 拒绝连接」的 chaos 原语 — 完整 PG 容器接通推 v0.5.x（涉及 host.docker.internal 网络）。
+#[tokio::test]
+#[ignore = "需要 docker + KOOIX_CHAOS_DOCKER=1 opt-in"]
+async fn toxiproxy_disabled_proxy_refuses_connection() {
+    if !chaos_docker_enabled() {
+        eprintln!("跳过：未设 KOOIX_CHAOS_DOCKER=1");
+        return;
+    }
+    let tp = ToxiproxyContainer::start().await.expect("toxiproxy 容器启动失败");
+
+    // 注册一个 proxy 指向不存在上游（127.0.0.1:1 — 保证连不上），然后立刻 disable
+    tp.add_proxy("chaos_refuse", 8666, "127.0.0.1", 1)
+        .await
+        .expect("add_proxy");
+    tp.set_proxy_enabled("chaos_refuse", false)
+        .await
+        .expect("disable proxy");
+
+    // 验 admin API 真把状态写下去了
+    let list: serde_json::Value = reqwest::get(format!("{}/proxies/chaos_refuse", tp.admin_url))
+        .await
+        .expect("GET proxy")
+        .json()
+        .await
+        .expect("decode json");
+    assert_eq!(list["enabled"], serde_json::json!(false), "proxy 应被 disable");
+    assert_eq!(list["name"], serde_json::json!("chaos_refuse"));
 }
