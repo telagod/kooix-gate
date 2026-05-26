@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.131] — 2026-05-26
+
+**Type**: refactor · **主题**：channels page list-state 工厂 + 3 个 sanity tests（B2 step 3）。
+
+### Added
+
+- `web/src/routes/channels/_lib/list-state.ts`：
+  - `ChannelsListState` 类型（page / pageSize / sortBy / sortDir / filterStatus）
+  - `defaultChannelsListState()` 工厂
+  - `resetListPagination(state)` helper（保留 pageSize 仅重置 page）
+- `web/src/tests/channels-list-state.test.ts` 3 个 test
+
+### Changed
+
+- 顺手修 `channels-form-factories.test.ts` 一处 svelte-check 抓到的 `possibly undefined` 警告（加 `!` 断言）
+
+### Honest assessment
+
+诚实评：B2 step 3 真正接入 page.svelte 推到下个 patch（先抽工厂 + test 锁住业务契约，再 wrap 进 page 的 `$state` 是两步）。
+
+### Verification
+
+```bash
+npm --prefix web test -- channels-list-state    # 3 passed
+npm --prefix web run check    # 0/0
+```
+
+---
+
 ## [0.4.130] — 2026-05-26
 
 **Type**: docs · **主题**：admin/mod.rs 头文档更新反映 B1 完成态。

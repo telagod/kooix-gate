@@ -33,7 +33,7 @@ describe('channels form-factories', () => {
 		expect(a.model_mapping).not.toBe(b.model_mapping); // object 也不共享
 
 		// mutate a，b 不受影响
-		a.supported_models.push('gpt-4');
+		a.supported_models!.push('gpt-4');
 		expect(b.supported_models).toEqual([]);
 	});
 
