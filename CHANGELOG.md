@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.144] — 2026-05-26
+
+**Type**: runtime · **主题**：playground capability store + API client（M1.5 frontend step 1）。
+
+### Added
+
+- `web/src/lib/api.ts`：
+  - `ProviderCapabilityEntry` 类型（id / name / capabilities / base_url_hint / kind）
+  - `listProviderCapabilities()` API client fn 调 `/v1/admin/providers/capabilities`（0.4.87 endpoint）
+- `web/src/lib/stores/provider-capabilities.ts`：
+  - `getProviderCapabilities()` module-level cached fetch（防 N+1 + 并发合并到 1 次 fetch 防雷暴）
+  - `findCapability(rows, id)` helper
+  - `_resetProviderCapabilitiesCache()` 测试用
+
+### Why
+
+第二刀 followup：playground.md M1.5 路线第 1 项 backend ready 自 0.4.87，frontend 一直没接。本步加 API client + cached store，下个 patch (0.4.145) 让节点真按 capability gating。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0/0
+```
+
+---
+
 ## [0.4.143] — 2026-05-26
 
 **Type**: runtime · **主题**：ProviderRouter `with_wasm_blob_store` setter（G-002 step 2/2 雏形）。
