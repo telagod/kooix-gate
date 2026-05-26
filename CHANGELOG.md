@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.145] — 2026-05-26
+
+**Type**: test · **主题**：provider-capabilities store 3 个 sanity tests。
+
+### Added
+
+- `web/src/tests/provider-capabilities-store.test.ts`：
+  - `findCapability` 按 id 查 compile_time vs plugin_preset entry
+  - `getProviderCapabilities` 缓存（第二次调用不再 fetch）
+  - 并发合并（3 并发调用只 fetch 1 次，防雷暴）
+
+### Honest assessment
+
+诚实评：store 与 API client 已 wire-up，但 FlowEditor / 节点组件还未真正在 mount 时调用 `getProviderCapabilities()`、按 capability 禁用连线。真接入推到 v0.5.x（涉及 FlowEditor / LLMChatNode / STTNode / TTSNode / ImageGenNode 改动）。
+
+### Verification
+
+```bash
+npm --prefix web test -- provider-capabilities    # 3 passed
+npm --prefix web run check    # 0/0
+```
+
+---
+
 ## [0.4.144] — 2026-05-26
 
 **Type**: runtime · **主题**：playground capability store + API client（M1.5 frontend step 1）。
