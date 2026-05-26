@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.102] — 2026-05-26 — 第二刀启动 · followup 批判稿
+
+**Type**: docs · **主题**：自我批判第一刀 37 patch，揭"伪完成"。
+
+### Added
+
+- `docs/product-review-followup-2026-05-26.md`（230+ 行）：
+  - 第一类：假步骤命名（admin.rs / channels page / WASM 三件套 / DataTable 实际只做 step 1，CHANGELOG 写 step 1/N 误导）
+  - 第二类：占位算实装（KOOIX_REQUEST_LOG_BUFFER_SIZE / chat e2e bench / chaos-testing.md / playground capability 都是文档/TODO 而非 runtime）
+  - 第三类：漏网（Retry-After HTTP-date / lift_openai_usage_details 缺 audio + prediction tokens / SharedClient LRU 雷暴 / chat metrics 埋点未 e2e 验证 / metric name 散在多处）
+  - 第四类：内联 mod 是假拆分（admin.rs +13 行）
+  - 第五类：文档残留漂移（Grafana dashboard / SECURITY.md / RELEASE.md 检视表粉饰）
+  - 第六类：stream_safe 是幽灵 API（零业务调用）
+  - 第二刀路线：v0.4.103-0.4.120 按 P0/P1/P2 映射 18 个修复 patch
+
+### Why
+
+CHANGELOG 把所有 37 patch 写成"已收口"是粉饰：真改 runtime 的约 15 个，其余是文档/测试/sanity/占位/口号。本版本不修代码，只把"什么是 真实装 / 什么是 文档 / 什么没做"摆到桌面上。诚实优先。
+
+### 自审重点
+
+- "step 1/N" 命名误导：admin.rs 4 步只做 1 步、channels page 4 步只做 1 步、WASM 3 步只做 2 步、DataTable 3 步只做 1 步
+- 占位 env 与 TODO 注释被列入 CHANGELOG 主路径
+- 内联 mod 使 admin.rs 行数 +13 还自称"逻辑边界清晰"
+- `RetryConfig::stream_safe()` 整个 codebase 零调用
+- Retry-After HTTP-date 格式漏解析（RFC 7231 必修）
+- OpenAI o1 系列 audio_tokens / prediction_tokens 漏 lift
+
+---
+
 ## [0.4.101] — 2026-05-26
 
 **主题**：「空衍」logo 重新设计 — 中心负空间方框 + 4 螺旋臂 + 角点 + 灵气短戟。
