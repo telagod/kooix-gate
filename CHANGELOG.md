@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.170] — 2026-05-26
+
+**Type**: feat · **主题**：WASM auto-mount step 3 — 真接 WasmHost.load_module + metric emit + 失败回滚。
+
+### Added
+
+- `ProviderRouter::auto_mount_and_load_into_host(&[ChannelRecord]) -> AutoMountSummary`：
+  - 调用 try_auto_mount fetch + sha 验证
+  - 成功的 channel 进 host.load_module(channel.code, bytes, sha)
+  - load_module 失败 → Failed{error="load_module: ..."}
+  - 整个 router 无 wasm_host → 退化为 auto_mount_wasm_for_channels（fetch-only）
+- metric: `gate_wasm_auto_mount_total{outcome=skipped|mounted|failed, stage=fetch|load}`
+  - `auto_mount_wasm_for_channels` emit fetch-stage
+  - `auto_mount_and_load_into_host` emit load-stage
+- 3 新 test：
+  - `auto_mount_and_load_into_host_records_loads` — 真接 MockHost，验 channel.code / sha / bytes 都传到 load_module
+  - `auto_mount_and_load_failure_rolls_back_other_channels_still_mounted` — 单 channel load_module fail 不阻塞其他
+  - `auto_mount_and_load_without_host_falls_back_to_fetch_only` — 无 host 兜底
+
+### Why
+
+第四刀 #5 step 3。0.4.168 fetch + 0.4.169 batch summary 都是被动 helper；本步真把字节灌进 host：
+- channel_id 用 `ch.code`（与现有 wasm_integration test 用法一致）
+- 失败回滚 = per-channel 隔离：一个 channel 加载失败，其他照常 mount，summary.failed=1 + 详细 error；caller 决定是否让该 channel 整体 disable
+- metric stage 标签让监控能区分「fetch 阶段失败」（blob store 问题）vs「load 阶段失败」（wasm 模块本身坏）
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 11 passed
+```
+
+---
+
 ## [0.4.169] — 2026-05-26
 
 **Type**: feat · **主题**：WASM auto-mount step 2 — batch reload + AutoMountSummary。

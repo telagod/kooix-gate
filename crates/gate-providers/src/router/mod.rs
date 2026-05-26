@@ -283,6 +283,86 @@ impl ProviderRouter {
                 }
             };
             summary.per_channel.push((ch.channel_id, outcome));
+            // 0.4.170: emit metric per channel — caller 不再需自己 wire
+            let label = match &summary.per_channel.last().expect("just pushed").1 {
+                AutoMountOutcome::Skipped => "skipped",
+                AutoMountOutcome::Mounted { .. } => "mounted",
+                AutoMountOutcome::Failed { .. } => "failed",
+            };
+            ::metrics::counter!("gate_wasm_auto_mount_total", "outcome" => label).increment(1);
+        }
+        summary
+    }
+
+    /// 0.4.170（第四刀 #5 step 3）：auto-mount + 真接 WasmHost.load_module。
+    /// 对每 channel：fetch → load_module(channel.code, bytes, sha) → emit metric。
+    /// 任一阶段失败 → mark Failed + emit metric，不阻塞其他 channel。
+    ///
+    /// 需先调 `with_wasm_blob_store` + `with_wasm_host` 配置 host。
+    /// 返回 summary（含每 channel outcome）。
+    pub async fn auto_mount_and_load_into_host(
+        &self,
+        channels: &[gate_storage::ChannelRecord],
+    ) -> AutoMountSummary {
+        let Some(host) = self.wasm_host.clone() else {
+            // 没 host：退化为 fetch-only，等同 auto_mount_wasm_for_channels
+            return self.auto_mount_wasm_for_channels(channels).await;
+        };
+        let mut summary = AutoMountSummary::default();
+        for ch in channels {
+            let outcome = match self.try_auto_mount_wasm_for_channel(ch).await {
+                Ok(None) => {
+                    summary.skipped += 1;
+                    AutoMountOutcome::Skipped
+                }
+                Ok(Some(bytes)) => {
+                    // fetch ok — 再 load_module
+                    let manifest = crate::plugin_manifest(ch.model_mapping.clone(), &ch.base_url);
+                    let sha = manifest
+                        .ok()
+                        .and_then(|m| m.security.wasm.map(|w| w.module_sha256))
+                        .unwrap_or_default();
+                    match host
+                        .load_module(&ch.code, &bytes, &sha)
+                        .await
+                    {
+                        Ok(()) => {
+                            summary.mounted += 1;
+                            AutoMountOutcome::Mounted {
+                                sha256: sha,
+                                bytes: bytes.len(),
+                            }
+                        }
+                        Err(e) => {
+                            summary.failed += 1;
+                            AutoMountOutcome::Failed {
+                                sha256: Some(sha),
+                                error: format!("load_module: {e}"),
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    summary.failed += 1;
+                    let sha = match &e {
+                        AutoMountError::NotFound(s) => Some(s.clone()),
+                        AutoMountError::Sha256Mismatch { expected, .. } => Some(expected.clone()),
+                        _ => None,
+                    };
+                    AutoMountOutcome::Failed {
+                        sha256: sha,
+                        error: e.to_string(),
+                    }
+                }
+            };
+            let label = match &outcome {
+                AutoMountOutcome::Skipped => "skipped",
+                AutoMountOutcome::Mounted { .. } => "mounted",
+                AutoMountOutcome::Failed { .. } => "failed",
+            };
+            ::metrics::counter!("gate_wasm_auto_mount_total", "outcome" => label, "stage" => "load")
+                .increment(1);
+            summary.per_channel.push((ch.channel_id, outcome));
         }
         summary
     }
