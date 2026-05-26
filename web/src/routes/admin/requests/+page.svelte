@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { shortId } from '$lib/id.js';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import { getMe, listRequests, getFilterOptions } from '$lib/api.js';
 	import type { RequestRecord, RequestPage, RequestListParams, MeResult, FilterOptions } from '$lib/api.js';
 	import { Badge, Button, Card, Field, FilterPills, Input, ModalityBadge, Select } from '$lib/components/ui';
@@ -559,27 +559,54 @@
 			</tr>
 		{/snippet}
 
-		<DataTable stickyHead maxHeight="70vh">
-			{#snippet head()}
-				<tr>
-					<th class={dataTemplate.th}>时间</th>
-					<th class={dataTemplate.th}>模型</th>
-					<th class={dataTemplate.th}>状态</th>
-					<th class={dataTemplate.th}>延迟</th>
-					<th class={dataTemplate.th}>Tokens 用量</th>
-					<th class={dataTemplate.th}>花费</th>
-					<th class={dataTemplate.th}>Channel</th>
-					<th class="px-4 py-3 w-8"></th>
-				</tr>
-			{/snippet}
+		<!-- 0.4.157（第四刀 #2 step 2）：双轨 — 无展开走 virtualize（等高 48），
+		     有展开退 legacy（变高破坏虚拟定位）。
+		     默认 page_size=50 已小于 virtualize 触发阈值，本步在大 page 时收益明显。 -->
+		{#if expandedId === null && page.data.length >= 40}
+			<DataTable
+				stickyHead
+				maxHeight="70vh"
+				rows={page.data}
+				rowSnippet={requestRowSnippet as unknown as Snippet<[RequestRecord, number]>}
+				rowHeight={48}
+				overscan={6}
+			>
+				{#snippet head()}
+					<tr>
+						<th class={dataTemplate.th}>时间</th>
+						<th class={dataTemplate.th}>模型</th>
+						<th class={dataTemplate.th}>状态</th>
+						<th class={dataTemplate.th}>延迟</th>
+						<th class={dataTemplate.th}>Tokens 用量</th>
+						<th class={dataTemplate.th}>花费</th>
+						<th class={dataTemplate.th}>Channel</th>
+						<th class="px-4 py-3 w-8"></th>
+					</tr>
+				{/snippet}
+			</DataTable>
+		{:else}
+			<DataTable stickyHead maxHeight="70vh">
+				{#snippet head()}
+					<tr>
+						<th class={dataTemplate.th}>时间</th>
+						<th class={dataTemplate.th}>模型</th>
+						<th class={dataTemplate.th}>状态</th>
+						<th class={dataTemplate.th}>延迟</th>
+						<th class={dataTemplate.th}>Tokens 用量</th>
+						<th class={dataTemplate.th}>花费</th>
+						<th class={dataTemplate.th}>Channel</th>
+						<th class="px-4 py-3 w-8"></th>
+					</tr>
+				{/snippet}
 
-			{#each page.data as req, i (req.request_id)}
-				{@render requestRowSnippet(req, i)}
-				{#if expandedId === req.request_id}
-					{@render expandedRowSnippet(req)}
-				{/if}
-			{/each}
-		</DataTable>
+				{#each page.data as req, i (req.request_id)}
+					{@render requestRowSnippet(req, i)}
+					{#if expandedId === req.request_id}
+						{@render expandedRowSnippet(req)}
+					{/if}
+				{/each}
+			</DataTable>
+		{/if}
 
 		<!-- Pagination -->
 		<div class="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">

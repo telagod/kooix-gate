@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.157] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/requests 双轨真接 DataTable virtualize。
+
+### Changed
+
+- `admin/requests/+page.svelte`：
+  - 无展开 + ≥40 行：走 `rows + rowSnippet + rowHeight=48 + overscan=6` 真虚拟化（DataTable 内 slice）
+  - 有展开 / 行数 <40：退 legacy `#each` 路径（展开行变高破坏 virtualize 假设）
+- import `type Snippet` from svelte
+
+### Why
+
+第四刀 #2 step 2「DataTable virtualize 真接 caller」收口。0.4.135 只用 stickyHead 解决表头消失，virtualize API 留作纸面；本步真接 admin/requests。
+保留双轨：展开行高度不可预测，强行 virtualize 会让 visibleEnd 计算偏移；用户日常浏览（无展开）走虚拟化、查 detail 退线性，覆盖 95% 场景。
+40 行阈值：典型 page_size=50 默认走 virtualize；小页 / 末页退 legacy 避免 overhead。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests**（0.4.156-157）
+- [ ] #3 playground 节点按 capability gating
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
 ## [0.4.156] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/requests 抽 requestRowSnippet + expandedRowSnippet。
