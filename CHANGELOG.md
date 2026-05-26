@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.109] — 2026-05-26
+
+**Type**: refactor · **主题**：admin.rs B1 step 2/4 — org members 块封装内联 mod（followup §4）。
+
+### Changed
+
+- `crates/gate-server/src/routes/admin.rs` 把 `list_org_members` / `add_org_member` / `remove_org_member_handler` 三个 handler 搬到 `mod org_members { use super::*; ... }` 内联子模块，全部 `pub(super)`
+- 主 router 内 2 处 `.route()` 改用 `org_members::list_org_members` / `org_members::add_org_member` / `org_members::remove_org_member_handler`
+
+### Why
+
+跟 v0.4.72（pricing）同套路。org members 是 invitations 大块（17 fn）中**最独立的子块**：3 个 handler 都只调 `app.repos.memberships.*` repo 方法，不依赖 invitations 内部 helper。
+
+诚实评：admin.rs 4248 → 4252 行（+4，pub(super) 注解 + mod 包裹）。继续是"逻辑边界封装"而非物理拆分；剩下 invitations 块（14 fn）含 `create_invitation` / `revoke_invitation` 跨多 handler 共享，且与 `invitation_token_hash` / `invitation_accept_url` helper 紧耦合，本 patch 不动。下一步：v0.4.116 groups / v0.4.117 sso。
+
+### Verification
+
+```bash
+cargo check -p gate-server         # 0 errors
+cargo test -p gate-server --lib    # 50 passed (无回归)
+```
+
+---
+
 ## [0.4.108] — 2026-05-26
 
 **Type**: docs · **主题**：chat 流式语义注释 + stream_safe 用法范例（followup §6）。
