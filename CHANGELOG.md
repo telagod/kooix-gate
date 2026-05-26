@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.135] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/requests page DataTable 开启 stickyHead + maxHeight。
+
+### Changed
+
+- `web/src/routes/admin/requests/+page.svelte`：DataTable 加 `stickyHead maxHeight="70vh"`
+- 修 `data-table-virtualize.test.ts` 类型推断（svelte 5 generics 在 test 里类型推断有问题，改用 `unknown` cast）
+
+### Honest assessment
+
+诚实评：本步用 stickyHead 解决"长滚表头消失"，**没真接 virtualize 模式** —— admin/requests 万行仍渲染全 row。
+真接 virtualize 需要把 #each 内的 cell 模板抽到 `{#snippet rowSnippet}`，规模较大留下迭代。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0/0
+npm --prefix web test -- data-table    # 6 passed
+```
+
+---
+
 ## [0.4.134] — 2026-05-26
 
 **Type**: test · **主题**：DataTable virtualize 3 个行为测试。

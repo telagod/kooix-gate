@@ -432,7 +432,10 @@
 		</Card>
 	{:else if page}
 		<!-- Table -->
-		<DataTable>
+		<!-- 0.4.135（B4 step 3）：先用 stickyHead + maxHeight 解决长滚表头消失。
+		     真正的 virtualize 模式（rows + rowSnippet）需要把 cell 模板从 #each
+		     里抽出来，规模较大，留到下迭代；本步至少让万行表格表头始终可见。 -->
+		<DataTable stickyHead maxHeight="70vh">
 			{#snippet head()}
 				<tr>
 					<th class={dataTemplate.th}>时间</th>

@@ -16,8 +16,8 @@ describe('DataTable virtualize', () => {
 
 	it('传 rows + rowSnippet → 虚拟化模式渲染部分 row', () => {
 		const rows = Array.from({ length: 100 }, (_, i) => ({ id: i }));
-		const rowSnippet = createRawSnippet((row: () => { id: number }) => ({
-			render: () => `<td>row-${row().id}</td>`
+		const rowSnippet = createRawSnippet((row: () => unknown) => ({
+			render: () => `<td>row-${(row() as { id: number }).id}</td>`
 		}));
 		const { container } = render(DataTable, {
 			rows,
@@ -34,8 +34,8 @@ describe('DataTable virtualize', () => {
 
 	it('rows 为空数组 → 不渲染任何 row', () => {
 		const rows: Array<{ id: number }> = [];
-		const rowSnippet = createRawSnippet((row: () => { id: number }) => ({
-			render: () => `<td>row-${row().id}</td>`
+		const rowSnippet = createRawSnippet((row: () => unknown) => ({
+			render: () => `<td>row-${(row() as { id: number }).id}</td>`
 		}));
 		const { container } = render(DataTable, { rows, rowSnippet });
 		const matchingCells = Array.from(container.querySelectorAll('td')).filter(
