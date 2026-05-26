@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.133] — 2026-05-26
+
+**Type**: runtime · **主题**：DataTable virtualize 实装（B4 step 2，按 0.4.115 设计）。
+
+### Added
+
+- `web/src/lib/components/templates/DataTable.svelte` 新增 4 个 prop：
+  - `rows: T[]` — 全量数据（启用虚拟化时传）
+  - `rowSnippet: Snippet<[T, number]>` — 渲染单行（caller 提供 cell 模板）
+  - `rowHeight: number = 48` — 等高 px
+  - `overscan: number = 5` — 视口外预渲染数
+- 用 svelte 5 generics `<script lang="ts" generics="T">` 让 row 类型可推
+- 视口滚动监听：`bind:this={scrollContainer}` + `onscroll` 计算 `visibleStart` / `visibleEnd`
+- 上下 spacer `<tr>` 撑出未渲染 row 的占位高度（`topPadHeight` / `botPadHeight`）
+- 退化兼容：不传 `rows` 时退到 legacy children passthrough 模式，**现有 caller 0 改动**
+
+### Why
+
+第一刀 followup §1 揭：B4 写"step 1/3"但实际只加 sticky head。admin/requests 万行真实数据浏览器会卡死。本步真实装等高 windowing。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0/0
+npm --prefix web test -- data-table    # 3 passed (legacy 兼容)
+```
+
+### Honest assessment
+
+只装机制，**还没有 caller 接入虚拟化**（admin/requests 仍走 legacy）。v0.4.135 真接入。
+
+---
+
 ## [0.4.132] — 2026-05-26
 
 **Type**: refactor · **主题**：channels dialog-state 管理器 + 5 测试（B2 step 4）。
