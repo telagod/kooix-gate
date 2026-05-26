@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.126] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/sso.rs 物理拆出（B1 真还债 step 5/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/sso.rs`（600 行）：
+  - 5 handler pub(super)（list / create / update / delete / discover identity providers）
+  - 1 internal fn seal_idp_secret
+  - 1 view fn identity_provider_to_view
+  - 14 normalize / parse helper（non_empty / slug / https_url / scopes / claim / org_role / domain_allowlist / redirect_policy 等）
+  - 2 type（IdentityProvidersQuery / RedirectPolicyView 等保 pub 跨文件 serde 可见）
+- `admin/mod.rs` 3352 → 2759（**真减 593 行**）
+- 主 router 4 处改 sso::*
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+累计 admin/mod.rs: 4368 → 2759 = **真减 1609 行（37%）**
+
+---
+
 ## [0.4.125] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/probe.rs 物理拆出（B1 真还债 step 4/8）。
