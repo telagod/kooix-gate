@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.111] — 2026-05-26
+
+**Type**: design · **主题**：`host_get_secret_slot` 完整设计稿（B3a step 3/3，G-003 收尾）。
+
+### Added
+
+- `docs/wasm-secret-slot-design.md`（设计稿，~140 行）：
+  - 必要性（plugin 在 transform hook 拿 secret 用于 Auth header / 解密 / HMAC）
+  - ABI 函数签名（4 参数 i32 + i32 错误码）
+  - 6 个错误码（成功 / 空 / -1 not_allowed / -2 missing / -3 too_small / -4 invalid_name / -5 host_error）
+  - Audit 半生命周期（每次调用 emit + 60s sliding window 节流防风暴）
+  - Capability 校验（manifest `security.permissions.secret_slots` 在 load_module 时存到 `ChannelModule.allowed_slots`）
+  - Host context 传递（HookContext 加 `secrets: HashMap<String, String>`，调用方解密后过滤好再塞）
+  - Linker 注册示例 + Rust SDK 包装代码
+  - 5 项验收门禁
+  - 4 个"不做什么"边界
+
+### Why
+
+第一刀 followup §1：把 host_get_secret_slot 推到"下版本"是粉饰。这是 G-003 三件套的第三件，缺它插件无法做最常见的 secret 操作。本版本不实装（涉及 HookContext schema 改 + WasmtimeHost data type 替换 + 4 个新 metric + audit 链路，工作量超 patch），但**把方案完全钉死**让 v0.5.x 实装时不需要再讨论 ABI 细节。
+
+### Honest assessment
+
+诚实评：仍是文档版本。host_get_secret_slot 在 codebase 中仍**完全不存在**。
+
+---
+
 ## [0.4.110] — 2026-05-26
 
 **Type**: refactor · **主题**：channels page B2 step 2 — createForm/editForm 工厂抽 `_lib`（followup §1）。
