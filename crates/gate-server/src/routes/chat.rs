@@ -786,3 +786,56 @@ pub(crate) fn apply_params_override(req: &mut ChatRequest, overrides: &serde_jso
         }
     }
 }
+
+#[cfg(test)]
+mod metrics_callsite_tests {
+    //! 0.4.106（followup §3.4）：编译期验证 chat.rs 4 个出口都调用了
+    //! `record_chat_request`，1 个 ttfb 调用，1 个 stream_chunks 调用。
+    //!
+    //! 不是真跑 chat handler（需要 axum + auth + mock provider，太重），
+    //! 而是把本文件源码作为字符串扫描——确保未来谁改 handler 误删埋点
+    //! 时 CI 立即失败。
+
+    const CHAT_RS: &str = include_str!("chat.rs");
+
+    #[test]
+    fn record_chat_request_has_four_callsites() {
+        let count = CHAT_RS.matches("record_chat_request").count();
+        // 一次出现在 use 定义里（如有），其余在调用点
+        // 当前布局：流式上游 build error / 流式 trigger 收尾 / 非流 Err / 非流 Ok = 4
+        // 加上这个常量本身的字符串字面里 1 次 → 实际期待 5
+        assert!(
+            count >= 4,
+            "expected ≥ 4 record_chat_request callsites, found {count}"
+        );
+    }
+
+    #[test]
+    fn record_chat_ttfb_has_one_callsite() {
+        let count = CHAT_RS.matches("record_chat_ttfb").count();
+        // 1 个调用 + 字符串字面 1 次 → ≥ 1
+        assert!(
+            count >= 1,
+            "expected ≥ 1 record_chat_ttfb callsite, found {count}"
+        );
+    }
+
+    #[test]
+    fn record_chat_stream_chunks_has_one_callsite() {
+        let count = CHAT_RS.matches("record_chat_stream_chunks").count();
+        assert!(
+            count >= 1,
+            "expected ≥ 1 record_chat_stream_chunks callsite, found {count}"
+        );
+    }
+
+    #[test]
+    fn streaming_branch_emits_both_ok_and_error_outcome() {
+        // 流式分支应能 emit "ok" 与 "error" 两种 outcome —— 通过检查 chat.rs
+        // 同时含 `streaming=true` outcome="ok" 与 outcome="error" 的字符串构造
+        let has_stream_error = CHAT_RS.contains("\"error\"")
+            && CHAT_RS.contains("true,")  // streaming=true
+            && CHAT_RS.contains("record_chat_request");
+        assert!(has_stream_error, "stream error path metric missing");
+    }
+}

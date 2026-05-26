@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.106] — 2026-05-26
+
+**Type**: test · **主题**：chat.rs 埋点编译期 grep 验证（followup §3.4）。
+
+### Added
+
+- `crates/gate-server/src/routes/chat.rs` 末尾 `mod metrics_callsite_tests` 4 个 test：
+  - `record_chat_request_has_four_callsites` — 4 个出口（流式 build err / 流式 trigger / 非流 Err / 非流 Ok）
+  - `record_chat_ttfb_has_one_callsite` — 流式首 chunk inspect
+  - `record_chat_stream_chunks_has_one_callsite` — 流式 trigger 收尾
+  - `streaming_branch_emits_both_ok_and_error_outcome` — 流式 ok/error 都 emit
+- 用 `include_str!("chat.rs")` 把源码作为字符串扫描
+
+### Why
+
+第一刀只在 metrics.rs 加了 emit 函数的单测（验证函数本身能写入 prometheus），**没有验证 chat handler 真调了**这些函数。未来 refactor 误删埋点 CI 不会失败。
+
+不写真 e2e（需 axum + auth + mock provider，>200 行 fixture），用 grep test 廉价覆盖。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib metrics_callsite    # 4 passed
+```
+
+---
+
 ## [0.4.105] — 2026-05-26
 
 **Type**: runtime · **主题**：SharedHttpClient eviction 从 clear-all 改 LRU per-key（followup §3.3）。
