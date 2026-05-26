@@ -11,6 +11,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.120] — 2026-05-26 — 阶段大版 · 双刀打磨收口
+
+> 19 个 patch（0.4.102 → 0.4.120）的第二刀（自我批判）阶段收口。
+> 累计：第一刀 37 + 第二刀 19 = **56 patch（0.4.65-0.4.120）**。
+
+### 第二刀战报（19 patch · 0.4.102-0.4.120）
+
+| 类型 | 项数 | 代表 patch |
+|------|-----|-----------|
+| **真改 runtime** | 5 | 0.4.103 Retry-After HTTP-date / 0.4.104 Usage audio+prediction tokens / 0.4.105 SharedClient LRU per-key / 0.4.107 metric const / 0.4.109 admin org_members inline |
+| **修真实 bug** | 1 | 0.4.112 Grafana 用错指标名（`gate_chat_latency_ms` 不存在） |
+| **撤回误判** | 1 | 0.4.113 request_logs 已 outbox 异步，撤回 review §1 P1-3 |
+| **真画设计图** | 3 | 0.4.111 host_get_secret_slot / 0.4.115 DataTable virtualize / 0.4.116 admin.rs 拆分进度 |
+| **测试 / 重构** | 4 | 0.4.106 chat handler 埋点 grep test / 0.4.108 stream_safe 注释 / 0.4.110 form-factories / 0.4.114 form-factories tests |
+| **docs / 流程** | 5 | 0.4.102 followup 批判稿 / 0.4.117 SECURITY.md 完整化 / 0.4.118 product-gaps 第二刀 / 0.4.119 README 双刀 / 0.4.120 本次 |
+
+### 自审揭出的 6 类问题（followup §1-§6）
+
+第一刀 37 patch 看似"全收口"，自审揭：
+
+1. **假步骤命名**（admin.rs step 1/4 + channels page step 1/4 + WASM 2/3 + DataTable 1/3 都只做了第 1 步）
+2. **占位算实装**（KOOIX_REQUEST_LOG_BUFFER_SIZE / chat e2e bench / chaos-testing.md / playground capability backend-only）
+3. **漏网**（Retry-After HTTP-date / audio+prediction tokens / SharedClient 雷暴 / chat metrics 未 e2e 验证 / metric 名 typo）
+4. **内联 mod 是假拆分**（admin.rs +13 行还自称"逻辑边界清晰"）
+5. **文档与代码不同步**（Grafana 用错指标名 / SECURITY.md 简陋 / RELEASE 检视表混 runtime+docs）
+6. **stream_safe 是幽灵 API**（codebase 零调用）
+
+### 第二刀对应修复
+
+P0 真改 runtime 5 项已合（0.4.103 / 0.4.104 / 0.4.105 / 0.4.107 / 0.4.109）；
+P1/P2 设计稿与文档已立（0.4.111 / 0.4.115 / 0.4.116 / 0.4.117 / 0.4.118 / 0.4.119）；
+余下真重构推 v0.5.x。
+
+### 累计验证（0.4.64 → 0.4.120）
+
+| crate | 0.4.64 | 0.4.120 | Δ |
+|-------|--------|---------|---|
+| gate-providers tests | 122 | 143 | +21 |
+| gate-server tests | 41 | 50 | +9 |
+| gate-wasm tests | 13 | 18 | +5 |
+| gate-storage tests | 25 | 30 | +5 |
+| web tests | 86 | 100+ | +14 |
+| **合计 Rust** | **201** | **241+** | **+40** |
+| 文档新增 | — | 5 docs | followup / wasm-secret-slot / data-table-virtualize / chaos-testing / product-review |
+
+### 真实债务推 v0.5.x（明示在 ROADMAP）
+
+- admin.rs 物理拆分（5 大块 god file 拆 routes/admin/{...}）
+- channels page B2 step 3-4（list state store + dialog manager）
+- DataTable virtualize 实装（按 0.4.115 设计稿）
+- host_get_secret_slot 实装（按 0.4.111 设计稿）
+- WASM module blob store (G-002) + auto-mount
+- chat e2e bench 真实装 / chaos test runtime
+- playground frontend capability 联动（backend ready 自 0.4.87）
+
+### 阶段亮点
+
+- **诚实优先**：第一刀粉饰被自审揭穿后立即修，followup 批判稿与 ROADMAP 同步对外可见
+- **真改 vs 文档化标签**：每个 patch CHANGELOG 顶部标 `**Type:** runtime/test/refactor/design/docs`，让 reader 一眼分辨
+- **设计稿钉死方案**：3 个超 patch 范围的特性（host_get_secret_slot / DataTable virtualize / admin 拆分目录化）写完整设计，v0.5.x 实装时无需再讨论
+- **追溯 0.4.85 + 0.4.112 真 bug**：Grafana 一直拉的指标名不存在，第二刀复审才发现——证明 followup 自审的真实价值
+- **零回归**：56 个 patch 全部 cargo check + 涉及 crate 测试通过；前端 0/0 维持
+
+### 下一步：v0.5.0-rc1
+
+按 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26) 跑候选门禁。第二刀剩余真重构项进入 v0.5.x 主线。
+
+---
+
 ## [0.4.119] — 2026-05-26
 
 **Type**: docs · **主题**：README 当前版本段重写为双刀打磨真实进度。
