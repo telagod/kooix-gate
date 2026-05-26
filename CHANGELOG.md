@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.117] — 2026-05-26
+
+**Type**: docs · **主题**：SECURITY.md 完整化（followup §5.2）。
+
+### Changed
+
+- `SECURITY.md` 从 42 行扩到 ~120 行，加 7 个段：
+  - **Supported Versions**：0.4.x active / 0.3.x security-only / ≤0.2.x EOL，明示 v0.5.0-rc1 发布后 0.3.x EOL 时间线
+  - **Reporting a Vulnerability**：GitHub Security Advisory（推荐） / Email / 紧急情况 3 渠道 + 6 项必填内容
+  - **Response SLA**：72h acknowledgement / 7d triage / 14d-90d fix（按严重度）/ fix+7d coordinated disclosure 四阶段
+  - **Coordinated Disclosure**：4 步流程 + 拒绝勒索式威胁但允许 90d 长期未响应后报告者公开
+  - **高风险类别**：P0 (secret 泄露 / tenant 越权 / admin takeover / SSRF) / P1 (billing 绕过 / JWT 固化 / upstream body 泄漏) / P2 (rate limit 绕过 / WASM 资源耗尽 / audit 完整性) 三级
+  - **Security Advisory 历史**：链向 GitHub advisories
+  - **NOT a vulnerability**：6 类不算安全问题，走 issues
+
+### Why
+
+第一刀 followup §5.2 揭：SECURITY.md 42 行简陋，缺 SLA / disclosure timeline / contact channel / severity tiers。开源项目 GitHub 期望规范 SECURITY.md（advisory 系统集成 + 报告者预期管理）。
+
+诚实评：response SLA 是承诺，实际执行能力取决于 maintainer bandwidth；先写出来作为目标。
+
+---
+
 ## [0.4.116] — 2026-05-26
 
 **Type**: docs · **主题**：admin.rs 拆分进度表 + ROADMAP 第二刀分类汇总。
