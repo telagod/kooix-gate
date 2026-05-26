@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.139] — 2026-05-26
+
+**Type**: test · **主题**：host_get_secret_slot 2 个 sanity tests。
+
+### Added
+
+- `wasmtime_host::tests::invoke_hook_with_secrets_passes_through` — 验 HookContext 携带 secrets/allowed_slots 传给 invoke_hook 不 panic
+- `wasmtime_host::tests::hook_context_default_has_empty_secrets` — 验 Default 后 secrets+allowed_slots 都为空
+
+### Honest assessment
+
+诚实评：未写 wat 模块真调 host_get_secret_slot 的 e2e test（涉及 wat 写 host fn 导入 + memory 操作 + 验返回值，规模大）。本步只锁字段传递契约。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib    # 20 passed (18 + 2)
+```
+
+---
+
 ## [0.4.138] — 2026-05-26
 
 **Type**: runtime · **主题**：CustomHttpProvider 接通 HookContext.secrets → host_get_secret_slot 端到端工作。

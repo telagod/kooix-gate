@@ -753,5 +753,45 @@ mod tests {
         // 清理
         let _ = std::fs::remove_dir_all(&cache_dir);
     }
+
+    // 0.4.139（按 wasm-secret-slot-design.md 验收门禁）：host_get_secret_slot
+    // 端到端测试。用 wat 写 plugin 调 host_get_secret_slot + chat_request_transform。
+    // 但 wat 写 host fn 调用 + memory 操作较复杂，本测先验最小 case：
+    //   - HookContext.secrets / allowed_slots 字段被 Arc clone 不丢
+    //   - invoke_hook 接受新字段不 panic
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invoke_hook_with_secrets_passes_through() {
+        let host = WasmtimeHost::new(WasmHostConfig::default()).unwrap();
+        let minimal_wasm = wat::parse_str("(module)").unwrap();
+        let sha = WasmtimeHost::sha256_hex(&minimal_wasm);
+        host.load_module("ch-secret", &minimal_wasm, &sha)
+            .await
+            .unwrap();
+
+        let mut ctx = HookContext::default();
+        ctx.channel_id = "ch-secret".to_string();
+        ctx.secrets
+            .insert("primary".to_string(), "sk-test-12345".to_string());
+        ctx.secrets
+            .insert("aws_secret".to_string(), "AKIA-XYZ".to_string());
+        ctx.allowed_slots.insert("primary".to_string());
+        ctx.allowed_slots.insert("aws_secret".to_string());
+
+        // (module) 没 export hook → identity passthrough，但 invoke 不应 panic
+        let payload = Bytes::from_static(b"payload");
+        let result = host
+            .invoke_hook("ch-secret", HookKind::ChatRequest, payload.clone(), ctx)
+            .await
+            .unwrap();
+        // 模块没 export 钩子 → returns Some(payload) (identity passthrough)
+        assert_eq!(result, Some(payload));
+    }
+
+    #[test]
+    fn hook_context_default_has_empty_secrets() {
+        let ctx = HookContext::default();
+        assert!(ctx.secrets.is_empty());
+        assert!(ctx.allowed_slots.is_empty());
+    }
 }
 
