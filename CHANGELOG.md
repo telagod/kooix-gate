@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.146] — 2026-05-26
+
+**Type**: test · **主题**：chaos_common 测试 fixture skeleton（按 0.4.99 设计稿 Phase 1）。
+
+### Added
+
+- `crates/gate-server/tests/chaos_common.rs`：
+  - `pub trait ChaosInjector` — latency_ms / failure_rate / injected_count 三方法
+  - `pub struct NoopChaos` 默认无注入
+  - `pub struct ProbeChaos` 计数器型（验"未被注入"）
+  - 2 个 sanity test
+
+### Why
+
+第二刀 followup §2 揭：0.4.99 的 chaos-testing.md 只是设计稿。本步真把 fixture trait 立起来，让 Phase 2（v0.5.x）加 toxiproxy + testcontainers 实装时直接挂接 ChaosInjector impl，无需重设接口。
+
+### Honest assessment
+
+诚实评：仅 trait skeleton + 2 sanity test。真实 chaos cases（PG 拒绝连接 / Redis 停 / 上游 503 风暴）仍未实装；推 v0.5.x toxiproxy fixture。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_common    # 2 passed
+```
+
+---
+
 ## [0.4.145] — 2026-05-26
 
 **Type**: test · **主题**：provider-capabilities store 3 个 sanity tests。
