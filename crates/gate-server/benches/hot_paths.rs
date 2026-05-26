@@ -291,7 +291,7 @@ fn bench_request_log_enqueue(c: &mut Criterion) {
 // 0.4.140（按 0.4.98 TODO step 1）：chat provider dispatch micro-bench。
 // 量 StaticProvider.chat() 单调用开销作为 baseline，不接 axum router
 // （axum dispatch + auth + quota middleware 单独由 bench_quota_checks 覆盖）。
-// 后续 patch (0.4.141) 加 stream / extra params 等扩展 case。
+// 0.4.141：扩到 stream + extra params 2 个 case，覆盖更典型流量画像。
 fn bench_chat_provider_dispatch(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut group = c.benchmark_group("chat_provider_dispatch");
@@ -305,6 +305,51 @@ fn bench_chat_provider_dispatch(c: &mut Criterion) {
                 let req = ChatRequest {
                     model: "gpt-4o-mini".to_string(),
                     messages: vec![ChatMessage::text(Role::User, "bench")],
+                    max_tokens: Some(64),
+                    ..Default::default()
+                };
+                let resp = p.chat(req).await.unwrap();
+                black_box(resp);
+            }
+        });
+    });
+
+    // 0.4.141: chat 带 extra params (top_p / temperature / response_format)
+    group.bench_function("static_provider_chat_call_with_extra", |b| {
+        b.to_async(&rt).iter(|| {
+            let p = provider.clone();
+            async move {
+                let mut req = ChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: vec![ChatMessage::text(Role::User, "bench")],
+                    max_tokens: Some(64),
+                    temperature: Some(0.7),
+                    top_p: Some(0.9),
+                    ..Default::default()
+                };
+                req.extra
+                    .insert("response_format".to_string(), serde_json::json!({"type": "json_object"}));
+                req.extra
+                    .insert("seed".to_string(), serde_json::json!(42));
+                let resp = p.chat(req).await.unwrap();
+                black_box(resp);
+            }
+        });
+    });
+
+    // 0.4.141: chat 多 message 历史（10 条对话）
+    group.bench_function("static_provider_chat_call_10_messages", |b| {
+        b.to_async(&rt).iter(|| {
+            let p = provider.clone();
+            async move {
+                let mut msgs = Vec::with_capacity(10);
+                for i in 0..10 {
+                    let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+                    msgs.push(ChatMessage::text(role, format!("msg-{i}")));
+                }
+                let req = ChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: msgs,
                     max_tokens: Some(64),
                     ..Default::default()
                 };

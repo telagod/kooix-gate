@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.141] — 2026-05-26
+
+**Type**: runtime · **主题**：chat dispatch bench 扩 2 个 case（extra params / 10 messages）。
+
+### Added
+
+`bench_chat_provider_dispatch` 增 2 个 sub-case：
+- `static_provider_chat_call_with_extra` — temperature + top_p + extra.response_format + extra.seed
+- `static_provider_chat_call_10_messages` — 10 条对话历史（user/assistant 交替）
+
+### Why
+
+0.4.140 只量 1 个最简调用。本步扩 3 case 覆盖典型流量画像：
+- 最简（1 message no params）
+- 含 extra fields（A3 透传场景）
+- 长对话（典型 chat 上下文）
+
+### Honest assessment
+
+仍是 provider micro-bench，不接完整 axum chat handler。完整 e2e 需要 mock AppState + middleware 链推迟。
+
+### Verification
+
+```bash
+cargo check -p gate-server --benches    # 0 errors
+cargo bench -p gate-server --bench hot_paths chat_provider_dispatch
+```
+
+---
+
 ## [0.4.140] — 2026-05-26
 
 **Type**: runtime · **主题**：chat provider dispatch micro-bench（按 0.4.98 TODO 真还债）。
