@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.162] — 2026-05-26
+
+**Type**: feat · **主题**：ImageGenNode 接 NodeCapabilityHint。
+
+### Changed
+
+- `ImageGenNode.svelte`：加 `<NodeCapabilityHint kind="imageGen" label="image-capable" />`
+
+### Why
+
+第四刀 #3 step 4。4 个 AI 节点（llmChat / imageGen / tts / stt）全部接通 capability hint。
+input 类节点（textInput / imageUpload / audioUpload）和 preview 节点不需要 channel 端 capability — 看 `nodeRequiresCapability` 返 false。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.161] — 2026-05-26
 
 **Type**: refactor · **主题**：抽 NodeCapabilityHint + 接到 STT/TTS 节点。
