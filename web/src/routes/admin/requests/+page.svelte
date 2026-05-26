@@ -432,9 +432,133 @@
 		</Card>
 	{:else if page}
 		<!-- Table -->
-		<!-- 0.4.135（B4 step 3）：先用 stickyHead + maxHeight 解决长滚表头消失。
-		     真正的 virtualize 模式（rows + rowSnippet）需要把 cell 模板从 #each
-		     里抽出来，规模较大，留到下迭代；本步至少让万行表格表头始终可见。 -->
+		<!-- 0.4.156（第四刀 #2 step 1）：抽 requestRowSnippet + expandedRowSnippet。
+		     为 0.4.157 引入「展开为空时 → virtualize / 展开有效时 → legacy」双轨打底。
+		     本步只重构 snippet 结构，行为不变（仍 #each 渲染）。 -->
+		{#snippet requestRowSnippet(req: RequestRecord, _i: number)}
+			<tr
+				class={cn(dataTemplate.rowInteractive, expandedId === req.request_id && dataTemplate.rowSelected)}
+				onclick={() => toggleExpand(req.request_id)}
+			>
+				<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatRequestDate(req.ts)}</td>
+				<td class="px-4 py-3">
+					<div class="flex flex-col">
+						<div class="flex items-center gap-1.5">
+							<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{req.model_actual}</span>
+							<ModalityBadge model={req.model_actual} metadata={req.metadata} />
+						</div>
+						{#if req.model_requested !== req.model_actual}
+							<span class="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[180px]">{req.model_requested}</span>
+						{/if}
+					</div>
+				</td>
+				<td class="px-4 py-3">
+					<span class={cn('inline-block px-2 py-0.5 rounded-full text-xs font-medium', statusBadgeCls(req.status))}>
+						{req.status}
+					</span>
+				</td>
+				<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
+					{formatLatency(req.latency_ms)}
+					{#if req.stream}
+						<span class="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500">stream 流式</span>
+					{/if}
+				</td>
+				<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
+					<span class="text-zinc-500 dark:text-zinc-400">{formatTokens(req.tokens_in)}</span>
+					<span class="text-zinc-300 dark:text-zinc-600 mx-0.5">/</span>
+					<span class="text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_out)}</span>
+				</td>
+				<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono">{formatCost(req.cost_usd)}</td>
+				<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[100px]">{req.channel_id ? `${shortId(req.channel_id)}...` : '—'}</td>
+				<td class="px-4 py-3 text-right">
+					{#if expandedId === req.request_id}
+						<ChevronUp size={14} class="text-zinc-400" />
+					{:else}
+						<ChevronDown size={14} class="text-zinc-400" />
+					{/if}
+				</td>
+			</tr>
+		{/snippet}
+
+		{#snippet expandedRowSnippet(req: RequestRecord)}
+			<tr class={dataTemplate.rowSelected}>
+				<td colspan="8" class="px-4 py-4">
+					<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Request ID 请求 ID</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100 break-all">{req.request_id}</p>
+						</div>
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Org / Project 归属</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.org_id)}... / {shortId(req.project_id)}...</p>
+						</div>
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">API Key 凭据</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.api_key_id)}...</p>
+						</div>
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Client IP 客户端 IP</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.client_ip ?? '—'}</p>
+						</div>
+					</div>
+
+					<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">TTFB</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatLatency(req.ttfb_ms)}</p>
+						</div>
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Cached tokens 缓存</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_cached)}</p>
+						</div>
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Retries 重试</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.retries}</p>
+						</div>
+						<div>
+							<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Stream 流式</p>
+							<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.stream ? '是' : '否'}</p>
+						</div>
+					</div>
+
+					{#if req.user_id}
+						<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
+							<div>
+								<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">User ID 用户</p>
+								<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.user_id}</p>
+							</div>
+							{#if req.group_id}
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Group ID 分组</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.group_id}</p>
+								</div>
+							{/if}
+							{#if req.channel_key_id}
+								<div>
+									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Channel Key ID 凭据</p>
+									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.channel_key_id}</p>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					{#if req.error_code}
+						<div class="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+							<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Error 错误</p>
+							<p class="text-xs font-mono text-red-600 dark:text-red-400">{req.error_code}</p>
+						</div>
+					{/if}
+
+					{#if req.metadata}
+						<details class="mt-2">
+							<summary class="text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-300">Metadata 元数据</summary>
+							<pre class="mt-1 p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-[11px] font-mono text-zinc-800 dark:text-zinc-200 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(req.metadata, null, 2)}</pre>
+						</details>
+					{/if}
+				</td>
+			</tr>
+		{/snippet}
+
 		<DataTable stickyHead maxHeight="70vh">
 			{#snippet head()}
 				<tr>
@@ -449,127 +573,10 @@
 				</tr>
 			{/snippet}
 
-			{#each page.data as req}
-				<tr
-					class={cn(dataTemplate.rowInteractive, expandedId === req.request_id && dataTemplate.rowSelected)}
-					onclick={() => toggleExpand(req.request_id)}
-				>
-					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-mono">{formatRequestDate(req.ts)}</td>
-					<td class="px-4 py-3">
-						<div class="flex flex-col">
-							<div class="flex items-center gap-1.5">
-								<span class="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{req.model_actual}</span>
-								<ModalityBadge model={req.model_actual} metadata={req.metadata} />
-							</div>
-							{#if req.model_requested !== req.model_actual}
-								<span class="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[180px]">{req.model_requested}</span>
-							{/if}
-						</div>
-					</td>
-					<td class="px-4 py-3">
-						<span class={cn('inline-block px-2 py-0.5 rounded-full text-xs font-medium', statusBadgeCls(req.status))}>
-							{req.status}
-						</span>
-					</td>
-					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
-						{formatLatency(req.latency_ms)}
-						{#if req.stream}
-							<span class="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500">stream 流式</span>
-						{/if}
-					</td>
-					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-nowrap">
-						<span class="text-zinc-500 dark:text-zinc-400">{formatTokens(req.tokens_in)}</span>
-						<span class="text-zinc-300 dark:text-zinc-600 mx-0.5">/</span>
-						<span class="text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_out)}</span>
-					</td>
-					<td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 font-mono">{formatCost(req.cost_usd)}</td>
-					<td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[100px]">{req.channel_id ? `${shortId(req.channel_id)}...` : '—'}</td>
-					<td class="px-4 py-3 text-right">
-						{#if expandedId === req.request_id}
-							<ChevronUp size={14} class="text-zinc-400" />
-						{:else}
-							<ChevronDown size={14} class="text-zinc-400" />
-						{/if}
-					</td>
-				</tr>
-
+			{#each page.data as req, i (req.request_id)}
+				{@render requestRowSnippet(req, i)}
 				{#if expandedId === req.request_id}
-					<tr class={dataTemplate.rowSelected}>
-						<td colspan="8" class="px-4 py-4">
-							<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Request ID 请求 ID</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100 break-all">{req.request_id}</p>
-								</div>
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Org / Project 归属</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.org_id)}... / {shortId(req.project_id)}...</p>
-								</div>
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">API Key 凭据</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{shortId(req.api_key_id)}...</p>
-								</div>
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Client IP 客户端 IP</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.client_ip ?? '—'}</p>
-								</div>
-							</div>
-
-							<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">TTFB</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatLatency(req.ttfb_ms)}</p>
-								</div>
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Cached tokens 缓存</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{formatTokens(req.tokens_cached)}</p>
-								</div>
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Retries 重试</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.retries}</p>
-								</div>
-								<div>
-									<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Stream 流式</p>
-									<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.stream ? '是' : '否'}</p>
-								</div>
-							</div>
-
-							{#if req.user_id}
-								<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
-									<div>
-										<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">User ID 用户</p>
-										<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.user_id}</p>
-									</div>
-									{#if req.group_id}
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Group ID 分组</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.group_id}</p>
-										</div>
-									{/if}
-									{#if req.channel_key_id}
-										<div>
-											<p class="text-zinc-500 dark:text-zinc-400 mb-0.5">Channel Key ID 凭据</p>
-											<p class="font-mono text-zinc-900 dark:text-zinc-100">{req.channel_key_id}</p>
-										</div>
-									{/if}
-								</div>
-							{/if}
-
-							{#if req.error_code}
-								<div class="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-									<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Error 错误</p>
-									<p class="text-xs font-mono text-red-600 dark:text-red-400">{req.error_code}</p>
-								</div>
-							{/if}
-
-							{#if req.metadata}
-								<details class="mt-2">
-									<summary class="text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-300">Metadata 元数据</summary>
-									<pre class="mt-1 p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-[11px] font-mono text-zinc-800 dark:text-zinc-200 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(req.metadata, null, 2)}</pre>
-								</details>
-							{/if}
-						</td>
-					</tr>
+					{@render expandedRowSnippet(req)}
 				{/if}
 			{/each}
 		</DataTable>

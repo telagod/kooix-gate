@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.156] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/requests 抽 requestRowSnippet + expandedRowSnippet。
+
+### Changed
+
+- `web/src/routes/admin/requests/+page.svelte`：原 `#each` 内 inline 表格行体抽到 `{#snippet requestRowSnippet(req, i)}` + `{#snippet expandedRowSnippet(req)}`
+- each 体改为 `{@render requestRowSnippet(req, i)}` + 条件 `{@render expandedRowSnippet(req)}`
+- 加 keyed each `(req.request_id)` 让 Svelte 5 reconcile 稳定
+
+### Why
+
+第四刀 #2 「DataTable virtualize 真接 admin/requests」step 1。原 `#each` 体内嵌 ~120 行 inline 模板，无法直接喂给 DataTable 的 `rows + rowSnippet` virtualize API。本步只重构 snippet 结构，行为完全不变（仍 `#each` 渲染），为 0.4.157 「展开为空 → virtualize / 有展开 → legacy」双轨切换打底。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.155] — 2026-05-26 — 第四刀 · 第 1 项真还收口
 
 **Type**: refactor · **主题**：sibling 改 `super::shared::*`，反向依赖断绝。
