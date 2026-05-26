@@ -381,7 +381,7 @@ pub fn record_provider_route_decision(
         "outcome" => outcome,
     )
     .increment(1);
-    metrics::gauge!("provider_runtime_snapshot_version").set(snapshot_version as f64);
+    metrics::gauge!(names::PROVIDER_RUNTIME_SNAPSHOT_VERSION).set(snapshot_version as f64);
     if let Some(channel_id) = channel_id {
         tracing::debug!(
             channel_id = %channel_id.as_uuid(),
@@ -395,22 +395,22 @@ pub fn record_provider_route_decision(
 
 /// Read model freshness signal for usage rollups.
 pub fn record_usage_rollup_lag_seconds(lag_seconds: f64) {
-    metrics::gauge!("usage_rollup_lag_seconds").set(lag_seconds.max(0.0));
+    metrics::gauge!(names::USAGE_ROLLUP_LAG_SECONDS).set(lag_seconds.max(0.0));
 }
 
 /// Billing outbox backlog age from event occurrence to enqueue / fetch.
 pub fn record_billing_outbox_lag_seconds(lag_seconds: f64) {
-    metrics::gauge!("billing_outbox_lag_seconds").set(lag_seconds.max(0.0));
+    metrics::gauge!(names::BILLING_OUTBOX_LAG_SECONDS).set(lag_seconds.max(0.0));
 }
 
 /// Billing settlement failure signal.
 pub fn record_billing_settle_failure(reason: &'static str) {
-    metrics::counter!("billing_settle_failures_total", "reason" => reason).increment(1);
+    metrics::counter!(names::BILLING_SETTLE_FAILURES_TOTAL, "reason" => reason).increment(1);
 }
 
 /// Billing settlement age from request occurrence to committed usage projection.
 pub fn record_billing_settle_lag_seconds(lag_seconds: f64) {
-    metrics::gauge!("billing_settle_lag_seconds").set(lag_seconds.max(0.0));
+    metrics::gauge!(names::BILLING_SETTLE_LAG_SECONDS).set(lag_seconds.max(0.0));
 }
 
 /// Record quota hard denies with bounded labels.
@@ -443,7 +443,7 @@ pub fn record_upstream_error_with_context(
     let provider_type = normalize_label_value(provider_type);
     let channel = normalize_label_value(channel);
     let model = normalize_label_value(model);
-    metrics::counter!("upstream_errors_total", "kind" => kind).increment(1);
+    metrics::counter!(names::UPSTREAM_ERRORS_TOTAL, "kind" => kind).increment(1);
     metrics::counter!(
         "gateway_upstream_errors_total",
         "kind" => kind,

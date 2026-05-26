@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.148] — 2026-05-26
+
+**Type**: refactor · **主题**：metric 名 const 在 metrics.rs 内 6 处剩余使用点真接入。
+
+### Changed
+
+`crates/gate-server/src/metrics.rs` 把 6 处仍是字符串字面的 metric 名改用 `names::*` const：
+- `provider_runtime_snapshot_version` gauge
+- `usage_rollup_lag_seconds` gauge
+- `billing_outbox_lag_seconds` gauge
+- `billing_settle_failures_total` counter
+- `billing_settle_lag_seconds` gauge
+- `upstream_errors_total` counter
+
+### Why
+
+第二刀 0.4.107 抽了 21 个 const 但只在 chat 3 fn 用了 4 个 const，其他 metric fn 内字面仍散在。本步把 metrics.rs 自身 6 处统一接入 — typo 在编译期暴露。
+
+### Honest assessment
+
+诚实评：仅 metrics.rs 自身，gateway_upstream_errors_total / health_probe / quota_denies 等仍是字面（嵌在 record_*  helper 内，需更深 refactor）。剩余推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.147] — 2026-05-26
 
 **Type**: test · **主题**：chaos_toxiproxy 注入器骨架 + 3 个 sanity tests。
