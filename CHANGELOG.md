@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.105] — 2026-05-26
+
+**Type**: runtime · **主题**：SharedHttpClient eviction 从 clear-all 改 LRU per-key（followup §3.3）。
+
+### Changed
+
+- `SHARED_CLIENT_CACHE_LIMIT`: 8 → 16（给 plugin manifest custom timeout 留余量）
+- 缓存 entry 新增 `last_used: Instant`，每次 hit 刷新
+- 超限 eviction 策略：从 `cache.clear()` 改为 `min_by_key(last_used)` 删一个最久未用 entry
+- 测试 3 个合并到一个 `#[test]`（避免 cargo test 并发跑共享 cache 互相干扰）
+
+### Why
+
+第一刀的 `cache.clear()` 是图省事——一旦 `cache.len() ≥ 8` 就**清空所有 client**。如果有 9 个不同 timeout 桶（plugin manifest `request.timeout_ms` 自定义会扩散维度），**每来一个新 timeout 都触发全 cache 清空** → 所有 channel 重连，雷暴。
+
+LRU per-key 只删一个，其余 entry 的 keep-alive 连接保留。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 143 passed
+```
+
+新合并 test `shared_clients_full_behavior`：
+1. same opts → 同 Arc
+2. different opts → 不同 Arc
+3. 填满 16 个 + 访问 idx=1 让它 MRU + 触发 evict + 验证 idx=0 被删 + 验证 idx=5 没被删
+
+---
+
 ## [0.4.104] — 2026-05-26
 
 **Type**: runtime · **主题**：Usage 加 audio/prediction tokens（followup §3.2）。

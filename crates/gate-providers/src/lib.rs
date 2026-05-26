@@ -81,21 +81,15 @@ impl ProviderOpts {
 // ============================================================================
 // SharedHttpClient — 按 (connect_timeout, total_timeout) 维度缓存的 reqwest::Client。
 //
-// 0.4.65：4 个 fast-path provider（OpenAI / Anthropic / Azure / Bedrock）共享同一
-// 进程内的 reqwest pool，避免每次 build provider 都新建一个独立连接池——这在
-// channel 数量多且 base_url 重叠（多个 channel 指向同一上游）时会导致严重的
-// TCP/TLS 握手成本浪费、HTTP2 multiplexing 失效。
+// 0.4.65：4 个 fast-path provider 共享同一进程内的 reqwest pool。
+// 0.4.105（followup §3.3）：把 eviction 从 clear-all 改为 LRU per-key eviction，
+//   避免任何"第 9 个 timeout 桶"触发全清空 + 全 channel 重连雷暴。
+//   策略：超限时删 last_used 最旧的一个 entry。
 //
 // 设计：
-// - 维度只看 (connect_timeout_ms, total_timeout_ms)；其余 reqwest 选项（rustls /
-//   keepalive / http2 prior knowledge / pool idle）走 reqwest 默认即可。
-// - LRU 上限 8（远小于实际 channel 数；同 timeout 共用一个 client 已能覆盖 99%
-//   场景）。超出时直接清空重建——保守做法，保证不会内存泄漏。
-// - CustomHttpProvider 仍走独立 builder 链：它需要每 channel 一份 dns_resolver
-//   sandbox + redirect=none + manifest 自带 timeout override，无法共享。
-//
-// 验收：crates/gate-providers/tests 内 reqwest::Client::builder() 命中数 >0
-// 仅出现在测试 fixture / custom_provider；4 个 fast-path provider 改走 helper。
+// - 维度只看 (connect_timeout_ms, total_timeout_ms)；其余 reqwest 选项走默认。
+// - LRU 上限 16（从 8 调高，给 plugin manifest custom timeout 留余量）。
+// - CustomHttpProvider 不走此 cache（需独立 dns_resolver + redirect=none）。
 // ============================================================================
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
@@ -104,10 +98,15 @@ struct HttpClientKey {
     timeout_ms: u64,
 }
 
-const SHARED_CLIENT_CACHE_LIMIT: usize = 8;
+const SHARED_CLIENT_CACHE_LIMIT: usize = 16;
 
-fn shared_client_cache() -> &'static Mutex<HashMap<HttpClientKey, Arc<reqwest::Client>>> {
-    static CACHE: OnceLock<Mutex<HashMap<HttpClientKey, Arc<reqwest::Client>>>> = OnceLock::new();
+struct CachedClient {
+    client: Arc<reqwest::Client>,
+    last_used: std::time::Instant,
+}
+
+fn shared_client_cache() -> &'static Mutex<HashMap<HttpClientKey, CachedClient>> {
+    static CACHE: OnceLock<Mutex<HashMap<HttpClientKey, CachedClient>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -120,22 +119,40 @@ pub fn shared_http_client(opts: &ProviderOpts) -> ProviderResult<Arc<reqwest::Cl
         connect_ms: opts.connect_timeout().as_millis() as u64,
         timeout_ms: opts.timeout_ms,
     };
+    let now = std::time::Instant::now();
     let mut cache = shared_client_cache().lock();
-    if let Some(c) = cache.get(&key) {
+
+    if let Some(entry) = cache.get_mut(&key) {
+        entry.last_used = now;
         metrics::counter!("gate_providers_shared_client_hits_total").increment(1);
-        return Ok(Arc::clone(c));
+        return Ok(Arc::clone(&entry.client));
     }
+
+    // LRU per-key eviction：超限时只删最久未用的一个，不全清空
     if cache.len() >= SHARED_CLIENT_CACHE_LIMIT {
-        metrics::counter!("gate_providers_shared_client_evictions_total").increment(1);
-        cache.clear();
+        if let Some(victim_key) = cache
+            .iter()
+            .min_by_key(|(_, v)| v.last_used)
+            .map(|(k, _)| *k)
+        {
+            cache.remove(&victim_key);
+            metrics::counter!("gate_providers_shared_client_evictions_total").increment(1);
+        }
     }
+
     let client = reqwest::Client::builder()
         .connect_timeout(opts.connect_timeout())
         .timeout(opts.timeout_duration())
         .build()
         .map_err(|e| ProviderError::Config(e.to_string()))?;
     let arc = Arc::new(client);
-    cache.insert(key, Arc::clone(&arc));
+    cache.insert(
+        key,
+        CachedClient {
+            client: Arc::clone(&arc),
+            last_used: now,
+        },
+    );
     metrics::counter!("gate_providers_shared_client_misses_total").increment(1);
     metrics::gauge!("gate_providers_shared_client_size").set(cache.len() as f64);
     Ok(arc)
@@ -151,23 +168,55 @@ pub fn _reset_shared_http_clients() {
 mod shared_client_tests {
     use super::*;
 
+    // 0.4.105：所有 cache 行为 test 合到一个 #[test]，避免 cargo test 并发跑时
+    // 共享 OnceLock cache 互相干扰。每段开头 _reset_shared_http_clients()。
     #[test]
-    fn shared_clients_with_same_opts_are_identical_arc() {
+    fn shared_clients_full_behavior() {
+        // ── 1. same opts → 同 Arc ──
         _reset_shared_http_clients();
         let opts = ProviderOpts::default();
         let a = shared_http_client(&opts).expect("client a");
         let b = shared_http_client(&opts).expect("client b");
         assert!(Arc::ptr_eq(&a, &b), "same opts must hand out identical Arc");
-    }
 
-    #[test]
-    fn shared_clients_with_different_opts_are_distinct() {
+        // ── 2. different opts → 不同 Arc ──
         _reset_shared_http_clients();
         let a = shared_http_client(&ProviderOpts { timeout_ms: 30_000 }).expect("a");
         let b = shared_http_client(&ProviderOpts { timeout_ms: 60_000 }).expect("b");
         assert!(
             !Arc::ptr_eq(&a, &b),
             "different timeout buckets should not share the same client"
+        );
+
+        // ── 3. LRU eviction：超限只删 1 个，不清空全部 ──
+        _reset_shared_http_clients();
+        let mut clients = Vec::new();
+        for i in 0..16 {
+            let c = shared_http_client(&ProviderOpts {
+                timeout_ms: 1000 + i as u64,
+            })
+            .expect("fill");
+            clients.push(c);
+        }
+        // 访问 timeout=1001 让它成为 most-recently-used
+        let bump = shared_http_client(&ProviderOpts { timeout_ms: 1001 }).expect("bump");
+        assert!(Arc::ptr_eq(&bump, &clients[1]), "hit should reuse same Arc");
+
+        // 加新 timeout 触发 evict（应该删 timeout=1000 即 clients[0]，最老）
+        let _new = shared_http_client(&ProviderOpts { timeout_ms: 99_999 }).expect("overflow");
+
+        // clients[0] 已 evict → 再访问得新 Arc
+        let revisit = shared_http_client(&ProviderOpts { timeout_ms: 1000 }).expect("revisit");
+        assert!(
+            !Arc::ptr_eq(&revisit, &clients[0]),
+            "oldest client should be evicted, new Arc on revisit"
+        );
+
+        // clients[5] (timeout=1005) 仍在 cache → 同 Arc（验证没清空全部）
+        let still = shared_http_client(&ProviderOpts { timeout_ms: 1005 }).expect("middle");
+        assert!(
+            Arc::ptr_eq(&still, &clients[5]),
+            "middle entries should NOT be evicted (no clear-all)"
         );
     }
 }
