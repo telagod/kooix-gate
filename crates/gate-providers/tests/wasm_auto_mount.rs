@@ -175,3 +175,63 @@ async fn auto_mount_localfs_blob_store_real_disk_roundtrip() {
 
     let _ = tokio::fs::remove_dir_all(&tmp).await; // 清理
 }
+
+// ============================================================================
+// 0.4.169（第四刀 #5 step 2）：batch auto-mount summary tests
+// ============================================================================
+
+#[tokio::test]
+async fn batch_auto_mount_skipped_mounted_failed_counted_correctly() {
+    use gate_providers::router::AutoMountOutcome;
+
+    let bytes = b"\x00asm\x01\x00\x00\x00".to_vec();
+    let sha_ok = hex::encode(Sha256::digest(&bytes));
+    let sha_missing = "f".repeat(64);
+    let sha_tampered = hex::encode(Sha256::digest(b"original"));
+
+    let mut map = std::collections::HashMap::new();
+    map.insert(sha_ok.clone(), bytes.clone());
+    // tampered: 在 sha_tampered 槽位放别的字节
+    map.insert(sha_tampered.clone(), b"DIFFERENT".to_vec());
+    let store = Arc::new(MemBlobStore { map });
+
+    let ch_no_wasm = make_channel(serde_json::json!({
+        "plugin": { "name": "p", "version": "0.1.0", "capabilities": {"chat": true} }
+    }));
+    let ch_ok = make_channel(manifest_with_wasm(&sha_ok));
+    let ch_missing = make_channel(manifest_with_wasm(&sha_missing));
+    let ch_tampered = make_channel(manifest_with_wasm(&sha_tampered));
+
+    let router = router_with_store(store);
+    let channels = vec![ch_no_wasm, ch_ok, ch_missing, ch_tampered];
+    let summary = router.auto_mount_wasm_for_channels(&channels).await;
+
+    assert_eq!(summary.total(), 4);
+    assert_eq!(summary.skipped, 1);
+    assert_eq!(summary.mounted, 1);
+    assert_eq!(summary.failed, 2, "missing + tampered = 2 failed");
+    assert_eq!(summary.per_channel.len(), 4);
+
+    // 验顺序保持 + 每个 outcome 类型对得上
+    assert!(matches!(summary.per_channel[0].1, AutoMountOutcome::Skipped));
+    assert!(matches!(
+        summary.per_channel[1].1,
+        AutoMountOutcome::Mounted { ref sha256, bytes: 8 } if *sha256 == sha_ok
+    ));
+    assert!(matches!(
+        summary.per_channel[2].1,
+        AutoMountOutcome::Failed { sha256: Some(ref s), .. } if *s == sha_missing
+    ));
+    assert!(matches!(
+        summary.per_channel[3].1,
+        AutoMountOutcome::Failed { sha256: Some(ref s), .. } if *s == sha_tampered
+    ));
+}
+
+#[tokio::test]
+async fn batch_auto_mount_empty_channels_returns_zero_summary() {
+    let router = router_with_store(Arc::new(MemBlobStore { map: Default::default() }));
+    let summary = router.auto_mount_wasm_for_channels(&[]).await;
+    assert_eq!(summary.total(), 0);
+    assert!(summary.per_channel.is_empty());
+}

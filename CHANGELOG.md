@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.169] — 2026-05-26
+
+**Type**: feat · **主题**：WASM auto-mount step 2 — batch reload + AutoMountSummary。
+
+### Added
+
+- `AutoMountOutcome` 三态：Skipped / Mounted{sha256, bytes} / Failed{sha256?, error}
+- `AutoMountSummary { mounted, skipped, failed, per_channel: Vec<(ChannelId, AutoMountOutcome)> }`
+- `ProviderRouter::auto_mount_wasm_for_channels(&[ChannelRecord]) -> AutoMountSummary`
+  - 迭代单 channel 调 try_auto_mount，per-channel 失败不阻塞其他
+- 2 batch tests：
+  - `batch_auto_mount_skipped_mounted_failed_counted_correctly` — 4 channel × 4 状态分类计数
+  - `batch_auto_mount_empty_channels_returns_zero_summary`
+
+### Why
+
+第四刀 #5 step 2「reload 迭代」。0.4.168 单 channel helper 是基础；本步加 batch helper 让 caller（gate-server 启动时 / channel.update 后）能一次性 mount 所有有 wasm 配置的 channel，单失败不阻塞其他。
+per_channel 保留顺序+ChannelId+outcome，caller 可基于此决定 emit metric `wasm_auto_mount{outcome=...}` / 写 audit / 通知运维。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 8 passed
+```
+
+---
+
 ## [0.4.168] — 2026-05-26
 
 **Type**: feat · **主题**：WASM auto-mount step 1 — `try_auto_mount_wasm_for_channel` helper + 6 integration tests。

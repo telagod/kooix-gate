@@ -240,6 +240,53 @@ impl ProviderRouter {
         Ok(Some(bytes))
     }
 
+    /// 0.4.169（第四刀 #5 step 2）：批量 auto-mount — 迭代 channels，
+    /// 对每个调 [`try_auto_mount_wasm_for_channel`]，单 channel 失败不阻塞其他。
+    /// 返回汇总；caller 自行决定如何 emit metric / structured log / 上 audit。
+    ///
+    /// 仅做 fetch + 验证；真接 wasmtime host 由 0.4.171 e2e + caller 决定。
+    pub async fn auto_mount_wasm_for_channels(
+        &self,
+        channels: &[gate_storage::ChannelRecord],
+    ) -> AutoMountSummary {
+        let mut summary = AutoMountSummary::default();
+        for ch in channels {
+            let res = self.try_auto_mount_wasm_for_channel(ch).await;
+            let outcome = match res {
+                Ok(None) => {
+                    summary.skipped += 1;
+                    AutoMountOutcome::Skipped
+                }
+                Ok(Some(bytes)) => {
+                    summary.mounted += 1;
+                    // 重算一次 sha 给 metric label（fetch 时已校验过，纯 informational）
+                    let sha = {
+                        use sha2::{Digest, Sha256};
+                        hex::encode(Sha256::digest(&bytes))
+                    };
+                    AutoMountOutcome::Mounted {
+                        sha256: sha,
+                        bytes: bytes.len(),
+                    }
+                }
+                Err(e) => {
+                    summary.failed += 1;
+                    let sha = match &e {
+                        AutoMountError::NotFound(s) => Some(s.clone()),
+                        AutoMountError::Sha256Mismatch { expected, .. } => Some(expected.clone()),
+                        _ => None,
+                    };
+                    AutoMountOutcome::Failed {
+                        sha256: sha,
+                        error: e.to_string(),
+                    }
+                }
+            };
+            summary.per_channel.push((ch.channel_id, outcome));
+        }
+        summary
+    }
+
     /// 挂载 ModelAliasRepo，启用 alias 解析。
     pub fn with_model_alias_repo(mut self, repo: Arc<dyn ModelAliasRepo>) -> Self {
         self.model_alias_repo = Some(repo);
@@ -1807,6 +1854,33 @@ pub enum AutoMountError {
     NotFound(String),
     #[error("wasm module sha256 mismatch: expected={expected}, actual={actual}")]
     Sha256Mismatch { expected: String, actual: String },
+}
+
+/// 0.4.169（第四刀 #5 step 2）：batch auto-mount 单 channel 结果。
+#[derive(Debug, Clone)]
+pub enum AutoMountOutcome {
+    /// channel 无 wasm 配置 — 跳过，不计错误
+    Skipped,
+    /// channel 有 wasm 且字节已 fetch + sha256 校验通过 — 字节大小
+    Mounted { sha256: String, bytes: usize },
+    /// channel 有 wasm 但 mount 失败 — 错误描述
+    Failed { sha256: Option<String>, error: String },
+}
+
+/// 0.4.169: batch auto-mount 整体汇总（不挂 host，纯 fetch + 验证统计）。
+#[derive(Debug, Default, Clone)]
+pub struct AutoMountSummary {
+    pub mounted: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    /// 每 channel 详细结果（channel_id → outcome）— caller 决定如何 emit metric / log
+    pub per_channel: Vec<(gate_core::id::ChannelId, AutoMountOutcome)>,
+}
+
+impl AutoMountSummary {
+    pub fn total(&self) -> usize {
+        self.mounted + self.skipped + self.failed
+    }
 }
 
 #[cfg(test)]
