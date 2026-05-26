@@ -182,6 +182,32 @@ impl CustomHttpProvider {
         env_secret_slots(channel_code)
     }
 
+    /// 0.4.138：构造 wasm HookContext，把 channel secrets + manifest 声明的
+    /// allowed_slots 真传进去，让 host_get_secret_slot 闭包能 capability 校验。
+    pub(super) fn build_wasm_hook_context(&self, model: &str) -> gate_wasm::HookContext {
+        let secrets: std::collections::HashMap<String, String> = self
+            .secrets
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let allowed_slots: std::collections::HashSet<String> = self
+            .manifest
+            .security
+            .permissions
+            .secret_slots
+            .iter()
+            .cloned()
+            .collect();
+        gate_wasm::HookContext {
+            channel_id: self.wasm_channel_id.clone(),
+            model: model.to_string(),
+            request_id: String::new(),
+            metadata: Default::default(),
+            secrets,
+            allowed_slots,
+        }
+    }
+
     /// 0.4.42: 调 wasm chat_request_transform hook（如配置）。
     /// 失败永不 propagate — fallback policy 内部已降级 identity。
     pub(super) async fn wasm_transform_request(
@@ -195,13 +221,7 @@ impl CustomHttpProvider {
         if self.manifest.security.wasm.is_none() {
             return body;
         }
-        let ctx = gate_wasm::HookContext {
-            channel_id: self.wasm_channel_id.clone(),
-            model: req.model.clone(),
-            request_id: String::new(),
-            metadata: Default::default(),
-            ..Default::default()
-        };
+        let ctx = self.build_wasm_hook_context(&req.model);
         let result = gate_wasm::invoke_with_fallback(
             host,
             &self.wasm_channel_id,
@@ -221,13 +241,7 @@ impl CustomHttpProvider {
         if self.manifest.security.wasm.is_none() {
             return body;
         }
-        let ctx = gate_wasm::HookContext {
-            channel_id: self.wasm_channel_id.clone(),
-            model: model.to_string(),
-            request_id: String::new(),
-            metadata: Default::default(),
-            ..Default::default()
-        };
+        let ctx = self.build_wasm_hook_context(model);
         let result = gate_wasm::invoke_with_fallback(
             host,
             &self.wasm_channel_id,
@@ -255,13 +269,7 @@ impl CustomHttpProvider {
         if self.manifest.security.wasm.is_none() {
             return chunk;
         }
-        let ctx = gate_wasm::HookContext {
-            channel_id: self.wasm_channel_id.clone(),
-            model: model.to_string(),
-            request_id: String::new(),
-            metadata: Default::default(),
-            ..Default::default()
-        };
+        let ctx = self.build_wasm_hook_context(model);
         let result = gate_wasm::invoke_with_fallback(
             host,
             &self.wasm_channel_id,

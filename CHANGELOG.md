@@ -11,6 +11,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.138] — 2026-05-26
+
+**Type**: runtime · **主题**：CustomHttpProvider 接通 HookContext.secrets → host_get_secret_slot 端到端工作。
+
+### Added
+
+- `CustomHttpProvider::build_wasm_hook_context(&self, model)` helper：
+  - 从 `self.secrets` 拷明文 secret 进 HookContext.secrets
+  - 从 `self.manifest.security.permissions.secret_slots` 拷 allowed_slots 进 HookContext.allowed_slots
+
+### Changed
+
+- 4 处 `gate_wasm::HookContext { ... ..Default::default() }` literal 全部改用 `self.build_wasm_hook_context(model)`：
+  - `wasm_transform_request` (chat req)
+  - `wasm_transform_response` (chat resp)
+  - `wasm_transform_stream` (chat stream)
+  - `wasm_transform_embedding_request`
+
+### Why
+
+0.4.137 装了 host_get_secret_slot 但 caller 没填 ctx.secrets，capability 校验全返 -1 → plugin 看不到任何 secret。本步把 channel.secrets + manifest.secret_slots 真正传到 HookContext，plugin **第一次能拿明文 secret 拼 Authorization 头**。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 143 passed
+cargo test -p gate-wasm --lib         # 18 passed
+cargo check --workspace               # 0 errors
+```
+
+### G-003 收尾
+
+| Host fn | 实装版本 | 状态 |
+|---------|---------|------|
+| host_log | 0.4.80 | ✅ |
+| host_record_metric | 0.4.81 | ✅ |
+| host_get_secret_slot | 0.4.137 (linker) + 0.4.138 (caller 接通) | ✅ |
+
+**第二刀 followup §1 标的"WASM host fn 三件套实际只做 2/3"债务还清。**
+
+---
+
 ## [0.4.137] — 2026-05-26
 
 **Type**: runtime · **主题**：`host_get_secret_slot` 真实装（G-003 step 3/3 真还债 · 按 0.4.111 设计稿）。
