@@ -11,6 +11,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.175] — 2026-05-26 — 第四刀阶段大版收口 🗡⚡
+
+> 25 patch（0.4.151 → 0.4.175）的第四刀真还债 + 收口阶段大版。
+> 累计：第一刀 37 + 第二刀 19 + 第三刀 30 + 第四刀 25 = **111 patch（0.4.65-0.4.175）**。
+
+### 第四刀战报（25 patch · 真还第三刀推 v0.5.x 的 5 项）
+
+| 项 | patch 数 | 版本范围 | 收口度 |
+|----|---------|---------|--------|
+| **#1 admin/shared.rs 物理拆** | 5 | 0.4.151-155 | ✅ 真收口（反向依赖断绝） |
+| **#2 DataTable virtualize 真接** | 3 | 0.4.156-158 | ✅ 真收口 + 变高 row 推 v0.5.x |
+| **#3 playground capability gating** | 5 | 0.4.159-163 | ✅ 真收口 + UI 测试推 v0.5.x |
+| **#4 chaos test 真启 toxiproxy** | 4 | 0.4.164-167 | ⚠ 半收口（PG/Redis 真链路推 v0.5.x） |
+| **#5 WASM auto-mount 业务流** | 4 | 0.4.168-171 | ✅ 真收口 + gate-server caller 推 v0.5.x |
+| 收口（docs sync + followup + 门禁） | 4 | 0.4.172-175 | — |
+
+### 关键交付清单
+
+#### 新接口 / 新模块
+
+- `admin/shared.rs` — 13 个跨 sibling helper 物理收容
+- `NodeCapabilityHint.svelte` — playground 节点 capability 状态显示
+- `flow/capabilities.ts` — node kind → ProviderCapabilities 映射 helper
+- `ToxiproxyContainer` — testcontainers 真启 toxiproxy + admin REST helper
+- `ProviderRouter::{try_auto_mount_wasm_for_channel, auto_mount_wasm_for_channels, auto_mount_and_load_into_host}` + AutoMountError + AutoMountSummary
+
+#### 新 metric
+
+- `gate_wasm_auto_mount_total{outcome=skipped|mounted|failed, stage=fetch|load}`
+
+#### 新 test
+
+- `web/src/tests/flow-capabilities.test.ts` — 13 vitest
+- `gate-providers/tests/wasm_auto_mount.rs` — 12 tests（含真 WasmtimeHost e2e）
+- `gate-server/tests/chaos_toxiproxy.rs` — 7 passed + 3 ignored chaos case
+- 合计 32 新 test
+
+### 诚实评（详见 docs/product-review-followup-final-2026-05-26.md）
+
+第四刀的 5 项「推 v0.5.x」全部有清晰原因 + 边界 + 后续路径：
+
+1. DataTable 变高 row virtualize — 工程量需 1-2 patch 单独立项
+2. Svelte 5 + jsdom UI 组件测试 — 框架 fragile，等上游成熟
+3. ProviderCapabilities audio_in/audio_out 拆 — 后端 schema 变更
+4. chaos PG/Redis 真接通 toxiproxy — host 网络拓扑 + 4-6 patch
+5. WASM auto-mount gate-server caller 接通 — 装配链改动，非第四刀范围
+
+不像第一刀有"占位 env"幽灵 / 第二刀的"step 1/N 没下文"，**第四刀的债全部诚实摊明**。
+
+### 门禁状态（v0.4.174 全跑通过）
+
+```
+workspace lib tests : 230+ passed; 0 failed
+wasm_auto_mount     :  12 passed
+wasm_integration    :   4 passed
+chaos_toxiproxy     :   7 passed + 3 ignored (opt-in docker)
+web npm run check   :   0 errors / 0 warnings, 4272 files
+web vitest          : 127 passed, 21 files
+```
+
+### Why
+
+承前三刀刀法。第四刀真还第三刀诚实评的 5 项真实债务，让 v0.5.0-rc1 候选状态成立。
+v0.5.0 正式启动可基于此版做需求筛选 + 时间盒。
+
+---
+
 ## [0.4.174] — 2026-05-26
 
 **Type**: chore · **主题**：v0.5.0-rc1 候选门禁全跑验证。
