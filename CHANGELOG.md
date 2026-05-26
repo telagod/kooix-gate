@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.161] — 2026-05-26
+
+**Type**: refactor · **主题**：抽 NodeCapabilityHint + 接到 STT/TTS 节点。
+
+### Added
+
+- `web/src/lib/components/flow/NodeCapabilityHint.svelte`：
+  - 接 `kind: FlowNodeKind + label: string` 两 props
+  - onMount 拉 capability matrix；caps null 时不显示；不支持时 amber 横幅；有支持时灰色 hint
+
+### Changed
+
+- `LLMChatNode.svelte`：把 0.4.160 inline hint 改为 `<NodeCapabilityHint kind="llmChat" label="chat-capable" />`
+- `STTNode.svelte`：加 `<NodeCapabilityHint kind="stt" label="audio-capable" />`
+- `TTSNode.svelte`：加 `<NodeCapabilityHint kind="tts" label="audio-capable" />`
+
+### Why
+
+第四刀 #3 step 3。0.4.160 在 LLMChatNode 内 inline 写 capability hint，发现 STT/TTS/ImageGen 都要重复这段 30 行模板——抽成共享组件，3 个 modality 节点统一接入。
+audio-capable 同时覆盖 STT/TTS 是当前后端 ProviderCapabilities.audio 单 flag 的限制；后端 0.5.x 拆 audio_in/audio_out 后此处可细化。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings, 4271 files
+```
+
+---
+
 ## [0.4.160] — 2026-05-26
 
 **Type**: feat · **主题**：LLMChatNode 内 capability hint。

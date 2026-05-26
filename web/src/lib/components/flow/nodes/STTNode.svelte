@@ -1,7 +1,7 @@
 <script lang="ts">
-	
 	import type { FlowNodeData } from '$lib/flow/types.js';
 	import BaseNode from '../BaseNode.svelte';
+	import NodeCapabilityHint from '../NodeCapabilityHint.svelte';
 
 	let { data, id }: { data: FlowNodeData; id: string } = $props();
 
@@ -12,6 +12,7 @@
 
 <BaseNode {data} {id}>
 	<div class="space-y-2 nodrag nowheel">
+		<NodeCapabilityHint kind="stt" label="audio-capable" />
 		<select
 			value={(data.params.model as string) ?? 'whisper-1'}
 			onchange={(e) => updateParam('model', (e.target as HTMLSelectElement).value)}

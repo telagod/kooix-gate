@@ -1,7 +1,8 @@
 <script lang="ts">
-	
+
 	import type { FlowNodeData } from '$lib/flow/types.js';
 	import BaseNode from '../BaseNode.svelte';
+	import NodeCapabilityHint from '../NodeCapabilityHint.svelte';
 	import { clsx } from 'clsx';
 
 	let { data, id }: { data: FlowNodeData; id: string } = $props();
@@ -15,6 +16,7 @@
 
 <BaseNode {data} {id}>
 	<div class="space-y-2 nodrag nowheel">
+		<NodeCapabilityHint kind="tts" label="audio-capable" />
 		<div class="flex gap-1.5">
 			<select
 				value={(data.params.model as string) ?? 'tts-1'}
