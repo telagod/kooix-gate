@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.104] — 2026-05-26
+
+**Type**: runtime · **主题**：Usage 加 audio/prediction tokens（followup §3.2）。
+
+### Added
+
+- `Usage.audio_tokens: Option<u32>` — OpenAI 4o-realtime / o1-audio
+- `Usage.accepted_prediction_tokens: Option<u32>` — predicted outputs 被接受的 token 数
+- `Usage.rejected_prediction_tokens: Option<u32>` — predicted outputs 被拒绝的 token 数
+
+### Changed
+
+- `lift_openai_usage_details` 重写借用模式（先 copy 出 5 个 nested 字段值再统一调 entry，避免 immutable/mutable borrow 跨调用冲突）
+- 5 个字段全部接入 lift 路径
+- `plugin_preset.rs` / `custom_provider/replay.rs` Usage struct literal 补 3 个新字段默认值
+
+### Why
+
+第一刀只 lift 了 `cached_tokens` + `reasoning_tokens` —— 4o-realtime / o1-audio 模型的 audio_tokens 和 predicted outputs 系列模型的 accepted/rejected 完全丢失，billing 拿不到完整维度（accepted 按正常 token 计费，rejected 通常折扣或免费）。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 144 passed (143 + 1 lift_extracts_audio_and_prediction_tokens)
+```
+
+---
+
 ## [0.4.103] — 2026-05-26
 
 **Type**: runtime · **主题**：Retry-After 头兼容 HTTP-date 格式（followup §3.1）。

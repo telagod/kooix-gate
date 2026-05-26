@@ -287,27 +287,62 @@ pub(crate) fn lift_openai_usage_details(mut v: serde_json::Value) -> serde_json:
     // 把整个 usage 备份到 raw 之前操作
     let original = serde_json::Value::Object(usage.clone());
 
-    if let Some(prompt_details) = usage.get("prompt_tokens_details").and_then(|d| d.as_object()) {
-        if let Some(cached) = prompt_details.get("cached_tokens").and_then(|x| x.as_u64()) {
-            usage
-                .entry("cached_tokens")
-                .or_insert(serde_json::json!(cached as u32));
-        }
-    }
-    if let Some(comp_details) = usage
+    // 0.4.68 + 0.4.104（followup §3.2）：先把所有要提的字段值 copy 出来，
+    // 再统一调 entry()，避免 immutable / mutable borrow 跨调用冲突。
+    let prompt_cached = usage
+        .get("prompt_tokens_details")
+        .and_then(|d| d.as_object())
+        .and_then(|d| d.get("cached_tokens"))
+        .and_then(|x| x.as_u64());
+    let prompt_audio = usage
+        .get("prompt_tokens_details")
+        .and_then(|d| d.as_object())
+        .and_then(|d| d.get("audio_tokens"))
+        .and_then(|x| x.as_u64());
+    let comp_reasoning = usage
         .get("completion_tokens_details")
         .and_then(|d| d.as_object())
-    {
-        if let Some(reasoning) = comp_details.get("reasoning_tokens").and_then(|x| x.as_u64()) {
-            usage
-                .entry("reasoning_tokens")
-                .or_insert(serde_json::json!(reasoning as u32));
-        }
+        .and_then(|d| d.get("reasoning_tokens"))
+        .and_then(|x| x.as_u64());
+    let comp_accepted = usage
+        .get("completion_tokens_details")
+        .and_then(|d| d.as_object())
+        .and_then(|d| d.get("accepted_prediction_tokens"))
+        .and_then(|x| x.as_u64());
+    let comp_rejected = usage
+        .get("completion_tokens_details")
+        .and_then(|d| d.as_object())
+        .and_then(|d| d.get("rejected_prediction_tokens"))
+        .and_then(|x| x.as_u64());
+
+    if let Some(v) = prompt_cached {
+        usage
+            .entry("cached_tokens")
+            .or_insert(serde_json::json!(v as u32));
     }
+    if let Some(v) = prompt_audio {
+        usage
+            .entry("audio_tokens")
+            .or_insert(serde_json::json!(v as u32));
+    }
+    if let Some(v) = comp_reasoning {
+        usage
+            .entry("reasoning_tokens")
+            .or_insert(serde_json::json!(v as u32));
+    }
+    if let Some(v) = comp_accepted {
+        usage
+            .entry("accepted_prediction_tokens")
+            .or_insert(serde_json::json!(v as u32));
+    }
+    if let Some(v) = comp_rejected {
+        usage
+            .entry("rejected_prediction_tokens")
+            .or_insert(serde_json::json!(v as u32));
+    }
+
     // 留原始 details 在 raw 用于审计 / debugging
-    usage
-        .entry("raw")
-        .or_insert(original);
+    usage.entry("raw").or_insert(original);
     v
 }
 
@@ -369,5 +404,35 @@ mod openai_lift_tests {
         let lifted = lift_openai_usage_details(raw);
         // 顶级显式值优先，不被 details 覆盖
         assert_eq!(lifted["usage"]["cached_tokens"], 999);
+    }
+
+    // 0.4.104（followup §3.2）：audio_tokens + accepted/rejected_prediction_tokens
+    #[test]
+    fn lift_extracts_audio_and_prediction_tokens() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 50,
+                "completion_tokens": 30,
+                "total_tokens": 80,
+                "prompt_tokens_details": {
+                    "cached_tokens": 10,
+                    "audio_tokens": 12
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 5,
+                    "accepted_prediction_tokens": 18,
+                    "rejected_prediction_tokens": 7
+                }
+            }
+        });
+        let lifted = lift_openai_usage_details(raw);
+        let u = lifted.get("usage").unwrap();
+        assert_eq!(u["cached_tokens"], 10);
+        assert_eq!(u["audio_tokens"], 12);
+        assert_eq!(u["reasoning_tokens"], 5);
+        assert_eq!(u["accepted_prediction_tokens"], 18);
+        assert_eq!(u["rejected_prediction_tokens"], 7);
+        // raw 应保留 5 个原始 details
+        assert!(u.get("raw").is_some());
     }
 }

@@ -232,6 +232,17 @@ pub struct Usage {
     pub cache_creation_input_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
+    /// 0.4.104（followup §3.2）：OpenAI 4o-realtime / o1-audio 在 usage 嵌套
+    /// `prompt_tokens_details.audio_tokens`，与文本 token 计费不同。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_tokens: Option<u32>,
+    /// 0.4.104（followup §3.2）：OpenAI predicted outputs / speculative decoding
+    /// 在 `completion_tokens_details.accepted_prediction_tokens` 与
+    /// `rejected_prediction_tokens` 中分别计数，定价 accepted=正常、rejected=折扣或免费。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_prediction_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejected_prediction_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_units: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
