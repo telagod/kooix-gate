@@ -11,6 +11,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.174] — 2026-05-26
+
+**Type**: chore · **主题**：v0.5.0-rc1 候选门禁全跑验证。
+
+### Verified
+
+#### Workspace lib tests（cargo test --workspace --lib）
+
+```
+gate-core      :   8 passed
+gate-storage   :  19 passed
+gate-providers : 143 passed
+gate-wasm      :  23 passed
+gate-server    :  50 passed
+gate-billing   :  30 passed
+gate-cache     :   5 passed
+gate-auth      :   5 passed
+gate-wasm-sdk  :   1 passed
+其他           :   小测  
+─────────────────────────────────────
+合计           : 230+ passed; 0 failed
+```
+
+#### Integration tests
+
+```
+gate-providers/wasm_auto_mount   : 12 passed  (含真 WasmtimeHost e2e)
+gate-providers/wasm_integration  :  4 passed
+gate-server/chaos_toxiproxy      :  7 passed + 3 ignored (opt-in docker)
+```
+
+#### Web
+
+```
+npm run check (svelte-check)     : 0 errors / 0 warnings, 4272 files
+vitest run                       : 127 passed, 21 files
+```
+
+### Changed
+
+- `gate-wasm/src/blob_store.rs`：补 `#[cfg(test)] use std::path::Path`（之前误删导致 lib test 编译失败）
+
+### Why
+
+第四刀 21 patch 全部入 main + 文档同步 + followup 后，跑一次全门禁验证 v0.5.0-rc1 候选状态。0 失败，可以 tag v0.4.175 阶段大版了。
+
+### Verification
+
+```bash
+cargo test --workspace --lib                          # 0 failed
+cargo test -p gate-providers --test wasm_auto_mount   # 12 passed
+cargo test -p gate-providers --test wasm_integration  # 4 passed
+cargo test -p gate-server --test chaos_toxiproxy      # 7 passed; 3 ignored
+cd web && npm run check                                # 0/0
+cd web && npx vitest run                               # 127 / 21
+```
+
+---
+
 ## [0.4.173] — 2026-05-26
 
 **Type**: docs · **主题**：第四刀 followup-final 自我批判稿。
