@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.160] — 2026-05-26
+
+**Type**: feat · **主题**：LLMChatNode 内 capability hint。
+
+### Changed
+
+- `LLMChatNode.svelte`：
+  - onMount 调 `getProviderCapabilities()` 拉 capability rows
+  - 无 chat-capable channel：amber 横幅 + AlertCircle icon 告知
+  - 有支持时：底部加 `可用 provider: N` 的灰色提示（hover 看完整列表）
+
+### Why
+
+第四刀 #3 step 2。0.4.159 在 catalog 侧栏禁用按钮后，已添加到画布的节点仍需告知用户「无可用 channel」状态——避免用户运行后才报错。
+节点内 hint 是补丁式信息流：先让用户能加节点（设计场景），跑之前明确告知缺失能力。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.159] — 2026-05-26
 
 **Type**: feat · **主题**：FlowEditor 加载 provider capability + 节点添加按钮 gating。
