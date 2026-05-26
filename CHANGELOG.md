@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.114] — 2026-05-26
+
+**Type**: test · **主题**：channels form-factories 4 个 sanity test。
+
+### Added
+
+- `web/src/tests/channels-form-factories.test.ts`：
+  - defaultCreateForm 返业务约定默认值（timeout_ms=60000 / max_retries=2 等）
+  - 每次调用返新 object（array / nested object 也不共享 ref，防 mutate 污染）
+  - defaultEditForm 返空对象 + 每次新对象
+
+### Why
+
+第一刀 followup B2 真做 step 3（list state store）涉及 page state 全重构，工作量超 patch。先用 test 锁死 0.4.110 form-factories 的业务契约——任何 default 值漂移（如未来人手贱把 max_retries 改成 3）会立即被 CI 拦截。
+
+### Honest assessment
+
+诚实评：B2 step 3 (list state store) 真重构还没做。本步只是把 step 2 的工厂加测试。
+
+### Verification
+
+```bash
+npm --prefix web test -- channels-form-factories    # 4 passed
+```
+
+---
+
 ## [0.4.113] — 2026-05-26
 
 **Type**: docs · **主题**：撤回 product-review §1 P1-3 误判（request_logs 已是 outbox 异步）。
