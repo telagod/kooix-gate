@@ -288,9 +288,39 @@ fn bench_request_log_enqueue(c: &mut Criterion) {
     group.finish();
 }
 
+// 0.4.140（按 0.4.98 TODO step 1）：chat provider dispatch micro-bench。
+// 量 StaticProvider.chat() 单调用开销作为 baseline，不接 axum router
+// （axum dispatch + auth + quota middleware 单独由 bench_quota_checks 覆盖）。
+// 后续 patch (0.4.141) 加 stream / extra params 等扩展 case。
+fn bench_chat_provider_dispatch(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut group = c.benchmark_group("chat_provider_dispatch");
+
+    let provider: Arc<dyn Provider> = Arc::new(StaticProvider);
+
+    group.bench_function("static_provider_chat_call", |b| {
+        b.to_async(&rt).iter(|| {
+            let p = provider.clone();
+            async move {
+                let req = ChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: vec![ChatMessage::text(Role::User, "bench")],
+                    max_tokens: Some(64),
+                    ..Default::default()
+                };
+                let resp = p.chat(req).await.unwrap();
+                black_box(resp);
+            }
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     hot_path_benches,
     bench_quota_checks,
-    bench_request_log_enqueue
+    bench_request_log_enqueue,
+    bench_chat_provider_dispatch
 );
 criterion_main!(hot_path_benches);

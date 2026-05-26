@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.140] — 2026-05-26
+
+**Type**: runtime · **主题**：chat provider dispatch micro-bench（按 0.4.98 TODO 真还债）。
+
+### Added
+
+- `crates/gate-server/benches/hot_paths.rs::bench_chat_provider_dispatch`：
+  - 量 `StaticProvider.chat()` 单调用开销（baseline）
+  - Criterion group "chat_provider_dispatch"
+  - 加入 criterion_group! 注册
+
+### Why
+
+第二刀 followup §2 揭：0.4.98 的 chat e2e bench 只加 4 行 TODO 注释。本步真加 micro-bench fn —— 不接 axum router（避免 auth+quota+metrics middleware 噪音），仅量 Provider trait dispatch 开销作为 baseline。
+
+### Honest assessment
+
+诚实评：仍不是真 e2e bench（完整 chat handler 含 metrics emit / inflight pre-debit / 计费 outbox）。axum router e2e bench 需要 mock 完整 AppState，留 v0.4.141 实装。
+
+### Verification
+
+```bash
+cargo check -p gate-server --benches    # 0 errors
+cargo bench -p gate-server --bench hot_paths chat_provider_dispatch    # 可跑
+```
+
+---
+
 ## [0.4.139] — 2026-05-26
 
 **Type**: test · **主题**：host_get_secret_slot 2 个 sanity tests。
