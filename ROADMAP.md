@@ -181,6 +181,28 @@ cd web && npm run build                               # ✅ built in 7.17s
 
 ---
 
+### M3 后 — product-review 第三刀（0.4.121-0.4.150，30 patch · 真还债）
+
+第三刀真实把第二刀 followup 提的"真实债务"落到 runtime。详见 [docs/product-gaps.md § 第三刀](./docs/product-gaps.md)。
+
+**真还 22 项**：admin.rs 4368→553 行（-87%）/ DataTable virtualize / HookContext.secrets + host_get_secret_slot / WasmBlobStore / chat e2e bench / chaos fixture / metric const 等。
+
+### M3 后 — product-review 第四刀（0.4.151-0.4.171，21 patch · 5/5 真收口）
+
+第三刀诚实评的"仍未做（推 v0.5.x）"5 项第四刀全部真还。
+
+| 项 | 版本 | 收口 |
+|---|------|-----|
+| **#1 admin/shared.rs 物理拆** | 0.4.151-155 | 13 helper 物理迁出 + 7 sibling 切 `use super::shared::*`，反向依赖断绝 |
+| **#2 DataTable virtualize 真接** | 0.4.156-158 | admin/requests + audit 双轨（无展开 + ≥40 行 → virtualize；其他 legacy） |
+| **#3 playground capability gating** | 0.4.159-163 | FlowEditor 侧栏 + 右键 disabled / NodeCapabilityHint 接 4 个 AI 节点 / 13 vitest |
+| **#4 chaos test 真启 toxiproxy** | 0.4.164-167 | testcontainers 真启容器 + admin REST helper + 3 case（拒绝/latency/503） |
+| **#5 WASM auto-mount 业务流** | 0.4.168-171 | try_auto_mount + AutoMountSummary + 真接 WasmHost.load_module + metric + WasmtimeHost e2e |
+
+第四刀共 **21 patch · 5/5 真收口**。诚实推 v0.5.x：chaos PG/Redis 完整容器流 / UI 组件 testing-library / WASM auto-mount 接进 gate-server 启动流 / DataTable 变高 row virtualize。
+
+---
+
 ## M4 · v0.5.0 — Enterprise / SaaS 进阶（候选）
 
 **主题**：M3 完整产品形态已交付（0.4.58）；v0.5.0 进入企业级 / SaaS 多区域路由方向。

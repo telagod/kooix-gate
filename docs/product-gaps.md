@@ -134,6 +134,56 @@
   - chaos test 真启 toxiproxy 容器
   - WASM blob store 自动 mount 业务流（reload + fetch + load_module）
 
+### 第四刀战报（0.4.151-0.4.171，21 patch · 5 项真还）
+
+第三刀诚实评的"仍未做（推 v0.5.x）"5 项第四刀全部真还。
+
+#### #1 admin/shared.rs 物理拆（5 patch · 0.4.151-155）
+
+- 0.4.151：建 `admin/shared.rs` 骨架
+- 0.4.152：迁 confirmation/audit_meta 3 fn
+- 0.4.153：迁 5 个 audit_snapshot helper
+- 0.4.154：迁 channel/key 6 个 helper
+- 0.4.155：7 sibling `use super::channels` → `use super::shared::*`，反向依赖断绝
+
+#### #2 DataTable virtualize 真接（3 patch · 0.4.156-158）
+
+- 0.4.156：admin/requests 抽 requestRowSnippet + expandedRowSnippet
+- 0.4.157：双轨 — 无展开 + ≥40 行走 virtualize；其他 legacy
+- 0.4.158：admin/audit 同样双轨；incidents 评审定无需（聚合视图子表 < 20 行）
+
+#### #3 playground capability gating（5 patch · 0.4.159-163）
+
+- 0.4.159：FlowEditor `getProviderCapabilities()` + 侧栏 + 右键菜单 disabled
+- 0.4.160：LLMChatNode 内 capability hint
+- 0.4.161：抽 NodeCapabilityHint + STT/TTS 接通
+- 0.4.162：ImageGenNode 接 NodeCapabilityHint
+- 0.4.163：flow-capabilities helper 13 vitest
+
+#### #4 chaos test 真启 toxiproxy（4 patch · 0.4.164-167）
+
+- 0.4.164：testcontainers GenericImage `ghcr.io/shopify/toxiproxy:2.9.0` + admin URL
+- 0.4.165：add_proxy / set_proxy_enabled admin REST helper + case #1 拒绝连接
+- 0.4.166：add_toxic admin helper + case #2 Redis 闪断 latency toxic
+- 0.4.167：case #3 上游 503 风暴（wiremock + ProbeChaos counter，默认跑）
+
+#### #5 WASM blob store 自动 mount（4 patch · 0.4.168-171）
+
+- 0.4.168：`try_auto_mount_wasm_for_channel` helper + AutoMountError 6 类
+- 0.4.169：batch `auto_mount_wasm_for_channels` + AutoMountSummary
+- 0.4.170：`auto_mount_and_load_into_host` 真接 WasmHost.load_module + metric `gate_wasm_auto_mount_total{outcome, stage}`
+- 0.4.171：真 WasmtimeHost e2e（wat::parse_str IDENTITY_WAT → invoke_hook 验 identity transform）
+
+### 第四刀诚实评
+
+- **真改 runtime / 抽新接口 8 项**：admin/shared.rs / DataTable virtualize 双轨 / FlowEditor capability + NodeCapabilityHint / ToxiproxyContainer + admin API helper / try_auto_mount + AutoMountSummary + load_into_host
+- **测试 8 项**：flow-capabilities 13 / chaos 3 case / wasm_auto_mount 12 (含真 WasmtimeHost e2e)
+- **诚实承认推 v0.5.x**：
+  - chaos PG/Redis 完整真接通容器流（docker host.docker.internal 网络工程量大）
+  - playground UI 组件 @testing-library/svelte 测试（Svelte 5 runes onMount async 在测试环境 fragile）
+  - WASM auto-mount 接进 gate-server 启动流（caller 决定何时调）
+  - DataTable virtualize 展开变高 row 的真 virtualize 支持
+
 ---
 
 ## P0 — 信任链与运行时收口（v0.5.0 必交付）

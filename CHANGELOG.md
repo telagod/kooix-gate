@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.172] — 2026-05-26
+
+**Type**: docs · **主题**：第四刀 5/5 收口同步 product-gaps + ROADMAP。
+
+### Changed
+
+- `docs/product-gaps.md`：加「第四刀战报」+ 「第四刀诚实评」章节，5 项收口逐 patch 列明
+- `ROADMAP.md`：加「M3 后 — product-review 第三刀 / 第四刀」两节，第四刀列 5 项收口表
+
+### Why
+
+第四刀 21 patch 全部 commit 入 main 后，docs/ROADMAP 不再反映"第三刀诚实评仍未做的 5 项"陈旧状态。本步同步收口事实，让外部 reviewer / 接手人能一眼看到当前真实进度。
+
+### Verification
+
+```bash
+grep '第四刀' docs/product-gaps.md ROADMAP.md   # 都有
+```
+
+---
+
 ## [0.4.171] — 2026-05-26 — 第四刀 · 第 5 项真还收口
 
 **Type**: test · **主题**：WASM auto-mount e2e — 真 WasmtimeHost 端到端验证。
