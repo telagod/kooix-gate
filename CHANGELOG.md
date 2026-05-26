@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.173] — 2026-05-26
+
+**Type**: docs · **主题**：第四刀 followup-final 自我批判稿。
+
+### Added
+
+- `docs/product-review-followup-final-2026-05-26.md`：
+  - 第四刀 21 patch 5 项收口逐项诚实评（#1 ✅ / #2 ✅+技术债 / #3 ✅+偷工 / #4 ⚠ 半收口 / #5 ✅+caller 缺口）
+  - 真改 8 / 真测试 8 / 技术债推 v0.5.x 5 / 文档同步 1 分类汇总
+  - 第四刀 vs 前三刀对比
+  - 推 v0.5.x 5 项原因 + 后续路径表
+
+### Why
+
+承前三刀 followup 自我批判传统。第四刀避免"以为做完"的虚假成就感 — 把已知技术债摊明（DataTable 变高 row / Svelte 5 testing-library / 后端 audio 拆 / chaos PG/Redis 真链路 / WASM caller 接通）让 v0.5.x 启动会议看得见底牌。
+
+不像第一刀有"占位 env"幽灵，第四刀的债全部是有清晰原因 + 边界 + 后续路径的。
+
+### Verification
+
+```bash
+ls docs/product-review-*.md
+# product-review-2026-05-26.md (第一刀)
+# product-review-followup-2026-05-26.md (第二刀)
+# product-review-followup-final-2026-05-26.md (第四刀)
+```
+
+---
+
 ## [0.4.172] — 2026-05-26
 
 **Type**: docs · **主题**：第四刀 5/5 收口同步 product-gaps + ROADMAP。
