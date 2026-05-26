@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.134] — 2026-05-26
+
+**Type**: test · **主题**：DataTable virtualize 3 个行为测试。
+
+### Added
+
+- `web/src/tests/data-table-virtualize.test.ts`：
+  - 不传 rows → legacy passthrough（children 渲染）
+  - 传 rows(100) + rowSnippet → 仅渲染视口内（< 100 个 cell）
+  - rows=[] → 不渲染任何业务 row
+
+### Verification
+
+```bash
+npm --prefix web test -- data-table    # 6 passed (3 legacy + 3 virtualize)
+```
+
+---
+
 ## [0.4.133] — 2026-05-26
 
 **Type**: runtime · **主题**：DataTable virtualize 实装（B4 step 2，按 0.4.115 设计）。
