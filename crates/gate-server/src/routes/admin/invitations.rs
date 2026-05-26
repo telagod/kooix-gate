@@ -5,6 +5,8 @@
 //! 类型与 audit / token hash helper。
 
 use super::*;
+#[allow(unused_imports)]
+use super::channels::{require_confirmation, audit_meta, channel_audit_snapshot, key_audit_snapshot, group_audit_snapshot, pricing_rule_audit_snapshot, user_audit_snapshot, channel_capabilities, channel_inflight, is_plugin_provider, key_fingerprint, validate_channel_key_alias, record_to_summary};
 
 pub(super) fn default_invitation_ttl_hours() -> i64 {
     168

@@ -4,6 +4,8 @@
 //! 包含 audit log 列表、org CRUD、user CRUD + 会话管理。
 
 use super::*;
+#[allow(unused_imports)]
+use super::channels::{require_confirmation, audit_meta, channel_audit_snapshot, key_audit_snapshot, group_audit_snapshot, pricing_rule_audit_snapshot, user_audit_snapshot, channel_capabilities, channel_inflight, is_plugin_provider, key_fingerprint, validate_channel_key_alias, record_to_summary};
 
 // ============================================================================
 // Audit Logs

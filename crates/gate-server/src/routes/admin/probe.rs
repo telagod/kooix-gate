@@ -6,6 +6,8 @@
 //! / BalanceResponse 类型与 channel_audit_snapshot / channel_capabilities helper。
 
 use super::*;
+#[allow(unused_imports)]
+use super::channels::{require_confirmation, audit_meta, channel_audit_snapshot, key_audit_snapshot, group_audit_snapshot, pricing_rule_audit_snapshot, user_audit_snapshot, channel_capabilities, channel_inflight, is_plugin_provider, key_fingerprint, validate_channel_key_alias, record_to_summary};
 
 /// POST /v1/admin/channels/:id/probe — 调用上游模型端点或 plugin manifest probe 获取可用模型列表。
 pub(super) async fn probe_channel_models(

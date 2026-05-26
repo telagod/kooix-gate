@@ -11,6 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.129] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/channels.rs 物理拆出（B1 真还债 step 8/8 · 最后一块）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/channels.rs`（853 行）：
+  - 17 handler pub(super)（plugin_manifest_{schema,replay} + list/create/update/delete channels + batch_*_channels + drain/get_drain_status/disable_when_idle + channel_keys 4 个 + get_channel_stats）
+  - 13 helper pub(super)（record_to_summary / *_audit_snapshot / require_confirmation / audit_meta / channel_capabilities / channel_inflight / is_plugin_provider / key_fingerprint / validate_channel_key_alias 等）
+- `admin/mod.rs` 1398 → 553（**真减 845 行**）
+- 主 router 17 处改 channels::*
+- 7 个 sibling mod（invitations / probe / sso / groups / users / org_members / pricing）加 `use super::channels::{...}` 引共享 helper，标 `#[allow(unused_imports)]` 避免 warning
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+### 累计 admin/mod.rs 收口
+
+| Step | Patch | mod.rs 行数 | Δ | 累计 Δ |
+|------|-------|------------|---|--------|
+| 起点 | 0.4.120 | 4368 | — | — |
+| pricing | 0.4.122 | 4204 | -164 | -164 |
+| org_members | 0.4.123 | 4104 | -100 | -264 |
+| invitations | 0.4.124 | 3834 | -270 | -534 |
+| probe | 0.4.125 | 3352 | -482 | -1016 |
+| sso | 0.4.126 | 2759 | -593 | -1609 |
+| groups | 0.4.127 | 1920 | -839 | -2448 |
+| users | 0.4.128 | 1398 | -522 | -2970 |
+| **channels** | **0.4.129** | **553** | **-845** | **-3815** |
+
+**8 个 patch 把 admin god file 4368 → 553，真减 87%**。剩 553 行是 router definition + 共享 helper（v0.4.130 再做 shared.rs 收口）。
+
+---
+
 ## [0.4.128] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/users.rs 物理拆出（B1 真还债 step 7/8）。
