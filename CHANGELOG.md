@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.127] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/groups.rs 物理拆出（B1 真还债 step 6/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/groups.rs`（846 行）：
+  - 10 handler pub(super)（list/create/update/delete groups + list/add/remove/update bindings + get_group_detail + set_project_default_group）
+  - 6 helper（validate_group_strategy / parse_channel_group_id / validate_canary_percent_bps / binding_to_view / deserialize_optional_json_patch / parse_canary_percent_bps_patch）
+  - 多 type（GroupView / BindingView / BuildFallbackChain 等）
+- `admin/mod.rs` 2759 → 1920（**真减 839 行**）
+- 主 router 6 处改 groups::*
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+累计 admin/mod.rs: 4368 → 1920 = **真减 2448 行（56%）**
+
+---
+
 ## [0.4.126] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/sso.rs 物理拆出（B1 真还债 step 5/8）。
