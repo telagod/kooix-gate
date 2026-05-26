@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.147] — 2026-05-26
+
+**Type**: test · **主题**：chaos_toxiproxy 注入器骨架 + 3 个 sanity tests。
+
+### Added
+
+- `crates/gate-server/tests/chaos_toxiproxy.rs`：
+  - `pub struct ToxiproxyInjector` 实装 ChaosInjector trait
+  - Builder API：`with_latency(ms)` + `with_failure_bps(0..10000)`
+  - `injected_count` 用 AtomicUsize 计数
+  - 3 个 sanity test（builder 链式 / failure_bps clamp / default 无注入）
+
+### Honest assessment
+
+诚实评：**未真启 toxiproxy 容器**（依赖 testcontainers + docker），仅定 Builder API 形状。Phase 2（v0.5.x）实装时直接用这套 API + 容器自动启动 + 真请求经过 toxiproxy 端口。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 3 passed
+cargo test -p gate-server --test chaos_common --test chaos_toxiproxy    # 5 total
+```
+
+---
+
 ## [0.4.146] — 2026-05-26
 
 **Type**: test · **主题**：chaos_common 测试 fixture skeleton（按 0.4.99 设计稿 Phase 1）。
