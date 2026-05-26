@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.128] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/users.rs 物理拆出（B1 真还债 step 7/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/users.rs`（529 行）：
+  - 11 handler pub(super)（list_audit_logs / list_all_orgs / create_org / update_org / list_users / create_user / update_user_status / reset_user_password / list_user_sessions / revoke_user_session / revoke_user_sessions）
+  - 多个 helper（default_limit pub(super), default_audit_sort_*, parse_audit_sort_by, parse_sort_dir, normalize_user_email, user_to_view, org_to_view 等）
+- `admin/mod.rs` 1920 → 1398（**真减 522 行**）
+- 主 router 8 处改 users::*
+- sso.rs 的 default_limit serde default 改 `super::users::default_limit`
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+累计 admin/mod.rs: 4368 → 1398 = **真减 2970 行（68%）**
+
+---
+
 ## [0.4.127] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/groups.rs 物理拆出（B1 真还债 step 6/8）。

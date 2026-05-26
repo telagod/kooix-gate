@@ -11,7 +11,7 @@ use super::*;
 
 #[derive(Deserialize)]
 pub struct IdentityProvidersQuery {
-    #[serde(default = "default_limit")]
+    #[serde(default = "super::users::default_limit")]
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
