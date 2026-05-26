@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.124] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/invitations.rs 物理拆出（B1 真还债 step 3/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/invitations.rs`（278 行）：
+  - 9 个 handler（org / project 各 list+create+revoke，加 create_invitation / revoke_invitation 内部 helper）
+  - 5 个内部 helper（default_invitation_ttl_hours / invitation_to_view / generate_invitation_token / invitation_accept_url / org+project_role_to_invite_str / ensure_project_in_org）
+  - 6 个 router-facing handler 标 `pub(super)`
+  - `default_invitation_ttl_hours` 标 `pub(super)` 让父 mod struct serde default 引用
+- `admin/mod.rs` 4104 → 3834（**真减 270 行**）
+- 主 router 4 处 `.route()` 改用 `invitations::*` 限定路径
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.123] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/org_members.rs 物理拆出（B1 真还债 step 2/8）。
