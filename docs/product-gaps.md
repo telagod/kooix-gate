@@ -59,6 +59,85 @@
 | §4 | 0.4.116 | docs | admin.rs 拆分进度表 + ROADMAP 第二刀汇总 |
 | §5.2 | 0.4.117 | docs | SECURITY.md 完整化（SLA / disclosure / severity tiers） |
 
+### 第三刀（0.4.121-0.4.150，30 patch · 真还债）
+
+第二刀 followup 提的"真实债务"在第三刀落到 runtime。
+
+#### B1: admin.rs god file 物理拆分（8 patch · 0.4.121-0.4.129）
+
+| 文件 | 行数 | 抽出版本 |
+|------|-----|---------|
+| `mod.rs` | 553 | 0.4.130 |
+| `channels.rs` | 853 | 0.4.129（最大块） |
+| `groups.rs` | 846 | 0.4.127 |
+| `sso.rs` | 600 | 0.4.126 |
+| `users.rs` | 529 | 0.4.128 |
+| `probe.rs` | 488 | 0.4.125 |
+| `invitations.rs` | 278 | 0.4.124 |
+| `pricing.rs` | 169 | 0.4.122 |
+| `org_members.rs` | 100 | 0.4.123 |
+
+**admin.rs 4368 → 553 行 = 真减 -87%**。8 patch 串联 + 50 server tests 0 回归。
+
+#### B2: channels page 拆分（0.4.131-0.4.132）
+
+- `_lib/list-state.ts` + 3 tests（B2 step 3）
+- `_lib/dialog-state.ts` + 5 tests（B2 step 4）
+
+#### B4: DataTable virtualize（0.4.133-0.4.135）
+
+- DataTable.svelte 加 `rows + rowSnippet + rowHeight + overscan` 接 windowing
+- 3 + 3 = 6 tests（legacy + virtualize）
+- admin/requests 接 stickyHead + maxHeight
+
+#### G-003: WASM host_get_secret_slot（0.4.136-0.4.139）
+
+- HookContext 加 secrets + allowed_slots 字段
+- wasmtime Linker 注册 host_get_secret_slot fn（6 错误码）
+- CustomHttpProvider build_wasm_hook_context 接通 caller
+- 2 sanity test
+
+#### Chat e2e bench（0.4.140-0.4.141）
+
+- bench_chat_provider_dispatch + 3 sub-case
+
+#### G-002: WASM blob store（0.4.142-0.4.143）
+
+- WasmBlobStore trait + LocalFsBlobStore
+- ProviderRouter.wasm_blob_store setter
+
+#### Playground capability frontend（0.4.144-0.4.145）
+
+- api.ts listProviderCapabilities + ProviderCapabilityEntry
+- stores/provider-capabilities.ts 模块级 cached fetch（并发合并防雷暴）
+- 3 sanity tests
+
+#### Chaos test fixture（0.4.146-0.4.147）
+
+- chaos_common.rs trait + NoopChaos + ProbeChaos
+- chaos_toxiproxy.rs ToxiproxyInjector builder API
+
+#### 收口（0.4.130 + 0.4.148-0.4.150）
+
+- admin/mod.rs 头 doc 更新 B1 完成态
+- 6 处剩余 metric 名 const 接入
+- 本节 + ROADMAP / README 同步
+
+### 第三刀诚实评
+
+- **真改 runtime / 抽新接口 22 项**：admin 8 拆 / channels-list-state / dialog-state / DataTable virtualize / HookContext + host_get_secret_slot + secrets 接通 / WasmBlobStore / ProviderRouter setter / playground API+store / chat bench / chaos fixture / metric const
+- **测试 + 文档 6 项**：grep test / svelte tests / mod 头 doc / 第三刀汇总
+- **仍未做（推 v0.5.x）**：
+  - admin/shared.rs 物理拆（helper 仍在 channels.rs 内、sibling 反向依赖）
+  - DataTable virtualize 真接 admin/requests caller（仍 legacy）
+  - playground 节点真按 capability gating（FlowEditor / 5 node component 改）
+  - chaos test 真启 toxiproxy 容器
+  - WASM blob store 自动 mount 业务流（reload + fetch + load_module）
+
+---
+
+## P0 — 信任链与运行时收口（v0.5.0 必交付）
+
 ### 第二刀诚实评
 
 - **真改 runtime 5 项**：Retry-After / Usage 字段 / SharedClient LRU / metric const / org_members 内联

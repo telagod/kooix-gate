@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.149] — 2026-05-26
+
+**Type**: docs · **主题**：product-gaps 加第三刀完成项汇总 + 诚实评。
+
+### Changed
+
+- `docs/product-gaps.md` "已收口" 章节追加 "第三刀（0.4.121-0.4.150，30 patch · 真还债）" 段：
+  - B1 admin god file 物理拆分（4368 → 553 行 = -87%）8 patch 表
+  - B2 channels page 拆分 / B4 DataTable virtualize / G-003 host_get_secret_slot / chat bench / G-002 WasmBlobStore / playground capability frontend / chaos test fixture 分类
+  - **诚实评**：真改 runtime 22 项 / 测试+文档 6 项 / 推 v0.5.x 5 项
+
+### Why
+
+第三刀完成项需要在 product-gaps 上反映真实状态，让 reader 一眼看到："admin 真拆完 + B2/B4 装机制 + G-003 全装 + capability frontend wire-up 但节点未真用"。诚实评 5 项 v0.5.x 真重构清单避免下个 review 漏看。
+
+---
+
 ## [0.4.148] — 2026-05-26
 
 **Type**: refactor · **主题**：metric 名 const 在 metrics.rs 内 6 处剩余使用点真接入。
