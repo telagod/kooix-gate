@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.107] — 2026-05-26
+
+**Type**: refactor · **主题**：metric 名抽 `pub mod names` const（followup §3.5）。
+
+### Added
+
+- `crates/gate-server/src/metrics.rs::names` 新模块，21 个 const：
+  - 4 chat metric: `CHAT_REQUESTS_TOTAL` / `CHAT_DURATION_SECONDS` / `CHAT_TTFB_SECONDS` / `CHAT_STREAM_CHUNKS_TOTAL`
+  - 7 HTTP lifecycle: requests_total / duration / tokens / active_requests 等
+  - 2 upstream + 4 provider routing + 5 quota/billing + 1 worker
+
+### Changed
+
+- `record_chat_request` / `record_chat_ttfb` / `record_chat_stream_chunks` 内部 `metrics::counter!("gate_chat_requests_total", ...)` 改为 `metrics::counter!(names::CHAT_REQUESTS_TOTAL, ...)`，让 typo 在编译期暴露。
+
+### Why
+
+第一刀的 metric 名字符串散在 metrics.rs 闭包内、observability.md 表格、Grafana dashboard JSON 三处。任何 typo 只能 PR review / 抓 bug 时发现。
+
+下一步（v0.4.112 Grafana / 0.4.119 README）可以引用同一 const，避免文档漂移。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed (无回归)
+```
+
+---
+
 ## [0.4.106] — 2026-05-26
 
 **Type**: test · **主题**：chat.rs 埋点编译期 grep 验证（followup §3.4）。

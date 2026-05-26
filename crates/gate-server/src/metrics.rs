@@ -43,6 +43,54 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
+// ============================================================================
+// 0.4.107（followup §3.5）：metric 名常量化
+//
+// 之前 metric 名字符串散在 metrics.rs 闭包内、observability.md 表格、Grafana
+// dashboard JSON 三处。任何 typo（如把 `gate_chat_requests_total` 写成
+// `gate_chat_request_total`）只能 PR review / 抓 bug 时发现。
+//
+// 抽 const + pub mod names 让外部代码（如未来 chat.rs 直接 metrics::counter!
+// 调用、Grafana panel 生成器、observability.md 检查脚本）引用同一 const。
+// ============================================================================
+pub mod names {
+    // Chat (0.4.66)
+    pub const CHAT_REQUESTS_TOTAL: &str = "gate_chat_requests_total";
+    pub const CHAT_DURATION_SECONDS: &str = "gate_chat_duration_seconds";
+    pub const CHAT_TTFB_SECONDS: &str = "gate_chat_ttfb_seconds";
+    pub const CHAT_STREAM_CHUNKS_TOTAL: &str = "gate_chat_stream_chunks_total";
+
+    // HTTP lifecycle
+    pub const REQUESTS_TOTAL: &str = "gate_requests_total";
+    pub const GATEWAY_REQUESTS_TOTAL: &str = "gateway_requests_total";
+    pub const REQUEST_DURATION_SECONDS: &str = "gate_request_duration_seconds";
+    pub const GATEWAY_REQUEST_DURATION_SECONDS: &str = "gateway_request_duration_seconds";
+    pub const TOKENS_TOTAL: &str = "gate_tokens_total";
+    pub const ACTIVE_REQUESTS: &str = "gate_active_requests";
+    pub const GATEWAY_STAGE_DURATION_SECONDS: &str = "gateway_stage_duration_seconds";
+
+    // Upstream
+    pub const UPSTREAM_ERRORS_TOTAL: &str = "upstream_errors_total";
+    pub const GATEWAY_UPSTREAM_ERRORS_TOTAL: &str = "gateway_upstream_errors_total";
+
+    // Provider routing / health
+    pub const PROVIDER_ROUTE_DECISIONS_TOTAL: &str = "provider_route_decisions_total";
+    pub const PROVIDER_HEALTH_PROBE_TOTAL: &str = "provider_health_probe_total";
+    pub const PROVIDER_HEALTH_PROBE_DURATION_SECONDS: &str =
+        "provider_health_probe_duration_seconds";
+    pub const PROVIDER_RUNTIME_SNAPSHOT_VERSION: &str = "provider_runtime_snapshot_version";
+
+    // Quota / billing
+    pub const QUOTA_DENIES_TOTAL: &str = "quota_denies_total";
+    pub const BILLING_OUTBOX_LAG_SECONDS: &str = "billing_outbox_lag_seconds";
+    pub const BILLING_SETTLE_LAG_SECONDS: &str = "billing_settle_lag_seconds";
+    pub const BILLING_SETTLE_FAILURES_TOTAL: &str = "billing_settle_failures_total";
+    pub const USAGE_ROLLUP_LAG_SECONDS: &str = "usage_rollup_lag_seconds";
+
+    // Worker
+    pub const WORKER_LEASE_OWNER: &str = "worker_lease_owner";
+}
+
 const UNKNOWN_LABEL: &str = "unknown";
 const FALLBACK_CHANNEL_LABEL: &str = "fallback";
 const MAX_LABEL_CHARS: usize = 96;
@@ -467,7 +515,7 @@ pub fn record_chat_request(
     let provider_type = normalize_label_value(provider_type);
     let streaming_str = if streaming { "true" } else { "false" };
     metrics::counter!(
-        "gate_chat_requests_total",
+        names::CHAT_REQUESTS_TOTAL,
         "model" => model.clone(),
         "provider_type" => provider_type.clone(),
         "streaming" => streaming_str,
@@ -475,7 +523,7 @@ pub fn record_chat_request(
     )
     .increment(1);
     metrics::histogram!(
-        "gate_chat_duration_seconds",
+        names::CHAT_DURATION_SECONDS,
         "model" => model,
         "provider_type" => provider_type,
         "streaming" => streaming_str,
@@ -489,7 +537,7 @@ pub fn record_chat_ttfb(model: &str, provider_type: &str, ttfb_secs: f64) {
     let model = normalize_label_value(model);
     let provider_type = normalize_label_value(provider_type);
     metrics::histogram!(
-        "gate_chat_ttfb_seconds",
+        names::CHAT_TTFB_SECONDS,
         "model" => model,
         "provider_type" => provider_type,
     )
@@ -509,7 +557,7 @@ pub fn record_chat_stream_chunks(
     let model = normalize_label_value(model);
     let provider_type = normalize_label_value(provider_type);
     metrics::counter!(
-        "gate_chat_stream_chunks_total",
+        names::CHAT_STREAM_CHUNKS_TOTAL,
         "model" => model,
         "provider_type" => provider_type,
         "outcome" => outcome,
