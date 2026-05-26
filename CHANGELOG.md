@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.171] — 2026-05-26 — 第四刀 · 第 5 项真还收口
+
+**Type**: test · **主题**：WASM auto-mount e2e — 真 WasmtimeHost 端到端验证。
+
+### Added
+
+- `e2e_auto_mount_loads_real_wasmtime_host` — 跑真 wasm 字节路径：
+  - wat::parse_str(IDENTITY_WAT) → 真 wasm bytecode
+  - `WasmtimeHost::new(WasmHostConfig::default())` → 真 engine
+  - `auto_mount_and_load_into_host` → fetch + load_module
+  - `host.invoke_hook(ChatRequest, payload)` → 验 identity 模块原样返回 payload
+
+### Why
+
+第四刀 #5 收口（0.4.168-171, 4 patch）。0.4.170 MockHost 验失败回滚，本步换真 WasmtimeHost 跑端到端 — 确认整条 auto-mount 链能让真 wasm 模块被 invoke。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 12 passed
+```
+
+### 第四刀 5 项全收口 🗡⚡
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155, 5 patch）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158, 3 patch）
+- [x] **#3 playground 节点按 capability gating**（0.4.159-163, 5 patch）
+- [x] **#4 chaos test 真启 toxiproxy + 3 case 原语**（0.4.164-167, 4 patch）
+- [x] **#5 WASM blob store 自动 mount 业务流**（0.4.168-171, 4 patch）
+
+第四刀总计：**21 patch · 5/5 真收口**
+
+---
+
 ## [0.4.170] — 2026-05-26
 
 **Type**: feat · **主题**：WASM auto-mount step 3 — 真接 WasmHost.load_module + metric emit + 失败回滚。

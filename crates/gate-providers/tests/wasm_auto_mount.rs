@@ -388,3 +388,80 @@ async fn auto_mount_and_load_without_host_falls_back_to_fetch_only() {
     assert_eq!(summary.mounted, 1);
     assert_eq!(summary.failed, 0);
 }
+
+// ============================================================================
+// 0.4.171（第四刀 #5 收口）：真 WasmtimeHost e2e
+// ============================================================================
+
+const IDENTITY_WAT: &str = r#"
+(module
+  (memory (export "memory") 1)
+  (func (export "gate_alloc") (param i32) (result i32) i32.const 4096)
+  (func $copy (param $ptr i32) (param $len i32) (result i64)
+    (local $i i32)
+    (block $done
+      (loop $copy
+        (br_if $done (i32.ge_s (local.get $i) (local.get $len)))
+        (i32.store8
+          (i32.add (i32.const 4096) (local.get $i))
+          (i32.load8_u (i32.add (local.get $ptr) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    (i64.or
+      (i64.shl (i64.extend_i32_u (i32.const 4096)) (i64.const 32))
+      (i64.extend_i32_u (local.get $len))))
+  (func (export "chat_request_transform") (param i32 i32) (result i64)
+    (call $copy (local.get 0) (local.get 1)))
+  (func (export "chat_response_transform") (param i32 i32) (result i64)
+    (call $copy (local.get 0) (local.get 1)))
+)
+"#;
+
+#[tokio::test]
+async fn e2e_auto_mount_loads_real_wasmtime_host() {
+    use gate_wasm::{WasmHost, WasmHostConfig, WasmtimeHost};
+
+    // 1. 用真 wasmtime engine 启 host
+    let host: Arc<dyn WasmHost> =
+        Arc::new(WasmtimeHost::new(WasmHostConfig::default()).expect("host init"));
+
+    // 2. 真 wasm 字节（identity 模块）
+    let module_bytes = wat::parse_str(IDENTITY_WAT).expect("wat parse");
+    let sha = hex::encode(Sha256::digest(&module_bytes));
+
+    // 3. blob store 注 bytes
+    let mut map = std::collections::HashMap::new();
+    map.insert(sha.clone(), module_bytes.clone());
+    let store = Arc::new(MemBlobStore { map });
+
+    // 4. router with both
+    use gate_storage::{InMemoryChannelGroupRepo, InMemoryChannelRepo};
+    let ch_repo = Arc::new(InMemoryChannelRepo::new());
+    let gr_repo = Arc::new(InMemoryChannelGroupRepo::new());
+    let router = ProviderRouter::new(ch_repo, gr_repo)
+        .with_wasm_blob_store(store)
+        .with_wasm_host(host.clone());
+
+    // 5. channel 配 wasm
+    let mut ch = make_channel(manifest_with_wasm(&sha));
+    ch.code = "ch-e2e-auto".into();
+
+    let summary = router.auto_mount_and_load_into_host(&[ch.clone()]).await;
+    assert_eq!(summary.mounted, 1, "真 WasmtimeHost 应成功 load_module");
+    assert_eq!(summary.failed, 0);
+
+    // 6. 验 host 真有该 module — 调 invoke_hook 跑 identity transform
+    use bytes::Bytes;
+    use gate_wasm::{HookContext, HookKind};
+    let payload = Bytes::from_static(b"hello-auto-mount");
+    let out = host
+        .invoke_hook(
+            &ch.code,
+            HookKind::ChatRequest,
+            payload.clone(),
+            HookContext::default(),
+        )
+        .await
+        .expect("invoke_hook");
+    assert_eq!(out, Some(payload), "identity 模块应原样返回");
+}
