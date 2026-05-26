@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.116] — 2026-05-26
+
+**Type**: docs · **主题**：admin.rs 拆分进度表 + ROADMAP 第二刀分类汇总。
+
+### Changed
+
+- `crates/gate-server/src/routes/admin.rs` 头部加 "模块拆分进度（B1）" 段：
+  - 7 个业务块（channels / users / sso / groups / org_members / invitations / probe / pricing）行范围 + 状态表
+  - 当前 ✅ 拆出 2 个：`mod pricing`（0.4.72）+ `mod org_members`（0.4.109）
+  - ⛔ 仍顶层 5 个，每个标注"为什么没拆"（god-tier / 跨 fn 共享 helper / 内聚密）
+  - 真拆物理文件计划推到 v0.5.x，列出目标目录结构
+
+- `ROADMAP.md` 加"第二刀（0.4.102-0.4.120）"段：
+  - 真改 runtime 5 项 ticked
+  - 文档 + 测试 + 设计稿其余 9 项 ticked
+  - 剩余真重构 8 项明示推到 v0.5.x（含 admin 真拆 / channels store / DataTable / host_get_secret_slot / WASM blob store / chat bench / chaos test / playground frontend）
+
+### Why
+
+第一刀 followup §1 揭"step 1/4"假象。本步把"做到哪、剩多少、为何没继续"全摊到 admin.rs 文件头 + ROADMAP，让任何接手者一眼看到真实进度——不再粉饰成"已拆"。
+
+诚实评：仍是文档版本。admin.rs 行数没减，但**心里没鬼**。
+
+---
+
 ## [0.4.115] — 2026-05-26
 
 **Type**: design · **主题**：DataTable virtualization 完整设计稿（B4 step 2-3 真图）。

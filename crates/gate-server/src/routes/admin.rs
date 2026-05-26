@@ -2,6 +2,30 @@
 //!
 //! 全部需 Platform 作用域权限。SuperAdmin 短路通过。
 //!
+//! # 模块拆分进度（B1，followup §4）
+//!
+//! 本文件 ~4250 行，按业务域规划成 7 块。截至 0.4.116：
+//!
+//! | 块 | 行范围（约） | 状态 | 拆分动作 |
+//! |----|--------------|------|--------|
+//! | channels & keys | 332-1190 | ⛔ 仍顶层 | god-tier，与 batch ops / drain 紧耦合 |
+//! | users / sessions / audit | 1247-1700 | ⛔ 仍顶层 | 内部多 fn 跨调用 |
+//! | identity providers (SSO) | 1816-2400 | ⛔ 仍顶层 | secret seal / OIDC discover 内聚 |
+//! | groups & bindings | 2402-3190 | ⛔ 仍顶层 | fallback chain / canary 跨 handler 共享 helper |
+//! | org members | 3197-3290 | ✅ `mod org_members` | 0.4.109 抽出 |
+//! | invitations | 3291-3559 | ⛔ 仍顶层 | invitation_token_hash / accept_url helper 与 create/revoke handler 紧耦合 |
+//! | probe / test / balance | 3559-3970 | ⛔ 仍顶层 | 与 channels CRUD 共享 channel_capabilities |
+//! | pricing rules | ~4082-4252 | ✅ `mod pricing` | 0.4.72 抽出 |
+//!
+//! 拆分原则：先抽**独立性高的小块**（pricing 11 fn / org members 3 fn），
+//! 验证 mod 化模式可行后才动跨块共享多的大块。
+//!
+//! ## 真拆物理文件（v0.5.x 计划）
+//!
+//! 内联 mod 完成后下一步是 `routes/admin/{mod.rs, channels.rs, groups.rs,
+//! sso.rs, users.rs, invitations.rs, probe.rs, pricing.rs}` 目录化。届时
+//! `use super::*` 改为显式 `use crate::admin::shared::*`，强制声明依赖。
+//!
 //! Channels CRUD:
 //! - GET    /channels         — 列出全部 channels
 //! - POST   /channels         — 创建 channel

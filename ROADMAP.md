@@ -126,7 +126,7 @@ cd web && npm run build                               # ✅ built in 7.17s
 - [x] Fastpath panic fallback：`catch_unwind` 兜底退到 manifest runtime（`run_fastpath` helper）。
 - [x] WASM Plugin ABI vNext — 0.4.16 落地 ADR-0003 v0 + sample manifest；0.4.21-0.4.27 wasmtime runtime + Rust SDK + fallback + 3 hook + bench；0.4.41-0.4.46 集成到 CustomHttpProvider + e2e；0.4.51-0.4.52 SSE stream_chunk 真接通 + e2e；0.4.55-0.4.56 AssemblyScript SDK + 示例；0.4.57-0.4.58 ProviderRouter wasm_host + Prometheus describe。**完整产品形态**。
 
-### M3 后 — product-review 第一刀（0.4.65-0.4.90，2026-05-26）
+### M3 后 — product-review 第一刀（0.4.65-0.4.101，2026-05-26）
 
 详见 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) 第一刀打磨。
 
@@ -144,8 +144,40 @@ cd web && npm run build                               # ✅ built in 7.17s
 - [x] **前端** DataTable.svelte `maxHeight` + `stickyHead` + 3 测试 — 0.4.85 / 0.4.86
 - [x] **能力面** `GET /v1/admin/providers/capabilities` 完整能力矩阵 endpoint + 测试 — 0.4.87 / 0.4.88
 - [x] **文档** RELEASE.md v0.5.0-rc1 准备清单 + README badge 更新 — 0.4.78 / 0.4.79
+- [x] **品牌** 「空衍」logo 重设计（D4 → 风车螺旋）— 0.4.101
 
-剩余打磨进行中：playground capability 前端联动 / WASM module blob store / request_logs buffered writer / chat e2e bench / chaos test。
+### M3 后 — product-review 第二刀（0.4.102-0.4.120，2026-05-26）
+
+详见 [product-review-followup-2026-05-26.md](./docs/product-review-followup-2026-05-26.md) 第二刀（自我批判）。
+
+#### 真改 runtime（5 项）
+- [x] **可靠性** Retry-After HTTP-date 兼容（RFC 7231）— 0.4.103
+- [x] **Usage** audio_tokens / accepted_prediction_tokens / rejected_prediction_tokens — 0.4.104
+- [x] **性能** SharedHttpClient LRU per-key eviction（防雷暴）— 0.4.105
+- [x] **重构** metric 名抽 `pub mod names` const — 0.4.107
+- [x] **重构** admin.rs org_members 块抽内联 mod — 0.4.109
+
+#### 文档 + 测试 + 设计稿（其余）
+- [x] followup 批判稿 — 0.4.102
+- [x] chat metrics handler grep test — 0.4.106
+- [x] stream_safe 语义钉死注释 — 0.4.108
+- [x] channels form-factories 抽 `_lib` + 4 tests — 0.4.110 / 0.4.114
+- [x] host_get_secret_slot 完整 ABI 设计稿 — 0.4.111
+- [x] Grafana dashboard 修指标名漂移 + 加 4 panel — 0.4.112
+- [x] 撤回 review §1 P1-3 误判（request_logs 已 outbox 异步）— 0.4.113
+- [x] DataTable virtualize 完整设计稿 — 0.4.115
+- [x] admin.rs 拆分进度文档化 — 0.4.116
+
+剩余真重构推到 v0.5.x：
+
+- [ ] **admin.rs 真拆物理文件** — `routes/admin/{mod.rs, channels.rs, groups.rs, sso.rs, users.rs, invitations.rs, probe.rs}` 目录化
+- [ ] **channels page B2 step 3-4** — list state store + dialog manager + API call wrapper
+- [ ] **DataTable virtualize 实装** — 按 0.4.115 设计稿
+- [ ] **host_get_secret_slot 实装** — 按 0.4.111 设计稿
+- [ ] **WASM module blob store** (G-002) + auto-mount
+- [ ] **chat e2e bench** runtime（按 0.4.98 TODO）
+- [ ] **chaos test runtime**（按 0.4.99 设计稿）
+- [ ] **playground frontend capability 联动**（接 0.4.87 endpoint）
 
 ---
 
