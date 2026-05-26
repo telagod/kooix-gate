@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.151] — 2026-05-26 — 第四刀启动 · 5 项真收口
+
+**Type**: refactor · **主题**：admin/shared.rs 骨架（第三刀推 v0.5.x 5 项之第 1 项真还）。
+
+### Added
+
+- `crates/gate-server/src/routes/admin/shared.rs` 空骨架 + doc
+- `mod shared;` 加到 admin/mod.rs 顶部
+
+### Why
+
+第三刀 0.4.129 抽 channels.rs 时把 13 个共享 helper 也搬进去，让 sibling（invitations/probe/sso/groups/users/org_members/pricing）反向依赖 channels.rs。本步先建 shared.rs 骨架，0.4.152-154 分批迁入：
+- 0.4.152: require_confirmation / audit_meta 系列（3 个）
+- 0.4.153: 5 个 audit_snapshot
+- 0.4.154: channel/key 6 个 helper
+
+0.4.155 sibling 改用 `super::shared::*`。
+
+### Verification
+
+```bash
+cargo check -p gate-server    # 0 errors
+```
+
+---
+
 ## [0.4.150] — 2026-05-26 — 阶段大版 · 三刀打磨收口
 
 > 30 patch（0.4.121 → 0.4.150）的第三刀真还债阶段收口。

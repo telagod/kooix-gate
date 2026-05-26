@@ -549,6 +549,7 @@ async fn list_provider_capabilities(
 mod probe;
 mod invitations;
 mod channels;
+mod shared;
 mod users;
 mod groups;
 mod sso;
