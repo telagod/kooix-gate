@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.110] — 2026-05-26
+
+**Type**: refactor · **主题**：channels page B2 step 2 — createForm/editForm 工厂抽 `_lib`（followup §1）。
+
+### Added
+
+- `web/src/routes/channels/_lib/form-factories.ts`：
+  - `defaultCreateForm(): CreateChannelRequest` — 11 字段 + 显式类型保护
+  - `defaultEditForm(): UpdateChannelRequest` — 空对象工厂
+
+### Changed
+
+- `web/src/routes/channels/+page.svelte`：
+  - 初始化 `createForm = $state(defaultCreateForm())` 替换 inline 11 字段对象字面
+  - reset 路径（line 770）改 `createForm = defaultCreateForm()`，避免与初始化漂移
+  - editForm 同理
+
+### Why
+
+第一刀 followup §1：B2 step 1（plugin samples）只动了静态文本。本步真改 form 默认值散在两处的问题——之前 inline 字面在 `$state` 初始化和 reset 两处各写一次，任何字段变更要改两处，未来加 `health_check_url` 等字段容易漏。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.109] — 2026-05-26
 
 **Type**: refactor · **主题**：admin.rs B1 step 2/4 — org members 块封装内联 mod（followup §4）。

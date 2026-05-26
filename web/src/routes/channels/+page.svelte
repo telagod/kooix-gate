@@ -71,6 +71,7 @@
 		PROBE_BODY_PLACEHOLDER as SAMPLE_PROBE_BODY_PLACEHOLDER,
 		PLUGIN_BUILDER_STEPS as PLUGIN_BUILDER_STEP_LABELS,
 	} from './_lib/plugin-samples';
+	import { defaultCreateForm, defaultEditForm } from './_lib/form-factories';
 	import PageShell from '$lib/components/templates/PageShell.svelte';
 	import { cn, dataTemplate } from '$lib/design';
 	import {
@@ -155,11 +156,7 @@
 	let batchProgress = $state('');
 
 	let showCreate = $state(false);
-	let createForm = $state<CreateChannelRequest>({
-		code: '', provider_type: 'openai', base_url: '', supported_models: [],
-		rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2,
-		tags: [], model_mapping: {}
-	});
+	let createForm = $state<CreateChannelRequest>(defaultCreateForm());
 	let creating = $state(false);
 	let createError = $state('');
 	let modelsInput = $state('');
@@ -183,7 +180,7 @@
 	let createAutoProbe = $state(true);
 
 	let editingChannel = $state<Channel | null>(null);
-	let editForm = $state<UpdateChannelRequest>({});
+	let editForm = $state<UpdateChannelRequest>(defaultEditForm());
 	let editing = $state(false);
 	let editError = $state('');
 	let editModelsInput = $state('');
@@ -767,7 +764,7 @@
 	}
 
 	function resetCreateForm() {
-		createForm = { code: '', provider_type: 'openai', base_url: '', supported_models: [], rpm_limit: null, tpm_limit: null, timeout_ms: 60000, max_retries: 2, tags: [], model_mapping: {} };
+		createForm = defaultCreateForm();
 		modelsInput = '';
 		tagsInput = '';
 		pluginManifestInput = '';
