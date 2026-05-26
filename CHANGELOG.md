@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.152] — 2026-05-26
+
+**Type**: refactor · **主题**：迁 require_confirmation / audit_meta 三 fn 到 admin/shared.rs。
+
+### Changed
+
+- `admin/shared.rs` 迁入 3 fn：
+  - `confirmation_from_headers(&HeaderMap) -> Option<&str>`
+  - `require_confirmation(&HeaderMap, expected) -> AppResult<()>`
+  - `audit_meta(request_id, headers) -> AuditRequestMeta`
+- `admin/channels.rs` 原 3 fn body 改为 thin wrapper `super::shared::xxx`（保兼容 sibling 仍可 channels:: 调，0.4.155 真切换）
+
+### Why
+
+第 1 批迁入，先动 3 个最常用 helper。每个 sibling 文件平均调用 require_confirmation / audit_meta 5-15 次，本步先迁定义不动 sibling 引用路径，分两步降风险。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.151] — 2026-05-26 — 第四刀启动 · 5 项真收口
 
 **Type**: refactor · **主题**：admin/shared.rs 骨架（第三刀推 v0.5.x 5 项之第 1 项真还）。

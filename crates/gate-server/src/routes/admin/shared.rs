@@ -18,4 +18,35 @@
 
 use super::*;
 
-// 0.4.152-154 真迁入函数后此 mod 不再空。
+// ============================================================================
+// 0.4.152 迁入第 1 批：confirmation + audit_meta（3 fn）
+// 原位置: crates/gate-server/src/routes/admin/channels.rs:164-187
+// ============================================================================
+
+pub(super) fn confirmation_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(CONFIRM_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+}
+
+pub(super) fn require_confirmation(
+    headers: &HeaderMap,
+    expected: impl AsRef<str>,
+) -> AppResult<()> {
+    let expected = expected.as_ref();
+    match confirmation_from_headers(headers) {
+        Some(actual) if actual == expected => Ok(()),
+        _ => Err(AppError::BadRequest(format!(
+            "confirmation required: set {CONFIRM_HEADER}: {expected}"
+        ))),
+    }
+}
+
+pub(super) fn audit_meta(
+    request_id: Option<Extension<KooixRequestId>>,
+    headers: &HeaderMap,
+) -> AuditRequestMeta {
+    AuditRequestMeta::from_parts(request_id.map(|Extension(id)| id), headers, None)
+}

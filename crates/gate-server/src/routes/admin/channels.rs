@@ -162,28 +162,18 @@ pub(super) fn user_audit_snapshot(u: &gate_core::identity::User) -> serde_json::
 }
 
 pub(super) fn confirmation_from_headers(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(CONFIRM_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
+    super::shared::confirmation_from_headers(headers)
 }
 
 pub(super) fn require_confirmation(headers: &HeaderMap, expected: impl AsRef<str>) -> AppResult<()> {
-    let expected = expected.as_ref();
-    match confirmation_from_headers(headers) {
-        Some(actual) if actual == expected => Ok(()),
-        _ => Err(AppError::BadRequest(format!(
-            "confirmation required: set {CONFIRM_HEADER}: {expected}"
-        ))),
-    }
+    super::shared::require_confirmation(headers, expected)
 }
 
 pub(super) fn audit_meta(
     request_id: Option<Extension<KooixRequestId>>,
     headers: &HeaderMap,
 ) -> AuditRequestMeta {
-    AuditRequestMeta::from_parts(request_id.map(|Extension(id)| id), headers, None)
+    super::shared::audit_meta(request_id, headers)
 }
 
 pub(super) fn channel_capabilities(r: &gate_storage::ChannelRecord) -> ProviderCapabilities {
