@@ -11,6 +11,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.163] — 2026-05-26 — 第四刀 · 第 3 项真还收口
+
+**Type**: test · **主题**：playground capability gating 单元测试。
+
+### Added
+
+- `web/src/tests/flow-capabilities.test.ts` — 13 个 vitest 用例
+  - `nodeRequiresCapability` 输入/AI/preview 分类正确
+  - `nodeCapabilityKey` 映射对齐表
+  - `isModalitySupported` null/空/部分/全无 4 种 rows 状态
+  - tts/stt 共用 audio flag；imageGen 用 image flag
+  - `supportingProviders` 列表 + 空数组兜底
+
+### Why
+
+第四刀 #3「playground 节点按 capability gating」收口。0.4.159-162 把 helper + UI 接好，本步把 helper 的真值表锁进 vitest，防回归。
+注：UI 组件（FlowEditor 侧栏 disabled / NodeCapabilityHint amber 横幅）的 @testing-library/svelte 测试推到 v0.5.x（涉及 Svelte 5 runes + onMount async 在测试环境的 fragile 行为）。
+
+### Verification
+
+```bash
+cd web && npx vitest run src/tests/flow-capabilities.test.ts    # 13 passed
+cd web && npx vitest run                                         # 127 / 21 files
+cd web && npm run check                                          # 0/0
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158）
+- [x] **#3 playground 节点按 capability gating**（0.4.159-163）
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
 ## [0.4.162] — 2026-05-26
 
 **Type**: feat · **主题**：ImageGenNode 接 NodeCapabilityHint。
