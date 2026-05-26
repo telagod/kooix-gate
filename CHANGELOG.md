@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.121] — 2026-05-26 — 第三刀启动 · 还债
+
+**Type**: refactor · **主题**：admin.rs → admin/mod.rs 物理目录化第 1 步。
+
+### Changed
+
+- `git mv crates/gate-server/src/routes/admin.rs → crates/gate-server/src/routes/admin/mod.rs`
+- 文件内容 0 改动，仅 path 变化（git rename detection 保留 blame 历史）
+
+### Why
+
+第二刀 0.4.116 只做了"拆分进度文档化"——admin.rs 仍 4254 行 god file，inline mod 只抽出 pricing + org_members 两小块。第三刀真还债：先建 admin/ 目录壳，给后续 9 个 patch（0.4.122-0.4.130）做家。每个版本物理拆一块出来。
+
+### Verification
+
+```bash
+cargo check -p gate-server    # 0 errors
+cargo test -p gate-server --lib    # 50 passed (无回归)
+```
+
+---
+
 ## [0.4.120] — 2026-05-26 — 阶段大版 · 双刀打磨收口
 
 > 19 个 patch（0.4.102 → 0.4.120）的第二刀（自我批判）阶段收口。
