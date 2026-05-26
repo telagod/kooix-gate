@@ -7,7 +7,7 @@
 //! v0：仅实现 LocalFsBlobStore（从本地 fs 读）。v0.5.x 扩 S3 + OCI artifact。
 
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// 抽象 wasm 模块字节流提供者。按 sha256 内容寻址。
 #[async_trait]

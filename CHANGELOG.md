@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.168] — 2026-05-26
+
+**Type**: feat · **主题**：WASM auto-mount step 1 — `try_auto_mount_wasm_for_channel` helper + 6 integration tests。
+
+### Added
+
+- `gate-providers/src/router/mod.rs::AutoMountError` 6 类失败：ManifestParse / MissingSha256 / NoBlobStore / Fetch / NotFound / Sha256Mismatch
+- `ProviderRouter::try_auto_mount_wasm_for_channel(&ChannelRecord) -> Result<Option<Vec<u8>>, AutoMountError>`
+  - 解析 manifest.security.wasm
+  - 无 wasm 配置 → Ok(None)
+  - 有 wasm 但 module_sha256 空 → Err(MissingSha256)
+  - 调用 wasm_blob_store.fetch(sha256) + 字节再算 sha256 强校验
+- `gate-providers/tests/wasm_auto_mount.rs` — 6 integration test 覆盖：
+  - 无 wasm 配置 / 无 store / sha 匹配 / sha 篡改 / sha 不存在 / LocalFs 真盘 roundtrip
+
+### Why
+
+第四刀 #5「WASM blob store 自动 mount 业务流」step 1。0.4.143 加 `with_wasm_blob_store` setter 只是 getter；本步真做 fetch + 验证。
+sha256 双校验关键：blob store 自身可能被篡改（fs perm 错配 / S3 bucket 误写），落 disk 后再算一遍 sha256 作为 final 防线。
+v0.4.169 把这个 helper 串到 ProviderRouter reload 流；v0.4.170 加失败回滚 emit metric；v0.4.171 用真 wasmtime host 跑 e2e。
+
+### Changed
+
+- `gate-wasm/src/blob_store.rs`：清掉 unused import `Path`
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 6 passed
+cargo check -p gate-providers                          # 0 warnings
+```
+
+---
+
 ## [0.4.167] — 2026-05-26 — 第四刀 · 第 4 项真还收口
 
 **Type**: test · **主题**：chaos case #3 · 上游 503 风暴（wiremock + ProbeChaos）。

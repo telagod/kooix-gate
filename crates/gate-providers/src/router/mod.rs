@@ -196,6 +196,50 @@ impl ProviderRouter {
         self.wasm_blob_store.clone()
     }
 
+    /// 0.4.168（第四刀 #5 step 1）：按 channel manifest.security.wasm 自动 mount
+    /// 模块字节。返回 None 表示 channel 无 wasm 配置；Some(bytes) 表示已成功 fetch
+    /// 并通过 sha256 校验。失败（fetch IO / sha256 mismatch / 无 blob store）返 Err。
+    ///
+    /// 本步只做 fetch + 验证，不负责 load_module — 由 0.4.169 串联到 host。
+    pub async fn try_auto_mount_wasm_for_channel(
+        &self,
+        channel: &gate_storage::ChannelRecord,
+    ) -> Result<Option<Vec<u8>>, AutoMountError> {
+        // 1. 提取 manifest.security.wasm
+        let manifest = crate::plugin_manifest(channel.model_mapping.clone(), &channel.base_url)
+            .map_err(|e| AutoMountError::ManifestParse(e.to_string()))?;
+        let Some(wasm_spec) = manifest.security.wasm else {
+            return Ok(None);
+        };
+        if wasm_spec.module_sha256.is_empty() {
+            return Err(AutoMountError::MissingSha256);
+        }
+        // 2. 拿 blob store
+        let store = self
+            .wasm_blob_store
+            .as_ref()
+            .ok_or(AutoMountError::NoBlobStore)?;
+        // 3. fetch by sha256
+        let bytes = store
+            .fetch(&wasm_spec.module_sha256)
+            .await
+            .map_err(|e| AutoMountError::Fetch(e.to_string()))?
+            .ok_or_else(|| AutoMountError::NotFound(wasm_spec.module_sha256.clone()))?;
+        // 4. 校验 sha256（防 blob store 篡改 / 路径错位）
+        let actual = {
+            use sha2::{Digest, Sha256};
+            let h = Sha256::digest(&bytes);
+            hex::encode(h)
+        };
+        if actual != wasm_spec.module_sha256 {
+            return Err(AutoMountError::Sha256Mismatch {
+                expected: wasm_spec.module_sha256.clone(),
+                actual,
+            });
+        }
+        Ok(Some(bytes))
+    }
+
     /// 挂载 ModelAliasRepo，启用 alias 解析。
     pub fn with_model_alias_repo(mut self, repo: Arc<dyn ModelAliasRepo>) -> Self {
         self.model_alias_repo = Some(repo);
@@ -1746,6 +1790,23 @@ async fn decrypt_channel_key(
         .map_err(|e| ProviderError::Config(format!("decrypt channel key {}: {e}", record.id)))?;
     String::from_utf8(plaintext.to_vec())
         .map_err(|e| ProviderError::Config(format!("channel key is not valid UTF-8: {e}")))
+}
+
+/// 0.4.168: WASM auto-mount 失败类型 — fetch / sha256 / 配置缺失。
+#[derive(Debug, thiserror::Error)]
+pub enum AutoMountError {
+    #[error("plugin manifest parse failed: {0}")]
+    ManifestParse(String),
+    #[error("manifest.security.wasm.module_sha256 must be set for auto-mount")]
+    MissingSha256,
+    #[error("ProviderRouter has no WasmBlobStore configured (call with_wasm_blob_store)")]
+    NoBlobStore,
+    #[error("wasm blob store fetch failed: {0}")]
+    Fetch(String),
+    #[error("wasm module sha256={0} not found in blob store")]
+    NotFound(String),
+    #[error("wasm module sha256 mismatch: expected={expected}, actual={actual}")]
+    Sha256Mismatch { expected: String, actual: String },
 }
 
 #[cfg(test)]
