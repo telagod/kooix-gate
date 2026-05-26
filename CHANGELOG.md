@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.132] — 2026-05-26
+
+**Type**: refactor · **主题**：channels dialog-state 管理器 + 5 测试（B2 step 4）。
+
+### Added
+
+- `web/src/routes/channels/_lib/dialog-state.ts`：
+  - `ChannelsDialogKind` union（create / edit / delete / batch-delete / probe / replay）
+  - `noDialog() / openDialog() / closeDialog() / isDialogOpen()` helper
+  - 用单 `open: kind | null` 字段保互斥，避免多 modal 同时开
+- `web/src/tests/channels-dialog-state.test.ts` 5 个 test
+
+### Why
+
+第一刀 followup §1：B2 step 4 dialog manager 设计目标是"防多 modal 同时打开 / 类型化 modal kind"。本步抽工厂 + test 锁契约，page.svelte 接入推后续 patch。
+
+### Verification
+
+```bash
+npm --prefix web test -- channels-dialog-state    # 5 passed
+npm --prefix web run check    # 0/0
+```
+
+---
+
 ## [0.4.131] — 2026-05-26
 
 **Type**: refactor · **主题**：channels page list-state 工厂 + 3 个 sanity tests（B2 step 3）。
