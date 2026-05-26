@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.125] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/probe.rs 物理拆出（B1 真还债 step 4/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/probe.rs`（488 行）：
+  - 3 个 handler（probe_channel_models / test_channel / get_channel_balance）pub(super)
+  - 4 个内部类型（ProbeResponse / TestChannelQuery / TestResponse / BalanceResponse）pub(super)
+  - 5 个内部 fn（extract_probe_model_ids / update_channel_balance / resolve_probe_key / resolve_probe_secrets / normalize_probe_secret_slot pub(crate)）
+- `admin/mod.rs` 3834 → 3352（**真减 482 行**）
+- 主 router 3 处改用 `probe::*`
+- mod.rs 内 test 引用 normalize_probe_secret_slot 改 `probe::normalize_probe_secret_slot`
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.124] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/invitations.rs 物理拆出（B1 真还债 step 3/8）。
