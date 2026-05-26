@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.159] — 2026-05-26
+
+**Type**: feat · **主题**：FlowEditor 加载 provider capability + 节点添加按钮 gating。
+
+### Added
+
+- `web/src/lib/flow/capabilities.ts`：
+  - `NODE_CAPABILITY_KEY: Record<FlowNodeKind, CapabilityKey | null>` — node kind → capability flag 映射
+  - `nodeRequiresCapability(kind)` / `nodeCapabilityKey(kind)`
+  - `isModalitySupported(rows, kind)` — 至少 1 provider 支持 → true；null rows → true（不阻塞）
+  - `supportingProviders(rows, kind)` — 支持的 provider id 列表（供 node hint 用）
+
+### Changed
+
+- `FlowEditor.svelte`：
+  - onMount 并发拉 `getProviderCapabilities()`（不阻塞 me / workflows 加载）
+  - 侧栏「节点」按钮：未支持 modality 时 disabled + opacity-60 + cursor-not-allowed + title hint
+  - 右键 nodeMenu 同步 gating
+  - 当 capability 未加载时按 `isModalitySupported` 返 true 默认放行，加载完成后才禁用
+
+### Why
+
+第四刀 #3「playground 节点按 capability gating」step 1。原 NODE_CATALOG 不知道 channel 端是否支持该 modality，用户拖出 LLMChat 但无 chat-capable channel 时跑流报错。
+这步打底：catalog 侧栏直接禁用 + tooltip 告知，0.4.160-162 各 node 内部加 placeholder hint。
+注意：当前 `ProviderCapabilities` 不区分 stt/tts，统一看 audio flag；imageGen 看 image flag。后端 0.5.x 拆 audio_in/audio_out 时再细化。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
 ## [0.4.158] — 2026-05-26 — 第四刀 · 第 2 项真还收口
 
 **Type**: refactor · **主题**：admin/audit 双轨真接 DataTable virtualize；incidents 评审定无需。

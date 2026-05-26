@@ -11,10 +11,12 @@
 	import '@xyflow/svelte/dist/style.css';
 
 	import { getMe } from '$lib/api.js';
-	import type { MeResult } from '$lib/api.js';
+	import type { MeResult, ProviderCapabilityEntry } from '$lib/api.js';
 	import type { FlowNode, FlowEdge, FlowNodeData, FlowNodeKind, Workflow } from '$lib/flow/types.js';
 	import { NODE_CATALOG, PORT_COLORS } from '$lib/flow/types.js';
 	import { canConnect, executeFlow } from '$lib/flow/engine.js';
+	import { isModalitySupported, nodeRequiresCapability } from '$lib/flow/capabilities.js';
+	import { getProviderCapabilities } from '$lib/stores/provider-capabilities.js';
 	import { loadWorkflows, saveWorkflows, loadActiveId, saveActiveId, createWorkflow } from '$lib/flow/storage.js';
 	import { isDark } from '$lib/stores/theme';
 	import { clsx } from 'clsx';
@@ -45,6 +47,8 @@
 	};
 
 	let me = $state<MeResult | null>(null);
+	// 0.4.159（第四刀 #3 step 1）：provider capability 矩阵 — module-level cached fetch
+	let providerCaps = $state<ProviderCapabilityEntry[] | null>(null);
 	let currentOrg = $derived(me?.current_org ?? me?.orgs?.[0] ?? null);
 
 	let workflows = $state<Workflow[]>([]);
@@ -87,6 +91,8 @@
 
 	onMount(async () => {
 		try { me = await getMe(); } catch {}
+		// 0.4.159: 并发拉 capability matrix（不阻塞 me / workflows 加载）
+		getProviderCapabilities().then((rows) => { providerCaps = rows; }).catch(() => {});
 		workflows = loadWorkflows();
 		const savedId = loadActiveId();
 		if (savedId && workflows.find((w) => w.id === savedId)) {
@@ -323,12 +329,21 @@
 							{#each cat.kinds as kind}
 								{@const meta = NODE_CATALOG[kind]}
 								{@const Icon = nodeIcons[kind]}
+								{@const supported = isModalitySupported(providerCaps, kind)}
+								{@const needsCap = nodeRequiresCapability(kind)}
 								<button
 									type="button"
-									draggable="true"
+									draggable={supported ? 'true' : 'false'}
+									disabled={!supported}
+									title={!supported && needsCap ? `无可用 channel 支持此 modality（${kind}）` : ''}
 									ondragstart={(e) => onDragStart(e, kind)}
-									onclick={() => addNode(kind)}
-									class="flex w-full items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs cursor-grab active:cursor-grabbing text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors select-none"
+									onclick={() => supported && addNode(kind)}
+									class={clsx(
+										'flex w-full items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs select-none transition-colors',
+										supported
+											? 'cursor-grab active:cursor-grabbing text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+											: 'cursor-not-allowed text-zinc-400 dark:text-zinc-600 opacity-60'
+									)}
 								>
 									<div class="w-5 h-5 rounded flex items-center justify-center shrink-0" style:background-color="{meta.color}15">
 										<Icon size={12} style="color: {meta.color}" />
@@ -482,8 +497,17 @@
 							{#each cat.kinds as kind}
 								{@const meta = NODE_CATALOG[kind]}
 								{@const Icon = nodeIcons[kind]}
-								<button onclick={() => addNode(kind, nodeMenuPos.x - 110, nodeMenuPos.y - 30)}
-									class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+								{@const supported = isModalitySupported(providerCaps, kind)}
+								<button
+									onclick={() => supported && addNode(kind, nodeMenuPos.x - 110, nodeMenuPos.y - 30)}
+									disabled={!supported}
+									title={!supported ? `无可用 channel 支持此 modality（${kind}）` : ''}
+									class={clsx(
+										'w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors',
+										supported
+											? 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+											: 'text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed'
+									)}
 									role="menuitem">
 									<div class="w-4 h-4 rounded flex items-center justify-center" style:background-color="{meta.color}15">
 										<Icon size={10} style="color: {meta.color}" />
