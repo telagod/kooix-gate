@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.115] — 2026-05-26
+
+**Type**: design · **主题**：DataTable virtualization 完整设计稿（B4 step 2-3 真图）。
+
+### Added
+
+- `docs/data-table-virtualize-design.md`（~150 行）：
+  - 现状：0.4.85 仅加 maxHeight + stickyHead，DOM 仍渲染所有 row
+  - v1 接口契约（rows + rowSnippet + rowHeight + overscan）
+  - Layout 算法（spacer tr + slice，等高假设）
+  - 性能预算表（10k rows: legacy 3s 卡死 → virtualize <50ms 首屏 60fps）
+  - Caller migration（admin/requests / audit / incidents / groups）
+  - 已知限制 4 项 + 验收门禁 5 项 + 不做什么 4 项
+
+### Why
+
+第一刀 followup §1：B4 写 "step 1/3"，让人以为后续会做 step 2/3，但实际就停在 sticky head。本设计稿真正给 step 2/3 画图：
+
+- 锁 v1 接口（rowHeight 等高 + slice 渲染 + spacer tr）
+- 算法极简（避免 ResizeObserver / IntersectionObserver 复杂度）
+- legacy mode 保留（百行 / 数十行 caller 0 改动）
+
+### Honest assessment
+
+诚实评：DataTable.svelte 仍只 60 行，没接受 rows prop。本步是文档钉死方案。v0.5.x 实装时按本设计 PR review 即可。
+
+---
+
 ## [0.4.114] — 2026-05-26
 
 **Type**: test · **主题**：channels form-factories 4 个 sanity test。
