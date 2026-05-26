@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.164] — 2026-05-26
+
+**Type**: test · **主题**：chaos_toxiproxy 加真实 testcontainers launcher。
+
+### Added
+
+- `crates/gate-server/tests/chaos_toxiproxy.rs`：
+  - `ToxiproxyContainer` — testcontainers + GenericImage `ghcr.io/shopify/toxiproxy:2.9.0`，expose 8474（admin）+ 8666（默认 proxy 端口）
+  - `chaos_docker_enabled()` 看 `KOOIX_CHAOS_DOCKER=1` env 开关
+  - `toxiproxy_container_starts_and_admin_responds` — `#[ignore]` + opt-in test，验 /version 200 + 非空
+
+### Why
+
+第四刀 #4 step 1。0.4.147 ToxiproxyInjector 只是 in-process 模拟（latency / failure_bps 计数）；要真复现「PG 拒绝连接 / Redis 闪断 / 上游 503 风暴」必须有真 toxiproxy 容器代理上游流量。
+为不破坏 CI（默认无 docker），用 `#[ignore]` + `KOOIX_CHAOS_DOCKER=1` env 双门禁。本地开发 `KOOIX_CHAOS_DOCKER=1 cargo test -p gate-server --test chaos_toxiproxy -- --ignored` 真启容器。
+0.4.165-167 在此基础上加 3 个真 chaos case（PG / Redis / 上游 503）。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 6 passed; 1 ignored
+```
+
+---
+
 ## [0.4.163] — 2026-05-26 — 第四刀 · 第 3 项真还收口
 
 **Type**: test · **主题**：playground capability gating 单元测试。
