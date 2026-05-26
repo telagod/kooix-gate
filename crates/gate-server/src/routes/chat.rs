@@ -200,6 +200,11 @@ async fn chat_completions(
         let execute_start = Instant::now();
         let upstream_span = data_span.in_scope(|| trace.upstream_span("chat_stream", true));
         let upstream_start = Instant::now();
+        // 0.4.108（followup §6）：流式建立失败 **不 retry**。
+        // 客户端可能已经看到部分 chunk + inflight pre-debit 已扣，重试会乱序 /
+        // 双计费。从语义上等价于 RetryConfig::stream_safe()（max_retries=0）。
+        // 这里**不调 with_retry**，直接 .await —— retry_config 仅在非流分支
+        // (line ~422) 才生效。
         let upstream_result = provider
             .chat_stream(req)
             .instrument(upstream_span.clone())

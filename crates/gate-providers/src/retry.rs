@@ -77,6 +77,17 @@ impl Default for RetryConfig {
 impl RetryConfig {
     /// 0.4.70: 流式路径专用 config —— 禁用 retry。
     /// 流建立后失败不能 retry：客户端已收 chunk + inflight 已 pre-debit。
+    ///
+    /// # 推荐用法（流式 chat handler）
+    ///
+    /// ```ignore
+    /// use gate_providers::retry::{RetryConfig, with_retry};
+    ///
+    /// // 流式上游建立可以走 with_retry + stream_safe，语义等价于直接 .await
+    /// // 但语义在源码里写出来：未来 maintainer 看 cfg 名字就知道"流式不重试"。
+    /// let cfg = RetryConfig::stream_safe();
+    /// let stream = with_retry(&cfg, || async { provider.chat_stream(req).await }).await?;
+    /// ```
     pub fn stream_safe() -> Self {
         Self {
             max_retries: 0,

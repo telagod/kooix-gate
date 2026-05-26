@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.108] — 2026-05-26
+
+**Type**: docs · **主题**：chat 流式语义注释 + stream_safe 用法范例（followup §6）。
+
+### Changed
+
+- `crates/gate-server/src/routes/chat.rs` 流式分支加 8 行注释：
+  - 明示"流式建立失败不 retry"（语义等价 RetryConfig::stream_safe）
+  - 解释为何**不调** with_retry：客户端已收 chunk + inflight pre-debit 已扣
+  - retry_config 仅在非流分支（line ~422）生效
+- `crates/gate-providers/src/retry.rs::RetryConfig::stream_safe` doc-comment 加 `# 推荐用法` ignore-block 范例
+
+### Why
+
+第一刀的 followup §6 揭：`stream_safe()` 是幽灵 API（codebase 零调用）。第一种修法是删掉 API（最干净），第二种是真用。考虑到 chat handler 的"流式不调 with_retry"是合理设计（不需要 retry wrapper 的 overhead），保留 API + 在源码里**用注释把语义钉死**——让 future maintainer 看到"为什么流式没 retry"立刻明白。
+
+诚实评：这版本只是文档化，**没改 runtime 行为**。stream_safe 仍是 0 个业务调用。下一刀如果加 `with_retry(&stream_safe(), || provider.chat_stream(req))` 把 wrapper 加上才算真用。
+
+---
+
 ## [0.4.107] — 2026-05-26
 
 **Type**: refactor · **主题**：metric 名抽 `pub mod names` const（followup §3.5）。
