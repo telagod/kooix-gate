@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.122] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/pricing.rs 物理拆出（B1 真还债 step 1/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/pricing.rs`（169 行）
+  - 含 3 个 handler（list_pricing_rules / upsert_pricing_rule / delete_pricing_rule）
+  - 含 1 个内部类型 UpsertPricingRuleRequest + 1 个 helper rule_to_row
+  - `use super::*` 拿到 admin/mod.rs 顶层的 PricingRulesQuery / PricingRuleRow / audit_meta / require_confirmation / pricing_rule_audit_snapshot
+- `crates/gate-server/src/routes/admin/mod.rs` 4368 → 4204 行（**真减 164 行**）
+  - 删 inline `mod pricing { ... }` 块
+  - 加 `mod pricing;` 单行声明
+
+### Why
+
+第二刀 0.4.72 / 0.4.109 是"inline mod 假拆"——admin.rs 行数 +13 还自称"逻辑边界清晰"。第三刀真还债：物理拆出，使 mod.rs 真正减重。pricing 块最独立、依赖 helper 少，作 step 1。
+
+### Verification
+
+```bash
+cargo check -p gate-server         # 0 errors
+cargo test -p gate-server --lib    # 50 passed (无回归)
+wc -l crates/gate-server/src/routes/admin/mod.rs    # 4204 (从 4368 减 164)
+```
+
+---
+
 ## [0.4.121] — 2026-05-26 — 第三刀启动 · 还债
 
 **Type**: refactor · **主题**：admin.rs → admin/mod.rs 物理目录化第 1 步。
