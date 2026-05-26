@@ -21,6 +21,7 @@ pub mod host;
 pub mod limits;
 pub mod wasmtime_host;
 
+pub use blob_store::{LocalFsBlobStore, WasmBlobStore};
 pub use error::{WasmError, WasmResult};
 pub use fallback::invoke_with_fallback;
 pub use host::{HookContext, HookKind, WasmHost, WasmHostConfig};

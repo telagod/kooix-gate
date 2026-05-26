@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.143] — 2026-05-26
+
+**Type**: runtime · **主题**：ProviderRouter `with_wasm_blob_store` setter（G-002 step 2/2 雏形）。
+
+### Added
+
+- `ProviderRouter.wasm_blob_store: Option<Arc<dyn WasmBlobStore>>` 字段
+- `ProviderRouter::with_wasm_blob_store(store)` setter
+- `ProviderRouter::wasm_blob_store()` getter
+- `gate_wasm` lib.rs pub use `WasmBlobStore` + `LocalFsBlobStore`
+
+### Why
+
+按 product-gaps G-002 step 2：ProviderRouter 需要持有 blob store 引用，让 reload 阶段可按 sha256 fetch + load_module。本步只装 setter，**真正自动 mount** 需要 manifest schema 加 module_sha256 字段 + reload 流程改动，推到 v0.5.x（涉及 channel manifest 兼容、失败回滚 strategy）。
+
+### Honest assessment
+
+诚实评：setter 已通但无自动 mount 业务流。caller 仍需手动 `host.load_module(channel_id, bytes, sha)`。完整自动化推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 143 passed
+cargo check --workspace               # 0 errors
+```
+
+---
+
 ## [0.4.142] — 2026-05-26
 
 **Type**: runtime · **主题**：WasmBlobStore trait + LocalFsBlobStore 实现（G-002 step 1/2）。

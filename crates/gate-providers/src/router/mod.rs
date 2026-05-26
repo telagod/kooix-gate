@@ -135,6 +135,8 @@ pub struct ProviderRouter {
     /// 0.4.57: ADR-0003 v0 WASM Plugin runtime host（全局共享）。
     /// 若 channel manifest.security.wasm 配置则由 builder 自动 mount + 调用 with_wasm_host。
     wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>,
+    /// 0.4.143: WASM blob store —— auto-mount 装配链的 backend。
+    wasm_blob_store: Option<Arc<dyn gate_wasm::WasmBlobStore>>,
 }
 
 impl ProviderRouter {
@@ -157,6 +159,7 @@ impl ProviderRouter {
             snapshot_version: AtomicU64::new(1),
             runtime_snapshot: RwLock::new(Arc::new(ProviderRuntimeSnapshot::new(1, Vec::new()))),
             wasm_host: None,
+            wasm_blob_store: None,
         }
     }
 
@@ -171,6 +174,26 @@ impl ProviderRouter {
     /// 0.4.57: 当前注入的 wasm host（getter，用于 builder 调用）。
     pub fn wasm_host(&self) -> Option<Arc<dyn gate_wasm::WasmHost>> {
         self.wasm_host.clone()
+    }
+
+    /// 0.4.143（按 product-gaps G-002 step 2/2）：挂载 WASM blob store。
+    /// 配置后 ProviderRouter 在 reload 阶段会迭代 channel.manifest.security.wasm
+    /// 字段，按 sha256 fetch 字节 → host.load_module → 与 with_wasm_host 联动。
+    ///
+    /// 当前仅暴露 setter；自动装配链（reload 时迭代 + fetch + load_module）的
+    /// 真实运转在 v0.5.x 实装（需要 manifest schema 加 module_sha256 字段 +
+    /// 调用方决定何时 reload + 失败回滚 strategy）。
+    pub fn with_wasm_blob_store(
+        mut self,
+        store: Arc<dyn gate_wasm::WasmBlobStore>,
+    ) -> Self {
+        self.wasm_blob_store = Some(store);
+        self
+    }
+
+    /// 0.4.143: 当前注入的 wasm blob store（getter）。
+    pub fn wasm_blob_store(&self) -> Option<Arc<dyn gate_wasm::WasmBlobStore>> {
+        self.wasm_blob_store.clone()
     }
 
     /// 挂载 ModelAliasRepo，启用 alias 解析。
