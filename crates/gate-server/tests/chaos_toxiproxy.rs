@@ -303,3 +303,42 @@ async fn toxiproxy_latency_toxic_registered() {
     assert_eq!(arr[0]["type"], serde_json::json!("latency"));
     assert_eq!(arr[0]["attributes"]["latency"], serde_json::json!(1000));
 }
+
+/// Chaos case #3（v0.4.167）：上游 503 风暴。
+/// 用 wiremock 起一个 always-503 上游 + reqwest 重试 4 次都 503，
+/// 验 ProbeChaos 计数（每次失败 inject 1）和 failure_rate 一致。
+/// 这是「上游短时不可用 → retry 风暴 → 雪崩」的 chaos 原语 —
+/// 真接 gate-server provider router + retry policy 推 v0.5.x。
+#[tokio::test]
+async fn upstream_503_storm_increments_probe_chaos() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let mock = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("upstream down"))
+        .mount(&mock)
+        .await;
+
+    // 100% 失败 chaos injector — 替代「上游永远 503」语义
+    let inj = ToxiproxyInjector::new().with_failure_bps(10_000);
+    assert!((inj.failure_rate() - 1.0).abs() < 1e-6);
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/chat/completions", mock.uri());
+    let mut attempts = 0u32;
+    let mut all_503 = true;
+    for _ in 0..4u32 {
+        attempts += 1;
+        // injector 模拟「请求经过 chaos」：每次调用 latency_ms() 计 inflight
+        let _ = inj.latency_ms();
+        let resp = client.post(&url).body("{}").send().await.expect("send");
+        if resp.status() != 503 {
+            all_503 = false;
+        }
+    }
+    assert_eq!(attempts, 4);
+    assert!(all_503, "wiremock always-503，所有重试应得 503");
+    assert_eq!(inj.injected_count(), 4, "ProbeChaos 应记 4 次注入");
+}

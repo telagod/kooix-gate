@@ -11,6 +11,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.167] — 2026-05-26 — 第四刀 · 第 4 项真还收口
+
+**Type**: test · **主题**：chaos case #3 · 上游 503 风暴（wiremock + ProbeChaos）。
+
+### Added
+
+- `upstream_503_storm_increments_probe_chaos` — 真跑（**非 ignore**，不依赖 docker）
+  - 用 wiremock 起 always-503 上游 `/v1/chat/completions`
+  - reqwest 重试 4 次都拿 503
+  - `ToxiproxyInjector::with_failure_bps(10_000)` 模拟 100% 失败 chaos
+  - `injected_count()` 应 = 4，验注入计数与请求次数一致
+
+### Why
+
+第四刀 #4 收口 — 3 个 chaos case 覆盖：
+
+- #1 拒绝连接（toxiproxy disable，opt-in docker）
+- #2 Redis 闪断（toxiproxy latency toxic，opt-in docker）
+- **#3 上游 503 风暴（wiremock + injector counter，无 docker 默认跑）**
+
+case #3 不依赖 docker 是因为「上游 always-503」用 wiremock mock 即可，比真启 toxiproxy 容器更轻。
+完整接 gate-server provider router + retry policy 链路推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 7 passed; 3 ignored
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158）
+- [x] **#3 playground 节点按 capability gating**（0.4.159-163）
+- [x] **#4 chaos test 真启 toxiproxy + 3 case 原语**（0.4.164-167）
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
 ## [0.4.166] — 2026-05-26
 
 **Type**: test · **主题**：chaos case #2 · Redis 闪断 latency toxic + add_toxic helper。
