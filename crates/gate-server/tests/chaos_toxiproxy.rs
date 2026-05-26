@@ -145,6 +145,38 @@ impl ToxiproxyContainer {
         }
         Ok(())
     }
+
+    /// 给已注册 proxy 加一个 toxic（latency / timeout / reset_peer 等）。
+    /// `attrs` 形如 `{"latency": 1000, "jitter": 100}` 或 `{"timeout": 0}`。
+    pub async fn add_toxic(
+        &self,
+        proxy_name: &str,
+        toxic_name: &str,
+        toxic_type: &str,
+        stream: &str,
+        attrs: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({
+            "name": toxic_name,
+            "type": toxic_type,
+            "stream": stream,
+            "attributes": attrs,
+        });
+        let resp = client
+            .post(format!("{}/proxies/{proxy_name}/toxics", self.admin_url))
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!(
+                "add_toxic {proxy_name}/{toxic_name} failed: {} {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            );
+        }
+        Ok(())
+    }
 }
 
 /// 用环境变量门禁判断本地是否真跑 chaos 容器测试。
@@ -233,4 +265,41 @@ async fn toxiproxy_disabled_proxy_refuses_connection() {
         .expect("decode json");
     assert_eq!(list["enabled"], serde_json::json!(false), "proxy 应被 disable");
     assert_eq!(list["name"], serde_json::json!("chaos_refuse"));
+}
+
+/// Chaos case #2（v0.4.166）：Redis 闪断 — latency toxic 注入。
+/// add_toxic 加 latency 1000ms + jitter 200ms，验 admin API 真把 toxic 记入。
+/// 完整接 fred Redis client 走 toxiproxy → 上游 redis container 推 v0.5.x。
+#[tokio::test]
+#[ignore = "需要 docker + KOOIX_CHAOS_DOCKER=1 opt-in"]
+async fn toxiproxy_latency_toxic_registered() {
+    if !chaos_docker_enabled() {
+        eprintln!("跳过：未设 KOOIX_CHAOS_DOCKER=1");
+        return;
+    }
+    let tp = ToxiproxyContainer::start().await.expect("toxiproxy 容器启动失败");
+    tp.add_proxy("chaos_redis", 8666, "127.0.0.1", 6379)
+        .await
+        .expect("add_proxy");
+    tp.add_toxic(
+        "chaos_redis",
+        "slow",
+        "latency",
+        "downstream",
+        serde_json::json!({"latency": 1000, "jitter": 200}),
+    )
+    .await
+    .expect("add_toxic");
+
+    // 验 admin API 真把 toxic 记入
+    let toxics: serde_json::Value = reqwest::get(format!("{}/proxies/chaos_redis/toxics", tp.admin_url))
+        .await
+        .expect("GET toxics")
+        .json()
+        .await
+        .expect("decode toxics");
+    let arr = toxics.as_array().expect("toxics 数组");
+    assert_eq!(arr.len(), 1, "应有 1 个 toxic");
+    assert_eq!(arr[0]["type"], serde_json::json!("latency"));
+    assert_eq!(arr[0]["attributes"]["latency"], serde_json::json!(1000));
 }

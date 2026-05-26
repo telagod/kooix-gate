@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.166] — 2026-05-26
+
+**Type**: test · **主题**：chaos case #2 · Redis 闪断 latency toxic + add_toxic helper。
+
+### Added
+
+- `ToxiproxyContainer::add_toxic(proxy, toxic, toxic_type, stream, attrs)` — POST /proxies/{name}/toxics
+- `toxiproxy_latency_toxic_registered` chaos case #2（`#[ignore]` opt-in）
+  - 注 `latency=1000ms + jitter=200ms` downstream toxic
+  - 验 admin API GET 真把 toxic 记入
+
+### Why
+
+第四刀 #4 step 3 — 「Redis 闪断」chaos 原语（latency / jitter / timeout 之一）真实化。
+case #2 与 case #1 的差异：#1 是「连接被拒绝」（enabled=false），#2 是「连接通但慢」（latency toxic）。Redis 闪断常表现为后者（gossip/PSubscribe 临时延迟）。
+完整接 fred Redis client 流量推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 6 passed; 3 ignored
+```
+
+---
+
 ## [0.4.165] — 2026-05-26
 
 **Type**: test · **主题**：chaos case #1 · 拒绝连接 + add_proxy/set_proxy_enabled admin API helper。
