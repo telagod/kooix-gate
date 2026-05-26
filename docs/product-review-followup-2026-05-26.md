@@ -217,4 +217,25 @@ P0 修必须在本轮做完；P1 推到本轮之后下迭代可接受；P2 是 n
 
 ---
 
+## 0.4.113 误判更正 · request_logs buffered 不是真问题
+
+**原 product-review-2026-05-26.md §1 P1-3 写**：
+
+> request_logs 表写入策略：每次请求都同步写？批量？是否有 buffered writer
+
+**实际情况**（0.4.113 复审）：
+
+1. `request_events` 是 canonical 主表（outbox 路径，billing.emit_usage 异步入）
+2. `request_log_events` 是 read 投影表（migration `20260520000007` 加的月度分区表）
+3. 两个 `RequestLogRepo` trait 实际**只读**（list / find / dashboard_stats / incident_summary / partition 管理），**没有 insert/write 方法**
+4. 真实写路径：billing outbox consumer 在 worker plane 异步 batch 入库
+
+**结论**：原 review 把 `RequestLogRepo` 看成同步写 trait 是望文生义。架构已经是**双表 + outbox 异步**——本来就 buffered。
+
+`KOOIX_REQUEST_LOG_BUFFER_SIZE` 等 0.4.97 占位 env 因此**不是必要**——除非要给 read 投影路径加缓冲（但那场景下读路径已是异步 dashboard_stats，无意义）。
+
+**0.4.113 撤回此条 followup 项**。0.4.97 的 env 占位也撤回（在 v0.5.x 时如果真要做 buffered 再启用，但目前没有需求）。
+
+---
+
 *Reviewer: 邪修红尘仙 / Date: 2026-05-26 / 关联 commit: 0a82eb3..427c1cf*

@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.113] — 2026-05-26
+
+**Type**: docs · **主题**：撤回 product-review §1 P1-3 误判（request_logs 已是 outbox 异步）。
+
+### Changed
+
+- `docs/product-review-followup-2026-05-26.md` 末尾加 "0.4.113 误判更正" 段：
+  - 复审发现 `RequestLogRepo` trait 实际只读（list/find/stats/partition 管理，无 insert/write）
+  - 真实架构：`request_events` canonical 主表（outbox 路径）+ `request_log_events` 月度分区 read 投影
+  - billing outbox consumer 在 worker plane 异步 batch 写
+  - 撤回 0.4.97 占位 env (`KOOIX_REQUEST_LOG_BUFFER_SIZE` 等) 的"必要性"——除非未来要给 read 投影加缓冲，但读路径已是异步
+
+### Why
+
+第一刀 review 把 `RequestLogRepo` 看成同步 writer 是望文生义。`grep INSERT.*request_log` 命中 0 即证据：根本没有同步 INSERT 路径。
+
+诚实更正比悄悄忽略好——既然 followup 是批判稿，自审错误也要写进去。
+
+---
+
 ## [0.4.112] — 2026-05-26
 
 **Type**: docs · **主题**：Grafana dashboard 修指标名漂移 + 加 chat panel（followup §5.1）。
