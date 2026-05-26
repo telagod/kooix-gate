@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.103] — 2026-05-26
+
+**Type**: runtime · **主题**：Retry-After 头兼容 HTTP-date 格式（followup §3.1）。
+
+### Added
+
+- `retry.rs::parse_retry_after(value: &str) -> Option<u64>` — RFC 7231 §7.1.3 兼容解析：
+  - delta-seconds 数字：原样保留 + ×1000 转毫秒
+  - HTTP-date IMF-fixdate（用 `chrono::DateTime::parse_from_rfc2822`）：算到当前 Utc 的差值
+  - HTTP-date 已过期：返回 `Some(0)` 告诉调用方"无需等"
+  - 解析失败：`None`
+
+### Changed
+
+- `crates/gate-providers/src/openai.rs::check_status` 与 `anthropic.rs::check_status` 都改用 `parse_retry_after`，移除原 `parse::<u64>().map(|s| s * 1000)`。
+
+### Why
+
+云厂商（如 Cloudflare 中间层、AWS API GW）在限流响应中**经常用 HTTP-date 格式 Retry-After**。原实现对此 fall-through 成 None → 用默认 backoff 重试，可能比上游期望更早，造成二次冲击。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib retry::    # 9 passed (5 既有 + 4 新)
+```
+
+新测试：
+- `parse_retry_after_delta_seconds` — 数字 / 0 / 含空白
+- `parse_retry_after_http_date_future` — IMF-fixdate 未来 30s 解析
+- `parse_retry_after_http_date_past_returns_zero` — 过期返回 0
+- `parse_retry_after_garbage_returns_none` — 空 / 非数字 / 浮点 / 负数
+
+---
+
 ## [0.4.102] — 2026-05-26 — 第二刀启动 · followup 批判稿
 
 **Type**: docs · **主题**：自我批判第一刀 37 patch，揭"伪完成"。

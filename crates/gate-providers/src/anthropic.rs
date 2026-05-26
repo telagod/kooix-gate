@@ -359,12 +359,12 @@ fn check_status(resp: &reqwest::Response) -> ProviderResult<()> {
         return Err(ProviderError::Auth(format!("upstream returned {code}")));
     }
     if code == 429 {
+        // 0.4.103（followup §3.1）：用 parse_retry_after 兼容 HTTP-date 格式。
         let retry = resp
             .headers()
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|s| s * 1000);
+            .and_then(crate::retry::parse_retry_after);
         return Err(ProviderError::RateLimited {
             retry_after_ms: retry,
         });

@@ -11,6 +11,44 @@ use rand::Rng;
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// 0.4.103（followup §3.1）：解析 HTTP `Retry-After` 头。
+///
+/// RFC 7231 §7.1.3 接受两种格式：
+/// 1. **delta-seconds**：纯数字，秒（如 `"120"`）
+/// 2. **HTTP-date**：RFC 7231 IMF-fixdate（如 `"Wed, 21 Oct 2026 07:28:00 GMT"`）
+///
+/// 之前的实现只 `parse::<u64>()`，HTTP-date 直接 fall-through 成 None →
+/// retry 用默认 backoff 而非上游建议时间，可能在云厂商服务降级时**比上游
+/// 期望更早重试**，二次冲击。
+///
+/// 返回值：毫秒数（与 `ProviderError::RateLimited.retry_after_ms` 单位一致）。
+/// HTTP-date 早于当前时间或解析失败时返回 None。
+pub fn parse_retry_after(value: &str) -> Option<u64> {
+    let trimmed = value.trim();
+
+    // 1. 优先纯秒数（最常见）
+    if let Ok(secs) = trimmed.parse::<u64>() {
+        return Some(secs.saturating_mul(1000));
+    }
+
+    // 2. HTTP-date — 用 chrono 解析 RFC 2822 格式（覆盖 IMF-fixdate）
+    use chrono::{DateTime, Utc};
+    if let Ok(target) = DateTime::parse_from_rfc2822(trimmed) {
+        let now = Utc::now();
+        let target_utc = target.with_timezone(&Utc);
+        if target_utc > now {
+            let dur = target_utc - now;
+            // chrono Duration::num_milliseconds 返 i64，clamp 到 u64
+            return dur.num_milliseconds().try_into().ok();
+        }
+        // target ≤ now：retry-after 已过期，告诉调用方"无需等"
+        return Some(0);
+    }
+
+    // 3. 无法解析
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
     pub max_retries: u32,
@@ -198,5 +236,42 @@ mod tests {
             1,
             "stream_safe must not retry"
         );
+    }
+
+    // 0.4.103 — parse_retry_after RFC 7231 兼容性
+
+    #[test]
+    fn parse_retry_after_delta_seconds() {
+        assert_eq!(parse_retry_after("120"), Some(120_000));
+        assert_eq!(parse_retry_after("0"), Some(0));
+        assert_eq!(parse_retry_after("   60  "), Some(60_000));
+    }
+
+    #[test]
+    fn parse_retry_after_http_date_future() {
+        // 构造未来 30 秒的 IMF-fixdate
+        let future = chrono::Utc::now() + chrono::Duration::seconds(30);
+        let formatted = future.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        let ms = parse_retry_after(&formatted).expect("future date should parse");
+        // 允许 ±2s 误差（时钟漂移）
+        assert!(
+            ms >= 28_000 && ms <= 32_000,
+            "expected ~30s, got {ms}ms"
+        );
+    }
+
+    #[test]
+    fn parse_retry_after_http_date_past_returns_zero() {
+        let past = chrono::Utc::now() - chrono::Duration::seconds(60);
+        let formatted = past.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        assert_eq!(parse_retry_after(&formatted), Some(0));
+    }
+
+    #[test]
+    fn parse_retry_after_garbage_returns_none() {
+        assert_eq!(parse_retry_after(""), None);
+        assert_eq!(parse_retry_after("not-a-date"), None);
+        assert_eq!(parse_retry_after("3.14"), None);
+        assert_eq!(parse_retry_after("-1"), None);
     }
 }
