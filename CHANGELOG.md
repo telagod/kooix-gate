@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.154] — 2026-05-26
+
+**Type**: refactor · **主题**：迁 channel/key 6 个 helper 到 admin/shared.rs（第 3 批 · 完）。
+
+### Changed
+
+- `admin/shared.rs` 迁入 6 fn：
+  - `is_plugin_provider(&str) -> bool`
+  - `channel_capabilities(&ChannelRecord) -> ProviderCapabilities`
+  - `record_to_summary(ChannelRecord) -> ChannelSummary`
+  - `channel_inflight(&AppState, ChannelId) -> i64`
+  - `key_fingerprint(&str) -> String`
+  - `validate_channel_key_alias(&str) -> AppResult<()>`
+- `admin/channels.rs` 原 6 fn body 改为 thin wrapper `super::shared::xxx`
+
+### Why
+
+第 3 批迁入完成 13 个 helper 三批合一（3+5+6）。channels.rs 现完全不持有 helper 定义，只剩业务 handler + 17 个 thin wrapper。下一步 0.4.155 sibling 改 `super::shared::*` 切实消除反向依赖。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.153] — 2026-05-26
 
 **Type**: refactor · **主题**：迁 5 个 audit_snapshot 到 admin/shared.rs（第 2 批）。

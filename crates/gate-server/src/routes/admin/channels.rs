@@ -122,12 +122,7 @@ pub(super) fn audit_meta(
 }
 
 pub(super) fn channel_capabilities(r: &gate_storage::ChannelRecord) -> ProviderCapabilities {
-    if is_plugin_provider(&r.provider_type) {
-        return gate_providers::plugin_manifest(r.model_mapping.clone(), &r.base_url)
-            .map(|manifest| manifest.capabilities)
-            .unwrap_or_else(|_| gate_providers::provider_capabilities(&r.provider_type));
-    }
-    gate_providers::provider_capabilities(&r.provider_type)
+    super::shared::channel_capabilities(r)
 }
 
 pub(super) async fn create_channel(
@@ -223,10 +218,7 @@ pub(super) async fn create_channel(
 }
 
 pub(super) fn channel_inflight(app: &AppState, channel_id: ChannelId) -> i64 {
-    app.provider_router
-        .as_ref()
-        .map(|router| router.inflight_tracker().current(channel_id))
-        .unwrap_or(0)
+    super::shared::channel_inflight(app, channel_id)
 }
 
 pub(super) async fn drain_channel(
@@ -375,7 +367,7 @@ pub(super) async fn update_channel(
 }
 
 pub(super) fn is_plugin_provider(provider_type: &str) -> bool {
-    matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
+    super::shared::is_plugin_provider(provider_type)
 }
 
 pub(super) async fn delete_channel(
@@ -500,25 +492,11 @@ pub struct CreateKeyRequest {
 
 /// 计算 key fingerprint：SHA-256 前 16 字节 hex。
 pub(super) fn key_fingerprint(secret: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let hash = Sha256::digest(secret.as_bytes());
-    hex::encode(&hash[..16])
+    super::shared::key_fingerprint(secret)
 }
 
 pub(super) fn validate_channel_key_alias(alias: &str) -> AppResult<()> {
-    let alias = alias.trim();
-    if alias.is_empty() {
-        return Ok(());
-    }
-    if !alias
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(AppError::BadRequest(
-            "key alias must use [a-zA-Z0-9_-]".into(),
-        ));
-    }
-    Ok(())
+    super::shared::validate_channel_key_alias(alias)
 }
 
 pub(super) async fn list_channel_keys(
