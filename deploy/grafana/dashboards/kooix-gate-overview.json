@@ -18,9 +18,43 @@
       "type": "stat",
       "title": "p95 Latency",
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(gate_chat_latency_ms_bucket[5m])) by (le))" }
+        { "expr": "histogram_quantile(0.95, sum(rate(gate_chat_duration_seconds_bucket[5m])) by (le))" }
       ],
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "p95 TTFB (streaming)",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(gate_chat_ttfb_seconds_bucket[5m])) by (le))" }
+      ],
+      "gridPos": { "x": 0, "y": 4, "w": 6, "h": 4 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Chat duration p50/p95/p99 by streaming",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(gate_chat_duration_seconds_bucket[5m])) by (le, streaming))", "legendFormat": "p50 streaming={{streaming}}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(gate_chat_duration_seconds_bucket[5m])) by (le, streaming))", "legendFormat": "p95 streaming={{streaming}}" },
+        { "expr": "histogram_quantile(0.99, sum(rate(gate_chat_duration_seconds_bucket[5m])) by (le, streaming))", "legendFormat": "p99 streaming={{streaming}}" }
+      ],
+      "gridPos": { "x": 6, "y": 4, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Chat error rate by outcome",
+      "targets": [
+        { "expr": "sum(rate(gate_chat_requests_total{outcome=\"error\"}[1m])) by (provider_type, streaming) / sum(rate(gate_chat_requests_total[1m])) by (provider_type, streaming)", "legendFormat": "{{provider_type}} streaming={{streaming}}" }
+      ],
+      "gridPos": { "x": 18, "y": 4, "w": 6, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "SSE chunks/s by model",
+      "targets": [
+        { "expr": "sum(rate(gate_chat_stream_chunks_total[1m])) by (model)", "legendFormat": "{{model}}" }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 4 }
     },
     {
       "type": "stat",

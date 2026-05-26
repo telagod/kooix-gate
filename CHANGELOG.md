@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.112] — 2026-05-26
+
+**Type**: docs · **主题**：Grafana dashboard 修指标名漂移 + 加 chat panel（followup §5.1）。
+
+### Changed
+
+- `deploy/grafana/dashboards/kooix-gate-overview.json`：
+  - 🩸 **修真实 bug**：原 `gate_chat_latency_ms_bucket` **指标根本不存在**（0.4.66 真名是 `gate_chat_duration_seconds`）—— p95 Latency panel 一直在拉空数据
+  - 新增 4 个 panel：
+    - **p95 TTFB (streaming)** stat
+    - **Chat duration p50/p95/p99 by streaming** timeseries（用 streaming label 区分流/非流，避免长流污染 p99）
+    - **Chat error rate by outcome** timeseries（按 provider_type + streaming 切片）
+    - **SSE chunks/s by model** timeseries
+  - 全部用 0.4.66 实装的真实 metric 名
+
+### Why
+
+第一刀 followup §5.1：observability.md 写了新指标但 dashboard 没补。本版本一次性修旧 bug + 加新 panel。
+
+### Verification
+
+```bash
+node -e "JSON.parse(require('fs').readFileSync('deploy/grafana/dashboards/kooix-gate-overview.json'))"   # JSON valid
+```
+
+运维拉新 dashboard 后，原 p95 Latency stat 会从"空"变成"真实曲线"。
+
+---
+
 ## [0.4.111] — 2026-05-26
 
 **Type**: design · **主题**：`host_get_secret_slot` 完整设计稿（B3a step 3/3，G-003 收尾）。
