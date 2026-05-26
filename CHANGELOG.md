@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.142] — 2026-05-26
+
+**Type**: runtime · **主题**：WasmBlobStore trait + LocalFsBlobStore 实现（G-002 step 1/2）。
+
+### Added
+
+- `crates/gate-wasm/src/blob_store.rs`（98 行）：
+  - `pub trait WasmBlobStore: Send + Sync` — async `fetch(sha256) -> io::Result<Option<Vec<u8>>>` + `name()` 标签
+  - `pub struct LocalFsBlobStore { root: PathBuf }` — 从 `{root}/{sha256}.wasm` 读
+  - 3 个 sanity test（missing→None / hit→bytes / path 构造正确）
+- `pub mod blob_store` 加到 lib.rs
+
+### Why
+
+按 [product-gaps.md G-002](./docs/product-gaps.md#g-002)：channel manifest 的 `security.wasm.module` 字段当前是裸路径字符串，没有"自动按 manifest 拉字节 → instantiate → 挂到 CustomHttpProvider"的装配链。本步加 trait + LocalFs 实现，v0.4.143 实装 ProviderRouter auto-mount 接通。
+
+v0.5.x 扩 S3 + OCI artifact backend。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib blob_store    # 3 passed
+cargo test -p gate-wasm --lib               # 23 passed (20 + 3)
+```
+
+---
+
 ## [0.4.141] — 2026-05-26
 
 **Type**: runtime · **主题**：chat dispatch bench 扩 2 个 case（extra params / 10 messages）。

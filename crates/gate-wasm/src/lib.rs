@@ -15,6 +15,7 @@
 //! 推进（0.4.22-0.4.26）。
 
 mod error;
+pub mod blob_store;
 pub mod fallback;
 pub mod host;
 pub mod limits;
