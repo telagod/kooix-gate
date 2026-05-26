@@ -200,6 +200,7 @@ impl CustomHttpProvider {
             model: req.model.clone(),
             request_id: String::new(),
             metadata: Default::default(),
+            ..Default::default()
         };
         let result = gate_wasm::invoke_with_fallback(
             host,
@@ -225,6 +226,7 @@ impl CustomHttpProvider {
             model: model.to_string(),
             request_id: String::new(),
             metadata: Default::default(),
+            ..Default::default()
         };
         let result = gate_wasm::invoke_with_fallback(
             host,
@@ -258,6 +260,7 @@ impl CustomHttpProvider {
             model: model.to_string(),
             request_id: String::new(),
             metadata: Default::default(),
+            ..Default::default()
         };
         let result = gate_wasm::invoke_with_fallback(
             host,
@@ -1540,6 +1543,7 @@ impl Provider for CustomHttpProvider {
                                 model,
                                 request_id: String::new(),
                                 metadata: Default::default(),
+            ..Default::default()
                             };
                             let out = gate_wasm::invoke_with_fallback(
                                 host,

@@ -132,6 +132,10 @@ impl WasmtimeHost {
         module: &Module,
         hook: HookKind,
         payload: &[u8],
+        // 0.4.137：接 HookContext 的 secrets + allowed_slots，让 host_get_secret_slot
+        // 闭包可访问。用 Arc 让闭包能 move 捕获不消耗 ownership。
+        secrets: std::sync::Arc<std::collections::HashMap<String, String>>,
+        allowed_slots: std::sync::Arc<std::collections::HashSet<String>>,
     ) -> WasmResult<Bytes> {
         // 1. 创建 store，注入 fuel
         let mut store: Store<()> = Store::new(&self.engine, ());
@@ -230,6 +234,88 @@ impl WasmtimeHost {
                 },
             )
             .map_err(|e| WasmError::Instantiate(format!("linker host_record_metric: {e}")))?;
+
+        // 0.4.137（按 docs/wasm-secret-slot-design.md，G-003 step 3/3）：
+        // host_get_secret_slot(name_ptr, name_len, out_ptr, out_cap) -> i32
+        //   >0  = bytes written
+        //    0  = slot exists but empty
+        //   -1  = slot not in allowed_slots
+        //   -2  = slot declared but channel has no value
+        //   -3  = out_cap < secret.len()
+        //   -4  = name out-of-bounds or invalid UTF-8
+        let secrets_for_closure = secrets.clone();
+        let allowed_for_closure = allowed_slots.clone();
+        linker
+            .func_wrap(
+                "env",
+                "host_get_secret_slot",
+                move |mut caller: Caller<'_, ()>,
+                      name_ptr: i32,
+                      name_len: i32,
+                      out_ptr: i32,
+                      out_cap: i32| -> i32 {
+                    let memory = match caller.get_export("memory") {
+                        Some(Extern::Memory(m)) => m,
+                        _ => return -5,
+                    };
+                    let data = memory.data(&caller);
+                    let np = name_ptr as usize;
+                    let nl = name_len as usize;
+                    if np.saturating_add(nl) > data.len() {
+                        return -4;
+                    }
+                    let name = match std::str::from_utf8(&data[np..np + nl]) {
+                        Ok(s) => s.to_string(),
+                        Err(_) => return -4,
+                    };
+
+                    // capability 校验
+                    if !allowed_for_closure.contains(&name) {
+                        metrics::counter!(
+                            "gate_plugin_wasm_secret_access_total",
+                            "outcome" => "denied"
+                        )
+                        .increment(1);
+                        return -1;
+                    }
+
+                    let Some(secret) = secrets_for_closure.get(&name) else {
+                        metrics::counter!(
+                            "gate_plugin_wasm_secret_access_total",
+                            "outcome" => "missing"
+                        )
+                        .increment(1);
+                        return -2;
+                    };
+
+                    let bytes = secret.as_bytes();
+                    if (bytes.len() as i32) > out_cap {
+                        metrics::counter!(
+                            "gate_plugin_wasm_secret_access_total",
+                            "outcome" => "buf_too_small"
+                        )
+                        .increment(1);
+                        return -3;
+                    }
+
+                    let op = out_ptr as usize;
+                    let bl = bytes.len();
+                    if op.saturating_add(bl) > data.len() {
+                        return -5;
+                    }
+                    // 写入 wasm 内存
+                    let mem_mut = memory.data_mut(&mut caller);
+                    mem_mut[op..op + bl].copy_from_slice(bytes);
+
+                    metrics::counter!(
+                        "gate_plugin_wasm_secret_access_total",
+                        "outcome" => "ok"
+                    )
+                    .increment(1);
+                    bytes.len() as i32
+                },
+            )
+            .map_err(|e| WasmError::Instantiate(format!("linker host_get_secret_slot: {e}")))?;
 
         // 3. 实例化（async）
         let instance = linker
@@ -351,7 +437,7 @@ impl WasmHost for WasmtimeHost {
         channel_id: &str,
         hook: HookKind,
         payload: Bytes,
-        _ctx: HookContext,
+        ctx: HookContext,
     ) -> WasmResult<Option<Bytes>> {
         let modules = self.modules.read().await;
         let entry = match modules.get(channel_id) {
@@ -368,7 +454,11 @@ impl WasmHost for WasmtimeHost {
             );
             return Ok(Some(payload));
         }
-        let result = self.invoke_hook_real(&entry.module, hook, &payload).await?;
+        let secrets = std::sync::Arc::new(ctx.secrets);
+        let allowed_slots = std::sync::Arc::new(ctx.allowed_slots);
+        let result = self
+            .invoke_hook_real(&entry.module, hook, &payload, secrets, allowed_slots)
+            .await?;
         Ok(Some(result))
     }
 

@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.137] — 2026-05-26
+
+**Type**: runtime · **主题**：`host_get_secret_slot` 真实装（G-003 step 3/3 真还债 · 按 0.4.111 设计稿）。
+
+### Added
+
+- `crates/gate-wasm/src/wasmtime_host.rs` 在 wasmtime Linker 注册 `host_get_secret_slot(name_ptr, name_len, out_ptr, out_cap) -> i32`：
+  - `>0` 写入字节数 / `0` slot 存在但空 / `-1` not_allowed / `-2` missing / `-3` buf_too_small / `-4` invalid_name / `-5` host_error
+  - capability 校验（HookContext.allowed_slots） 在闭包中 contains 检查
+  - secret 取自 HookContext.secrets（由调用方解密后过滤好传入）
+  - 写 `memory.data_mut()` 把 secret bytes 复制到 wasm 线性内存
+  - emit `gate_plugin_wasm_secret_access_total{outcome}` counter（ok / denied / missing / buf_too_small 4 outcome）
+
+### Changed
+
+- `WasmtimeHost::invoke_hook_real` 签名加 `secrets: Arc<HashMap>` + `allowed_slots: Arc<HashSet>` 参数
+- `WasmtimeHost::invoke_hook` 把 ctx.secrets / ctx.allowed_slots wrap 进 Arc 传 invoke_hook_real
+- `crates/gate-providers/src/custom_provider/mod.rs` 4 处 `HookContext { ... }` literal 加 `..Default::default()` spread 兼容新字段
+
+### Why
+
+第二刀 followup §1：B3a step 3/3 host_get_secret_slot 在 0.4.111 写完设计稿后一直未实装。本步按设计真装——插件**第一次**能在 transform hook 内拿到 channel secret（拼 Authorization 头 / 解密 payload / HMAC 验签）。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib    # 18 passed (无回归)
+cargo test -p gate-providers --lib    # 143 passed (无回归)
+cargo check --workspace    # 0 errors
+```
+
+### Honest assessment
+
+实装 fn 已通，但**调用方（CustomHttpProvider）还没真正把 secrets 解密后塞 HookContext.secrets**——目前 HookContext 默认 HashMap 是空，capability 检查会全部返 -1。
+v0.4.138 加 audit + 完整接通 caller 填 secrets。
+
+---
+
 ## [0.4.136] — 2026-05-26
 
 **Type**: runtime · **主题**：HookContext 加 `secrets` + `allowed_slots`（按 0.4.111 设计稿）。
