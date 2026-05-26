@@ -2,37 +2,40 @@
 //!
 //! 全部需 Platform 作用域权限。SuperAdmin 短路通过。
 //!
-//! # 模块拆分进度（B1，followup §4）
+//! # 模块拆分完成（B1，第三刀 0.4.121-0.4.129）
 //!
-//! 本文件 ~4250 行，按业务域规划成 7 块。截至 0.4.116：
+//! 0.4.120 admin.rs 4368 行 god file → 0.4.129 admin/mod.rs **553 行**（-87%）。
+//! 真减 3815 行，分 9 个子文件：
 //!
-//! | 块 | 行范围（约） | 状态 | 拆分动作 |
-//! |----|--------------|------|--------|
-//! | channels & keys | 332-1190 | ⛔ 仍顶层 | god-tier，与 batch ops / drain 紧耦合 |
-//! | users / sessions / audit | 1247-1700 | ⛔ 仍顶层 | 内部多 fn 跨调用 |
-//! | identity providers (SSO) | 1816-2400 | ⛔ 仍顶层 | secret seal / OIDC discover 内聚 |
-//! | groups & bindings | 2402-3190 | ⛔ 仍顶层 | fallback chain / canary 跨 handler 共享 helper |
-//! | org members | 3197-3290 | ✅ `mod org_members` | 0.4.109 抽出 |
-//! | invitations | 3291-3559 | ⛔ 仍顶层 | invitation_token_hash / accept_url helper 与 create/revoke handler 紧耦合 |
-//! | probe / test / balance | 3559-3970 | ⛔ 仍顶层 | 与 channels CRUD 共享 channel_capabilities |
-//! | pricing rules | ~4082-4252 | ✅ `mod pricing` | 0.4.72 抽出 |
+//! | 文件 | 行数 | handler 数 | 抽出版本 |
+//! |------|-----|---|---|
+//! | `mod.rs` | 553 | — | 共享 types + router + tests |
+//! | `channels.rs` | 853 | 17 | 0.4.129（最大块） |
+//! | `groups.rs` | 846 | 10 | 0.4.127 |
+//! | `sso.rs` | 600 | 5 | 0.4.126 |
+//! | `users.rs` | 529 | 11 | 0.4.128 |
+//! | `probe.rs` | 488 | 3 | 0.4.125 |
+//! | `invitations.rs` | 278 | 9 | 0.4.124 |
+//! | `pricing.rs` | 169 | 3 | 0.4.122 |
+//! | `org_members.rs` | 100 | 3 | 0.4.123 |
 //!
-//! 拆分原则：先抽**独立性高的小块**（pricing 11 fn / org members 3 fn），
-//! 验证 mod 化模式可行后才动跨块共享多的大块。
+//! ## 跨文件共享 helper
 //!
-//! ## 真拆物理文件（v0.5.x 计划）
+//! `channels.rs` 包含的 13 个 helper（require_confirmation / audit_meta /
+//! *_audit_snapshot / channel_capabilities 等）通过 `pub(super)` 暴露给 sibling，
+//! sibling 文件头声明 `#[allow(unused_imports)] use super::channels::{...}`。
 //!
-//! 内联 mod 完成后下一步是 `routes/admin/{mod.rs, channels.rs, groups.rs,
-//! sso.rs, users.rs, invitations.rs, probe.rs, pricing.rs}` 目录化。届时
-//! `use super::*` 改为显式 `use crate::admin::shared::*`，强制声明依赖。
+//! 进一步把这些 helper 抽到独立 `admin/shared.rs` 推到 v0.5.x（避免 sibling
+//! 之间 channels.rs 形成"事实共享"反向依赖）。
 //!
-//! Channels CRUD:
+//! ## Channels CRUD（in channels.rs）
+//!
 //! - GET    /channels         — 列出全部 channels
 //! - POST   /channels         — 创建 channel
 //! - PUT    /channels/:id     — 更新 channel
 //! - DELETE /channels/:id     — 软删除 channel
 //!
-//! Channel Keys:
+//! ## Channel Keys（in channels.rs）
 //! - GET    /channels/:id/keys        — 列出 key 元数据（不含明文）
 //! - POST   /channels/:id/keys        — 添加 key（服务端加密）
 //! - POST   /channels/:id/keys/rotate — 轮转 key

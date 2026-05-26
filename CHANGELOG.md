@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.130] — 2026-05-26
+
+**Type**: docs · **主题**：admin/mod.rs 头文档更新反映 B1 完成态。
+
+### Changed
+
+- `admin/mod.rs` 头部 doc 从"拆分进度"改为"拆分完成"：
+  - 9 个子文件表格（mod.rs 553 / channels.rs 853 / groups 846 / sso 600 / users 529 / probe 488 / invitations 278 / pricing 169 / org_members 100）
+  - 共享 helper 通过 `pub(super) use super::channels::{...}` 暴露给 sibling 的设计说明
+  - 进一步抽 admin/shared.rs 推到 v0.5.x 的理由（避免 sibling 之间 channels.rs 形成事实共享反向依赖）
+
+### Why
+
+shared.rs 物理拆分推到 v0.5.x：当前 channels.rs 既装业务 handler 又是 helper 库，事实上让其它 mod 反向依赖 channels.rs。最终干净方案是单独的 admin/shared.rs，但本步先文档化现状。
+
+诚实评：未做 admin/shared.rs 实际拆分。
+
+---
+
 ## [0.4.129] — 2026-05-26
 
 **Type**: refactor · **主题**：admin/channels.rs 物理拆出（B1 真还债 step 8/8 · 最后一块）。
