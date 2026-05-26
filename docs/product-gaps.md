@@ -16,10 +16,12 @@
 
 ---
 
-## 已收口（0.4.65-0.4.72，product-review 第一刀）
+## 已收口（0.4.65-0.4.117，product-review 双刀）
 
-> 来自 [product-review-2026-05-26.md](./product-review-2026-05-26.md) 的批判清单。
-> 第一刀（A1-A5 + Retry + Pool + admin step 1）共 8 个 patch，已合入 main。
+> 关联：[product-review-2026-05-26.md](./product-review-2026-05-26.md) 第一刀 + [product-review-followup-2026-05-26.md](./product-review-followup-2026-05-26.md) 第二刀（自我批判）。
+> 总计 53 个 patch（0.4.65-0.4.117），主线 main 已合入。
+
+### 第一刀（0.4.65-0.4.101，37 patch）
 
 | 项 | 版本 | 内容 | 验证 |
 |----|------|------|------|
@@ -31,8 +33,50 @@
 | —  | 0.4.70 | Retry ±25% jitter + `RetryConfig::stream_safe()` | 139 providers tests |
 | —  | 0.4.71 | PgPool 配置显式化（`KOOIX_DB_*` env，5 字段） | 5 storage tests |
 | —  | 0.4.72 | admin.rs B1 step 1/4: pricing 块封装内联 mod | 45 server tests |
+| —  | 0.4.80-82 | WASM host_log + host_record_metric 实装（G-003 step 1+2/3） | 18 wasm tests |
+| —  | 0.4.83-84 | WASM cwasm 持久化缓存 + KOOIX_WASM_CACHE_DIR | 18 wasm tests |
+| —  | 0.4.87-88 | `GET /v1/admin/providers/capabilities` endpoint + test | 46 server tests |
+| —  | 0.4.101 | 「空衍」logo 重设计（D4 → 风车螺旋） | npm check 0/0 |
 
-剩余 product-review 项见下方 P0/P1/P2，与原 product-gaps 合并维护。
+### 第二刀（0.4.102-0.4.117，16 patch · 自我批判修正）
+
+| 项 | 版本 | 类型 | 内容 |
+|----|------|------|------|
+| — | 0.4.102 | docs | followup 批判稿（揭第一刀 6 类粉饰） |
+| §3.1 | 0.4.103 | runtime | Retry-After 兼容 HTTP-date（RFC 7231） |
+| §3.2 | 0.4.104 | runtime | Usage 加 audio_tokens / accepted+rejected_prediction_tokens |
+| §3.3 | 0.4.105 | runtime | SharedClient LRU per-key eviction 防雷暴 |
+| §3.4 | 0.4.106 | test | chat handler 埋点 grep 验证 4 个 callsite |
+| §3.5 | 0.4.107 | refactor | metric 名抽 `pub mod names` const |
+| §6 | 0.4.108 | docs | stream_safe 语义钉死注释 |
+| §4 | 0.4.109 | refactor | admin.rs org_members 块抽 inline mod |
+| §1 | 0.4.110 | refactor | channels page form-factories 抽 _lib |
+| §1 | 0.4.111 | design | host_get_secret_slot 完整 ABI 设计稿 |
+| §5.1 | 0.4.112 | docs | Grafana dashboard 修指标名漂移 + 加 4 panel |
+| — | 0.4.113 | docs | 撤回 §1 P1-3 误判（request_logs 已 outbox 异步）|
+| — | 0.4.114 | test | channels form-factories 4 sanity tests |
+| §1 | 0.4.115 | design | DataTable virtualization 完整设计稿 |
+| §4 | 0.4.116 | docs | admin.rs 拆分进度表 + ROADMAP 第二刀汇总 |
+| §5.2 | 0.4.117 | docs | SECURITY.md 完整化（SLA / disclosure / severity tiers） |
+
+### 第二刀诚实评
+
+- **真改 runtime 5 项**：Retry-After / Usage 字段 / SharedClient LRU / metric const / org_members 内联
+- **设计稿 / 文档化 / 测试 11 项**：补真实方案图纸或锁业务契约
+- **撤回 1 项误判**：request_logs 实际已是 outbox 异步路径
+- **粉饰更正**：第一刀的 "step 1/N" 命名 + "占位 env" + "幽灵 API" 全部摊到 followup 文档面前
+
+### 真实债务推到 v0.5.x
+
+参见 [ROADMAP.md § M3 后 — product-review 第二刀 · 剩余真重构](../ROADMAP.md)：
+
+- admin.rs 5 大块物理拆分（channels / users / sso / groups / invitations / probe）
+- channels page B2 step 3-4（list state store + dialog manager）
+- DataTable virtualize 实装（按 0.4.115 设计稿）
+- host_get_secret_slot 实装（按 0.4.111 设计稿）
+- WASM module blob store + auto-mount (G-002)
+- chat e2e bench / chaos test runtime
+- playground frontend capability 联动
 
 ---
 

@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.118] — 2026-05-26
+
+**Type**: docs · **主题**：product-gaps.md 加第二刀完成项汇总 + 诚实评。
+
+### Changed
+
+- `docs/product-gaps.md` 章节"已收口"重写：
+  - 第一刀（0.4.65-0.4.101，37 patch）+ 第二刀（0.4.102-0.4.117，16 patch）= 总 53 patch
+  - 第一刀表保留 8 项核心 + 5 项关键阶段
+  - 第二刀新表 16 项，每项标 followup 章节号 + Type（runtime/refactor/test/design/docs）
+  - "诚实评"段：真改 runtime 5 项 / 设计稿+文档+测试 11 项 / 撤回误判 1 项 / 粉饰更正
+  - "真实债务推 v0.5.x" 8 项明示
+
+### Why
+
+第一刀的 product-gaps 表只列了 8 项 ✓ 全打；followup 揭出来的 6 类粉饰需要在 product-gaps 中也体现，不能仅藏在 followup.md。让任何运维 / 用户读 product-gaps 一眼看到"做了什么 + 哪些是文档 + 真实债务在哪"。
+
+---
+
 ## [0.4.117] — 2026-05-26
 
 **Type**: docs · **主题**：SECURITY.md 完整化（followup §5.2）。
