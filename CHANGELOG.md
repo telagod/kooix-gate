@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.119] — 2026-05-26
+
+**Type**: docs · **主题**：README 当前版本段重写为双刀打磨真实进度。
+
+### Changed
+
+- `README.md § 当前版本` 重写：
+  - 标题从 "v0.4.100 — 第一刀打磨完成" 改为 "v0.4.119 — 双刀打磨"
+  - 第一刀（37 patch）+ 第二刀（17 patch）= 总 55 patch（0.4.65-0.4.119）
+  - **第二刀分类列出诚实评**：真改 runtime 5 项 / 真画图 3 项 / 修真实 bug 1 项 / 撤回误判 1 项 / 测试+重构+文档 7 项
+  - **真实债务推 v0.5.x** 7 项明示（admin 物理拆分 / channels page B2 step 3-4 / DataTable virtualize / host_get_secret_slot / WASM blob store / chat e2e bench+chaos / playground frontend）
+  - 测试基线表（providers 143 / server 50 / wasm 18 / storage 30 / web 100+）
+- tests badge 498/93 → 549/100+
+
+### Why
+
+第一刀 README 写"第一刀打磨完成"是粉饰——followup 揭出 6 类问题。本步重写让 README 反映**双刀真实状态**：做了多少 + 哪些是文档 + 真实债务在哪。新读者一眼看到这是"打磨中"而非"已完成"。
+
+---
+
 ## [0.4.118] — 2026-05-26
 
 **Type**: docs · **主题**：product-gaps.md 加第二刀完成项汇总 + 诚实评。
