@@ -84,81 +84,26 @@ pub(super) fn record_to_summary(r: gate_storage::ChannelRecord) -> ChannelSummar
 }
 
 pub(super) fn channel_audit_snapshot(r: &gate_storage::ChannelRecord) -> serde_json::Value {
-    serde_json::json!({
-        "id": r.channel_id.to_string(),
-        "code": r.code,
-        "name": r.name,
-        "provider_type": r.provider_type,
-        "base_url": r.base_url,
-        "status": r.status,
-        "health": r.health,
-        "supported_models": r.supported_models,
-        "rpm_limit": r.rpm_limit,
-        "tpm_limit": r.tpm_limit,
-        "timeout_ms": r.timeout_ms,
-        "max_retries": r.max_retries,
-        "tags": r.tags,
-        "model_mapping": r.model_mapping,
-        "balance": r.balance,
-        "last_error": r.last_error,
-    })
+    super::shared::channel_audit_snapshot(r)
 }
 
 pub(super) fn key_audit_snapshot(k: &gate_storage::ChannelKeyRecord) -> serde_json::Value {
-    serde_json::json!({
-        "id": k.id.to_string(),
-        "channel_id": k.channel_id.to_string(),
-        "label": k.label,
-        "fingerprint": k.key_fingerprint,
-        "weight": k.weight,
-        "health": k.health,
-        "total_requests": k.total_requests,
-        "total_errors": k.total_errors,
-        "consecutive_errors": k.consecutive_errors,
-        "last_error_code": k.last_error_code,
-    })
+    super::shared::key_audit_snapshot(k)
 }
 
 pub(super) fn group_audit_snapshot(
     g: &gate_storage::ChannelGroupRecord,
     channel_count: i64,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "id": g.group_id.to_string(),
-        "name": g.name,
-        "description": g.description,
-        "strategy": g.strategy,
-        "enabled": g.enabled,
-        "fallback_group_id": g.fallback_group_id.map(|fb| fb.to_string()),
-        "channel_count": channel_count,
-    })
+    super::shared::group_audit_snapshot(g, channel_count)
 }
 
 pub(super) fn pricing_rule_audit_snapshot(r: &gate_billing::PricingRule) -> serde_json::Value {
-    serde_json::json!({
-        "id": r.id.to_string(),
-        "channel_id": r.channel_id.map(|c| gate_core::id::ChannelId::from(c).to_string()),
-        "model": r.model,
-        "dimension": r.dimension,
-        "unit": r.unit,
-        "rate": r.rate,
-        "conditions": r.conditions,
-        "effective_from": r.effective_from,
-        "effective_until": r.effective_until,
-        "priority": r.priority,
-        "description": r.description,
-    })
+    super::shared::pricing_rule_audit_snapshot(r)
 }
 
 pub(super) fn user_audit_snapshot(u: &gate_core::identity::User) -> serde_json::Value {
-    serde_json::json!({
-        "id": u.id.to_string(),
-        "email": u.email,
-        "display_name": u.display_name,
-        "status": format!("{:?}", u.status).to_lowercase(),
-        "mfa_enabled": u.mfa_enabled,
-        "last_login_at": u.last_login_at,
-    })
+    super::shared::user_audit_snapshot(u)
 }
 
 pub(super) fn confirmation_from_headers(headers: &HeaderMap) -> Option<&str> {

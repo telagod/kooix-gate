@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.153] — 2026-05-26
+
+**Type**: refactor · **主题**：迁 5 个 audit_snapshot 到 admin/shared.rs（第 2 批）。
+
+### Changed
+
+- `admin/shared.rs` 迁入 5 fn：
+  - `channel_audit_snapshot(&ChannelRecord) -> serde_json::Value`
+  - `key_audit_snapshot(&ChannelKeyRecord) -> serde_json::Value`
+  - `group_audit_snapshot(&ChannelGroupRecord, channel_count) -> serde_json::Value`
+  - `pricing_rule_audit_snapshot(&PricingRule) -> serde_json::Value`
+  - `user_audit_snapshot(&User) -> serde_json::Value`
+- `admin/channels.rs` 原 5 fn body 改为 thin wrapper `super::shared::xxx`（保兼容 sibling 仍可 channels:: 调，0.4.155 真切换）
+
+### Why
+
+第 2 批迁入，5 个 audit_snapshot 是 audit log change 序列化的核心 helper。sibling 文件中 invitations/sso/groups/users/pricing 全部用到 *_audit_snapshot 对应类型。本步只迁定义不动 sibling 引用路径，分两步降风险。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
 ## [0.4.152] — 2026-05-26
 
 **Type**: refactor · **主题**：迁 require_confirmation / audit_meta 三 fn 到 admin/shared.rs。
