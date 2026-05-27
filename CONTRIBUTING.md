@@ -57,6 +57,9 @@ PR 描述至少包含：
 
 Kooix Gate 是 9 crate workspace，跨 crate integration test 多，`target/debug` 容易膨胀到 100GB+。请定期清理。
 
+> ⚠ **2026-05-23 真实事故**：本仓库 `target/` 曾膨胀到 **240G**（debug/incremental 99G + debug/deps 137G），
+> 参与触发一次系统 OOM 卡死。完整复盘与系统性预防策略见 [`docs/build-hygiene-runbook.md`](docs/build-hygiene-runbook.md)。
+
 ### cargo-sweep（推荐）
 
 ```bash

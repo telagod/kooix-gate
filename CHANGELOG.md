@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.177] — 2026-05-27
+
+**Type**: docs · **主题**：build-hygiene-runbook — 240G `target/` 事故复盘 + 防复发系统性指南。
+
+### Added
+
+- `docs/build-hygiene-runbook.md`（238 行）：
+  - 事故时间线（2026-05-23 17:15-17:42，target/ 240G 触发系统 OOM）
+  - debug/incremental 99G + debug/deps 137G 拆解
+  - 系统性预防策略（cargo-sweep / cargo-cache / sccache）
+  - 配套 `CONTRIBUTING.md § 6` 日常操作清单
+
+### Changed
+
+- `CONTRIBUTING.md`：§ 6 Disk usage management 段加入事故警告框 + 链入 runbook
+- `docs/README.md`：文档索引加 build-hygiene-runbook 条目
+
+### Why
+
+2026-05-23 真实事故（target/ 膨胀至 240G 参与触发系统 OOM 卡死）需要档案化复盘，让接手人不再踩同样坑。CONTRIBUTING.md 是「做什么」清单，runbook 是「为什么 + 如何预测下次」深度文档，分层不混。
+
+### Verification
+
+```bash
+ls docs/build-hygiene-runbook.md      # 238 行
+grep 'build-hygiene-runbook' docs/README.md CONTRIBUTING.md   # 都引用
+```
+
+---
+
 ## [0.4.176] — 2026-05-27
 
 **Type**: chore · **主题**：GH Free private repo Actions 额度耗尽 — 3 个 workflow 暂改 workflow_dispatch。

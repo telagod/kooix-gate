@@ -48,6 +48,7 @@
 | [release-assets.md](./release-assets.md) | P2.5 发布截图 / 短视频素材 checklist，覆盖 Dashboard、Channel wizard、Pricing、Request logs、Playground。 |
 | [security-runbook.md](./security-runbook.md) | 密钥、JWT、Channel key、Redis quota、Plugin 风险处置。 |
 | [observability-runbook.md](./observability-runbook.md) | Gateway、billing、worker 指标、PromQL 入口与 P1.9 事故 Runbook。 |
+| [build-hygiene-runbook.md](./build-hygiene-runbook.md) | `target/` 膨胀与系统级影响的事故复盘与防复发系统性指南；日常操作清单见 `CONTRIBUTING.md § 6`。 |
 | [playground.md](./playground.md) | Visual Workflow Editor 产品线说明与节点能力联动。 |
 
 ## 模块文档
