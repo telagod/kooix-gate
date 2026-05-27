@@ -11,6 +11,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.181] — 2026-05-27 — 小阶段收口 · 工作区清零
+
+> 6 patch（0.4.176-0.4.181）阶段小版：CI 暂停 + 240G `target/` 事故复盘 + admin/users 抽组件三连。
+
+### 阶段战报
+
+| 类型 | 版本 | 内容 |
+|------|------|------|
+| chore | 0.4.176 | 停 3 workflow 自动触发（GH Free private repo Actions 额度耗尽） |
+| docs | 0.4.177 | build-hygiene-runbook 238 行 + CONTRIBUTING/README 链入 |
+| refactor | 0.4.178 | 抽 CreateUserForm 子组件 |
+| refactor | 0.4.179 | 抽 UserStatsCards 计数卡 |
+| refactor | 0.4.180 | 抽 UserTableRow + 清 7 个未用 lucide import |
+| chore | 0.4.181 | 阶段封版 + push + tag |
+
+### admin/users +page.svelte 瘦身
+
+```
+650 → 597 行 (-53, -8.2%)
++ 3 子组件: CreateUserForm (87) + UserStatsCards (22) + UserTableRow (80)
+合计抽出 189 行到子组件
+```
+
+### 工作区状态
+
+- 第四刀 0.4.151-175 后留下的 5 个未提交文件（CONTRIBUTING / docs/README / +page.svelte 修改 + build-hygiene-runbook + CreateUserForm）全部 commit 收口
+- 工作区干净（git status 无 modified / 无 untracked）
+
+### CI 状态
+
+- 3 workflow 改 `workflow_dispatch` 仅手动触发；本地门禁照常跑
+- 5 月 v0.5.x 启动前需决策恢复路径（公开化 / spending limit / self-hosted / CI 瘦身）
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4274 files
+cd web && npx vitest run    # 127 / 21
+git status                  # clean
+```
+
+---
+
 ## [0.4.180] — 2026-05-27
 
 **Type**: refactor · **主题**：admin/users 抽 UserTableRow 行模板组件 + 清未用 lucide import。
