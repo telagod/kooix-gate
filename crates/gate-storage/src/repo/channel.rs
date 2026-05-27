@@ -324,7 +324,11 @@ impl ChannelRepo for PgChannelRepo {
         let offset = (page - 1) * page_size;
 
         let mut conditions = vec!["deleted_at IS NULL".to_string()];
-        let mut bind_idx = 1u32;
+        // 0.4.186：bind_idx 初值是 0，每个 filter 用前先 += 1，从 $1 起递增。
+        // 之前初值为 1 + 用前 += 1 → 第一个 filter 直接 $2，但 vec 只 push 1 个值，
+        // sqlx 报 "supplies 1 parameters, but prepared statement requires 2"。
+        // 修后：单 filter → $1（1 bind） / 双 filter → $1+$2（2 bind） 一致。
+        let mut bind_idx = 0u32;
         let mut bind_values: Vec<String> = Vec::new();
 
         if let Some(ref search) = q.search

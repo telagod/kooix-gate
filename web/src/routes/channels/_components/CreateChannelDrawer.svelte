@@ -118,7 +118,9 @@
 </script>
 
 {#if showCreate}
-	<ModalFrame close={onClose} class="z-40 justify-end bg-black/50 backdrop-blur-sm p-0 animate-backdrop">
+	<!-- 0.4.187 修：items-stretch 让 drawer 撑满屏高，避免 ModalFrame 默认 items-center 把
+	     drawer 居中收缩，导致内容超出后顶/底被裁切且无法滚动（魔尊截图反馈）。 -->
+	<ModalFrame close={onClose} class="z-40 items-stretch justify-end bg-black/50 backdrop-blur-sm p-0 animate-backdrop">
 		<div class="w-full max-w-lg bg-white dark:bg-zinc-900 h-full overflow-y-auto shadow-2xl animate-slide-in-right">
 			<div class="p-6">
 				<div class="flex items-center justify-between mb-6">

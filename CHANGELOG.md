@@ -11,6 +11,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.187] — 2026-05-28 — channels 三连修：drawer prop + SQL bind_idx + 滚动
+
+### Type
+
+fix
+
+### 主题
+
+魔尊从「点新建」一路真打到「显示不全无法滚动」，挖出 channels 页**三个独立 bug** 叠加。本 patch 一并收口。
+
+### Fixed
+
+**1) drawer prop_invalid_value（Svelte 5 runes）**
+
+`web/src/routes/channels/_lib/form-factories.ts`：
+- `defaultCreateForm()` 加 `name: ''` 初值
+- `defaultEditForm()` 从 `{}` 改为完整字段：`name / base_url / enabled / supported_models / rpm_limit / tpm_limit / timeout_ms / max_retries / tags / model_mapping`
+
+`bind:value={undefined}` 绑到有 fallback 的 `Input.svelte` (`value = $bindable('')`) 直接抛 props_invalid_value，drawer mount 失败。
+
+**2) SQL bind_idx off-by-one**
+
+`crates/gate-storage/src/repo/channel.rs:327`：
+```rust
+- let mut bind_idx = 1u32;
++ let mut bind_idx = 0u32;
+```
+
+`list_admin_paginated` 用任何 filter（status/provider/health/search/tag）时 sqlx 报 `supplies 1 parameters, but prepared statement requires 2`，500 internal db error。复现：魔尊点列表状态过滤即触发。
+
+**3) drawer 高度滚动**
+
+`web/src/routes/channels/_components/Create/EditChannelDrawer.svelte`：
+
+```diff
+- ModalFrame ... class="z-40 justify-end ..."
++ ModalFrame ... class="z-40 items-stretch justify-end ..."
+```
+
+ModalFrame 默认 `flex items-center` 把 drawer 居中收缩，内容超出视口时上下被裁，且 `h-full overflow-y-auto` 顶到 contracted 高度无法滚动。drawer 显式覆盖 `items-stretch` 撑满屏高。
+
+小 modal（RotateKey/RevokeKey/CreateKey）保留居中默认，不动。
+
+### Why
+
+魔尊连续点四下（新建按钮 → 状态过滤 → 截图报错 → drawer 滚动），三处独立 bug 一处一处暴露：
+
+1. **drawer prop**：Svelte 5 runes 严格校验在 build 时不报，hydration 时才炸（vitest 跑组件单元不跑 page-level）
+2. **SQL bind_idx**：list_admin_paginated 在 0.4.x 第三刀拆 channels 时引入，**单测只覆盖无 filter 路径**
+3. **drawer 滚动**：CSS 子集合（items-stretch / h-full）从未在 viewport 高度 < 内容高度时验过
+
+三个 bug 共同信号：**门禁链没有 e2e 真打**，全靠魔尊真跑才暴露。
+
+### Verification
+
+后端 SQL（7 种 filter 组合全 200）：
+```
+✅ /v1/admin/channels                              200 total=5
+✅ /v1/admin/channels?status=active                200 total=0
+✅ /v1/admin/channels?status=disabled              200 total=5
+✅ /v1/admin/channels?status=draining              200 total=0
+✅ /v1/admin/channels?status=active&health=healthy 200 total=0
+✅ /v1/admin/channels?provider=openai&status=disabled 200 total=3
+✅ /v1/admin/channels?search=open&...              200 total=1
+```
+
+前端：
+- 强刷 `/channels` 列表正常
+- 点状态过滤不再 500
+- 点新建 drawer 滑出
+- drawer 内容超出视口可滚动（items-stretch）
+
+### 0.4.X 系列盲区累计
+
+| 版本 | 缺陷 | 检出 |
+|---|---|---|
+| 0.4.183 | docker compose 部署链 | 魔尊验收 |
+| 0.4.184 | admin Query typed ID 11 处 | 魔尊点 incidents |
+| 0.4.187 | drawer prop + SQL bind_idx + 滚动 3 处 | 魔尊连续真打 |
+
+**5 个真 bug，0 个被 0.4.X 任何门禁拦住**。v0.5.0 P0 必加 playwright e2e — 起栈 + login + 遍历 admin 页 + 点关键 button + filter 矩阵 + viewport 高度变换 + console error 监听。
+
+### 工程总账
+
+0.4.0 → 0.4.187，**187 patch**
+
+---
+
 ## [0.4.184] — 2026-05-27 — admin Query typed ID 契约修复
 
 ### Type
