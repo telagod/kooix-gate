@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.180] — 2026-05-27
+
+**Type**: refactor · **主题**：admin/users 抽 UserTableRow 行模板组件 + 清未用 lucide import。
+
+### Added
+
+- `web/src/routes/admin/users/_components/UserTableRow.svelte`（80 行）：
+  - props: `user / isVisible / statusVariant / fmtDate / currentUserId / statusBusy / passwordBusy / onToggleStatus / onOpenReset / onOpenSessions`
+  - 完整行模板：visible columns + 3 action button (toggleStatus / openReset / openSessions)
+  - statusVariant + fmtDate 由父注入避免组件持有 helper
+
+### Changed
+
+- `+page.svelte`：原 #each 内联行模板 (~50 行) 替换为 `<UserTableRow ... />`
+- 加 keyed each `(user.id)` 让 Svelte 5 reconcile 稳定
+- 清未用 lucide import：`Check / LogOut / Plus / KeyRound / MonitorSmartphone / ShieldCheck / ShieldOff`（已转移到 UserTableRow / CreateUserForm）
+
+### Why
+
+admin/users 抽组件三连收口（0.4.178 CreateUserForm + 0.4.179 UserStatsCards + 0.4.180 UserTableRow），+page.svelte 由 650 → 597 行（-53）。剩余主要是状态管理 + filter chip group + 4 个 modal 装配，与父 state 耦合紧不强行抽。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4274 files
+cd web && npx vitest run    # 127/21
+wc -l web/src/routes/admin/users/+page.svelte    # 597 (was 650)
+```
+
+---
+
 ## [0.4.179] — 2026-05-27
 
 **Type**: refactor · **主题**：admin/users 抽 UserStatsCards 计数卡组件。

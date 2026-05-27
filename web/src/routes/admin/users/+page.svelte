@@ -22,20 +22,14 @@
 	import SessionModal from './_components/SessionModal.svelte';
 	import CreateUserForm from './_components/CreateUserForm.svelte';
 	import UserStatsCards from './_components/UserStatsCards.svelte';
+	import UserTableRow from './_components/UserTableRow.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
 	import {
-		Check,
 		Eye,
 		EyeOff,
-		KeyRound,
-		LogOut,
-		MonitorSmartphone,
-		Plus,
 		RefreshCcw,
 		Search,
-		ShieldCheck,
-		ShieldOff,
 		Users
 	} from 'lucide-svelte';
 	import {
@@ -534,54 +528,19 @@
 				</div>
 			{/snippet}
 
-			{#each filteredUsers as user}
-				<tr class={dataTemplate.row}>
-					{#if isVisible('email')}
-						<td class="px-4 py-3">
-							<div class="font-mono text-xs {text.primary}">{user.email}</div>
-							<div class="mt-1 font-mono text-[11px] {text.muted}">{user.id}</div>
-						</td>
-					{/if}
-					{#if isVisible('display_name')}
-						<td class={dataTemplate.td}>{user.display_name ?? '—'}</td>
-					{/if}
-					{#if isVisible('status')}
-						<td class="px-4 py-3"><Badge variant={statusVariant(user.status)}>{user.status}</Badge></td>
-					{/if}
-					{#if isVisible('mfa')}
-						<td class={dataTemplate.td}>{user.mfa_enabled ? '是' : '否'}</td>
-					{/if}
-					{#if isVisible('last_login_at')}
-						<td class={dataTemplate.td}>{fmtDate(user.last_login_at)}</td>
-					{/if}
-					{#if isVisible('created_at')}
-						<td class={dataTemplate.td}>{fmtDate(user.created_at)}</td>
-					{/if}
-					{#if isVisible('actions')}
-						<td class="px-4 py-3">
-							<div class="flex justify-end gap-2">
-								<Button
-									variant={user.status === 'active' ? 'outline' : 'default'}
-									size="sm"
-									disabled={statusBusy[user.id] || (user.id === currentUserId && user.status === 'active')}
-									onclick={() => toggleStatus(user)}
-								>
-									{#if user.status === 'active'}
-										<ShieldOff size={12} />停用
-									{:else}
-										<ShieldCheck size={12} />启用
-									{/if}
-								</Button>
-								<Button variant="outline" size="sm" disabled={passwordBusy[user.id]} onclick={() => openReset(user)}>
-									<KeyRound size={12} />重置密码
-								</Button>
-								<Button variant="outline" size="sm" onclick={() => openSessions(user)}>
-									<MonitorSmartphone size={12} />Sessions
-								</Button>
-							</div>
-						</td>
-					{/if}
-				</tr>
+			{#each filteredUsers as user (user.id)}
+				<UserTableRow
+					{user}
+					{isVisible}
+					{statusVariant}
+					{fmtDate}
+					{currentUserId}
+					{statusBusy}
+					{passwordBusy}
+					onToggleStatus={toggleStatus}
+					onOpenReset={openReset}
+					onOpenSessions={openSessions}
+				/>
 			{/each}
 		</DataTable>
 
