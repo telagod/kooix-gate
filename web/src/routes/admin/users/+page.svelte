@@ -20,6 +20,7 @@
 	import ResetPasswordModal from './_components/ResetPasswordModal.svelte';
 	import SuspendUserModal from './_components/SuspendUserModal.svelte';
 	import SessionModal from './_components/SessionModal.svelte';
+	import CreateUserForm from './_components/CreateUserForm.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
 	import {
@@ -34,7 +35,6 @@
 		Search,
 		ShieldCheck,
 		ShieldOff,
-		UserPlus,
 		Users
 	} from 'lucide-svelte';
 	import {
@@ -436,35 +436,16 @@
 			</Card>
 		</div>
 
-		<Card padding="md" class="mb-4">
-			<div class="mb-4 flex items-center gap-2">
-				<UserPlus size={16} class={text.secondary} />
-				<div>
-					<p class="text-sm font-semibold {text.primary}">创建用户</p>
-					<p class="text-xs {text.muted}">密码仅提交给后端做 Argon2id hash，不会回显或入审计明文。</p>
-				</div>
-			</div>
-			<form class="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_180px_auto]" onsubmit={(e) => { e.preventDefault(); submitCreate(); }}>
-				<Field label="邮箱" for="create-email" error={createErrors.email} required>
-					<Input id="create-email" type="email" placeholder="user@example.com" bind:value={createForm.email} disabled={creating} invalid={!!createErrors.email} autocomplete="off" />
-				</Field>
-				<Field label="昵称" for="create-name">
-					<Input id="create-name" placeholder="可选" bind:value={createForm.display_name} disabled={creating} />
-				</Field>
-				<Field label="初始密码" for="create-password" error={createErrors.password} required>
-					<Input id="create-password" type="password" placeholder="至少 8 位" bind:value={createForm.password} disabled={creating} invalid={!!createErrors.password} autocomplete="new-password" />
-				</Field>
-				<Field label="状态" for="create-status" error={createErrors.status}>
-					<Select id="create-status" bind:value={createForm.status} options={statusOptions} disabled={creating} />
-				</Field>
-				<div class="flex items-end">
-					<Button type="submit" disabled={creating} class="w-full">
-						<Plus size={14} />
-						创建
-					</Button>
-				</div>
-			</form>
-		</Card>
+		<CreateUserForm
+			form={createForm}
+			errors={createErrors}
+			{creating}
+			{statusOptions}
+			onSubmit={submitCreate}
+			onUpdateField={(key, value) => {
+				createForm = { ...createForm, [key]: value };
+			}}
+		/>
 
 		<DataToolbar badgesVisible={hasActiveFilters || hasHiddenColumns}>
 			{#snippet query()}

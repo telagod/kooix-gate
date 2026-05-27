@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.178] — 2026-05-27
+
+**Type**: refactor · **主题**：admin/users 抽 CreateUserForm 子组件。
+
+### Added
+
+- `web/src/routes/admin/users/_components/CreateUserForm.svelte`（87 行）：
+  - props: `form / errors / creating / statusOptions / onSubmit / onUpdateField`
+  - `onUpdateField(key, value)` 回调让父保持单一可变 state owner（避免 $bindable 跨组件 mutation）
+
+### Changed
+
+- `+page.svelte`：原内联「创建用户 Card」(~30 行) 替换为 `<CreateUserForm ... />`，移除 `UserPlus` import
+
+### Why
+
+延续 admin/users / admin/groups 子组件抽分一致风格（参考 0.4.61-64 admin/groups 抽 GroupCard / FallbackChainPanel / CanaryComparePanel / BindingTable）。
++page.svelte 仍是 700+ 行 god page，本步先抽最独立的「创建表单」段。剩 ResetPasswordModal / SuspendUserModal / SessionModal 已抽，下一刀考虑抽 UserTable 行模板 + filter chip group。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4272 files
+cd web && npx vitest run    # 127/21
+```
+
+---
+
 ## [0.4.177] — 2026-05-27
 
 **Type**: docs · **主题**：build-hygiene-runbook — 240G `target/` 事故复盘 + 防复发系统性指南。
