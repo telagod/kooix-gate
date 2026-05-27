@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.179] — 2026-05-27
+
+**Type**: refactor · **主题**：admin/users 抽 UserStatsCards 计数卡组件。
+
+### Added
+
+- `web/src/routes/admin/users/_components/UserStatsCards.svelte`（22 行）：
+  - props: `total / active / suspended`
+  - 纯展示，零交互；总用户 / Active / Suspended 3 张 Card
+
+### Changed
+
+- `+page.svelte`：原内联 3-Card 段 (~16 行) 替换为 `<UserStatsCards ... />`
+
+### Why
+
+延续 0.4.178 子组件抽分。3 张计数卡是无状态展示，与 stats 派生（`activeCount` / `suspendedCount` 仍由父算），最干净的抽分点。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4273 files
+```
+
+---
+
 ## [0.4.178] — 2026-05-27
 
 **Type**: refactor · **主题**：admin/users 抽 CreateUserForm 子组件。

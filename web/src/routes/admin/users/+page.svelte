@@ -21,6 +21,7 @@
 	import SuspendUserModal from './_components/SuspendUserModal.svelte';
 	import SessionModal from './_components/SessionModal.svelte';
 	import CreateUserForm from './_components/CreateUserForm.svelte';
+	import UserStatsCards from './_components/UserStatsCards.svelte';
 	import { dataTemplate, text } from '$lib/design';
 	import type { BadgeVariant } from '$lib/design';
 	import {
@@ -421,20 +422,7 @@
 	{:else if error}
 		<StatePanel variant="danger" description={error} />
 	{:else}
-		<div class="mb-4 grid gap-3 md:grid-cols-3">
-			<Card padding="md">
-				<p class="text-xs uppercase tracking-wider {text.muted}">总用户</p>
-				<p class="mt-1 text-2xl font-semibold {text.primary}">{users.length}</p>
-			</Card>
-			<Card padding="md" variant="success">
-				<p class="text-xs uppercase tracking-wider {text.success}">Active 启用</p>
-				<p class="mt-1 text-2xl font-semibold {text.primary}">{activeCount}</p>
-			</Card>
-			<Card padding="md" variant={suspendedCount > 0 ? 'danger' : 'default'}>
-				<p class="text-xs uppercase tracking-wider {suspendedCount > 0 ? text.danger : text.muted}">Suspended 停用</p>
-				<p class="mt-1 text-2xl font-semibold {text.primary}">{suspendedCount}</p>
-			</Card>
-		</div>
+		<UserStatsCards total={users.length} active={activeCount} suspended={suspendedCount} />
 
 		<CreateUserForm
 			form={createForm}
