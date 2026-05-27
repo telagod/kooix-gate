@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.176] — 2026-05-27
+
+**Type**: chore · **主题**：GH Free private repo Actions 额度耗尽 — 3 个 workflow 暂改 workflow_dispatch。
+
+### Changed
+
+- `.github/workflows/ci.yml`：`pull_request` + `push` 触发注释；改 `workflow_dispatch` 仅手动触发
+- `.github/workflows/docker.yml`：tag push 触发注释；改 `workflow_dispatch`
+- `.github/workflows/release.yml`：tag push 触发注释；改 `workflow_dispatch`
+
+### Why
+
+GH Free 个人账户 private repo Actions 免费额度（2000 min/月）超额 → annotation 误导文案 "payment failed" → 0.4.120 / 0.4.150 / 0.4.175 三次 push 触发的 Release / Docker / CI 全部秒挂或 12h queued。
+
+继续每次 push 都触发失败 run 既污染 Actions 历史也无价值。本地门禁照常跑（cargo test --workspace + npm run check + vitest），CI 仅作为"决策恢复后"再启用。
+
+恢复路径（择一推 v0.5.x）：
+1. 仓库公开化（OSS）→ Actions 完全免费
+2. 设 spending limit ≥ $5/月，超额自动停而非拒启
+3. 镜像到 self-hosted runner（已在 ci.yml 留 `KOOIX_CI_RUNNER` 切换通道）
+4. CI 瘦身（path-filter / PR 跑精简 / security 仅 main 跑）省 50-80% 用量
+
+### Verification
+
+```bash
+grep -A2 '^on:' .github/workflows/*.yml
+# 三文件都应显示 workflow_dispatch 优先 + 旧触发被注释
+```
+
+---
+
 ## [0.4.175] — 2026-05-26 — 第四刀阶段大版收口 🗡⚡
 
 > 25 patch（0.4.151 → 0.4.175）的第四刀真还债 + 收口阶段大版。

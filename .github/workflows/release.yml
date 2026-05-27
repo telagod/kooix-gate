@@ -1,7 +1,10 @@
 name: Release
+# 0.4.176：见 ci.yml 同步暂停说明。tag push 不再自动建 GitHub Release，需手动
+# 走 `gh release create -F /tmp/notes.md` 或恢复 workflow。
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+  # push:
+  #   tags: ["v*"]
 
 permissions:
   contents: write

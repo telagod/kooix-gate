@@ -1,7 +1,10 @@
 name: Docker
+# 0.4.176：见 ci.yml 同步暂停说明。tag push 不再自动构建镜像，本地用
+# `docker build` 或恢复后再补打。
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+  # push:
+  #   tags: ["v*"]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
