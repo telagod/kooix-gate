@@ -11,6 +11,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.184] — 2026-05-27 — admin Query typed ID 契约修复
+
+### Type
+
+fix
+
+### 主题
+
+魔尊浏览器访问 `/admin/incidents` 报 "Bad Request"，挖出后端 admin 路由 11 处 Query 字段用裸 `Uuid` 解析，无法接受 `org_xxx` / `prj_xxx` 等 typed ID — 违反 CLAUDE.md「URL 参数用 FlexUuid」契约。Path 参数都已用 FlexUuid，但 Query 参数被遗漏。
+
+### Fixed
+
+11 处 Query 字段从 `Option<Uuid>` 改为 `Option<FlexUuid>` + 下游 `.map(Uuid::from)`：
+
+- `routes/request_logs.rs`：
+  - `RequestListQuery.org_id / project_id / channel_id / api_key_id / user_id / group_id`（6 字段）
+  - `DashboardStatsQuery.org_id`（**incidents 用的就是这个**）
+  - `FilterOptionsQuery.org_id`
+- `routes/admin/users.rs`：
+  - `AuditLogQuery.org_id`
+- `routes/usage.rs`：
+  - `UsageQuery.org_id`
+  - `OrgRequestListQuery.project_id`
+
+### Why
+
+CLAUDE.md 项目契约：
+
+> URL 路径参数用 `FlexUuid`，同时接受 typed ID 和裸 UUID
+
+Path 参数（`:org_id`）都已用 FlexUuid，**但 Query 参数（`?org_id=`）被遗漏**。
+
+前端 `me.orgs` 返回 typed ID `org_3b69f40228c74519a6b696802632435d`，incidents 页 `selectedOrg = me.orgs[0]` 直接拿 typed ID 拼参 `?org_id=org_3b69...`，axum `Query<DashboardStatsQuery>` 用 `serde_uuid::deserialize` 解析失败 → 400。
+
+这个 bug 至少存在 0.4.0+ → 0.4.183 周期内（120+ patch），从未被发现，因为：
+1. 单测用裸 UUID 直接构 struct，不走 `Query` extractor
+2. e2e 测试用 wiremock 上游，不经前端 typed ID 路径
+3. 手工测试 admin 页时若 `me.current_org=null` 才会触发（current_org 优先用裸 UUID）
+
+### Verification
+
+```bash
+# 真打 4 种 case
+curl -H 'Authorization: Bearer ${TOKEN}' \
+  'http://localhost:8000/v1/admin/incidents?hours=24&org_id=org_3b69f40228c74519a6b696802632435d'
+# → 200 ✅ typed ID
+
+curl '...?org_id=3b69f40228c74519a6b696802632435d'
+# → 200 ✅ 裸 UUID 兼容
+
+curl '...?hours=24'
+# → 200 ✅ 不传 org_id
+
+curl '...?hours=24&org_id='
+# → 400 invalid length 0
+# 这是预期：空 org_id 应被前端 `if (orgId)` 过滤；后端兜底 400 是正确的
+```
+
+副带验：`/v1/admin/audit-logs?org_id=org_xxx` 也修复（同 patch 受益）。
+
+### 0.4.X 系列盲区累计
+
+- 0.4.183 修：`docker compose up` 控制台 SPA 部署链
+- 0.4.184 修：admin Query typed ID 契约
+
+两个都是「单测/clippy/check 通过但 docker compose 实际跑不起 / 前端真打 API 报错」的真实质量盲区。**v0.5.0 P0 必须加 e2e smoke 自动门禁**：起栈 + login + 调每个 admin 页关键 API + 验 200。
+
+---
+
 ## [0.4.183] — 2026-05-28 — Web 部署链修复 · docker compose 端到端跑通
 
 ### Type

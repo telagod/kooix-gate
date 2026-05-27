@@ -31,7 +31,7 @@ pub struct UsageQuery {
     pub group_by: Option<String>,
     /// SuperAdmin 才能用：跨 Org 查询。
     #[serde(default)]
-    pub org_id: Option<Uuid>,
+    pub org_id: Option<FlexUuid>,
 }
 
 #[derive(Serialize)]
@@ -96,7 +96,7 @@ async fn get_usage(
     };
 
     // 决定查哪个 Org（None = 跨 Org，SuperAdmin 专用）。
-    let target_org = resolve_target_org(&ctx, q.org_id)?;
+    let target_org = resolve_target_org(&ctx, q.org_id.map(Uuid::from))?;
 
     // 非跨 Org 路径必须有 UsageRead；跨 Org 已被 SuperAdmin 检查放行（可跳过 require）。
     if let Some(org) = target_org {
@@ -174,7 +174,7 @@ fn resolve_target_org(
 
 #[derive(Deserialize)]
 pub struct OrgRequestListQuery {
-    pub project_id: Option<Uuid>,
+    pub project_id: Option<FlexUuid>,
     pub model: Option<String>,
     pub model_requested: Option<String>,
     pub status_min: Option<i16>,
@@ -226,7 +226,7 @@ async fn list_org_requests(
 
     let filter = RequestFilter {
         org_id: Some(*org_id),
-        project_id: q.project_id,
+        project_id: q.project_id.map(Uuid::from),
         channel_id: None,
         api_key_id: None,
         user_id: None,

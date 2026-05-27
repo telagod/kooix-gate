@@ -13,7 +13,7 @@ use super::shared::{require_confirmation, audit_meta, channel_audit_snapshot, ke
 
 #[derive(Deserialize)]
 pub struct AuditLogQuery {
-    pub org_id: Option<Uuid>,
+    pub org_id: Option<crate::flex_uuid::FlexUuid>,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -92,7 +92,7 @@ pub(super) async fn list_audit_logs(
     let records = if let Some(org_id) = q.org_id {
         app.repos
             .audit
-            .list_by_org_sorted(org_id, limit, offset, sort_by, sort_dir)
+            .list_by_org_sorted(Uuid::from(org_id), limit, offset, sort_by, sort_dir)
             .await?
     } else {
         // No org filter — platform admin sees all (via org_id=nil trick won't work;

@@ -13,12 +13,12 @@ use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct RequestListQuery {
-    pub org_id: Option<Uuid>,
-    pub project_id: Option<Uuid>,
-    pub channel_id: Option<Uuid>,
-    pub api_key_id: Option<Uuid>,
-    pub user_id: Option<Uuid>,
-    pub group_id: Option<Uuid>,
+    pub org_id: Option<FlexUuid>,
+    pub project_id: Option<FlexUuid>,
+    pub channel_id: Option<FlexUuid>,
+    pub api_key_id: Option<FlexUuid>,
+    pub user_id: Option<FlexUuid>,
+    pub group_id: Option<FlexUuid>,
     pub model: Option<String>,
     pub model_requested: Option<String>,
     pub status_min: Option<i16>,
@@ -50,14 +50,14 @@ fn default_limit() -> i64 {
 
 #[derive(Deserialize)]
 pub struct DashboardStatsQuery {
-    pub org_id: Option<Uuid>,
+    pub org_id: Option<FlexUuid>,
     #[serde(default = "default_hours")]
     pub hours: i64,
 }
 
 #[derive(Deserialize)]
 pub struct FilterOptionsQuery {
-    pub org_id: Option<Uuid>,
+    pub org_id: Option<FlexUuid>,
     #[serde(default = "default_filter_hours")]
     pub hours: i64,
 }
@@ -88,12 +88,12 @@ async fn list_requests(
     require!(ctx, Permission::AuditRead, Scope::Platform);
 
     let filter = RequestFilter {
-        org_id: q.org_id,
-        project_id: q.project_id,
-        channel_id: q.channel_id,
-        api_key_id: q.api_key_id,
-        user_id: q.user_id,
-        group_id: q.group_id,
+        org_id: q.org_id.map(Uuid::from),
+        project_id: q.project_id.map(Uuid::from),
+        channel_id: q.channel_id.map(Uuid::from),
+        api_key_id: q.api_key_id.map(Uuid::from),
+        user_id: q.user_id.map(Uuid::from),
+        group_id: q.group_id.map(Uuid::from),
         model: q.model,
         model_requested: q.model_requested,
         status_min: q.status_min,
@@ -158,7 +158,7 @@ async fn get_filter_options(
     let options = app
         .repos
         .request_logs
-        .filter_options(q.org_id, hours)
+        .filter_options(q.org_id.map(Uuid::from), hours)
         .await?;
     Ok(Json(serde_json::to_value(&options).unwrap_or_default()))
 }
@@ -175,7 +175,7 @@ async fn dashboard_stats(
     let stats = app
         .repos
         .request_logs
-        .dashboard_stats(q.org_id, hours)
+        .dashboard_stats(q.org_id.map(Uuid::from), hours)
         .await?;
     Ok(Json(serde_json::to_value(&stats).unwrap_or_default()))
 }
@@ -202,7 +202,7 @@ async fn incident_summary(
 
     let hours = q.hours.clamp(1, 720);
     let recent_filter = RequestFilter {
-        org_id: q.org_id,
+        org_id: q.org_id.map(Uuid::from),
         error_only: Some(true),
         from: Some(Utc::now() - chrono::Duration::hours(hours)),
         ..Default::default()
@@ -216,7 +216,7 @@ async fn incident_summary(
     let incidents = app
         .repos
         .request_logs
-        .incident_summary(q.org_id, hours)
+        .incident_summary(q.org_id.map(Uuid::from), hours)
         .await?;
 
     let quota_denies_top = crate::metrics::quota_deny_snapshot()
