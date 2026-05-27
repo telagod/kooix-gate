@@ -11,6 +11,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.182] — 2026-05-27 — 文档漂移收口
+
+### Type
+
+docs
+
+### 主题
+
+把 0.4.X 系列收口前最后一处真实尾巴——README / ROADMAP / product-gaps 文档漂移——一次性补齐，为 v0.5.0 启动让出干净边界。
+
+### Changed
+
+- **README.md 版本同步 0.4.181**：
+  - badge `version-0.4.60` → `version-0.4.181`
+  - badge `tests-549+ Rust + 100+ web` → `tests-556+ Rust + 127 web`（按实测）
+  - 「当前版本：v0.4.119 — product-review 双刀打磨」段重写为「v0.4.181 — product-review 四刀全收口」，新增第三刀 / 第四刀 / 阶段小版（0.4.176-181）三段战报
+  - 测试基线表按实测重写：Rust 556+（src 286 + integ 270） / Web 127 cases（21 files） / 35 migrations
+  - workspace 树注释 34 → 35 migrations
+  - 测试章节 `485 Rust + 86 web` → `556+ Rust + 127 web`
+  - 删旧「真实债务推 v0.5.x」清单（已全在 0.4.121-175 真还）+ 旧「v0.5.0-rc1 候选门禁」
+  - 新增「v0.5.0 启动候选」节 — P0 / P1 / P2 三组真候选
+- **ROADMAP.md 阶段小版段**：M3 后段在第四刀（0.4.151-171）之后补「阶段小版收口（0.4.176-181）」表 + 6 patch 说明
+- **docs/product-gaps.md 阶段小版段**：第四刀诚实评之后补「阶段小版收口（0.4.176-181，6 patch · 工作区清零）」段，明确「仅做工程债清理，无新功能」
+
+### Why
+
+魔尊点出 0.4.X 系列收口时发现的最后一道漂移：
+
+1. README badge 还停在 121 版本前的 0.4.60；标题段写「v0.4.119 双刀」，实际四刀都收完了
+2. ROADMAP 第四刀段止于 0.4.171，0.4.176-181 阶段小版从未入文档
+3. product-gaps 第四刀诚实评之后直接跳到 P0 v0.5.0，6 patch 阶段小版无记
+4. 测试数 549 / 100+ 与实测 556 / 127 漂移
+
+这些漂移不是 bug 但是「外人来看会以为项目停在四刀前」的形象损失。v0.5.0 启动前最后清一次。
+
+### Verification
+
+```bash
+git diff --check
+grep -E '0\.4\.(60|119|171)' README.md ROADMAP.md docs/product-gaps.md  # 仅历史段引用应保留
+grep -E 'tests-556|version-0\.4\.181' README.md                          # badge 一致
+```
+
+测试基线核：
+
+```
+crates/**/src/*.rs        286 #[test]
+crates/**/tests/*.rs      270 #[test]
+web/src/**/*.test.ts      127 test cases / 21 files
+crates/gate-storage/migrations  35 files
+```
+
+### 0.4.X 系列总结（0.4.0 → 0.4.182，182 patch）
+
+- **M3 完结**（0.4.0-0.4.60，60 patch）—— fast-path runtime + WASM Plugin v0 完整产品形态
+- **四刀打磨**（0.4.65-0.4.171，107 patch）—— product-review 自审 4 轮，每轮诚实评 + 下一轮真还
+- **阶段小版收口**（0.4.176-0.4.182，7 patch）—— CI / build-hygiene / admin/users 抽组件 / 文档漂移
+- 工程债 / 文档漂移 / TODO/FIXME 全部清零；v0.5.0 启动边界冻结
+
+下一站 v0.5.0：P0 信任链与运行时（G-001 / G-004）+ P1 DX 与生态铺路。
+
+---
+
 ## [0.4.181] — 2026-05-27 — 小阶段收口 · 工作区清零
 
 > 6 patch（0.4.176-0.4.181）阶段小版：CI 暂停 + 240G `target/` 事故复盘 + admin/users 抽组件三连。

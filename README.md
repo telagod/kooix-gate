@@ -8,9 +8,9 @@
 
 写一份 JSON manifest 就能上一个新渠道，不发版；流式计费 fail-closed；多 Org RLS 兜底；编译期 SQL；强类型 ID。
 
-[![Tests](https://img.shields.io/badge/tests-549%2B%20Rust%20%2B%20100%2B%20web-brightgreen)](#测试)
+[![Tests](https://img.shields.io/badge/tests-556%2B%20Rust%20%2B%20127%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.4.60-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.181-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
 ## 是什么
@@ -82,9 +82,9 @@ API / 接入：
 - [ROADMAP.md](./ROADMAP.md) — 四里程碑路线（M1/M2/M3 已交付，M4 候选）
 - [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账
 
-## 当前版本：v0.4.119 — product-review 双刀打磨
+## 当前版本：v0.4.181 — product-review 四刀全收口
 
-0.4.65-0.4.119（2026-05-26，**55 个 patch**）—— 经历两轮自审打磨，主线 main 已合入：
+0.4.65-0.4.181（2026-05-26 → 2026-05-27，**117 个 patch**）—— 经历四轮自审打磨 + 阶段小版收口，主线 main 已合入：
 
 ### 第一刀（[product-review-2026-05-26](./docs/product-review-2026-05-26.md)，0.4.65-0.4.101，37 patch）
 
@@ -92,43 +92,41 @@ API / 接入：
 
 ### 第二刀（[product-review-followup-2026-05-26](./docs/product-review-followup-2026-05-26.md)，0.4.102-0.4.118，17 patch · 自我批判）
 
-第一刀完成后吾自审揭出 6 类粉饰：**假 step 命名 / 占位 env 算实装 / 漏网项 / 内联 mod 假拆 / 文档残留 / 幽灵 API**。第二刀按 P0/P1/P2 修：
+第一刀完成后自审揭出 6 类粉饰：**假 step 命名 / 占位 env 算实装 / 漏网项 / 内联 mod 假拆 / 文档残留 / 幽灵 API**。按 P0/P1/P2 修真改 runtime 5 项 + 真画图 3 项 + bug 修复 1 项 + 测试/重构/文档 7 项。
 
-- **真改 runtime 5 项**：Retry-After HTTP-date（0.4.103）/ Usage 加 audio+prediction tokens（0.4.104）/ SharedClient LRU per-key eviction 防雷暴（0.4.105）/ metric 名 `pub mod names` const（0.4.107）/ admin.rs org_members 抽内联 mod（0.4.109）
-- **真画图 3 项**：host_get_secret_slot ABI 设计稿（0.4.111）/ DataTable virtualize 完整设计（0.4.115）/ admin.rs 拆分进度表（0.4.116）
-- **修真实 bug 1 项**：Grafana dashboard 用错指标名 `gate_chat_latency_ms_bucket`（不存在）→ 改 `gate_chat_duration_seconds_bucket`（0.4.112）
-- **撤回误判 1 项**：request_logs 实际已是 outbox 异步路径（0.4.113）
-- **测试 / 重构 / 文档 7 项**：chat handler 埋点 grep test / channels form-factories + sanity test / SECURITY.md 完整化 / etc.
+### 第三刀（0.4.121-0.4.150，30 patch · 真还债）
 
-详见 [product-gaps.md § 已收口（0.4.65-0.4.117）](./docs/product-gaps.md)。
+第二刀诚实评列的真实债务在第三刀落到 runtime：admin.rs god file 物理拆 8 patch / channels page 拆分 / DataTable virtualize 设计 / G-003 host_get_secret_slot 真实装 / chat e2e bench / G-002 WASM blob store / playground capability frontend / chaos test fixture。
 
-### 测试基线
+### 第四刀（0.4.151-0.4.171，21 patch · 5 项真还）
 
-| crate | tests | 增量 |
-|-------|-------|-----|
-| gate-providers | 143 | +21 since 0.4.64 |
-| gate-server | 50 | +9 |
-| gate-wasm | 18 | +5 |
-| gate-storage | 25+5 | +5 pool_config |
-| web | 100+ | +13 (plugin-samples / data-table / channels-form-factories) |
+第三刀诚实评推 v0.5.x 的 5 项第四刀全部真还：admin/shared.rs 物理拆 + DataTable virtualize 真接 + playground capability gating + chaos test toxiproxy 真启 + WASM blob store auto-mount。
 
-### 真实债务（推 v0.5.x）
+### 阶段小版（0.4.176-0.4.181，6 patch · 工作区清零）
 
-诚实评：第二刀 17 patch 中 **5 个真改 runtime**，其余是文档 / 测试 / 设计稿 / 拆分小动作。剩余债务：
+- CI 暂停（GH Free private repo Actions 额度耗尽）
+- 240G `target/` 事故复盘 + build-hygiene-runbook
+- admin/users +page.svelte 650 → 597 行（3 子组件抽出 189 行）
 
-- admin.rs 5 大块物理拆分（channels / users / sso / groups / invitations / probe）—— 4250 行 god file 仅抽 2 个小 mod
-- channels page B2 step 3-4 真重构（list state store + dialog manager）—— page 仍 1199 行
-- DataTable virtualize 实装（admin/requests 万行仍卡）
-- host_get_secret_slot 实装（plugin 仍无 secret 访问能力）
-- WASM module blob store (G-002)
-- chat e2e bench / chaos test runtime
-- playground frontend capability 联动（backend ready 自 0.4.87）
+详见 [docs/product-gaps.md § 已收口](./docs/product-gaps.md)。
 
-详见 [ROADMAP § M3 后 · 剩余真重构](./ROADMAP.md)。
+### 测试基线（0.4.181 实测）
 
-### v0.5.0-rc1 候选门禁
+| 维度 | 数量 |
+|------|-----|
+| Rust workspace | 556+ tests（src 286 + integ 270） |
+| Web vitest | 127 cases（21 files） |
+| Migrations | 35 SQL files |
 
-参考 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26)。
+### v0.5.0 启动候选
+
+第四刀 5 项「推 v0.5.x」均**诚实摊明**，非粉饰：DataTable 变高 row virtualize / Svelte 5 + jsdom UI 测试 / Capability audio_in/audio_out 拆 / chaos PG/Redis 真接 / WASM auto-mount gate-server caller。
+
+v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
+
+- **P0 信任链与运行时**（必交付）：G-001 真实签名验签 / G-002 已交付 / G-003 已交付 / G-004 SSE event-by-event transform
+- **P1 DX 与生态**（推荐交付）：G-101 AssemblyScript SDK npm publish / G-102 WASM 表单 UI / G-103 wit-bindgen / G-104 编译产物持久化缓存 / G-105 SCIM v2 / G-106 bundle 220 → 180 KB
+- **P2 企业 / SaaS**（后续筛选）：SAML / OTel log export / 多区域路由 / cost forecasting / Stripe / Playground 收尾
 
 ### 0.4.60 — 完整产品形态（基线）
 
@@ -191,7 +189,7 @@ kooix-gate/
 │   ├── gate-core/              # 领域类型（强类型 ID / Identity / RBAC / Quota）
 │   ├── gate-crypto/            # Envelope encryption + KMS 抽象
 │   ├── gate-storage/           # PostgreSQL Repository (Pg + InMemory)
-│   │   └── migrations/         # 34 SQL 文件，含 RLS / pricing_rules / inflight recovery / request log retention
+│   │   └── migrations/         # 35 SQL 文件，含 RLS / pricing_rules / inflight recovery / request log retention
 │   ├── gate-auth/              # Password / JWT / API Key / OIDC / AuthContext
 │   ├── gate-cache/             # Redis Lua（rate limit + quota）
 │   ├── gate-providers/         # Provider trait + 9 adapters + ProviderRouter + WASM 集成
@@ -340,7 +338,7 @@ P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim
 ## 测试
 
 ```bash
-# 全量（当前 485 Rust + 86 web tests，含 testcontainers 集成测试，需要 Docker）
+# 全量（当前 556+ Rust + 127 web tests，含 testcontainers 集成测试，需要 Docker）
 cargo test --workspace
 
 # 仅快速 unit（无 Docker）

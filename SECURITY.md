@@ -99,7 +99,7 @@ SLA 仅承诺响应；具体修复时间因复杂度 / 上游依赖等可延长�
 
 参见 [GitHub Security Advisories](https://github.com/telagod/kooix-gate/security/advisories) 已发布的 advisory 列表。
 
-截至 0.4.117（2026-05-26），尚无公开 advisory。
+截至 0.4.182（2026-05-28），尚无公开 advisory。
 
 ## 不在范围内（NOT a vulnerability）
 

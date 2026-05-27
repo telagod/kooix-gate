@@ -201,6 +201,21 @@ cd web && npm run build                               # ✅ built in 7.17s
 
 第四刀共 **21 patch · 5/5 真收口**。诚实推 v0.5.x：chaos PG/Redis 完整容器流 / UI 组件 testing-library / WASM auto-mount 接进 gate-server 启动流 / DataTable 变高 row virtualize。
 
+### M3 后 — 阶段小版收口（0.4.176-0.4.181，6 patch · 工作区清零）
+
+第四刀大版（0.4.175）封后留下 5 个未提交文件 + CI 额度耗尽 + 240G `target/` 事故，0.4.176-181 把这些尾巴一并收口。
+
+| 项 | 版本 | 内容 |
+|---|------|-----|
+| **CI 暂停** | 0.4.176 | GH Free private repo Actions 额度耗尽，3 workflow（ci / docker / release）触发改 `workflow_dispatch` only；本地全门禁不变；待 v0.5.x 决策（公开化 / spending limit / self-hosted）后恢复 |
+| **build-hygiene runbook** | 0.4.177 | `docs/build-hygiene-runbook.md` 238 行，复盘 240G `target/` 事件 + 7 类清理动作 + CI 集成路径；CONTRIBUTING + docs/README 链入 |
+| **admin/users CreateUserForm** | 0.4.178 | 抽 87 行子组件（form/errors/onSubmit/onUpdateField 4 个 props） |
+| **admin/users UserStatsCards** | 0.4.179 | 抽 22 行 3 张计数卡（总用户 / Active / Suspended） |
+| **admin/users UserTableRow** | 0.4.180 | 抽 80 行行模板 + 清 7 个未用 lucide import（Check / LogOut / Plus / KeyRound / MonitorSmartphone / ShieldCheck / ShieldOff） |
+| **阶段封版** | 0.4.181 | 工作区清零，admin/users +page.svelte 650 → 597 行（-53，-8.2%），3 子组件合计抽出 189 行 |
+
+阶段小版共 **6 patch**，仅做工程债清理，无新功能。门禁全绿：web check 0/0 + vitest 127/21。
+
 ---
 
 ## M4 · v0.5.0 — Enterprise / SaaS 进阶（候选）

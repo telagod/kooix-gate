@@ -184,6 +184,19 @@
   - WASM auto-mount 接进 gate-server 启动流（caller 决定何时调）
   - DataTable virtualize 展开变高 row 的真 virtualize 支持
 
+### 阶段小版收口（0.4.176-0.4.181，6 patch · 工作区清零）
+
+第四刀大版（0.4.175）封后，留下 5 个未提交文件 + CI 额度耗尽 + 240G `target/` 事故：
+
+- **0.4.176 CI 暂停**：GH Free private repo Actions 额度耗尽 → workflow 拒启动；3 workflow（ci / docker / release）触发改 `workflow_dispatch` only；本地全门禁不变；待 v0.5.x 决策（公开化 / spending limit / self-hosted）后恢复
+- **0.4.177 build-hygiene runbook**：`docs/build-hygiene-runbook.md` 238 行，复盘 240G `target/` 事件 + 7 类清理动作 + CI 集成路径；CONTRIBUTING + docs/README 链入
+- **0.4.178 admin/users CreateUserForm**：87 行子组件（form/errors/onSubmit/onUpdateField 4 props）
+- **0.4.179 admin/users UserStatsCards**：22 行 3 张计数卡子组件
+- **0.4.180 admin/users UserTableRow**：80 行行模板 + 清 7 个未用 lucide import
+- **0.4.181 阶段封版**：admin/users +page.svelte 650 → 597 行（-53，-8.2%），3 子组件合计抽出 189 行；工作区清零；门禁全绿（web check 0/0 + vitest 127/21）
+
+阶段小版仅做工程债清理，无新功能。
+
 ---
 
 ## P0 — 信任链与运行时收口（v0.5.0 必交付）
