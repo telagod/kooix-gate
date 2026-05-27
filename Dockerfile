@@ -27,7 +27,7 @@ RUN npm ci
 COPY web/ .
 RUN npm run build
 
-# ── Stage 5: runtime (minimal) ────────────────────────────────
+# ── Stage 5: server runtime (minimal Rust) ────────────────────
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -35,7 +35,6 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/gate-server /usr/local/bin/
 COPY --from=builder /app/target/release/kgctl /usr/local/bin/
-COPY --from=web-builder /app/build /app/web/build
 
 # Migration files for `kgctl migrate`
 COPY crates/gate-storage/migrations /app/migrations
@@ -44,3 +43,18 @@ ENV RUST_LOG=info
 EXPOSE 8000
 
 CMD ["gate-server"]
+
+# ── Stage 6: web runtime (SvelteKit node server) ──────────────
+# 0.4.183 修：runtime 用 node:22-alpine 真起 SvelteKit adapter-node handler。
+# adapter-node 产物是 /app/build/handler.js，需要 node 进程托管，不能塞进 Rust 镜像。
+# adapter-node 把 dependencies 标 external，runtime 必须 npm ci --omit=dev 装回 peer。
+FROM node:22-alpine AS web-runtime
+WORKDIR /app
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=web-builder /app/build ./build
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV HOST=0.0.0.0
+EXPOSE 8080
+CMD ["node", "build/index.js"]

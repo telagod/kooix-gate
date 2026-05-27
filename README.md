@@ -38,9 +38,12 @@
 ## 30 秒跑通
 
 ```bash
-docker compose up -d                      # PG + Redis + 迁移 + 服务
-open http://localhost:8000                # 控制台（首次进入会引导初始化）
+docker compose up -d                      # PG + Redis + 迁移 + API + Web 5 服务
+open http://localhost:8080                # 控制台（SvelteKit）
+# API 在 http://localhost:8000，控制台 client 已编入此地址
 ```
+
+> 端口分离：UI 在 `:8080`，API 在 `:8000`。生产请用 nginx/caddy 收口到同域。CORS permissive 默认开，跨端口浏览器可调。
 
 要走"自己编译"的，看 [快速开始（手动）](#快速开始手动) 章节。
 

@@ -11,6 +11,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.183] — 2026-05-28 — Web 部署链修复 · docker compose 端到端跑通
+
+### Type
+
+fix
+
+### 主题
+
+魔尊验收 0.4.X 系列时挖出的真实部署缺陷：`docker compose up` 起来后 `http://localhost:8000/` 返 404，控制台 SPA 完全访问不到。本 patch 修部署链，让 README 的「30 秒跑通」第一次真能跑通。
+
+### Fixed
+
+**真实缺陷**（0.4.0 → 0.4.182 一直存在，182 patch 内无人发现）：
+
+- Dockerfile 把 SvelteKit `adapter-node` 产物（`/app/web/build/handler.js`）拷进 Rust runtime image，但 `debian:bookworm-slim` 没装 node，`CMD ["gate-server"]` 根本起不了 SvelteKit handler
+- `gate-server` axum router 没有 `ServeDir` / SPA fallback，控制台静态资源也没出口
+- 结果：182 patch 期间无人真正 `docker compose up` 端到端跑过控制台，所有验收都停在「单测 + clippy + check」的门禁层
+
+### Changed
+
+- **Dockerfile 拆 web-runtime stage**：
+  - Stage 5 `runtime`（Rust）只装 ca-certificates + gate-server + kgctl + migrations，仍 117MB
+  - Stage 6 `web-runtime` 新增：`node:22-alpine` + `npm ci --omit=dev`（adapter-node 把 dependencies 标 external 必须 runtime 装回 peer：clsx / @xyflow / lucide-svelte 等）
+  - `CMD ["node", "build/index.js"]` listen :8080
+- **docker-compose.yml**：
+  - `migrate` / `server` 显式写 `target: runtime` 不复用 latest stage
+  - 新增 `web` 服务：`target: web-runtime` + 端口 8080:8080 + depends_on server
+- **README**：「30 秒跑通」端口对齐——UI `:8080` / API `:8000`；点出端口分离 + CORS 跨端口允许
+
+### Why
+
+魔尊指出 0.4.X 系列收口表面完美，但**未经端到端 docker compose 验收**。星霜挖证据：
+
+1. 本地最新 kooix-gate 镜像是 5 天前的 v0.4.0，0.4.1-0.4.182 这 182 patch 从未本地构建/部署
+2. SvelteKit 用 adapter-node：`/app/build/handler.js` 是 Node handler，必须 node 进程托管
+3. Rust runtime image 没 node，`CMD gate-server` 起来后 axum 没挂 ServeDir，`/` 永远 404
+4. README 写的「`open http://localhost:8000`」实际跑不通
+
+这个缺陷至少存在 5 天 / 182 个 patch 周期，**说明门禁链有真实盲区**：单测覆盖 API + clippy + check，但 docker compose 端到端启动从未自动验收。
+
+### Verification
+
+```bash
+docker compose down && docker compose up -d
+docker compose ps         # 5 服务 healthy（postgres / redis / migrate exit 0 / server / web）
+```
+
+端到端验：
+
+```
+✅ 8000/health            → 200 {"status":"ok","version":"0.4.183"}
+✅ 8000/metrics           → 200 Prometheus 11390 bytes
+✅ 8000/v1/auth/sso/providers  → 200 []
+✅ 8000/v1/admin/* 鉴权门禁    → 401 missing_credentials
+✅ 8080/                  → 200 SvelteKit SSR shell（kooix_theme localStorage + app.css）
+✅ 8080/login             → 200 SPA 路由
+✅ 8080/admin/users       → 200 SPA 路由
+✅ migrate                → exit 0，latest migration 20260522000001（35 files）
+✅ pricing_sync           → fetch LiteLLM → upsert 5299 entries
+✅ health_check probe     → 5 channel auth_error（seed 假 key 预期）
+```
+
+### 0.4.X 验收门禁补丁后（应推 v0.5.0 P0）
+
+本次暴露的盲区不是文档可解决的——必须**自动化端到端**：
+
+- v0.5.0 P0 候选：CI 加 `docker compose up + smoke test` 步骤（local 也能跑 `make smoke`）
+- v0.5.0 P0 候选：bench scripts 加 docker compose 启动门禁（每个 release 必跑）
+
+### 工程总账（0.4.X → 0.4.183）
+
+- **0.4.0 → 0.4.183，183 patch**
+- M3 完结 + 四刀打磨 + 阶段小版收口 + 部署链修复
+- 第一次端到端 docker 验收门槛过线
+
+---
+
 ## [0.4.182] — 2026-05-27 — 文档漂移收口
 
 ### Type

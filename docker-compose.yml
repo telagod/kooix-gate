@@ -26,7 +26,9 @@ services:
       retries: 5
 
   migrate:
-    build: .
+    build:
+      context: .
+      target: runtime
     command: ["kgctl", "migrate"]
     environment:
       KOOIX_DATABASE_URL: postgres://gate:gate_dev@postgres:5432/gate
@@ -35,7 +37,9 @@ services:
         condition: service_healthy
 
   server:
-    build: .
+    build:
+      context: .
+      target: runtime
     ports:
       - "8000:8000"
     environment:
@@ -52,6 +56,19 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+
+  # 0.4.183 修：web SvelteKit handler 独立服务，runtime 走 node:22-alpine。
+  # API client BASE_URL 已编入 bundle 为 http://localhost:8000，CORS permissive 允许跨端口。
+  # 部署接入点：UI :8080 / API :8000；生产请用 nginx/caddy 收口到同域。
+  web:
+    build:
+      context: .
+      target: web-runtime
+    ports:
+      - "8080:8080"
+    depends_on:
+      server:
+        condition: service_started
 
 volumes:
   pgdata:
