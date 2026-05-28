@@ -147,6 +147,9 @@ pub(super) async fn create_channel(
         ));
     }
 
+    // v0.5.0-rc2（ADR-0004）：21 个老 provider_type alias 暂保留——admin POST 仍接受，
+    // 后端会自动接入 plugin runtime（builder 对 retired type fail-loud，引导用户改成 plugin
+    // preset）。下个里程碑物理删除 alias 并要求前端只发 'plugin'/'custom'/'http' 等。
     let valid_types = [
         "openai",
         "anthropic",

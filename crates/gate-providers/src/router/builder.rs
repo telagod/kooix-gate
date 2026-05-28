@@ -1,14 +1,10 @@
 //! Provider builders — 按 channel.provider_type 构造对应的 Provider/Embedding/Image/Audio。
 //!
-//! 0.3.0 起：`gemini`/`deepseek`/`ollama`/`mistral`/`cohere` 这 5 个编译期 thin wrapper
-//! 已删除（migration 20260522000001 自动改成 plugin + preset）。本文件只保留 4 个
-//! fast-path 编译期 provider（OpenAI / Anthropic / Azure / Bedrock）；其余全部走 plugin runtime。
-//! 见 ADR-0001（docs/architecture/decisions/ADR-0001-providers-as-plugin.md）。
+//! v0.5.0-rc2（ADR-0004）起：4 大编译期 wrapper（openai/anthropic/azure/bedrock）已删，
+//! 全部走 plugin runtime + builtin_fastpath 静态分发（ADR-0002）。本文件只剩 plugin
+//! 接入面 + legacy provider_type fail-loud。
 
 use super::helpers::env_secret_map;
-use crate::anthropic::AnthropicProvider;
-use crate::azure::AzureProvider;
-use crate::bedrock::BedrockProvider;
 use crate::custom_provider::CustomHttpProvider;
 use crate::error::{ProviderError, ProviderResult};
 use crate::openai::OpenAiProvider;
@@ -35,38 +31,7 @@ pub(super) fn build_provider_with_secrets(
     secrets: HashMap<String, String>,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn Provider>> {
-    let api_key = secrets.get("primary").cloned().unwrap_or_default();
     match channel.provider_type.as_str() {
-        "anthropic" => {
-            let p = AnthropicProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build AnthropicProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn Provider>)
-        }
-        "azure" => {
-            let p = AzureProvider::new_with_opts(channel.base_url.clone(), api_key, None, opts)
-                .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn Provider>)
-        }
-        "bedrock" => {
-            let access = api_key;
-            let secret_env = format!(
-                "KOOIX_CH_{}_SECRET",
-                channel
-                    .code
-                    .to_uppercase()
-                    .replace(|c: char| !c.is_alphanumeric(), "_")
-            );
-            let secret = std::env::var(&secret_env).map_err(|_| {
-                ProviderError::Config(format!(
-                    "missing {} env var for bedrock channel '{}'",
-                    secret_env, channel.code
-                ))
-            })?;
-            let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-            let p = BedrockProvider::new_with_opts(region, access, secret, opts)
-                .map_err(|e| ProviderError::Config(format!("build BedrockProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn Provider>)
-        }
         "plugin" | "custom" | "http" | "http_plugin" => {
             let p = CustomHttpProvider::new_with_secret_slots(
                 channel.base_url.clone(),
@@ -77,9 +42,8 @@ pub(super) fn build_provider_with_secrets(
             .map_err(|e| ProviderError::Config(format!("build CustomHttpProvider: {e}")))?;
             Ok(Arc::new(p) as Arc<dyn Provider>)
         }
-        // 0.3.0 起 cohere/deepseek/gemini/mistral/ollama 已迁移到 plugin runtime（migration
-        // 20260522000001 自动改 provider_type）。如果到了这里说明 channel migration 没跑或被
-        // 手工绕过，让用户清晰看到错误而非静默走 OpenAI 兼容回退。
+        // 0.3.0 起 cohere/deepseek/gemini/mistral/ollama 已迁移到 plugin runtime
+        // （migration 20260522000001）。
         legacy @ ("cohere" | "deepseek" | "gemini" | "mistral" | "ollama") => {
             Err(ProviderError::Config(format!(
                 "channel '{}' has provider_type='{}' which was retired in 0.3.0; \
@@ -94,12 +58,28 @@ pub(super) fn build_provider_with_secrets(
                 }
             )))
         }
-        _ => {
-            // 未知类型走 OpenAI 兼容
-            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn Provider>)
+        // v0.5.0-rc2 起 openai/anthropic/azure/bedrock 已迁移到 plugin runtime + fastpath
+        // （migration 20260528000001 + ADR-0004）。
+        legacy @ ("openai" | "anthropic" | "azure" | "bedrock") => {
+            let preset = match legacy {
+                "openai" => "openai",
+                "anthropic" => "anthropic_messages",
+                "azure" => "azure_openai",
+                "bedrock" => "bedrock_converse",
+                _ => unreachable!(),
+            };
+            Err(ProviderError::Config(format!(
+                "channel '{}' has provider_type='{}' which was retired in v0.5.0-rc2 (ADR-0004); \
+                 run `kgctl migrate` to convert it to a plugin preset, \
+                 or manually set provider_type='plugin' with model_mapping.plugin.preset.provider='{}'",
+                channel.code, legacy, preset
+            )))
         }
+        unknown => Err(ProviderError::Config(format!(
+            "channel '{}' has unknown provider_type='{}'; \
+             use provider_type='plugin' with model_mapping.plugin.preset.provider=<preset-name>",
+            channel.code, unknown
+        ))),
     }
 }
 
@@ -119,16 +99,11 @@ pub(super) fn build_embedding_provider(
 
 pub(super) fn build_embedding_provider_with_secrets(
     channel: &gate_storage::ChannelRecord,
-    api_key: String,
+    _api_key: String,
     secrets: HashMap<String, String>,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn EmbeddingProvider>> {
     match channel.provider_type.as_str() {
-        "azure" => {
-            let p = AzureProvider::new_with_opts(channel.base_url.clone(), api_key, None, opts)
-                .map_err(|e| ProviderError::Config(format!("build AzureProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
-        }
         "plugin" | "custom" | "http" | "http_plugin" => {
             let p = CustomHttpProvider::new_with_secret_slots(
                 channel.base_url.clone(),
@@ -139,7 +114,6 @@ pub(super) fn build_embedding_provider_with_secrets(
             .map_err(|e| ProviderError::Config(format!("build CustomHttpProvider: {e}")))?;
             Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
         }
-        // 0.3.0 retired thin wrappers — see migration 20260522000001.
         legacy @ ("cohere" | "deepseek" | "gemini" | "mistral" | "ollama") => {
             Err(ProviderError::Config(format!(
                 "channel '{}' has provider_type='{}' which was retired in 0.3.0 for embeddings; \
@@ -147,52 +121,48 @@ pub(super) fn build_embedding_provider_with_secrets(
                 channel.code, legacy
             )))
         }
-        _ => {
-            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn EmbeddingProvider>)
+        legacy @ ("openai" | "anthropic" | "azure" | "bedrock") => {
+            Err(ProviderError::Config(format!(
+                "channel '{}' has provider_type='{}' which was retired in v0.5.0-rc2; \
+                 run `kgctl migrate` or set provider_type='plugin'",
+                channel.code, legacy
+            )))
         }
+        unknown => Err(ProviderError::Config(format!(
+            "channel '{}' has unknown provider_type='{}' for embeddings; \
+             use provider_type='plugin' with model_mapping.plugin.preset.provider=<preset-name>",
+            channel.code, unknown
+        ))),
     }
 }
 
-/// 按 provider_type 构造 ImageProvider 实例。
+/// 按 channel 构造 ImageProvider 实例。
+///
+/// v0.5.0-rc2（ADR-0004）起：plugin manifest 暂未支持 image generations endpoint
+/// 配置，所有 image channel 默认走 OpenAI 兼容路径（`{base_url}/images/generations`）。
+/// 用户通过 plugin manifest 配置非 OpenAI 兼容的 image endpoint 需要后续 ADR。
 pub(super) fn build_image_provider(
     channel: &gate_storage::ChannelRecord,
     api_key: String,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn ImageProvider>> {
-    match channel.provider_type.as_str() {
-        "openai" | "openai_compatible" => {
-            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn ImageProvider>)
-        }
-        _ => {
-            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn ImageProvider>)
-        }
-    }
+    let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+        .map_err(|e| ProviderError::Config(format!("build image provider: {e}")))?;
+    Ok(Arc::new(p) as Arc<dyn ImageProvider>)
 }
 
-/// 按 provider_type 构造 AudioProvider 实例。
+/// 按 channel 构造 AudioProvider 实例。
+///
+/// v0.5.0-rc2（ADR-0004）起：plugin manifest 暂未支持 audio speech/transcription
+/// endpoint 配置，所有 audio channel 默认走 OpenAI 兼容路径。
 pub(super) fn build_audio_provider(
     channel: &gate_storage::ChannelRecord,
     api_key: String,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn AudioProvider>> {
-    match channel.provider_type.as_str() {
-        "openai" | "openai_compatible" => {
-            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn AudioProvider>)
-        }
-        _ => {
-            let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
-                .map_err(|e| ProviderError::Config(format!("build OpenAiProvider: {e}")))?;
-            Ok(Arc::new(p) as Arc<dyn AudioProvider>)
-        }
-    }
+    let p = OpenAiProvider::new_with_opts(channel.base_url.clone(), api_key, opts)
+        .map_err(|e| ProviderError::Config(format!("build audio provider: {e}")))?;
+    Ok(Arc::new(p) as Arc<dyn AudioProvider>)
 }
 
 /// API key 来源策略（env 回退，DB 优先路径在 route_for_model 内）。

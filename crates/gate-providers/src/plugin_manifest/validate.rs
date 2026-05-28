@@ -489,7 +489,7 @@ pub(super) fn validate_secret_slot(
     Ok(())
 }
 
-pub(super) fn required_secret_slots(auth: &AuthManifest) -> Vec<String> {
+pub(crate) fn required_secret_slots(auth: &AuthManifest) -> Vec<String> {
     let mut slots = Vec::new();
     match auth.strategy {
         AuthStrategy::Bearer | AuthStrategy::ApiKeyHeader | AuthStrategy::ApiKeyQuery => {

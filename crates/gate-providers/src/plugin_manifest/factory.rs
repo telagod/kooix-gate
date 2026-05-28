@@ -11,6 +11,16 @@ pub fn plugin_manifest(value: Value, base_url: &str) -> ProviderResult<PluginMan
     PluginManifest::from_value(value, base_url)
 }
 
+/// v0.5.0-rc2（ADR-0004）：暴露 manifest 要求的 secret slot 列表，供 router
+/// 在 `has_available_plugin_secret` 中精确判断 env fallback 是否能满足所有要求的 slot。
+///
+/// 解析失败返回空 vec（caller 应继续按 channel.code env 兜底）。
+pub fn manifest_required_secret_slots(value: Value, base_url: &str) -> Vec<String> {
+    PluginManifest::from_value(value, base_url)
+        .map(|m| super::validate::required_secret_slots(&m.auth))
+        .unwrap_or_default()
+}
+
 pub fn plugin_manifest_retry_config(
     value: &Value,
     base_url: &str,

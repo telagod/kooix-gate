@@ -11,6 +11,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0-rc2] — 2026-05-28 — 真插件化收口 · 4 大 wrapper 退役（第一刀）
+
+### Type
+
+**breaking** + refactor + migration
+
+### 主题
+
+ADR-0004 落地第一刀。把 0.3.0 保留作 fast-path 的 4 大编译期 wrapper（openai / anthropic / azure / bedrock）的 channels 数据**自动迁移**到 plugin+preset 形态，配合 ADR-0002 builtin_fastpath 静态分发，性能无损。Router builder dispatch 收口到只识 `plugin/custom/http` 类型；4 种 retired provider_type fail-loud 引导用户跑迁移。
+
+### ⚠ Breaking Changes
+
+**1) channels.provider_type 接入面收敛（migration 自动转）**
+
+存量数据走 migration `20260528000001_retire_builtin_wrappers.sql` 自动改成：
+- `openai` → `plugin` + `model_mapping.plugin.preset.provider = "openai"`
+- `anthropic` → `plugin` + preset `anthropic_messages`
+- `azure` → `plugin` + preset `azure_openai`
+- `bedrock` → `plugin` + preset `bedrock_converse`
+
+迁移幂等。回滚需同时回 binary（0.5.x 仍保留 wrapper 文件但 dispatch 路径已删）。
+
+**2) bedrock 凭证语义变更（env 兜底仍生效）**
+
+老路径：access_key = `channel_keys.key_enc`，secret_key = `KOOIX_CH_<CODE>_SECRET` env。
+新路径：access_key = secret_slot `aws_access_key`，secret_key = secret_slot `aws_secret_key`。
+**减痛**：builtin_fastpath 的 bedrock 路径已支持 env `KOOIX_CH_<CODE>_KEY` (→ primary) 兜底；secret_key 仍需 admin UI 配 secret slot 或注入 env。详见 ADR-0004 §2。
+
+### Added
+
+- ADR-0004 `docs/architecture/decisions/ADR-0004-builtin-wrappers-retirement.md` —— 4 大 wrapper 退役完整方案 + 验收 checklist + 回滚路径。
+- `pub fn manifest_required_secret_slots(value, base_url) -> Vec<String>` —— `gate-providers::plugin_manifest` 暴露 manifest required slot 列表，给 router secret gate 用。
+
+### Changed
+
+- `crates/gate-providers/src/router/builder.rs`：删 anthropic/azure/bedrock 分支；`_` fallback 不再回退 OpenAiProvider，改成给所有非 plugin 类型 fail-loud；4 大 retired provider_type 显式引导迁移；image/audio dispatch 不再 match provider_type，直接走 OpenAiProvider 用 channel.base_url 构造。
+- `crates/gate-providers/src/router/mod.rs::has_available_plugin_secret`：**manifest-aware env fallback**。DB key NotFound 时回退到 env primary（向后兼容 env-only 部署模式），但 manifest 要求 non-primary slot 时不算"满足"。
+
+### Fixed
+
+无（这一刀是功能演化，不是 bug 修复）。
+
+### Migration
+
+- 跑 `cargo sqlx migrate run` 或部署时自动应用 `20260528000001_retire_builtin_wrappers.sql`。
+- 跨 crate 测试前先 `cargo clean -p gate-storage`（sqlx prepare cache 需重生）。
+- bedrock channel 用户：检查 secret slots 配置，按需补 `aws_secret_key` slot 或用 env 兜底。
+
+### Verification
+
+- [x] `cargo check --workspace` 0 errors
+- [x] `cargo test -p gate-providers` 143/0（lib）+ 12/0（fastpath integration）+ 4/0（wasm integration）全绿
+- [ ] `cargo test -p gate-server`（待 docker testcontainers 跑；server fixture 17+ 处 `provider_type="openai"` 留 0.5.0-rc3 收）
+- [ ] `cargo bench --bench fastpath_vs_manifest`（已在 ADR-0002 验过，本刀无 runtime 变更）
+
+### Next（0.5.0-rc3/rc4 路线）
+
+- **rc3**：admin/health/probe 旁路收口，server integration test fixture 全转 plugin+preset，`channels.rs` 白名单缩到 4 项，`admin/mod.rs:list_provider_capabilities` 删 compile_time 维度。
+- **rc4**：物理删 `openai.rs / anthropic.rs / azure.rs / bedrock.rs`，fastpath helper 搬到 `custom_provider/fastpath/helpers.rs`，sigv4.rs 保留。
+
+---
+
 ## [0.4.187] — 2026-05-28 — channels 三连修：drawer prop + SQL bind_idx + 滚动
 
 ### Type

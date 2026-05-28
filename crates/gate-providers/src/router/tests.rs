@@ -73,11 +73,33 @@ fn plugin_model_mapping_preserves_manifest_and_maps_deployment_model() {
 
 fn make_channel_with_models(code: &str, provider_type: &str, models: Vec<String>) -> ChannelRecord {
     let now = Utc::now();
+    // v0.5.0-rc2（ADR-0004）：4 大 builtin 已退役，测试 fixture 用 plugin+preset 形态。
+    // 测试调用方仍传 "openai"/"anthropic"/"azure"/"bedrock" 作语义标签，这里自动转
+    // plugin + 对应 preset。其它 provider_type（如 "plugin"）原样保留。
+    let (final_provider_type, mapping) = match provider_type {
+        "openai" => (
+            "plugin",
+            serde_json::json!({"plugin":{"version":1,"preset":{"provider":"openai"}}}),
+        ),
+        "anthropic" => (
+            "plugin",
+            serde_json::json!({"plugin":{"version":1,"preset":{"provider":"anthropic_messages"}}}),
+        ),
+        "azure" => (
+            "plugin",
+            serde_json::json!({"plugin":{"version":1,"preset":{"provider":"azure_openai"}}}),
+        ),
+        "bedrock" => (
+            "plugin",
+            serde_json::json!({"plugin":{"version":1,"preset":{"provider":"bedrock_converse"}}}),
+        ),
+        other => (other, serde_json::Value::Object(Default::default())),
+    };
     ChannelRecord {
         channel_id: ChannelId::from(Uuid::now_v7()),
         code: code.to_string(),
         name: code.to_string(),
-        provider_type: provider_type.to_string(),
+        provider_type: final_provider_type.to_string(),
         base_url: "http://localhost:9999".to_string(),
         supported_models: models,
         status: "active".to_string(),
@@ -87,7 +109,7 @@ fn make_channel_with_models(code: &str, provider_type: &str, models: Vec<String>
         rpm_limit: None,
         tpm_limit: None,
         tags: vec![],
-        model_mapping: serde_json::Value::Object(Default::default()),
+        model_mapping: mapping,
         balance: None,
         balance_updated_at: None,
         last_error: None,
@@ -545,7 +567,8 @@ fn make_channel_simple(code: &str) -> (ChannelId, ChannelRecord) {
         channel_id: id,
         code: code.to_string(),
         name: code.to_string(),
-        provider_type: "openai".to_string(),
+        // v0.5.0-rc2：openai 已转 plugin+preset。
+        provider_type: "plugin".to_string(),
         base_url: "https://api.example.com".to_string(),
         supported_models: vec!["gpt-4o".to_string()],
         status: "active".to_string(),
@@ -555,7 +578,7 @@ fn make_channel_simple(code: &str) -> (ChannelId, ChannelRecord) {
         rpm_limit: None,
         tpm_limit: None,
         tags: vec![],
-        model_mapping: serde_json::Value::Object(Default::default()),
+        model_mapping: serde_json::json!({"plugin":{"version":1,"preset":{"provider":"openai"}}}),
         balance: None,
         balance_updated_at: None,
         last_error: None,
@@ -1314,7 +1337,8 @@ async fn route_embedding_skips_plugin_without_active_secret() {
         .unwrap()
         .expect("fallback compile-time embedding provider should route");
     assert_eq!(routed.channel_id, fallback_id);
-    assert_eq!(routed.provider_type, "openai");
+    // v0.5.0-rc2（ADR-0004）：openai builtin 已退役，fallback channel 也走 plugin+preset。
+    assert_eq!(routed.provider_type, "plugin");
 }
 
 // ============================================================================

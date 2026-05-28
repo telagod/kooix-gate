@@ -11,8 +11,8 @@ mod upgrade;
 mod validate;
 
 pub use factory::{
-    plugin_manifest, plugin_manifest_retry_config, plugin_manifest_schema_json,
-    validate_plugin_manifest,
+    manifest_required_secret_slots, plugin_manifest, plugin_manifest_retry_config,
+    plugin_manifest_schema_json, validate_plugin_manifest,
 };
 
 use crate::error::ProviderResult;

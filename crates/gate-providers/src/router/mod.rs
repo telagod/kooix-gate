@@ -869,9 +869,10 @@ impl ProviderRouter {
         for candidate in &ordered {
             if is_plugin_provider(&candidate.channel.provider_type)
                 && !self
-                    .has_available_plugin_secret(
+                    .has_available_plugin_secret_for(
                         candidate.channel.channel_id,
                         &candidate.channel.code,
+                        Some(&candidate.channel),
                     )
                     .await
             {
@@ -1621,9 +1622,10 @@ impl ProviderRouter {
 
             if is_plugin_provider(&candidate.channel.provider_type)
                 && !self
-                    .has_available_plugin_secret(
+                    .has_available_plugin_secret_for(
                         candidate.channel.channel_id,
                         &candidate.channel.code,
+                        Some(&candidate.channel),
                     )
                     .await
             {
@@ -1772,22 +1774,53 @@ impl ProviderRouter {
     }
 
     async fn has_available_plugin_secret(&self, channel_id: ChannelId, channel_code: &str) -> bool {
+        self.has_available_plugin_secret_for(channel_id, channel_code, None)
+            .await
+    }
+
+    /// v0.5.0-rc2（ADR-0004）：4 大 wrapper 退役后，原来走 _ 默认 dispatch 的 openai
+    /// channel 都变成 plugin。这条路径以前不经过 has_available_plugin_secret gate，
+    /// 完全靠 env fallback（KOOIX_API_KEY → primary slot）。
+    ///
+    /// 为了向后兼容 env-only 部署模式，DB key NotFound 时回退到 env。但如果 manifest
+    /// 明确要求 non-primary slot（例如 aws_secret_key），env primary 兜底不满足要求，
+    /// 仍然 skip。
+    async fn has_available_plugin_secret_for(
+        &self,
+        channel_id: ChannelId,
+        channel_code: &str,
+        channel: Option<&gate_storage::ChannelRecord>,
+    ) -> bool {
         if self.cached_channel_secrets(channel_id).is_some() {
             return true;
         }
         if let Some(repo) = &self.channel_key_repo {
-            return match repo.find_active_for_channel(channel_id).await {
-                Ok(_) => true,
-                Err(gate_storage::DbError::NotFound) => false,
+            match repo.find_active_for_channel(channel_id).await {
+                Ok(_) => return true,
+                Err(gate_storage::DbError::NotFound) => {
+                    // Fall through to env fallback below.
+                }
                 Err(e) => {
                     tracing::warn!(
                         channel_id = %channel_id,
                         error = %e,
                         "channel key availability check failed"
                     );
-                    false
+                    return false;
                 }
-            };
+            }
+        }
+        // Manifest-aware env fallback：只有当 manifest 不要求 non-primary slot 时
+        // env primary 才算"满足"。
+        if let Some(ch) = channel {
+            let required = crate::plugin_manifest::manifest_required_secret_slots(
+                ch.model_mapping.clone(),
+                &ch.base_url,
+            );
+            let needs_non_primary = required.iter().any(|s| s != "primary");
+            if needs_non_primary {
+                return false;
+            }
         }
         resolve_api_key_for_channel(channel_code)
             .map(|value| !value.trim().is_empty())
