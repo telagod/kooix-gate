@@ -105,10 +105,10 @@ async fn harness() -> Harness {
     channels.seed_channel(make_channel(
         channel_id,
         "perf-wm",
-        "openai",
+        "plugin",
         &format!("{}/v1", upstream.uri()),
         vec!["gpt-4o-mini".to_string()],
-        serde_json::Value::Object(Default::default()),
+        serde_json::json!({"plugin":{"version":1,"capabilities":{"chat":true,"streaming":true,"embeddings":true},"auth":{"strategy":"none"},"preset":{"provider":"openai"}}}),
     ));
     channels.seed_binding(group_id, channel_id, 10, 1);
     groups.seed_group(ChannelGroupRecord {
@@ -225,10 +225,10 @@ fn models_harness() -> Harness {
     channels.seed_channel(make_channel(
         channel_id,
         "openai-cap",
-        "openai",
+        "plugin",
         "https://openai.example/v1",
         vec!["gpt-4o-mini".to_string(), "shared-model".to_string()],
-        serde_json::Value::Object(Default::default()),
+        serde_json::json!({"plugin":{"version":1,"capabilities":{"chat":true,"streaming":true,"embeddings":true},"auth":{"strategy":"none"},"preset":{"provider":"openai"}}}),
     ));
     channels.seed_channel(make_channel(
         plugin_channel_id,
@@ -257,10 +257,10 @@ fn models_harness() -> Harness {
     let mut disabled = make_channel(
         disabled_channel_id,
         "disabled-cap",
-        "openai",
+        "plugin",
         "https://disabled.example/v1",
         vec!["disabled-model".to_string()],
-        serde_json::Value::Object(Default::default()),
+        serde_json::json!({"plugin":{"version":1,"capabilities":{"chat":true,"streaming":true,"embeddings":true},"auth":{"strategy":"none"},"preset":{"provider":"openai"}}}),
     );
     disabled.status = "disabled".to_string();
     disabled.health = "unhealthy".to_string();
@@ -483,7 +483,7 @@ async fn gateway_controlplane_and_metrics_smoke() {
     gate_server::metrics::record_quota_deny("daily_budget_usd", "api_key", "enforce");
     gate_server::metrics::record_upstream_error_with_context(
         "authentication_error",
-        "openai",
+        "plugin",
         "ch_perf_smoke",
         "gpt-4o-mini",
     );
