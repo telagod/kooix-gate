@@ -34,7 +34,6 @@ pub struct WasmtimeHost {
 impl WasmtimeHost {
     pub fn new(config: WasmHostConfig) -> WasmResult<Self> {
         let mut wasm_config = Config::new();
-        wasm_config.async_support(true);
         wasm_config.consume_fuel(true);
         let engine = Engine::new(&wasm_config)
             .map_err(|e| WasmError::Load(format!("engine init: {e}")))?;
@@ -75,7 +74,7 @@ impl WasmtimeHost {
             .next()
             .unwrap_or("unknown");
         let cache_file =
-            cache_dir.join(format!("{sha256}-wt{}-{wasmtime_major}.cwasm", "26"));
+            cache_dir.join(format!("{sha256}-wt{wasmtime_major}.cwasm"));
 
         // 1. 尝试 deserialize
         if cache_file.exists() {

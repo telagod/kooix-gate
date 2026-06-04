@@ -1,0 +1,95 @@
+package kooix:plugin@0.1.0;
+
+/// Host-provided functions available to WASM plugins during transform invocations.
+interface host {
+    record secret-ref {
+        slot: string,
+        purpose: string,
+    }
+
+    record secret-bytes {
+        value: list<u8>,
+    }
+
+    variant secret-error {
+        denied(string),
+        missing(string),
+        buf-too-small(u32),
+    }
+
+    /// Retrieve a secret slot value. Only slots declared in the manifest's
+    /// `permissions.secret_slots` and allowed by runtime policy are accessible.
+    /// Each call is audited.
+    get-secret: func(ref: secret-ref) -> result<secret-bytes, secret-error>;
+
+    /// Log a message from the plugin. Truncated to 1KB. Level: 0=trace 1=debug 2=info 3=warn 4=error.
+    log: func(level: u8, message: string);
+
+    /// Record a custom metric. Name is sanitized to [a-z0-9_] and prefixed with `plugin_wasm_user_`.
+    record-metric: func(name: string, value: f64);
+
+    /// Host-provided monotonic timestamp (milliseconds since epoch).
+    /// Plugins must not use wall clock; use this for timing.
+    now-ms: func() -> u64;
+
+    /// Host-provided cryptographic nonce. Plugins must not use random;
+    /// use this when nonce is required.
+    nonce: func(bytes: u32) -> list<u8>;
+
+    /// Redact a value through the host redaction pipeline.
+    redact: func(value: string) -> string;
+}
+
+/// Transform context passed to every hook invocation.
+interface types {
+    record transform-input {
+        request-id: string,
+        org-id: string,
+        project-id: option<string>,
+        channel-id: string,
+        model: string,
+        /// JSON envelope — canonical ChatRequest/Response/StreamChunk.
+        /// Kept as string to avoid freezing OpenAI schema into ABI.
+        json: string,
+    }
+
+    record transform-output {
+        /// Transformed JSON envelope.
+        json: string,
+        /// Opaque metadata for request log / trace (redacted by host).
+        metadata: string,
+    }
+
+    variant transform-error {
+        invalid-input(string),
+        denied(string),
+        upstream-protocol(string),
+        internal(string),
+    }
+}
+
+/// Plugin-exported transform functions. Host calls these during request processing.
+/// A plugin may export any subset; unimplemented hooks are identity passthrough.
+interface transform {
+    use types.{transform-input, transform-output, transform-error};
+
+    /// Transform the outgoing request body before it hits the upstream provider.
+    transform-request: func(input: transform-input) -> result<transform-output, transform-error>;
+
+    /// Transform the upstream response body before it reaches the client.
+    transform-response: func(input: transform-input) -> result<transform-output, transform-error>;
+
+    /// Transform a single SSE event during streaming.
+    transform-stream-event: func(input: transform-input) -> result<transform-output, transform-error>;
+
+    /// Called when the stream finishes (upstream EOF, timeout, or client cancel).
+    /// Returns final metadata / usage adjustments.
+    finish-stream: func(input: transform-input) -> result<transform-output, transform-error>;
+}
+
+/// The world that a Kooix Gate WASM plugin targets.
+world plugin {
+    import host;
+    import types;
+    export transform;
+}
