@@ -892,7 +892,7 @@ async fn admin_channel_draining_stops_new_requests_and_waits_for_inflight() {
         name: code.to_string(),
         provider_type: "plugin".to_string(),
         base_url: "http://localhost:9999".to_string(),
-        supported_models: vec![],
+        supported_models: vec!["any".to_string()],
         status: "active".to_string(),
         health: "healthy".to_string(),
         timeout_ms: 60000,
