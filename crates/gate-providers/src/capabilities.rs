@@ -231,7 +231,10 @@ pub fn plugin_preset_capabilities(provider: &str) -> Option<ProviderCapabilities
     match normalize_provider_type(provider).as_str() {
         "openai" | "openai_compatible" | "vllm" | "lm_studio" | "ollama_openai" | "localai"
         | "xinference" | "vertex_openai" | "groq" | "together" | "openrouter" | "moonshot"
-        | "zhipu" | "qwen" | "yi" => Some(ProviderCapabilities::openai_compatible_core()),
+        | "zhipu" | "qwen" | "yi" | "fireworks" | "sambanova" | "siliconflow" | "doubao"
+        | "baichuan" | "minimax" | "stepfun" | "hyperbolic" | "cloudflare_ai" | "cerebras" => {
+            Some(ProviderCapabilities::openai_compatible_core())
+        }
         "deepseek" => Some(ProviderCapabilities {
             chat: true,
             streaming: true,
@@ -270,6 +273,16 @@ pub fn plugin_preset_capabilities(provider: &str) -> Option<ProviderCapabilities
             streaming: true,
             ..ProviderCapabilities::none()
         }),
+        "perplexity" => Some(ProviderCapabilities::chat_stream()),
+        "jina" => Some(ProviderCapabilities {
+            chat: true,
+            streaming: true,
+            embeddings: true,
+            ..ProviderCapabilities::none()
+        }),
+        "tgi" | "tabby_api" | "jan" | "llamafile" | "gpt4all" => {
+            Some(ProviderCapabilities::chat_stream())
+        }
         _ => None,
     }
 }
@@ -298,6 +311,25 @@ pub fn plugin_preset_base_url_suggestion(provider: &str) -> Option<&'static str>
         "zhipu" => Some("https://open.bigmodel.cn/api/paas/v4"),
         "qwen" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
         "yi" => Some("https://api.lingyiwanwu.com/v1"),
+        "fireworks" => Some("https://api.fireworks.ai/inference/v1"),
+        "perplexity" => Some("https://api.perplexity.ai"),
+        "cerebras" => Some("https://api.cerebras.ai/v1"),
+        "sambanova" => Some("https://api.sambanova.ai/v1"),
+        "hyperbolic" => Some("https://api.hyperbolic.xyz/v1"),
+        "cloudflare_ai" => {
+            Some("https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1")
+        }
+        "jina" => Some("https://api.jina.ai/v1"),
+        "baichuan" => Some("https://api.baichuan-ai.com/v1"),
+        "minimax" => Some("https://api.minimax.chat/v1"),
+        "stepfun" => Some("https://api.stepfun.com/v1"),
+        "siliconflow" => Some("https://api.siliconflow.cn/v1"),
+        "tgi" => Some("http://localhost:8080/v1"),
+        "jan" => Some("http://localhost:1337/v1"),
+        "llamafile" => Some("http://localhost:8080/v1"),
+        "gpt4all" => Some("http://localhost:4891/v1"),
+        "tabby_api" => Some("http://localhost:5000/v1"),
+        "doubao" => Some("https://ark.cn-beijing.volces.com/api/v3"),
         _ => None,
     }
 }

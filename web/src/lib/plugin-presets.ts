@@ -100,7 +100,24 @@ export const PLUGIN_PRESET_CAPABILITIES: Record<string, ProviderCapabilities> = 
 	zhipu: OPENAI_COMPAT_CORE,
 	qwen: OPENAI_COMPAT_CORE,
 	yi: OPENAI_COMPAT_CORE,
-	bedrock_converse: CHAT_STREAM
+	bedrock_converse: CHAT_STREAM,
+	fireworks: OPENAI_COMPAT_CORE,
+	perplexity: CHAT_STREAM,
+	cerebras: OPENAI_COMPAT_CORE,
+	sambanova: OPENAI_COMPAT_CORE,
+	hyperbolic: OPENAI_COMPAT_CORE,
+	cloudflare_ai: OPENAI_COMPAT_CORE,
+	jina: { ...CHAT_STREAM, embeddings: true },
+	baichuan: OPENAI_COMPAT_CORE,
+	minimax: OPENAI_COMPAT_CORE,
+	stepfun: OPENAI_COMPAT_CORE,
+	siliconflow: OPENAI_COMPAT_CORE,
+	tgi: CHAT_STREAM,
+	jan: CHAT_STREAM,
+	llamafile: CHAT_STREAM,
+	gpt4all: CHAT_STREAM,
+	tabby_api: CHAT_STREAM,
+	doubao: OPENAI_COMPAT_CORE
 };
 
 export const PROVIDER_BASE_URL_SUGGESTIONS: Record<string, string> = {
@@ -147,7 +164,24 @@ export const PLUGIN_PRESET_BASE_URL_SUGGESTIONS: Record<string, string> = {
 	moonshot: 'https://api.moonshot.cn/v1',
 	zhipu: 'https://open.bigmodel.cn/api/paas/v4',
 	qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-	yi: 'https://api.lingyiwanwu.com/v1'
+	yi: 'https://api.lingyiwanwu.com/v1',
+	fireworks: 'https://api.fireworks.ai/inference/v1',
+	perplexity: 'https://api.perplexity.ai',
+	cerebras: 'https://api.cerebras.ai/v1',
+	sambanova: 'https://api.sambanova.ai/v1',
+	hyperbolic: 'https://api.hyperbolic.xyz/v1',
+	cloudflare_ai: 'https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1',
+	jina: 'https://api.jina.ai/v1',
+	baichuan: 'https://api.baichuan-ai.com/v1',
+	minimax: 'https://api.minimax.chat/v1',
+	stepfun: 'https://api.stepfun.com/v1',
+	siliconflow: 'https://api.siliconflow.cn/v1',
+	tgi: 'http://localhost:8080/v1',
+	jan: 'http://localhost:1337/v1',
+	llamafile: 'http://localhost:8080/v1',
+	gpt4all: 'http://localhost:4891/v1',
+	tabby_api: 'http://localhost:5000/v1',
+	doubao: 'https://ark.cn-beijing.volces.com/api/v3'
 };
 
 export type PluginAuthStrategy =
@@ -242,7 +276,24 @@ export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] = [
 	{ value: 'zhipu', label: '智谱 GLM' },
 	{ value: 'qwen', label: '通义千问' },
 	{ value: 'yi', label: '零一万物' },
-	{ value: 'bedrock_converse', label: 'AWS Bedrock Converse' }
+	{ value: 'bedrock_converse', label: 'AWS Bedrock Converse' },
+	{ value: 'fireworks', label: 'Fireworks AI' },
+	{ value: 'perplexity', label: 'Perplexity' },
+	{ value: 'cerebras', label: 'Cerebras' },
+	{ value: 'sambanova', label: 'SambaNova' },
+	{ value: 'hyperbolic', label: 'Hyperbolic' },
+	{ value: 'cloudflare_ai', label: 'Cloudflare AI' },
+	{ value: 'jina', label: 'Jina AI' },
+	{ value: 'baichuan', label: '百川 Baichuan' },
+	{ value: 'minimax', label: 'MiniMax' },
+	{ value: 'stepfun', label: '阶跃星辰 Stepfun' },
+	{ value: 'siliconflow', label: '硅基流动 SiliconFlow' },
+	{ value: 'doubao', label: '豆包 Doubao' },
+	{ value: 'tgi', label: 'Text Generation Inference' },
+	{ value: 'jan', label: 'Jan' },
+	{ value: 'llamafile', label: 'Llamafile' },
+	{ value: 'gpt4all', label: 'GPT4All' },
+	{ value: 'tabby_api', label: 'TabbyAPI' }
 ];
 
 export const PLUGIN_AUTH_STRATEGY_OPTIONS: PluginAuthStrategyOption[] = [

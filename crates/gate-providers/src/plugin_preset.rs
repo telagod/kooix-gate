@@ -37,6 +37,23 @@ pub(crate) enum ProviderPresetKind {
     OllamaOpenai,
     Localai,
     Xinference,
+    Fireworks,
+    Perplexity,
+    Cerebras,
+    Sambanova,
+    Hyperbolic,
+    CloudflareAi,
+    Jina,
+    Baichuan,
+    Minimax,
+    Stepfun,
+    Siliconflow,
+    Tgi,
+    Jan,
+    Llamafile,
+    Gpt4all,
+    TabbyApi,
+    Doubao,
 }
 
 pub(crate) fn provider_preset_name(kind: ProviderPresetKind) -> &'static str {
@@ -64,6 +81,23 @@ pub(crate) fn provider_preset_name(kind: ProviderPresetKind) -> &'static str {
         ProviderPresetKind::OllamaOpenai => "ollama_openai",
         ProviderPresetKind::Localai => "localai",
         ProviderPresetKind::Xinference => "xinference",
+        ProviderPresetKind::Fireworks => "fireworks",
+        ProviderPresetKind::Perplexity => "perplexity",
+        ProviderPresetKind::Cerebras => "cerebras",
+        ProviderPresetKind::Sambanova => "sambanova",
+        ProviderPresetKind::Hyperbolic => "hyperbolic",
+        ProviderPresetKind::CloudflareAi => "cloudflare_ai",
+        ProviderPresetKind::Jina => "jina",
+        ProviderPresetKind::Baichuan => "baichuan",
+        ProviderPresetKind::Minimax => "minimax",
+        ProviderPresetKind::Stepfun => "stepfun",
+        ProviderPresetKind::Siliconflow => "siliconflow",
+        ProviderPresetKind::Tgi => "tgi",
+        ProviderPresetKind::Jan => "jan",
+        ProviderPresetKind::Llamafile => "llamafile",
+        ProviderPresetKind::Gpt4all => "gpt4all",
+        ProviderPresetKind::TabbyApi => "tabby_api",
+        ProviderPresetKind::Doubao => "doubao",
     }
 }
 
@@ -395,7 +429,24 @@ impl ProviderPresetSpec {
             | ProviderPresetKind::OllamaOpenai
             | ProviderPresetKind::Localai
             | ProviderPresetKind::Xinference
-            | ProviderPresetKind::VertexOpenai => Self::openai_compatible(DEFAULT_CHAT_PATH),
+            | ProviderPresetKind::VertexOpenai
+            | ProviderPresetKind::Fireworks
+            | ProviderPresetKind::Perplexity
+            | ProviderPresetKind::Cerebras
+            | ProviderPresetKind::Sambanova
+            | ProviderPresetKind::Hyperbolic
+            | ProviderPresetKind::CloudflareAi
+            | ProviderPresetKind::Jina
+            | ProviderPresetKind::Baichuan
+            | ProviderPresetKind::Minimax
+            | ProviderPresetKind::Stepfun
+            | ProviderPresetKind::Siliconflow
+            | ProviderPresetKind::Tgi
+            | ProviderPresetKind::Jan
+            | ProviderPresetKind::Llamafile
+            | ProviderPresetKind::Gpt4all
+            | ProviderPresetKind::TabbyApi
+            | ProviderPresetKind::Doubao => Self::openai_compatible(DEFAULT_CHAT_PATH),
             ProviderPresetKind::Gemini => {
                 Self::openai_compatible("/v1beta/openai/chat/completions")
                     .with_embedding_path("/v1beta/openai/embeddings")
