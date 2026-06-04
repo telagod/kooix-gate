@@ -88,6 +88,9 @@ macro_rules! export_stream_chunk {
     };
 }
 
+#[cfg(feature = "v1")]
+pub mod v1;
+
 #[cfg(test)]
 mod tests {
     use super::*;
