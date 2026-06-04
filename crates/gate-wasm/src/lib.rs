@@ -16,6 +16,7 @@
 
 mod error;
 pub mod blob_store;
+pub mod component_host;
 pub mod fallback;
 pub mod host;
 pub mod limits;
@@ -26,6 +27,7 @@ pub use error::{WasmError, WasmResult};
 pub use fallback::invoke_with_fallback;
 pub use host::{HookContext, HookKind, WasmHost, WasmHostConfig};
 pub use limits::{DEFAULT_LIMITS, ResourceLimits};
+pub use component_host::{ComponentHost, TransformHook, TransformResult};
 pub use wasmtime_host::WasmtimeHost;
 
 #[cfg(test)]

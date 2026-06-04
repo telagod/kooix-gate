@@ -2125,6 +2125,7 @@ dependencies = [
  "bytes",
  "criterion",
  "futures",
+ "getrandom 0.3.4",
  "hex",
  "metrics",
  "serde",
