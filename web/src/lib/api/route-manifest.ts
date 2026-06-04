@@ -60,6 +60,7 @@ export const routeManifest = {
 	{"method":"POST","path":"/v1/admin/pricing-rules","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"DELETE","path":"/v1/admin/pricing-rules/:id","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"PUT","path":"/v1/admin/projects/:id/default-group","auth":"platform_admin","modes":["all","controlplane"]},
+	{"method":"GET","path":"/v1/admin/providers/capabilities","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/admin/requests","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/admin/requests/:request_id","auth":"platform_admin","modes":["all","controlplane"]},
 	{"method":"GET","path":"/v1/admin/requests/filters","auth":"platform_admin","modes":["all","controlplane"]},
