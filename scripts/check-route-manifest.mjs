@@ -63,7 +63,7 @@ function methodsFromHandler(handler) {
 
 function routerPrefix(file) {
   if (file.endsWith('/health.rs')) return '';
-  if (file.endsWith('/admin.rs') || file.endsWith('/request_logs.rs')) return '/v1/admin';
+  if (file.endsWith('/admin.rs') || file.endsWith('/admin/mod.rs') || file.endsWith('/request_logs.rs')) return '/v1/admin';
   return '/v1';
 }
 
@@ -80,7 +80,7 @@ const routeFiles = [
   'crates/gate-server/src/routes/chat.rs',
   'crates/gate-server/src/routes/settings.rs',
   'crates/gate-server/src/routes/sso.rs',
-  'crates/gate-server/src/routes/admin.rs',
+  'crates/gate-server/src/routes/admin/mod.rs',
   'crates/gate-server/src/routes/models.rs',
   'crates/gate-server/src/routes/images.rs',
   'crates/gate-server/src/routes/invitations.rs',
@@ -95,7 +95,7 @@ const discovered = [];
 for (const file of routeFiles) {
   const source = readFileSync(file, 'utf8');
   const prefix = routerPrefix(file);
-  const routeRe = /\.route\(\s*"([^"]+)"\s*,\s*([\s\S]*?)\)\s*(?=\.route|\}|;)/g;
+  const routeRe = /\.route\(\s*"([^"]+)"\s*,\s*([^)]*(?:\([^)]*\))?[^)]*)\)/g;
   for (const match of source.matchAll(routeRe)) {
     const path = `${prefix}${match[1]}`;
     const handler = match[2];
