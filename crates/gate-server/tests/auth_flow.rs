@@ -777,7 +777,7 @@ async fn admin_group_binding_canary_validates_and_returns_stats_shape() {
         Some(&tok),
         Some(serde_json::json!({
             "code": "canary-control",
-            "provider_type": "openai",
+            "provider_type": "plugin",
             "base_url": "https://api.openai.com/v1",
             "supported_models": ["gpt-canary"]
         })),
@@ -1018,7 +1018,7 @@ async fn admin_channel_drain_rejects_api_key_subject() {
         Some(&tok),
         Some(serde_json::json!({
             "code": "drain-api-key-subject",
-            "provider_type": "openai",
+            "provider_type": "plugin",
             "base_url": "https://api.openai.com/v1"
         })),
     )
