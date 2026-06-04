@@ -1,57 +1,61 @@
-//! ADR-0006 v1 component-model guest SDK.
+//! ADR-0006 v1 component-model guest SDK reference.
 //!
-//! Uses `wit-bindgen::generate!` to produce typed bindings from the
-//! `kooix:plugin@0.1.0` WIT definition. Plugin authors implement the
-//! `Guest` trait and use the `export_plugin!` macro.
+//! Plugin authors generate their own bindings directly from the WIT file using
+//! `wit_bindgen::generate!`. This module serves as documentation and type
+//! re-exports for host-side code that needs to reference the generated types.
 //!
-//! # Example
+//! # Plugin Usage (guest side)
+//!
+//! In your plugin crate's `lib.rs`:
 //!
 //! ```rust,ignore
-//! use gate_wasm_sdk::v1::*;
+//! wit_bindgen::generate!({
+//!     world: "plugin",
+//!     path: "path/to/kooix-plugin.wit",  // from crates/gate-wasm/wit/
+//! });
+//!
+//! use exports::kooix::plugin::transform::Guest;
+//! use kooix::plugin::types::{TransformError, TransformInput, TransformOutput};
 //!
 //! struct MyPlugin;
 //!
 //! impl Guest for MyPlugin {
 //!     fn transform_request(input: TransformInput) -> Result<TransformOutput, TransformError> {
-//!         Ok(TransformOutput {
-//!             json: input.json,
-//!             metadata: String::new(),
-//!         })
+//!         Ok(TransformOutput { json: input.json, metadata: String::new() })
 //!     }
-//!
 //!     fn transform_response(input: TransformInput) -> Result<TransformOutput, TransformError> {
 //!         Ok(TransformOutput { json: input.json, metadata: String::new() })
 //!     }
-//!
 //!     fn transform_stream_event(input: TransformInput) -> Result<TransformOutput, TransformError> {
 //!         Ok(TransformOutput { json: input.json, metadata: String::new() })
 //!     }
-//!
 //!     fn finish_stream(input: TransformInput) -> Result<TransformOutput, TransformError> {
 //!         Ok(TransformOutput { json: input.json, metadata: String::new() })
 //!     }
 //! }
 //!
-//! export_plugin!(MyPlugin);
+//! export!(MyPlugin);
 //! ```
 //!
-//! # Building
+//! # Build & Componentize
 //!
 //! ```bash
-//! cargo build --target wasm32-wasip1 --release --features v1
-//! # Then componentize:
-//! wasm-tools component new target/wasm32-wasip1/release/my_plugin.wasm -o my_plugin.component.wasm
+//! cargo build --target wasm32-unknown-unknown --release
+//! wasm-tools component new target/wasm32-unknown-unknown/release/my_plugin.wasm \
+//!   -o my_plugin.component.wasm
+//! ```
+//!
+//! # Host Functions (available inside transform hooks)
+//!
+//! ```rust,ignore
+//! // from kooix::plugin::host (imported by the generated bindings)
+//! let secret = get_secret(SecretRef { slot: "primary".into(), purpose: "auth".into() })?;
+//! log(2, "transform applied");
+//! record_metric("custom_counter", 1.0);
+//! let ts = now_ms();
+//! let random = nonce(16);
+//! let safe = redact(sensitive_value);
 //! ```
 
-wit_bindgen::generate!({
-    world: "plugin",
-    path: "../gate-wasm/wit/kooix-plugin.wit",
-    pub_export_macro: true,
-    default_bindings_module: "gate_wasm_sdk::v1",
-});
-
-pub use exports::kooix::plugin::transform::Guest;
-pub use kooix::plugin::host::{
-    get_secret, log, nonce, now_ms, record_metric, redact, SecretBytes, SecretError, SecretRef,
-};
-pub use kooix::plugin::types::{TransformError, TransformInput, TransformOutput};
+// Re-export the WIT file path for reference.
+pub const WIT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../gate-wasm/wit/kooix-plugin.wit");

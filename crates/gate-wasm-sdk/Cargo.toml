@@ -16,13 +16,11 @@ default = []
 # 启用 std + alloc 用于宿主侧测试；wasm32 target 默认 no-std
 host-test = []
 # v1 component-model SDK via wit-bindgen (ADR-0006)
-v1 = ["dep:wit-bindgen-rt", "dep:wit-bindgen"]
+v1 = []
 
 [dependencies]
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
-wit-bindgen-rt = { version = "0.44", optional = true }
-wit-bindgen = { version = "0.57", optional = true, default-features = false, features = ["macros"] }
 
 [dev-dependencies]
 serde = { workspace = true }
