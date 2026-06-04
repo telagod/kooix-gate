@@ -215,9 +215,7 @@ impl ComponentHost {
         let result = match hook {
             TransformHook::Request => transform.call_transform_request(&mut store, &input),
             TransformHook::Response => transform.call_transform_response(&mut store, &input),
-            TransformHook::StreamEvent => {
-                transform.call_transform_stream_event(&mut store, &input)
-            }
+            TransformHook::StreamEvent => transform.call_transform_stream_event(&mut store, &input),
             TransformHook::FinishStream => transform.call_finish_stream(&mut store, &input),
         };
 
@@ -313,7 +311,10 @@ mod tests {
     fn transform_hook_str_mapping() {
         assert_eq!(TransformHook::Request.as_str(), "transform_request");
         assert_eq!(TransformHook::Response.as_str(), "transform_response");
-        assert_eq!(TransformHook::StreamEvent.as_str(), "transform_stream_event");
+        assert_eq!(
+            TransformHook::StreamEvent.as_str(),
+            "transform_stream_event"
+        );
         assert_eq!(TransformHook::FinishStream.as_str(), "finish_stream");
     }
 }

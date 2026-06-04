@@ -201,7 +201,10 @@ mod tests {
             .await
             .unwrap();
         let formats = host.formats.read().await;
-        assert!(matches!(formats.get("ch-unified-v0"), Some(ChannelFormat::V0)));
+        assert!(matches!(
+            formats.get("ch-unified-v0"),
+            Some(ChannelFormat::V0)
+        ));
     }
 
     #[tokio::test]
@@ -215,7 +218,12 @@ mod tests {
         host.load_module("ch-v0", &module, &sha).await.unwrap();
         let payload = Bytes::from_static(b"test-payload");
         let result = host
-            .invoke_hook("ch-v0", HookKind::ChatRequest, payload.clone(), HookContext::default())
+            .invoke_hook(
+                "ch-v0",
+                HookKind::ChatRequest,
+                payload.clone(),
+                HookContext::default(),
+            )
             .await
             .unwrap();
         assert_eq!(result, Some(payload));

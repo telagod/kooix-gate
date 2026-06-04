@@ -37,9 +37,12 @@ describe('channels form-factories', () => {
 		expect(b.supported_models).toEqual([]);
 	});
 
-	it('defaultEditForm 返空对象', () => {
+	it('defaultEditForm 返带默认值对象', () => {
 		const f = defaultEditForm();
-		expect(Object.keys(f)).toHaveLength(0);
+		expect(f.name).toBe('');
+		expect(f.enabled).toBe(true);
+		expect(f.supported_models).toEqual([]);
+		expect(f.timeout_ms).toBe(60000);
 	});
 
 	it('defaultEditForm 每次调用返新对象', () => {

@@ -58,4 +58,7 @@
 //! ```
 
 // Re-export the WIT file path for reference.
-pub const WIT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../gate-wasm/wit/kooix-plugin.wit");
+pub const WIT_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../gate-wasm/wit/kooix-plugin.wit"
+);

@@ -10,7 +10,7 @@
 //! 0.5.0+ 把 gate-providers 集成层 + 真实 e2e 加进 plugin_vs_builtin 矩阵。
 
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use gate_wasm::{HookContext, HookKind, WasmHost, WasmHostConfig, WasmtimeHost};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -38,8 +38,7 @@ const COPY_WAT: &str = r#"
 
 fn build_host_with_module(payload_size: usize) -> (Arc<dyn WasmHost>, Bytes) {
     let rt = Runtime::new().unwrap();
-    let host: Arc<dyn WasmHost> =
-        Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
+    let host: Arc<dyn WasmHost> = Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
     let module_bytes = wat::parse_str(COPY_WAT).unwrap();
     let sha = {
         use sha2::{Digest, Sha256};
@@ -48,7 +47,9 @@ fn build_host_with_module(payload_size: usize) -> (Arc<dyn WasmHost>, Bytes) {
         hex::encode(h.finalize())
     };
     rt.block_on(async {
-        host.load_module("bench-ch", &module_bytes, &sha).await.unwrap();
+        host.load_module("bench-ch", &module_bytes, &sha)
+            .await
+            .unwrap();
     });
     let payload = Bytes::from(vec![b'x'; payload_size]);
     (host, payload)
@@ -83,8 +84,7 @@ fn bench_invoke_hook(c: &mut Criterion) {
 
 fn bench_no_module_passthrough(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let host: Arc<dyn WasmHost> =
-        Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
+    let host: Arc<dyn WasmHost> = Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
     let payload = Bytes::from_static(b"baseline-no-module");
 
     c.bench_function("wasm_no_module_passthrough", |b| {

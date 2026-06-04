@@ -35,8 +35,8 @@ impl WasmtimeHost {
     pub fn new(config: WasmHostConfig) -> WasmResult<Self> {
         let mut wasm_config = Config::new();
         wasm_config.consume_fuel(true);
-        let engine = Engine::new(&wasm_config)
-            .map_err(|e| WasmError::Load(format!("engine init: {e}")))?;
+        let engine =
+            Engine::new(&wasm_config).map_err(|e| WasmError::Load(format!("engine init: {e}")))?;
         Ok(Self {
             engine,
             config,
@@ -73,8 +73,7 @@ impl WasmtimeHost {
             .split('.')
             .next()
             .unwrap_or("unknown");
-        let cache_file =
-            cache_dir.join(format!("{sha256}-wt{wasmtime_major}.cwasm"));
+        let cache_file = cache_dir.join(format!("{sha256}-wt{wasmtime_major}.cwasm"));
 
         // 1. 尝试 deserialize
         if cache_file.exists() {
@@ -252,7 +251,8 @@ impl WasmtimeHost {
                       name_ptr: i32,
                       name_len: i32,
                       out_ptr: i32,
-                      out_cap: i32| -> i32 {
+                      out_cap: i32|
+                      -> i32 {
                     let memory = match caller.get_export("memory") {
                         Some(Extern::Memory(m)) => m,
                         _ => return -5,
@@ -325,10 +325,12 @@ impl WasmtimeHost {
         // 4. 拿 memory + alloc
         let memory = match instance.get_export(&mut store, "memory") {
             Some(Extern::Memory(m)) => m,
-            _ => return Err(WasmError::Call {
-                hook: hook.as_str(),
-                message: "module missing exported `memory`".into(),
-            }),
+            _ => {
+                return Err(WasmError::Call {
+                    hook: hook.as_str(),
+                    message: "module missing exported `memory`".into(),
+                });
+            }
         };
         let alloc = instance
             .get_typed_func::<i32, i32>(&mut store, "gate_alloc")
@@ -414,7 +416,8 @@ impl WasmHost for WasmtimeHost {
         }
         // 0.4.83（G-104）：cwasm 持久化缓存。
         // 若配置了 cache_dir，先尝试 deserialize；失败 fallback compile + 写回。
-        let module = Self::load_module_with_cache(&self.engine, &self.config, &actual, module_bytes)?;
+        let module =
+            Self::load_module_with_cache(&self.engine, &self.config, &actual, module_bytes)?;
         let mut modules = self.modules.write().await;
         modules.insert(
             channel_id.to_string(),
@@ -616,7 +619,11 @@ mod tests {
         let sha = WasmtimeHost::sha256_hex(&module_bytes);
         host.load_module("ch-2", &module_bytes, &sha).await.unwrap();
 
-        for hook in [HookKind::ChatRequest, HookKind::ChatResponse, HookKind::StreamChunk] {
+        for hook in [
+            HookKind::ChatRequest,
+            HookKind::ChatResponse,
+            HookKind::StreamChunk,
+        ] {
             let payload = Bytes::from(format!("payload-for-{}", hook.as_str()));
             let result = host
                 .invoke_hook("ch-2", hook, payload.clone(), HookContext::default())
@@ -641,12 +648,22 @@ mod tests {
         host.load_module("ch-1", &minimal_wasm, &sha).await.unwrap();
         let payload = Bytes::from_static(b"data");
         let resp = host
-            .invoke_hook("ch-1", HookKind::ChatResponse, payload.clone(), HookContext::default())
+            .invoke_hook(
+                "ch-1",
+                HookKind::ChatResponse,
+                payload.clone(),
+                HookContext::default(),
+            )
             .await
             .unwrap();
         assert_eq!(resp, Some(payload.clone()));
         let stream = host
-            .invoke_hook("ch-1", HookKind::StreamChunk, payload.clone(), HookContext::default())
+            .invoke_hook(
+                "ch-1",
+                HookKind::StreamChunk,
+                payload.clone(),
+                HookContext::default(),
+            )
             .await
             .unwrap();
         assert_eq!(stream, Some(payload));
@@ -703,10 +720,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn cwasm_cache_writes_and_hits_on_second_load() {
         // 0.4.83：验证 cwasm 持久化路径。
-        let cache_dir = std::env::temp_dir().join(format!(
-            "kooix-gate-wasm-cache-test-{}",
-            std::process::id()
-        ));
+        let cache_dir =
+            std::env::temp_dir().join(format!("kooix-gate-wasm-cache-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&cache_dir);
         let mut cfg = WasmHostConfig::default();
         cfg.cache_dir = Some(cache_dir.clone());
@@ -729,11 +744,13 @@ mod tests {
             .collect();
         assert_eq!(entries.len(), 1, "expected 1 cwasm file");
         let cwasm_path = entries[0].path();
-        assert!(cwasm_path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .contains(&sha));
+        assert!(
+            cwasm_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(&sha)
+        );
 
         // 第二次：新 host 实例 + 同 cache_dir → 应该命中（不会重新 write）
         let mtime_before = std::fs::metadata(&cwasm_path).unwrap().modified().unwrap();
@@ -793,4 +810,3 @@ mod tests {
         assert!(ctx.allowed_slots.is_empty());
     }
 }
-

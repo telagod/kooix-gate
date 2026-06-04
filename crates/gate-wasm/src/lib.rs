@@ -14,9 +14,9 @@
 //! v0 PoC：crate skeleton + WasmHost trait 接口设计完成，runtime 实现按版本
 //! 推进（0.4.22-0.4.26）。
 
-mod error;
 pub mod blob_store;
 pub mod component_host;
+mod error;
 pub mod fallback;
 pub mod host;
 pub mod limits;
@@ -24,11 +24,11 @@ pub mod unified;
 pub mod wasmtime_host;
 
 pub use blob_store::{LocalFsBlobStore, WasmBlobStore};
+pub use component_host::{ComponentHost, TransformHook, TransformResult};
 pub use error::{WasmError, WasmResult};
 pub use fallback::invoke_with_fallback;
 pub use host::{HookContext, HookKind, WasmHost, WasmHostConfig};
 pub use limits::{DEFAULT_LIMITS, ResourceLimits};
-pub use component_host::{ComponentHost, TransformHook, TransformResult};
 pub use unified::{UnifiedWasmHost, WasmFormat, detect_format};
 pub use wasmtime_host::WasmtimeHost;
 

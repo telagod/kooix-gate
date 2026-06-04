@@ -64,9 +64,7 @@ async fn setup_mock() -> MockServer {
 }
 
 fn opts() -> ProviderOpts {
-    ProviderOpts {
-        timeout_ms: 5_000,
-    }
+    ProviderOpts { timeout_ms: 5_000 }
 }
 
 fn build_builtin(base_url: &str) -> Arc<OpenAiProvider> {

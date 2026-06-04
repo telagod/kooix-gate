@@ -316,9 +316,7 @@ pub fn plugin_preset_base_url_suggestion(provider: &str) -> Option<&'static str>
         "cerebras" => Some("https://api.cerebras.ai/v1"),
         "sambanova" => Some("https://api.sambanova.ai/v1"),
         "hyperbolic" => Some("https://api.hyperbolic.xyz/v1"),
-        "cloudflare_ai" => {
-            Some("https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1")
-        }
+        "cloudflare_ai" => Some("https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1"),
         "jina" => Some("https://api.jina.ai/v1"),
         "baichuan" => Some("https://api.baichuan-ai.com/v1"),
         "minimax" => Some("https://api.minimax.chat/v1"),

@@ -758,8 +758,7 @@ mod tests {
     fn extra_fields_passthrough_into_anthropic_body() {
         let mut req = base_chat_req();
         // 模拟用户在 ChatRequest 顶层传了 anthropic 特有字段
-        req.extra
-            .insert("top_k".to_string(), serde_json::json!(40));
+        req.extra.insert("top_k".to_string(), serde_json::json!(40));
         req.extra.insert(
             "thinking".to_string(),
             serde_json::json!({"type": "enabled", "budget_tokens": 1000}),

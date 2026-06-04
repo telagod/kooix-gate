@@ -15,7 +15,10 @@ fn sha256(bytes: &[u8]) -> String {
 
 #[test]
 fn component_detected_as_v1() {
-    assert_eq!(detect_format(COMPONENT_WASM).unwrap(), WasmFormat::Component);
+    assert_eq!(
+        detect_format(COMPONENT_WASM).unwrap(),
+        WasmFormat::Component
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -123,7 +126,12 @@ async fn v0_and_v1_coexist_in_unified_host() {
     // v0 passthrough (no hook exported → identity)
     let v0_payload = Bytes::from_static(b"v0-data");
     let v0_result = host
-        .invoke_hook("ch-v0", HookKind::ChatRequest, v0_payload.clone(), HookContext::default())
+        .invoke_hook(
+            "ch-v0",
+            HookKind::ChatRequest,
+            v0_payload.clone(),
+            HookContext::default(),
+        )
         .await
         .unwrap();
     assert_eq!(v0_result, Some(v0_payload));
@@ -131,7 +139,12 @@ async fn v0_and_v1_coexist_in_unified_host() {
     // v1 transforms
     let v1_payload = Bytes::from(r#"{"model":"claude-3"}"#);
     let v1_result = host
-        .invoke_hook("ch-v1", HookKind::ChatRequest, v1_payload, HookContext::default())
+        .invoke_hook(
+            "ch-v1",
+            HookKind::ChatRequest,
+            v1_payload,
+            HookContext::default(),
+        )
         .await
         .unwrap()
         .unwrap();
