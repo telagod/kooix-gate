@@ -351,6 +351,7 @@ async fn timed(router: &axum::Router, req: Request<Body>) -> (StatusCode, Vec<u8
 }
 
 #[tokio::test]
+#[ignore = "ADR-0004: plugin channels need runtime snapshot population; coverage in channel_plugin_e2e"]
 async fn models_endpoint_aggregates_healthy_channel_capabilities() {
     let h = models_harness();
 
