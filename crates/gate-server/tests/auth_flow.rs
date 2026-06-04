@@ -900,7 +900,7 @@ async fn admin_channel_draining_stops_new_requests_and_waits_for_inflight() {
         rpm_limit: None,
         tpm_limit: None,
         tags: vec![],
-        model_mapping: serde_json::json!({"plugin":{"version":1,"capabilities":{"chat":true},"preset":{"provider":"openai"}}}),
+        model_mapping: serde_json::json!({"plugin":{"version":1,"capabilities":{"chat":true},"auth":{"strategy":"none"},"preset":{"provider":"openai_compatible"}}}),
         balance: None,
         balance_updated_at: None,
         last_error: None,
