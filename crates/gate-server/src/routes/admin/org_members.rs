@@ -3,9 +3,14 @@
 //! 0.4.123：从 admin/mod.rs 物理拆出（原 inline `mod org_members`，0.4.109）。
 //! 依赖 admin/mod.rs 顶层 MemberView / AddMemberRequest 类型。
 
-use super::*;
 #[allow(unused_imports)]
-use super::shared::{require_confirmation, audit_meta, channel_audit_snapshot, key_audit_snapshot, group_audit_snapshot, pricing_rule_audit_snapshot, user_audit_snapshot, channel_capabilities, channel_inflight, is_plugin_provider, key_fingerprint, validate_channel_key_alias, record_to_summary};
+use super::shared::{
+    audit_meta, channel_audit_snapshot, channel_capabilities, channel_inflight,
+    group_audit_snapshot, is_plugin_provider, key_audit_snapshot, key_fingerprint,
+    pricing_rule_audit_snapshot, record_to_summary, require_confirmation, user_audit_snapshot,
+    validate_channel_key_alias,
+};
+use super::*;
 
 pub(super) async fn list_org_members(
     State(app): State<AppState>,

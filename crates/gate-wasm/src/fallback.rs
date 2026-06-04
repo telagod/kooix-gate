@@ -104,9 +104,9 @@ pub async fn invoke_with_fallback(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::WasmHostConfig;
     use crate::host::WasmHost;
     use crate::wasmtime_host::WasmtimeHost;
-    use crate::WasmHostConfig;
     use async_trait::async_trait;
     use std::sync::Arc;
 

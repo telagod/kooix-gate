@@ -6,7 +6,9 @@
 
 use super::*;
 
-pub(super) async fn plugin_manifest_schema(Authed(ctx): Authed) -> AppResult<Json<serde_json::Value>> {
+pub(super) async fn plugin_manifest_schema(
+    Authed(ctx): Authed,
+) -> AppResult<Json<serde_json::Value>> {
     require_user!(ctx);
     require!(ctx, Permission::ChannelRead, Scope::Platform);
     Ok(Json(gate_providers::plugin_manifest_schema_json()))
@@ -110,7 +112,10 @@ pub(super) fn confirmation_from_headers(headers: &HeaderMap) -> Option<&str> {
     super::shared::confirmation_from_headers(headers)
 }
 
-pub(super) fn require_confirmation(headers: &HeaderMap, expected: impl AsRef<str>) -> AppResult<()> {
+pub(super) fn require_confirmation(
+    headers: &HeaderMap,
+    expected: impl AsRef<str>,
+) -> AppResult<()> {
     super::shared::require_confirmation(headers, expected)
 }
 

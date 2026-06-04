@@ -86,7 +86,9 @@ pub struct ToxiproxyContainer {
 impl ToxiproxyContainer {
     /// 启动 toxiproxy 容器。仅 `KOOIX_CHAOS_DOCKER=1` 且 docker 可用时调用。
     pub async fn start() -> anyhow::Result<Self> {
-        use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
+        use testcontainers::{
+            GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner,
+        };
 
         let image = GenericImage::new("ghcr.io/shopify/toxiproxy", "2.9.0")
             .with_exposed_port(8474u16.tcp())
@@ -214,7 +216,9 @@ fn toxiproxy_default_no_injection() {
 fn chaos_docker_env_gate_off_by_default() {
     // SAFETY: 测试线程内 unset，避免污染其它测试
     // SAFETY: env mutation 在 single-test scope
-    unsafe { std::env::remove_var("KOOIX_CHAOS_DOCKER"); }
+    unsafe {
+        std::env::remove_var("KOOIX_CHAOS_DOCKER");
+    }
     assert!(!chaos_docker_enabled(), "默认不启 chaos docker");
 }
 
@@ -226,7 +230,9 @@ async fn toxiproxy_container_starts_and_admin_responds() {
         eprintln!("跳过：未设 KOOIX_CHAOS_DOCKER=1");
         return;
     }
-    let tp = ToxiproxyContainer::start().await.expect("toxiproxy 容器启动失败");
+    let tp = ToxiproxyContainer::start()
+        .await
+        .expect("toxiproxy 容器启动失败");
     assert!(tp.admin_port() > 0);
     let resp = reqwest::get(format!("{}/version", tp.admin_url))
         .await
@@ -246,7 +252,9 @@ async fn toxiproxy_disabled_proxy_refuses_connection() {
         eprintln!("跳过：未设 KOOIX_CHAOS_DOCKER=1");
         return;
     }
-    let tp = ToxiproxyContainer::start().await.expect("toxiproxy 容器启动失败");
+    let tp = ToxiproxyContainer::start()
+        .await
+        .expect("toxiproxy 容器启动失败");
 
     // 注册一个 proxy 指向不存在上游（127.0.0.1:1 — 保证连不上），然后立刻 disable
     tp.add_proxy("chaos_refuse", 8666, "127.0.0.1", 1)
@@ -263,7 +271,11 @@ async fn toxiproxy_disabled_proxy_refuses_connection() {
         .json()
         .await
         .expect("decode json");
-    assert_eq!(list["enabled"], serde_json::json!(false), "proxy 应被 disable");
+    assert_eq!(
+        list["enabled"],
+        serde_json::json!(false),
+        "proxy 应被 disable"
+    );
     assert_eq!(list["name"], serde_json::json!("chaos_refuse"));
 }
 
@@ -277,7 +289,9 @@ async fn toxiproxy_latency_toxic_registered() {
         eprintln!("跳过：未设 KOOIX_CHAOS_DOCKER=1");
         return;
     }
-    let tp = ToxiproxyContainer::start().await.expect("toxiproxy 容器启动失败");
+    let tp = ToxiproxyContainer::start()
+        .await
+        .expect("toxiproxy 容器启动失败");
     tp.add_proxy("chaos_redis", 8666, "127.0.0.1", 6379)
         .await
         .expect("add_proxy");
@@ -292,12 +306,13 @@ async fn toxiproxy_latency_toxic_registered() {
     .expect("add_toxic");
 
     // 验 admin API 真把 toxic 记入
-    let toxics: serde_json::Value = reqwest::get(format!("{}/proxies/chaos_redis/toxics", tp.admin_url))
-        .await
-        .expect("GET toxics")
-        .json()
-        .await
-        .expect("decode toxics");
+    let toxics: serde_json::Value =
+        reqwest::get(format!("{}/proxies/chaos_redis/toxics", tp.admin_url))
+            .await
+            .expect("GET toxics")
+            .json()
+            .await
+            .expect("decode toxics");
     let arr = toxics.as_array().expect("toxics 数组");
     assert_eq!(arr.len(), 1, "应有 1 个 toxic");
     assert_eq!(arr[0]["type"], serde_json::json!("latency"));

@@ -739,7 +739,11 @@ fn validate_signature(
             let v = signature.value.as_deref().unwrap();
             base64::engine::general_purpose::STANDARD
                 .decode(v.trim())
-                .map_err(|e| anyhow::anyhow!("registry entry {entry_id} signature.value not valid base64: {e}"))?;
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "registry entry {entry_id} signature.value not valid base64: {e}"
+                    )
+                })?;
             Ok(())
         }
     }
@@ -747,24 +751,28 @@ fn validate_signature(
 
 /// 0.4.54: minisign signature 格式校验（不做真实公钥验签——
 /// 用户需提供 keypair 后由 0.5.0 lib 验签；本版仅 base64 + 长度检查）。
-fn verify_minisign_format(
-    signature: &RegistrySignature,
-    entry_id: &str,
-) -> anyhow::Result<()> {
+fn verify_minisign_format(signature: &RegistrySignature, entry_id: &str) -> anyhow::Result<()> {
     use base64::Engine as _;
     let v = signature.value.as_deref().unwrap();
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(v.trim())
-        .map_err(|e| anyhow::anyhow!("registry entry {entry_id} minisign value not valid base64: {e}"))?;
+        .map_err(|e| {
+            anyhow::anyhow!("registry entry {entry_id} minisign value not valid base64: {e}")
+        })?;
     // minisign sig 二进制最小约 100B；过短即 reject
     if decoded.len() < 64 {
-        bail!("registry entry {entry_id} minisign value too short ({} bytes < 64)", decoded.len());
+        bail!(
+            "registry entry {entry_id} minisign value too short ({} bytes < 64)",
+            decoded.len()
+        );
     }
     // 如果提供 key_id，也需 base64
     if let Some(key) = signature.key_id.as_deref() {
         base64::engine::general_purpose::STANDARD
             .decode(key.trim())
-            .map_err(|e| anyhow::anyhow!("registry entry {entry_id} minisign key_id not valid base64: {e}"))?;
+            .map_err(|e| {
+                anyhow::anyhow!("registry entry {entry_id} minisign key_id not valid base64: {e}")
+            })?;
     }
     Ok(())
 }

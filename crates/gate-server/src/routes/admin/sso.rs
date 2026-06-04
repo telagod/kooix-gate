@@ -3,9 +3,14 @@
 //! 0.4.126：从 admin/mod.rs 物理拆出（7 handler + 14 normalize/helper fn + 2 type，~590 行）。
 //! 依赖 admin/mod.rs 顶层 require_confirmation / audit_meta helper。
 
-use super::*;
 #[allow(unused_imports)]
-use super::shared::{require_confirmation, audit_meta, channel_audit_snapshot, key_audit_snapshot, group_audit_snapshot, pricing_rule_audit_snapshot, user_audit_snapshot, channel_capabilities, channel_inflight, is_plugin_provider, key_fingerprint, validate_channel_key_alias, record_to_summary};
+use super::shared::{
+    audit_meta, channel_audit_snapshot, channel_capabilities, channel_inflight,
+    group_audit_snapshot, is_plugin_provider, key_audit_snapshot, key_fingerprint,
+    pricing_rule_audit_snapshot, record_to_summary, require_confirmation, user_audit_snapshot,
+    validate_channel_key_alias,
+};
+use super::*;
 
 // ============================================================================
 // Identity Providers / SSO (Admin)

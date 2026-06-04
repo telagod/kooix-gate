@@ -70,7 +70,8 @@ mod tests {
 
     #[tokio::test]
     async fn local_fs_returns_bytes_for_existing_sha() {
-        let tmp = std::env::temp_dir().join(format!("kooix-blobstore-test-{}-2", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("kooix-blobstore-test-{}-2", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let sha = "abc123";
         let content = b"wasm bytes here";

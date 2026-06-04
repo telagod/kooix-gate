@@ -210,11 +210,7 @@ impl CustomHttpProvider {
 
     /// 0.4.42: 调 wasm chat_request_transform hook（如配置）。
     /// 失败永不 propagate — fallback policy 内部已降级 identity。
-    pub(super) async fn wasm_transform_request(
-        &self,
-        body: Vec<u8>,
-        req: &ChatRequest,
-    ) -> Vec<u8> {
+    pub(super) async fn wasm_transform_request(&self, body: Vec<u8>, req: &ChatRequest) -> Vec<u8> {
         let Some(host) = self.wasm_host.clone() else {
             return body;
         };
@@ -258,11 +254,7 @@ impl CustomHttpProvider {
     /// 0.4.51 起 chat_stream SSE pipeline 已 inline 调用，本 helper 保留作公共 API
     /// 供外部（如直接拼 stream）使用。
     #[allow(dead_code)]
-    pub(super) async fn wasm_transform_stream_chunk(
-        &self,
-        chunk: Vec<u8>,
-        model: &str,
-    ) -> Vec<u8> {
+    pub(super) async fn wasm_transform_stream_chunk(&self, chunk: Vec<u8>, model: &str) -> Vec<u8> {
         let Some(host) = self.wasm_host.clone() else {
             return chunk;
         };
@@ -1455,7 +1447,9 @@ impl Provider for CustomHttpProvider {
         let resp = self.check_plugin_status(resp).await?;
         enforce_response_length_hint(&resp, self.manifest.security.max_response_bytes())?;
         let resp = resp.error_for_status().map_err(ProviderError::from)?;
-        let body = self.limited_json_response_with_wasm(resp, &req.model).await?;
+        let body = self
+            .limited_json_response_with_wasm(resp, &req.model)
+            .await?;
         self.parse_chat_response(body, &req.model)
     }
 
@@ -1551,7 +1545,7 @@ impl Provider for CustomHttpProvider {
                                 model,
                                 request_id: String::new(),
                                 metadata: Default::default(),
-            ..Default::default()
+                                ..Default::default()
                             };
                             let out = gate_wasm::invoke_with_fallback(
                                 host,

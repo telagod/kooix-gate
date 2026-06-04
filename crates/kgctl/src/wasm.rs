@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 pub fn verify(path: PathBuf) -> Result<()> {
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("读取 wasm 模块失败: {}", path.display()))?;
+    let bytes =
+        std::fs::read(&path).with_context(|| format!("读取 wasm 模块失败: {}", path.display()))?;
     let mut h = Sha256::new();
     h.update(&bytes);
     let sha = hex::encode(h.finalize());
@@ -20,7 +20,12 @@ pub fn verify(path: PathBuf) -> Result<()> {
     println!("\n复制到 channel manifest:");
     println!("  \"security\": {{");
     println!("    \"wasm\": {{");
-    println!("      \"module\": \"{}\",", path.file_name().and_then(|n| n.to_str()).unwrap_or("module.wasm"));
+    println!(
+        "      \"module\": \"{}\",",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("module.wasm")
+    );
     println!("      \"module_sha256\": \"{}\",", sha);
     println!("      \"max_memory_bytes\": 16777216,");
     println!("      \"max_cpu_ms\": 50,");
@@ -31,8 +36,8 @@ pub fn verify(path: PathBuf) -> Result<()> {
 }
 
 pub fn inspect(path: PathBuf) -> Result<()> {
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("读取 wasm 模块失败: {}", path.display()))?;
+    let bytes =
+        std::fs::read(&path).with_context(|| format!("读取 wasm 模块失败: {}", path.display()))?;
 
     // 用 wasmparser 看 export
     let mut found_alloc = false;
@@ -67,9 +72,22 @@ pub fn inspect(path: PathBuf) -> Result<()> {
 
     println!("path:                 {}", path.display());
     println!("size:                 {} bytes", bytes.len());
-    println!("export `memory`:      {}", if found_memory { "✓" } else { "✗" });
-    println!("export `gate_alloc`:  {}", if found_alloc { "✓" } else { "✗" });
-    println!("hooks:                {}", if hook_exports.is_empty() { "(none — identity passthrough)".to_string() } else { hook_exports.join(", ") });
+    println!(
+        "export `memory`:      {}",
+        if found_memory { "✓" } else { "✗" }
+    );
+    println!(
+        "export `gate_alloc`:  {}",
+        if found_alloc { "✓" } else { "✗" }
+    );
+    println!(
+        "hooks:                {}",
+        if hook_exports.is_empty() {
+            "(none — identity passthrough)".to_string()
+        } else {
+            hook_exports.join(", ")
+        }
+    );
 
     if !found_memory || !found_alloc {
         anyhow::bail!("wasm 模块缺少 ABI v0 必需 export (memory / gate_alloc)");

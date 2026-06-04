@@ -4,10 +4,14 @@
 //! 依赖 admin/mod.rs 顶层的 PricingRulesQuery / PricingRuleRow 类型与
 //! audit_meta / require_confirmation / pricing_rule_audit_snapshot helper。
 
-use super::*;
 #[allow(unused_imports)]
-use super::shared::{require_confirmation, audit_meta, channel_audit_snapshot, key_audit_snapshot, group_audit_snapshot, pricing_rule_audit_snapshot, user_audit_snapshot, channel_capabilities, channel_inflight, is_plugin_provider, key_fingerprint, validate_channel_key_alias, record_to_summary};
-
+use super::shared::{
+    audit_meta, channel_audit_snapshot, channel_capabilities, channel_inflight,
+    group_audit_snapshot, is_plugin_provider, key_audit_snapshot, key_fingerprint,
+    pricing_rule_audit_snapshot, record_to_summary, require_confirmation, user_audit_snapshot,
+    validate_channel_key_alias,
+};
+use super::*;
 
 fn rule_to_row(r: &gate_billing::PricingRule) -> PricingRuleRow {
     PricingRuleRow {

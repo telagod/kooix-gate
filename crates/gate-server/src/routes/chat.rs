@@ -302,8 +302,7 @@ async fn chat_completions(
         // 用 inspect 抓 chunk.usage；stream 关闭后由 wrapper drop 触发 emit
         let wrapped = upstream.inspect(move |item| match item {
             Ok(chunk) => {
-                let prev = chunk_count_inspect
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let prev = chunk_count_inspect.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if prev == 0 {
                     let mut slot = first_chunk_inspect.lock();
                     if slot.is_none() {
@@ -321,8 +320,7 @@ async fn chat_completions(
                 }
             }
             Err(err) => {
-                stream_outcome_inspect
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                stream_outcome_inspect.store(false, std::sync::atomic::Ordering::Relaxed);
                 let channel = crate::metrics::channel_label(channel_id);
                 let failure = provider_failure_policy(err);
                 crate::metrics::record_upstream_error_with_context(

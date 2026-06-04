@@ -47,9 +47,7 @@ pub fn redact_upstream_body(body: &str) -> String {
     }
     let kept = &body[..keep_end];
     let dropped = body.len().saturating_sub(keep_end);
-    format!(
-        "{kept}…[truncated {dropped} bytes; sha256={digest_hex}]"
-    )
+    format!("{kept}…[truncated {dropped} bytes; sha256={digest_hex}]")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

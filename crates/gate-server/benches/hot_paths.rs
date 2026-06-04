@@ -327,10 +327,11 @@ fn bench_chat_provider_dispatch(c: &mut Criterion) {
                     top_p: Some(0.9),
                     ..Default::default()
                 };
-                req.extra
-                    .insert("response_format".to_string(), serde_json::json!({"type": "json_object"}));
-                req.extra
-                    .insert("seed".to_string(), serde_json::json!(42));
+                req.extra.insert(
+                    "response_format".to_string(),
+                    serde_json::json!({"type": "json_object"}),
+                );
+                req.extra.insert("seed".to_string(), serde_json::json!(42));
                 let resp = p.chat(req).await.unwrap();
                 black_box(resp);
             }
@@ -344,7 +345,11 @@ fn bench_chat_provider_dispatch(c: &mut Criterion) {
             async move {
                 let mut msgs = Vec::with_capacity(10);
                 for i in 0..10 {
-                    let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+                    let role = if i % 2 == 0 {
+                        Role::User
+                    } else {
+                        Role::Assistant
+                    };
                     msgs.push(ChatMessage::text(role, format!("msg-{i}")));
                 }
                 let req = ChatRequest {

@@ -62,8 +62,7 @@ async fn custom_provider_with_wasm_host_round_trips_chat() {
         .await;
 
     // 2. wasm host + identity 模块
-    let host: Arc<dyn WasmHost> =
-        Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
+    let host: Arc<dyn WasmHost> = Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
     let module_bytes = wat::parse_str(IDENTITY_WAT).unwrap();
     let sha = {
         use sha2::{Digest, Sha256};
@@ -71,7 +70,9 @@ async fn custom_provider_with_wasm_host_round_trips_chat() {
         h.update(&module_bytes);
         hex::encode(h.finalize())
     };
-    host.load_module("ch-e2e", &module_bytes, &sha).await.unwrap();
+    host.load_module("ch-e2e", &module_bytes, &sha)
+        .await
+        .unwrap();
 
     // 3. CustomHttpProvider with manifest.security.wasm 字段 + with_wasm_host()
     let manifest = json!({
@@ -93,9 +94,7 @@ async fn custom_provider_with_wasm_host_round_trips_chat() {
         server.uri(),
         "sk-test",
         manifest,
-        gate_providers::ProviderOpts {
-            timeout_ms: 5_000,
-        },
+        gate_providers::ProviderOpts { timeout_ms: 5_000 },
     )
     .unwrap()
     .with_wasm_host(host.clone(), "ch-e2e");
@@ -155,9 +154,7 @@ async fn custom_provider_without_wasm_skips_transform() {
         server.uri(),
         "sk-test",
         manifest,
-        gate_providers::ProviderOpts {
-            timeout_ms: 5_000,
-        },
+        gate_providers::ProviderOpts { timeout_ms: 5_000 },
     )
     .unwrap();
 
@@ -179,8 +176,7 @@ async fn custom_provider_without_wasm_skips_transform() {
 #[tokio::test]
 async fn invoke_with_fallback_wraps_real_module() {
     // 直接验证 fallback wrapper + real module 联动
-    let host: Arc<dyn WasmHost> =
-        Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
+    let host: Arc<dyn WasmHost> = Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
     let module_bytes = wat::parse_str(IDENTITY_WAT).unwrap();
     let sha = {
         use sha2::{Digest, Sha256};
@@ -188,7 +184,9 @@ async fn invoke_with_fallback_wraps_real_module() {
         h.update(&module_bytes);
         hex::encode(h.finalize())
     };
-    host.load_module("ch-fb", &module_bytes, &sha).await.unwrap();
+    host.load_module("ch-fb", &module_bytes, &sha)
+        .await
+        .unwrap();
 
     let payload = Bytes::from_static(b"identity-fallback-test");
     let result = gate_wasm::invoke_with_fallback(
@@ -219,8 +217,7 @@ async fn custom_provider_with_wasm_host_streams_chunks() {
         .await;
 
     // 2. wasm host + identity 模块 (含 stream_chunk_transform export)
-    let host: Arc<dyn WasmHost> =
-        Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
+    let host: Arc<dyn WasmHost> = Arc::new(WasmtimeHost::new(WasmHostConfig::default()).unwrap());
     let stream_wat = r#"
         (module
           (memory (export "memory") 1)
@@ -251,7 +248,9 @@ async fn custom_provider_with_wasm_host_streams_chunks() {
         h.update(&module_bytes);
         hex::encode(h.finalize())
     };
-    host.load_module("ch-stream", &module_bytes, &sha).await.unwrap();
+    host.load_module("ch-stream", &module_bytes, &sha)
+        .await
+        .unwrap();
 
     let manifest = json!({
         "plugin": {
@@ -272,9 +271,7 @@ async fn custom_provider_with_wasm_host_streams_chunks() {
         server.uri(),
         "sk-test",
         manifest,
-        gate_providers::ProviderOpts {
-            timeout_ms: 5_000,
-        },
+        gate_providers::ProviderOpts { timeout_ms: 5_000 },
     )
     .unwrap()
     .with_wasm_host(host.clone(), "ch-stream");

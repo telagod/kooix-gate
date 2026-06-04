@@ -371,10 +371,7 @@ mod openai_lift_tests {
         assert_eq!(usage["reasoning_tokens"], 50);
         // 原始 details 仍可在 raw 里找回
         assert!(usage.get("raw").is_some());
-        assert_eq!(
-            usage["raw"]["prompt_tokens_details"]["cached_tokens"],
-            80
-        );
+        assert_eq!(usage["raw"]["prompt_tokens_details"]["cached_tokens"], 80);
     }
 
     #[test]

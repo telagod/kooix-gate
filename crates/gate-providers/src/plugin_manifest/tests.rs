@@ -693,5 +693,8 @@ fn parses_wasm_module_manifest_field() {
 fn wasm_field_absent_when_not_configured() {
     let value = json!({ "plugin": { "version": 1 } });
     let manifest = PluginManifest::from_value(value, "https://upstream.example").unwrap();
-    assert!(manifest.security.wasm.is_none(), "wasm should be None by default");
+    assert!(
+        manifest.security.wasm.is_none(),
+        "wasm should be None by default"
+    );
 }

@@ -225,7 +225,10 @@ pub struct PluginReplayResponse {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/plugin-manifest/schema", get(channels::plugin_manifest_schema))
+        .route(
+            "/plugin-manifest/schema",
+            get(channels::plugin_manifest_schema),
+        )
         .route(
             "/plugin-manifest/replay",
             axum::routing::post(channels::plugin_manifest_replay),
@@ -233,13 +236,22 @@ pub fn router() -> Router<AppState> {
         // 0.4.87（product-review B5）：暴露完整 provider capability 矩阵给前端。
         // 让 playground 能根据当前 channel/provider 联动节点禁用状态。
         .route("/providers/capabilities", get(list_provider_capabilities))
-        .route("/channels", get(channels::list_channels).post(channels::create_channel))
+        .route(
+            "/channels",
+            get(channels::list_channels).post(channels::create_channel),
+        )
         .route(
             "/channels/:id",
             axum::routing::put(channels::update_channel).delete(channels::delete_channel),
         )
-        .route("/channels/:id/drain", axum::routing::post(channels::drain_channel))
-        .route("/channels/:id/drain-status", get(channels::get_channel_drain_status))
+        .route(
+            "/channels/:id/drain",
+            axum::routing::post(channels::drain_channel),
+        )
+        .route(
+            "/channels/:id/drain-status",
+            get(channels::get_channel_drain_status),
+        )
         .route(
             "/channels/:id/disable-when-idle",
             axum::routing::post(channels::disable_channel_when_idle),
@@ -279,7 +291,10 @@ pub fn router() -> Router<AppState> {
         .route("/orgs", get(users::list_all_orgs).post(users::create_org))
         .route("/orgs/:org_id", axum::routing::put(users::update_org))
         .route("/users", get(users::list_users).post(users::create_user))
-        .route("/users/:id/status", axum::routing::put(users::update_user_status))
+        .route(
+            "/users/:id/status",
+            axum::routing::put(users::update_user_status),
+        )
         .route(
             "/users/:id/password",
             axum::routing::put(users::reset_user_password),
@@ -304,7 +319,10 @@ pub fn router() -> Router<AppState> {
             "/identity-providers/:id",
             axum::routing::put(sso::update_identity_provider).delete(sso::delete_identity_provider),
         )
-        .route("/groups", get(groups::list_groups).post(groups::create_group))
+        .route(
+            "/groups",
+            get(groups::list_groups).post(groups::create_group),
+        )
         .route(
             "/groups/:id",
             axum::routing::put(groups::update_group).delete(groups::delete_group),
@@ -410,7 +428,6 @@ pub struct CreatedInvitationView {
     pub token: String,
     pub accept_url: Option<String>,
 }
-
 
 // ─── Pricing Rules CRUD ──────────────────────────────────────────────
 
@@ -521,8 +538,7 @@ async fn list_provider_capabilities(
             id: p.to_string(),
             name: p.to_string(),
             capabilities: gate_providers::provider_capabilities(p),
-            base_url_hint: gate_providers::provider_base_url_suggestion(p)
-                .map(str::to_string),
+            base_url_hint: gate_providers::provider_base_url_suggestion(p).map(str::to_string),
             kind: "compile_time",
         });
     }
@@ -541,14 +557,13 @@ async fn list_provider_capabilities(
     Ok(Json(out))
 }
 
-
 // 0.4.122：pricing 块物理拆出到 admin/pricing.rs。
-mod probe;
-mod invitations;
 mod channels;
-mod shared;
-mod users;
 mod groups;
-mod sso;
+mod invitations;
 mod org_members;
 mod pricing;
+mod probe;
+mod shared;
+mod sso;
+mod users;

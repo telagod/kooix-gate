@@ -183,10 +183,7 @@ impl ProviderRouter {
     /// 当前仅暴露 setter；自动装配链（reload 时迭代 + fetch + load_module）的
     /// 真实运转在 v0.5.x 实装（需要 manifest schema 加 module_sha256 字段 +
     /// 调用方决定何时 reload + 失败回滚 strategy）。
-    pub fn with_wasm_blob_store(
-        mut self,
-        store: Arc<dyn gate_wasm::WasmBlobStore>,
-    ) -> Self {
+    pub fn with_wasm_blob_store(mut self, store: Arc<dyn gate_wasm::WasmBlobStore>) -> Self {
         self.wasm_blob_store = Some(store);
         self
     }
@@ -322,10 +319,7 @@ impl ProviderRouter {
                         .ok()
                         .and_then(|m| m.security.wasm.map(|w| w.module_sha256))
                         .unwrap_or_default();
-                    match host
-                        .load_module(&ch.code, &bytes, &sha)
-                        .await
-                    {
+                    match host.load_module(&ch.code, &bytes, &sha).await {
                         Ok(()) => {
                             summary.mounted += 1;
                             AutoMountOutcome::Mounted {
@@ -1977,7 +1971,10 @@ pub enum AutoMountOutcome {
     /// channel 有 wasm 且字节已 fetch + sha256 校验通过 — 字节大小
     Mounted { sha256: String, bytes: usize },
     /// channel 有 wasm 但 mount 失败 — 错误描述
-    Failed { sha256: Option<String>, error: String },
+    Failed {
+        sha256: Option<String>,
+        error: String,
+    },
 }
 
 /// 0.4.169: batch auto-mount 整体汇总（不挂 host，纯 fetch + 验证统计）。

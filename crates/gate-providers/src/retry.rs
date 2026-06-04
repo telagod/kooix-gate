@@ -211,10 +211,7 @@ mod tests {
         let mut samples = std::collections::HashSet::new();
         for _ in 0..200 {
             let v = cfg.backoff_ms(2); // base = 2000, span = 500
-            assert!(
-                v >= 1500 && v <= 2500,
-                "backoff out of jitter band: {v}"
-            );
+            assert!(v >= 1500 && v <= 2500, "backoff out of jitter band: {v}");
             samples.insert(v);
         }
         assert!(
@@ -265,10 +262,7 @@ mod tests {
         let formatted = future.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
         let ms = parse_retry_after(&formatted).expect("future date should parse");
         // 允许 ±2s 误差（时钟漂移）
-        assert!(
-            ms >= 28_000 && ms <= 32_000,
-            "expected ~30s, got {ms}ms"
-        );
+        assert!(ms >= 28_000 && ms <= 32_000, "expected ~30s, got {ms}ms");
     }
 
     #[test]

@@ -58,16 +58,16 @@ fn make_channel(model_mapping: serde_json::Value) -> ChannelRecord {
 }
 
 fn router_with_store(store: Arc<dyn WasmBlobStore>) -> ProviderRouter {
-    use gate_storage::InMemoryChannelRepo;
     use gate_storage::InMemoryChannelGroupRepo;
+    use gate_storage::InMemoryChannelRepo;
     let ch = Arc::new(InMemoryChannelRepo::new());
     let gr = Arc::new(InMemoryChannelGroupRepo::new());
     ProviderRouter::new(ch, gr).with_wasm_blob_store(store)
 }
 
 fn router_without_store() -> ProviderRouter {
-    use gate_storage::InMemoryChannelRepo;
     use gate_storage::InMemoryChannelGroupRepo;
+    use gate_storage::InMemoryChannelRepo;
     let ch = Arc::new(InMemoryChannelRepo::new());
     let gr = Arc::new(InMemoryChannelGroupRepo::new());
     ProviderRouter::new(ch, gr)
@@ -99,7 +99,9 @@ async fn auto_mount_returns_none_when_channel_has_no_wasm() {
             "capabilities": {"chat": true}
         }
     }));
-    let router = router_with_store(Arc::new(MemBlobStore { map: Default::default() }));
+    let router = router_with_store(Arc::new(MemBlobStore {
+        map: Default::default(),
+    }));
     let res = router.try_auto_mount_wasm_for_channel(&ch).await;
     assert!(matches!(res, Ok(None)));
 }
@@ -110,7 +112,10 @@ async fn auto_mount_errors_when_no_blob_store() {
     let ch = make_channel(manifest_with_wasm(&fake_sha));
     let router = router_without_store();
     let res = router.try_auto_mount_wasm_for_channel(&ch).await;
-    assert!(matches!(res, Err(AutoMountError::NoBlobStore)), "got: {res:?}");
+    assert!(
+        matches!(res, Err(AutoMountError::NoBlobStore)),
+        "got: {res:?}"
+    );
 }
 
 #[tokio::test]
@@ -123,7 +128,10 @@ async fn auto_mount_succeeds_when_sha256_matches() {
 
     let ch = make_channel(manifest_with_wasm(&sha));
     let router = router_with_store(store);
-    let res = router.try_auto_mount_wasm_for_channel(&ch).await.expect("ok");
+    let res = router
+        .try_auto_mount_wasm_for_channel(&ch)
+        .await
+        .expect("ok");
     assert_eq!(res, Some(bytes));
 }
 
@@ -149,11 +157,16 @@ async fn auto_mount_rejects_when_blob_bytes_tampered() {
 #[tokio::test]
 async fn auto_mount_not_found_when_sha_absent_from_store() {
     let absent_sha = "f".repeat(64);
-    let store = Arc::new(MemBlobStore { map: Default::default() });
+    let store = Arc::new(MemBlobStore {
+        map: Default::default(),
+    });
     let ch = make_channel(manifest_with_wasm(&absent_sha));
     let router = router_with_store(store);
     let res = router.try_auto_mount_wasm_for_channel(&ch).await;
-    assert!(matches!(res, Err(AutoMountError::NotFound(_))), "got: {res:?}");
+    assert!(
+        matches!(res, Err(AutoMountError::NotFound(_))),
+        "got: {res:?}"
+    );
 }
 
 #[tokio::test]
@@ -170,7 +183,10 @@ async fn auto_mount_localfs_blob_store_real_disk_roundtrip() {
     let store = Arc::new(LocalFsBlobStore::new(&tmp));
     let ch = make_channel(manifest_with_wasm(&sha));
     let router = router_with_store(store);
-    let res = router.try_auto_mount_wasm_for_channel(&ch).await.expect("ok");
+    let res = router
+        .try_auto_mount_wasm_for_channel(&ch)
+        .await
+        .expect("ok");
     assert_eq!(res, Some(bytes));
 
     let _ = tokio::fs::remove_dir_all(&tmp).await; // 清理
@@ -213,7 +229,10 @@ async fn batch_auto_mount_skipped_mounted_failed_counted_correctly() {
     assert_eq!(summary.per_channel.len(), 4);
 
     // 验顺序保持 + 每个 outcome 类型对得上
-    assert!(matches!(summary.per_channel[0].1, AutoMountOutcome::Skipped));
+    assert!(matches!(
+        summary.per_channel[0].1,
+        AutoMountOutcome::Skipped
+    ));
     assert!(matches!(
         summary.per_channel[1].1,
         AutoMountOutcome::Mounted { ref sha256, bytes: 8 } if *sha256 == sha_ok
@@ -230,7 +249,9 @@ async fn batch_auto_mount_skipped_mounted_failed_counted_correctly() {
 
 #[tokio::test]
 async fn batch_auto_mount_empty_channels_returns_zero_summary() {
-    let router = router_with_store(Arc::new(MemBlobStore { map: Default::default() }));
+    let router = router_with_store(Arc::new(MemBlobStore {
+        map: Default::default(),
+    }));
     let summary = router.auto_mount_wasm_for_channels(&[]).await;
     assert_eq!(summary.total(), 0);
     assert!(summary.per_channel.is_empty());
@@ -321,7 +342,10 @@ async fn auto_mount_and_load_into_host_records_loads() {
     assert_eq!(recorded[0].0, ch.code);
     assert_eq!(recorded[0].1, sha);
     assert_eq!(recorded[0].2, bytes.len());
-    assert!(matches!(summary.per_channel[0].1, AutoMountOutcome::Mounted { .. }));
+    assert!(matches!(
+        summary.per_channel[0].1,
+        AutoMountOutcome::Mounted { .. }
+    ));
 }
 
 #[tokio::test]
@@ -369,7 +393,10 @@ async fn auto_mount_and_load_failure_rolls_back_other_channels_still_mounted() {
         AutoMountOutcome::Failed { ref error, .. } if error.contains("load_module")
     ));
     // ch-ok outcome: Mounted
-    assert!(matches!(summary.per_channel[1].1, AutoMountOutcome::Mounted { .. }));
+    assert!(matches!(
+        summary.per_channel[1].1,
+        AutoMountOutcome::Mounted { .. }
+    ));
 }
 
 #[tokio::test]
