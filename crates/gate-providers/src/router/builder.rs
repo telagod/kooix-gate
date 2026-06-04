@@ -31,6 +31,17 @@ pub(super) fn build_provider_with_secrets(
     secrets: HashMap<String, String>,
     opts: crate::ProviderOpts,
 ) -> ProviderResult<Arc<dyn Provider>> {
+    // ADR-0005 native plane：provider_type='native:<name>' 走命令式渠道层。
+    // manifest 表达不了的重渠道（kiro/windsurf）在此构造，与下面的声明式
+    // plugin 分支并存。secrets/opts move 进 ctx；非 native 时不消费，留给 match。
+    if let Some(name) = crate::native::native_name(&channel.provider_type) {
+        let ctx = crate::native::NativeBuildContext {
+            channel,
+            secrets,
+            opts,
+        };
+        return crate::native::build_native_provider(name, &ctx);
+    }
     match channel.provider_type.as_str() {
         "plugin" | "custom" | "http" | "http_plugin" => {
             let p = CustomHttpProvider::new_with_secret_slots(

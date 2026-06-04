@@ -43,6 +43,11 @@ pub(super) fn is_plugin_provider(provider_type: &str) -> bool {
     matches!(provider_type, "plugin" | "custom" | "http" | "http_plugin")
 }
 
+/// ADR-0005：provider_type 是否落在 native 命名空间（`native:<name>`）。
+pub(super) fn is_native_provider(provider_type: &str) -> bool {
+    crate::native::is_native_provider_type(provider_type)
+}
+
 pub(super) fn supports_image_runtime(provider_type: &str) -> bool {
     matches!(provider_type, "openai" | "openai_compatible")
 }
@@ -56,6 +61,11 @@ pub(super) fn channel_capabilities(channel: &gate_storage::ChannelRecord) -> Pro
         return plugin_manifest(channel.model_mapping.clone(), &channel.base_url)
             .map(|manifest| manifest.capabilities)
             .unwrap_or_else(|_| provider_capabilities(&channel.provider_type));
+    }
+    // ADR-0005：native 渠道自报 capabilities，路由层无需 hardcode if provider=="kiro"。
+    if let Some(name) = crate::native::native_name(&channel.provider_type) {
+        return crate::native::native_provider_capabilities(name)
+            .unwrap_or_else(ProviderCapabilities::chat_stream);
     }
     provider_capabilities(&channel.provider_type)
 }
