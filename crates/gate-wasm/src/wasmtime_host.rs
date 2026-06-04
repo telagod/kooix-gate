@@ -723,8 +723,10 @@ mod tests {
         let cache_dir =
             std::env::temp_dir().join(format!("kooix-gate-wasm-cache-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&cache_dir);
-        let mut cfg = WasmHostConfig::default();
-        cfg.cache_dir = Some(cache_dir.clone());
+        let cfg = WasmHostConfig {
+            cache_dir: Some(cache_dir.clone()),
+            ..WasmHostConfig::default()
+        };
 
         let host = WasmtimeHost::new(cfg.clone()).unwrap();
         let minimal_wasm = wat::parse_str("(module)").unwrap();
@@ -784,14 +786,17 @@ mod tests {
             .await
             .unwrap();
 
-        let mut ctx = HookContext::default();
-        ctx.channel_id = "ch-secret".to_string();
-        ctx.secrets
-            .insert("primary".to_string(), "sk-test-12345".to_string());
-        ctx.secrets
-            .insert("aws_secret".to_string(), "AKIA-XYZ".to_string());
-        ctx.allowed_slots.insert("primary".to_string());
-        ctx.allowed_slots.insert("aws_secret".to_string());
+        let ctx = HookContext {
+            channel_id: "ch-secret".to_string(),
+            secrets: HashMap::from([
+                ("primary".to_string(), "sk-test-12345".to_string()),
+                ("aws_secret".to_string(), "AKIA-XYZ".to_string()),
+            ]),
+            allowed_slots: ["primary".to_string(), "aws_secret".to_string()]
+                .into_iter()
+                .collect(),
+            ..HookContext::default()
+        };
 
         // (module) 没 export hook → identity passthrough，但 invoke 不应 panic
         let payload = Bytes::from_static(b"payload");

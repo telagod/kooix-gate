@@ -564,6 +564,7 @@ mod invitations;
 mod org_members;
 mod pricing;
 mod probe;
+#[allow(dead_code)]
 mod shared;
 mod sso;
 mod users;

@@ -279,12 +279,12 @@ impl WasmHost for MockHost {
         module_bytes: &[u8],
         expected_sha256: &str,
     ) -> gate_wasm::WasmResult<()> {
-        if let Some(target) = &self.fail_on_channel {
-            if target == channel_id {
-                return Err(gate_wasm::WasmError::Load(format!(
-                    "mock fail for {channel_id}"
-                )));
-            }
+        if let Some(target) = &self.fail_on_channel
+            && target == channel_id
+        {
+            return Err(gate_wasm::WasmError::Load(format!(
+                "mock fail for {channel_id}"
+            )));
         }
         self.loads.lock().unwrap().push((
             channel_id.to_string(),
@@ -333,7 +333,9 @@ async fn auto_mount_and_load_into_host_records_loads() {
         .with_wasm_host(host);
 
     let ch = make_channel(manifest_with_wasm(&sha));
-    let summary = router.auto_mount_and_load_into_host(&[ch.clone()]).await;
+    let summary = router
+        .auto_mount_and_load_into_host(std::slice::from_ref(&ch))
+        .await;
 
     assert_eq!(summary.mounted, 1);
     assert_eq!(summary.failed, 0);
@@ -473,7 +475,9 @@ async fn e2e_auto_mount_loads_real_wasmtime_host() {
     let mut ch = make_channel(manifest_with_wasm(&sha));
     ch.code = "ch-e2e-auto".into();
 
-    let summary = router.auto_mount_and_load_into_host(&[ch.clone()]).await;
+    let summary = router
+        .auto_mount_and_load_into_host(std::slice::from_ref(&ch))
+        .await;
     assert_eq!(summary.mounted, 1, "真 WasmtimeHost 应成功 load_module");
     assert_eq!(summary.failed, 0);
 

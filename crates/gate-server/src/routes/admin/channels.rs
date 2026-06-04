@@ -93,6 +93,7 @@ pub(super) fn key_audit_snapshot(k: &gate_storage::ChannelKeyRecord) -> serde_js
     super::shared::key_audit_snapshot(k)
 }
 
+#[allow(dead_code)]
 pub(super) fn group_audit_snapshot(
     g: &gate_storage::ChannelGroupRecord,
     channel_count: i64,
@@ -100,14 +101,17 @@ pub(super) fn group_audit_snapshot(
     super::shared::group_audit_snapshot(g, channel_count)
 }
 
+#[allow(dead_code)]
 pub(super) fn pricing_rule_audit_snapshot(r: &gate_billing::PricingRule) -> serde_json::Value {
     super::shared::pricing_rule_audit_snapshot(r)
 }
 
+#[allow(dead_code)]
 pub(super) fn user_audit_snapshot(u: &gate_core::identity::User) -> serde_json::Value {
     super::shared::user_audit_snapshot(u)
 }
 
+#[allow(dead_code)]
 pub(super) fn confirmation_from_headers(headers: &HeaderMap) -> Option<&str> {
     super::shared::confirmation_from_headers(headers)
 }

@@ -15,6 +15,7 @@ pub mod bedrock;
 pub mod capabilities;
 pub mod custom_provider;
 pub mod error;
+pub mod native;
 pub mod openai;
 pub mod plugin_manifest;
 pub(crate) mod plugin_preset;
@@ -30,6 +31,11 @@ pub use capabilities::{
 };
 pub use custom_provider::{CustomHttpProvider, replay_plugin_sse};
 pub use error::{ProviderError, ProviderResult, redact_upstream_body};
+pub use native::{
+    NativeBuildContext, NativeProviderFactory, NativeProviderRegistration, build_native_provider,
+    is_native_provider_type, native_name, native_provider_capabilities, native_provider_names,
+    register_native_provider,
+};
 pub use plugin_manifest::{
     CapabilitiesManifest, ChannelPluginMapping, PluginManifest, PluginPermissionsManifest,
     ProbeManifest, plugin_manifest, plugin_manifest_schema_json, validate_plugin_manifest,
@@ -129,15 +135,14 @@ pub fn shared_http_client(opts: &ProviderOpts) -> ProviderResult<Arc<reqwest::Cl
     }
 
     // LRU per-key eviction：超限时只删最久未用的一个，不全清空
-    if cache.len() >= SHARED_CLIENT_CACHE_LIMIT {
-        if let Some(victim_key) = cache
+    if cache.len() >= SHARED_CLIENT_CACHE_LIMIT
+        && let Some(victim_key) = cache
             .iter()
             .min_by_key(|(_, v)| v.last_used)
             .map(|(k, _)| *k)
-        {
-            cache.remove(&victim_key);
-            metrics::counter!("gate_providers_shared_client_evictions_total").increment(1);
-        }
+    {
+        cache.remove(&victim_key);
+        metrics::counter!("gate_providers_shared_client_evictions_total").increment(1);
     }
 
     let client = reqwest::Client::builder()
@@ -162,6 +167,44 @@ pub fn shared_http_client(opts: &ProviderOpts) -> ProviderResult<Arc<reqwest::Cl
 #[doc(hidden)]
 pub fn _reset_shared_http_clients() {
     shared_client_cache().lock().clear();
+}
+
+#[async_trait]
+pub trait Provider: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    async fn chat(&self, req: ChatRequest) -> ProviderResult<ChatResponse>;
+    async fn chat_stream(
+        &self,
+        req: ChatRequest,
+    ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>>;
+}
+
+#[async_trait]
+pub trait EmbeddingProvider: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse>;
+}
+
+#[async_trait]
+pub trait ImageProvider: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    async fn generate_image(
+        &self,
+        req: ImageGenerationRequest,
+    ) -> ProviderResult<ImageGenerationResponse>;
+}
+
+#[async_trait]
+pub trait AudioProvider: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    async fn speech(&self, req: AudioSpeechRequest) -> ProviderResult<bytes::Bytes>;
+    async fn transcription(
+        &self,
+        audio: bytes::Bytes,
+        filename: String,
+        model: String,
+        language: Option<String>,
+    ) -> ProviderResult<AudioTranscriptionResponse>;
 }
 
 #[cfg(test)]
@@ -219,42 +262,4 @@ mod shared_client_tests {
             "middle entries should NOT be evicted (no clear-all)"
         );
     }
-}
-
-#[async_trait]
-pub trait Provider: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    async fn chat(&self, req: ChatRequest) -> ProviderResult<ChatResponse>;
-    async fn chat_stream(
-        &self,
-        req: ChatRequest,
-    ) -> ProviderResult<BoxStream<'static, ProviderResult<ChatStreamChunk>>>;
-}
-
-#[async_trait]
-pub trait EmbeddingProvider: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    async fn embed(&self, req: EmbeddingRequest) -> ProviderResult<EmbeddingResponse>;
-}
-
-#[async_trait]
-pub trait ImageProvider: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    async fn generate_image(
-        &self,
-        req: ImageGenerationRequest,
-    ) -> ProviderResult<ImageGenerationResponse>;
-}
-
-#[async_trait]
-pub trait AudioProvider: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    async fn speech(&self, req: AudioSpeechRequest) -> ProviderResult<bytes::Bytes>;
-    async fn transcription(
-        &self,
-        audio: bytes::Bytes,
-        filename: String,
-        model: String,
-        language: Option<String>,
-    ) -> ProviderResult<AudioTranscriptionResponse>;
 }

@@ -86,9 +86,7 @@ pub struct ToxiproxyContainer {
 impl ToxiproxyContainer {
     /// 启动 toxiproxy 容器。仅 `KOOIX_CHAOS_DOCKER=1` 且 docker 可用时调用。
     pub async fn start() -> anyhow::Result<Self> {
-        use testcontainers::{
-            GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner,
-        };
+        use testcontainers::{GenericImage, core::IntoContainerPort, runners::AsyncRunner};
 
         let image = GenericImage::new("ghcr.io/shopify/toxiproxy", "2.9.0")
             .with_exposed_port(8474u16.tcp())

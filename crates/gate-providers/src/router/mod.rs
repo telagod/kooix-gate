@@ -52,7 +52,7 @@ use builder::{
     build_image_provider, build_provider, build_provider_with_secrets, resolve_api_key_for_channel,
 };
 use helpers::{
-    channel_capabilities, env_secret_map, fallback_models, is_plugin_provider,
+    channel_capabilities, env_secret_map, fallback_models, is_native_provider, is_plugin_provider,
     normalize_secret_slot, resolve_model_mapping, supports_audio_runtime, supports_image_runtime,
 };
 
@@ -1701,12 +1701,13 @@ impl ProviderRouter {
             let opts = crate::ProviderOpts {
                 timeout_ms: candidate.channel.timeout_ms as u64,
             };
-            let provider: Arc<dyn Provider> =
-                if is_plugin_provider(&candidate.channel.provider_type) {
-                    build_provider_with_secrets(&candidate.channel, secrets, opts)?
-                } else {
-                    build_provider(&candidate.channel, api_key, opts)?
-                };
+            let needs_secret_slots = is_plugin_provider(&candidate.channel.provider_type)
+                || is_native_provider(&candidate.channel.provider_type);
+            let provider: Arc<dyn Provider> = if needs_secret_slots {
+                build_provider_with_secrets(&candidate.channel, secrets, opts)?
+            } else {
+                build_provider(&candidate.channel, api_key, opts)?
+            };
 
             let retry_config = crate::retry::RetryConfig {
                 max_retries: candidate.channel.max_retries.max(0) as u32,
@@ -1767,6 +1768,7 @@ impl ProviderRouter {
         Ok((primary, key_id))
     }
 
+    #[allow(dead_code)]
     async fn has_available_plugin_secret(&self, channel_id: ChannelId, channel_code: &str) -> bool {
         self.has_available_plugin_secret_for(channel_id, channel_code, None)
             .await

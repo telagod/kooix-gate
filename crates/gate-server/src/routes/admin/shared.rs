@@ -7,8 +7,7 @@
 //! - 0.4.151: 空骨架
 //! - 0.4.152: confirmation_from_headers / require_confirmation / audit_meta
 //! - 0.4.153: channel/key/group/pricing_rule/user audit_snapshot（5 fn）
-//! - 0.4.154: is_plugin_provider / channel_capabilities / record_to_summary /
-//!            channel_inflight / key_fingerprint / validate_channel_key_alias
+//! - 0.4.154: is_plugin_provider / channel_capabilities / record_to_summary / channel_inflight / key_fingerprint / validate_channel_key_alias
 //! - 0.4.155: sibling 改 `use super::shared::{...}`，消除 sibling → channels 反向依赖
 //!
 //! channels.rs 仍保留 13 个 thin wrapper（`super::shared::xxx`）供自身 handler 调用。
