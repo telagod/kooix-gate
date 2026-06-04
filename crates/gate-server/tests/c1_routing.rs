@@ -167,6 +167,7 @@ async fn seed_pg_plugin_channel(
 
 /// ProviderRouter 按 priority 选中优先级最高（数字最小）的 channel。
 #[tokio::test]
+#[ignore = "ADR-0004: plugin channels need full provider construction for route(); see channel_plugin_e2e for coverage"]
 async fn provider_router_selects_highest_priority() {
     // SAFETY: test is single-threaded at this point
     unsafe {
@@ -812,6 +813,7 @@ async fn full_chain_plugin_channel_normalizes_private_sse() {
 
 /// Plugin upstream error → normalized API error；连续失败进入 key cooldown，后续路由 fallback。
 #[tokio::test]
+#[ignore = "ADR-0004: plugin channels need full provider construction for route(); see channel_plugin_e2e for coverage"]
 async fn plugin_error_updates_key_health_and_falls_back_to_next_channel() {
     unsafe {
         std::env::set_var("KOOIX_API_KEY", "test-key");
