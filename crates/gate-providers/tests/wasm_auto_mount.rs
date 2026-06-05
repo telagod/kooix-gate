@@ -447,6 +447,7 @@ const IDENTITY_WAT: &str = r#"
 "#;
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn e2e_auto_mount_loads_real_wasmtime_host() {
     use gate_wasm::{WasmHost, WasmHostConfig, WasmtimeHost};
 

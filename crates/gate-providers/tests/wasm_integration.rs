@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! 0.4.46: gate-providers + gate-wasm 端到端集成测试。
 //!
 //! 验证 CustomHttpProvider chat() 完整链路：

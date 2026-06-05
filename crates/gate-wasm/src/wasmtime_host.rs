@@ -1,4 +1,8 @@
-//! wasmtime 引擎托管的 WasmHost 实现。
+//! wasmtime 引擎托管的 WasmHost 实现（v0 ABI）。
+//!
+//! **Deprecated since v0.5.0:** prefer [`UnifiedWasmHost`](crate::unified::UnifiedWasmHost)
+//! which auto-detects v0 core modules and v1 components. Direct use of `WasmtimeHost`
+//! will be removed in v0.6.0. See [ADR-0006](../../docs/architecture/decisions/ADR-0006-wasm-abi-v1-component-model.md).
 
 use crate::error::{WasmError, WasmResult};
 use crate::host::{HookContext, HookKind, WasmHost, WasmHostConfig};
@@ -25,6 +29,10 @@ struct ChannelModule {
 /// - host 通过 wasmtime memory 读 ptr_out / len_out 拿回 transform 后 payload
 ///
 /// 0.4.24 接通 chat_request_transform 一条；0.4.25 加 response/stream。
+#[deprecated(
+    since = "0.5.0",
+    note = "use UnifiedWasmHost for automatic v0/v1 dispatch (ADR-0006)"
+)]
 pub struct WasmtimeHost {
     engine: Engine,
     config: WasmHostConfig,

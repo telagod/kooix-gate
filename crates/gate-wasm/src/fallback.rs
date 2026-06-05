@@ -102,6 +102,7 @@ pub async fn invoke_with_fallback(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::WasmHostConfig;

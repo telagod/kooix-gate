@@ -46,6 +46,7 @@ enum ChannelFormat {
 }
 
 /// Unified WASM host: auto-dispatches between v0 (WasmtimeHost) and v1 (ComponentHost).
+#[allow(deprecated)]
 pub struct UnifiedWasmHost {
     v0: crate::wasmtime_host::WasmtimeHost,
     v1: ComponentHost,
@@ -53,6 +54,7 @@ pub struct UnifiedWasmHost {
 }
 
 impl UnifiedWasmHost {
+    #[allow(deprecated)]
     pub fn new(config: WasmHostConfig) -> WasmResult<Self> {
         let v0 = crate::wasmtime_host::WasmtimeHost::new(config.clone())?;
         let v1 = ComponentHost::new(config)?;

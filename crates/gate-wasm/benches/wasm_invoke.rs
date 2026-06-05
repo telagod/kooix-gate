@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! 0.4.37 wasm transform bench — 测量 wasmtime invoke_hook 单次开销。
 //!
 //! Run: cargo bench --package gate-wasm --bench wasm_invoke

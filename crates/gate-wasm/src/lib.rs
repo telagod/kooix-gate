@@ -21,6 +21,7 @@ pub mod fallback;
 pub mod host;
 pub mod limits;
 pub mod unified;
+#[allow(deprecated)]
 pub mod wasmtime_host;
 
 pub use blob_store::{LocalFsBlobStore, WasmBlobStore};
@@ -30,6 +31,7 @@ pub use fallback::invoke_with_fallback;
 pub use host::{HookContext, HookKind, WasmHost, WasmHostConfig};
 pub use limits::{DEFAULT_LIMITS, ResourceLimits};
 pub use unified::{UnifiedWasmHost, WasmFormat, detect_format};
+#[allow(deprecated)]
 pub use wasmtime_host::WasmtimeHost;
 
 #[cfg(test)]

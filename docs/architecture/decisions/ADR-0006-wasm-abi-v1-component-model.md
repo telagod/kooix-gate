@@ -88,12 +88,12 @@ wasmtime 26 → 45:
 ## Implementation Checklist
 
 - [x] WIT definition: `crates/gate-wasm/wit/kooix-plugin.wit`
-- [ ] P1: wasmtime 26 → 45 upgrade + `component-model` feature
-- [ ] P2: host-side `bindgen!` + host interface impl
-- [ ] P3: guest SDK v1 (Rust) + AS SDK v1 (jco)
-- [ ] P4: v0/v1 runtime detection + dispatch
-- [ ] P5: v0 deprecation notice
-- [ ] P6: v0 removal
+- [x] P1: wasmtime 26 → 45 upgrade + `component-model` feature
+- [x] P2: host-side `bindgen!` + host interface impl (6 host fns)
+- [x] P3: guest SDK v1 (Rust wit-bindgen) + example plugin
+- [x] P4: v0/v1 runtime detection + `UnifiedWasmHost` dispatch
+- [x] P5: v0 `#[deprecated]` on `WasmtimeHost`, docs updated
+- [ ] P6: v0 removal (planned v0.6.0)
 
 ## References
 
