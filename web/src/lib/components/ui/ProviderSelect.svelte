@@ -72,7 +72,7 @@
 	}
 
 	function logoSrc(slug: string): string {
-		return `/providers/${slug}.svg`;
+		return `/providers/${slug.replaceAll('_', '-')}.svg`;
 	}
 </script>
 
