@@ -117,7 +117,22 @@ export const PLUGIN_PRESET_CAPABILITIES: Record<string, ProviderCapabilities> = 
 	llamafile: CHAT_STREAM,
 	gpt4all: CHAT_STREAM,
 	tabby_api: CHAT_STREAM,
-	doubao: OPENAI_COMPAT_CORE
+	doubao: OPENAI_COMPAT_CORE,
+	xai: OPENAI_COMPAT_CORE,
+	deep_infra: OPENAI_COMPAT_CORE,
+	nvidia_nim: OPENAI_COMPAT_CORE,
+	replicate: OPENAI_COMPAT_CORE,
+	ai21: OPENAI_COMPAT_CORE,
+	voyage_ai: { ...NO_CAPABILITIES, embeddings: true },
+	novita_ai: OPENAI_COMPAT_CORE,
+	lambda: OPENAI_COMPAT_CORE,
+	lepton_ai: OPENAI_COMPAT_CORE,
+	nebius_ai: OPENAI_COMPAT_CORE,
+	hunyuan: OPENAI_COMPAT_CORE,
+	spark: OPENAI_COMPAT_CORE,
+	friendli_ai: OPENAI_COMPAT_CORE,
+	chutes_ai: OPENAI_COMPAT_CORE,
+	infini_ai: OPENAI_COMPAT_CORE
 };
 
 export const PROVIDER_BASE_URL_SUGGESTIONS: Record<string, string> = {
@@ -181,7 +196,22 @@ export const PLUGIN_PRESET_BASE_URL_SUGGESTIONS: Record<string, string> = {
 	llamafile: 'http://localhost:8080/v1',
 	gpt4all: 'http://localhost:4891/v1',
 	tabby_api: 'http://localhost:5000/v1',
-	doubao: 'https://ark.cn-beijing.volces.com/api/v3'
+	doubao: 'https://ark.cn-beijing.volces.com/api/v3',
+	xai: 'https://api.x.ai/v1',
+	deep_infra: 'https://api.deepinfra.com/v1/openai',
+	nvidia_nim: 'https://integrate.api.nvidia.com/v1',
+	replicate: 'https://api.replicate.com/v1',
+	ai21: 'https://api.ai21.com/studio/v1',
+	voyage_ai: 'https://api.voyageai.com/v1',
+	novita_ai: 'https://api.novita.ai/v3/openai',
+	lambda: 'https://api.lambdalabs.com/v1',
+	lepton_ai: 'https://api.lepton.ai/v1',
+	nebius_ai: 'https://api.studio.nebius.ai/v1',
+	hunyuan: 'https://api.hunyuan.cloud.tencent.com/v1',
+	spark: 'https://spark-api-open.xf-yun.com/v1',
+	friendli_ai: 'https://inference.friendli.ai/v1',
+	chutes_ai: 'https://api.chutes.ai/v1',
+	infini_ai: 'https://cloud.infini-ai.com/maas/v1'
 };
 
 export type PluginAuthStrategy =
@@ -253,48 +283,101 @@ export interface PluginResponsePathSuggestion {
 	value: string;
 }
 
-export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] = [
-	{ value: '', label: '自定义 manifest' },
-	{ value: 'openai_compatible', label: 'OpenAI-compatible' },
-	{ value: 'vllm', label: 'vLLM' },
-	{ value: 'lm_studio', label: 'LM Studio' },
-	{ value: 'ollama_openai', label: 'Ollama OpenAI endpoint' },
-	{ value: 'localai', label: 'LocalAI' },
-	{ value: 'xinference', label: 'Xinference' },
-	{ value: 'anthropic_messages', label: 'Anthropic Messages' },
-	{ value: 'azure_openai', label: 'Azure OpenAI' },
-	{ value: 'vertex_openai', label: 'Google Vertex AI OpenAI' },
-	{ value: 'gemini', label: 'Google Gemini' },
-	{ value: 'deepseek', label: 'DeepSeek' },
-	{ value: 'mistral', label: 'Mistral' },
-	{ value: 'cohere_chat', label: 'Cohere Chat' },
-	{ value: 'ollama', label: 'Ollama' },
-	{ value: 'groq', label: 'Groq' },
-	{ value: 'together', label: 'Together AI' },
-	{ value: 'openrouter', label: 'OpenRouter' },
-	{ value: 'moonshot', label: 'Moonshot' },
-	{ value: 'zhipu', label: '智谱 GLM' },
-	{ value: 'qwen', label: '通义千问' },
-	{ value: 'yi', label: '零一万物' },
-	{ value: 'bedrock_converse', label: 'AWS Bedrock Converse' },
-	{ value: 'fireworks', label: 'Fireworks AI' },
-	{ value: 'perplexity', label: 'Perplexity' },
-	{ value: 'cerebras', label: 'Cerebras' },
-	{ value: 'sambanova', label: 'SambaNova' },
-	{ value: 'hyperbolic', label: 'Hyperbolic' },
-	{ value: 'cloudflare_ai', label: 'Cloudflare AI' },
-	{ value: 'jina', label: 'Jina AI' },
-	{ value: 'baichuan', label: '百川 Baichuan' },
-	{ value: 'minimax', label: 'MiniMax' },
-	{ value: 'stepfun', label: '阶跃星辰 Stepfun' },
-	{ value: 'siliconflow', label: '硅基流动 SiliconFlow' },
-	{ value: 'doubao', label: '豆包 Doubao' },
-	{ value: 'tgi', label: 'Text Generation Inference' },
-	{ value: 'jan', label: 'Jan' },
-	{ value: 'llamafile', label: 'Llamafile' },
-	{ value: 'gpt4all', label: 'GPT4All' },
-	{ value: 'tabby_api', label: 'TabbyAPI' }
+export interface PluginPresetGroup {
+	label: string;
+	options: PluginPresetOption[];
+}
+
+export const PLUGIN_PRESET_GROUPS: PluginPresetGroup[] = [
+	{
+		label: '',
+		options: [
+			{ value: '', label: '自定义 manifest' },
+			{ value: 'openai_compatible', label: 'OpenAI-compatible' }
+		]
+	},
+	{
+		label: 'Major Providers',
+		options: [
+			{ value: 'anthropic_messages', label: 'Anthropic Messages' },
+			{ value: 'azure_openai', label: 'Azure OpenAI' },
+			{ value: 'vertex_openai', label: 'Google Vertex AI' },
+			{ value: 'gemini', label: 'Google Gemini' },
+			{ value: 'bedrock_converse', label: 'AWS Bedrock Converse' },
+			{ value: 'xai', label: 'xAI (Grok)' },
+			{ value: 'deepseek', label: 'DeepSeek' },
+			{ value: 'mistral', label: 'Mistral' },
+			{ value: 'cohere_chat', label: 'Cohere Chat' },
+			{ value: 'ai21', label: 'AI21 Labs' }
+		]
+	},
+	{
+		label: 'Inference Platforms',
+		options: [
+			{ value: 'groq', label: 'Groq' },
+			{ value: 'together', label: 'Together AI' },
+			{ value: 'fireworks', label: 'Fireworks AI' },
+			{ value: 'openrouter', label: 'OpenRouter' },
+			{ value: 'perplexity', label: 'Perplexity' },
+			{ value: 'cerebras', label: 'Cerebras' },
+			{ value: 'sambanova', label: 'SambaNova' },
+			{ value: 'deep_infra', label: 'DeepInfra' },
+			{ value: 'nvidia_nim', label: 'Nvidia NIM' },
+			{ value: 'replicate', label: 'Replicate' },
+			{ value: 'novita_ai', label: 'Novita AI' },
+			{ value: 'lambda', label: 'Lambda' },
+			{ value: 'lepton_ai', label: 'Lepton AI' },
+			{ value: 'nebius_ai', label: 'Nebius AI' },
+			{ value: 'friendli_ai', label: 'Friendli AI' },
+			{ value: 'chutes_ai', label: 'Chutes AI' },
+			{ value: 'hyperbolic', label: 'Hyperbolic' },
+			{ value: 'cloudflare_ai', label: 'Cloudflare AI' }
+		]
+	},
+	{
+		label: 'Embedding / Specialty',
+		options: [
+			{ value: 'jina', label: 'Jina AI' },
+			{ value: 'voyage_ai', label: 'Voyage AI' }
+		]
+	},
+	{
+		label: '国内 Providers',
+		options: [
+			{ value: 'moonshot', label: 'Moonshot' },
+			{ value: 'zhipu', label: '智谱 GLM' },
+			{ value: 'qwen', label: '通义千问' },
+			{ value: 'yi', label: '零一万物' },
+			{ value: 'baichuan', label: '百川 Baichuan' },
+			{ value: 'minimax', label: 'MiniMax' },
+			{ value: 'stepfun', label: '阶跃星辰 Stepfun' },
+			{ value: 'siliconflow', label: '硅基流动 SiliconFlow' },
+			{ value: 'doubao', label: '豆包 Doubao' },
+			{ value: 'hunyuan', label: '腾讯混元 Hunyuan' },
+			{ value: 'spark', label: '讯飞星火 Spark' },
+			{ value: 'infini_ai', label: '无问芯穹 Infini AI' }
+		]
+	},
+	{
+		label: 'Self-hosted',
+		options: [
+			{ value: 'ollama', label: 'Ollama' },
+			{ value: 'ollama_openai', label: 'Ollama OpenAI' },
+			{ value: 'vllm', label: 'vLLM' },
+			{ value: 'lm_studio', label: 'LM Studio' },
+			{ value: 'localai', label: 'LocalAI' },
+			{ value: 'xinference', label: 'Xinference' },
+			{ value: 'tgi', label: 'Text Generation Inference' },
+			{ value: 'jan', label: 'Jan' },
+			{ value: 'llamafile', label: 'Llamafile' },
+			{ value: 'gpt4all', label: 'GPT4All' },
+			{ value: 'tabby_api', label: 'TabbyAPI' }
+		]
+	}
 ];
+
+export const PLUGIN_PRESET_OPTIONS: PluginPresetOption[] =
+	PLUGIN_PRESET_GROUPS.flatMap((g) => g.options);
 
 export const PLUGIN_AUTH_STRATEGY_OPTIONS: PluginAuthStrategyOption[] = [
 	{ value: 'bearer', label: 'Bearer', description: 'Authorization: Bearer <secret_slot>' },

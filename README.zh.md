@@ -158,7 +158,7 @@ v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
 |----|------|
 | 租户 | Org × Project × ApiKey 三层 + RBAC + Postgres RLS 兜底 |
 | 网关 | OpenAI 兼容 chat/embeddings/images/audio/responses，流式 SSE + tool calling |
-| 渠道接入 | HTTP Plugin manifest v1 + 40 provider preset |
+| 渠道接入 | HTTP Plugin manifest v1 + 55 provider preset |
 | 路由 | priority / weighted_random / round_robin / least_conn / least_latency + fallback + canary |
 | 计费 | 多维度定价 + LiteLLM 自动同步 + crash-safe pre-debit + ledger + invoice 状态机 |
 | 配额 | rpm / tpm / concurrent / daily / monthly / lifetime + dry-run / explain |

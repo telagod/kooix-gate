@@ -54,6 +54,21 @@ pub(crate) enum ProviderPresetKind {
     Gpt4all,
     TabbyApi,
     Doubao,
+    Xai,
+    DeepInfra,
+    NvidiaNim,
+    Replicate,
+    Ai21,
+    VoyageAi,
+    NovitaAi,
+    Lambda,
+    LeptonAi,
+    NebiusAi,
+    Hunyuan,
+    Spark,
+    FriendliAi,
+    ChutesAi,
+    InfiniAi,
 }
 
 pub(crate) fn provider_preset_name(kind: ProviderPresetKind) -> &'static str {
@@ -98,6 +113,21 @@ pub(crate) fn provider_preset_name(kind: ProviderPresetKind) -> &'static str {
         ProviderPresetKind::Gpt4all => "gpt4all",
         ProviderPresetKind::TabbyApi => "tabby_api",
         ProviderPresetKind::Doubao => "doubao",
+        ProviderPresetKind::Xai => "xai",
+        ProviderPresetKind::DeepInfra => "deep_infra",
+        ProviderPresetKind::NvidiaNim => "nvidia_nim",
+        ProviderPresetKind::Replicate => "replicate",
+        ProviderPresetKind::Ai21 => "ai21",
+        ProviderPresetKind::VoyageAi => "voyage_ai",
+        ProviderPresetKind::NovitaAi => "novita_ai",
+        ProviderPresetKind::Lambda => "lambda",
+        ProviderPresetKind::LeptonAi => "lepton_ai",
+        ProviderPresetKind::NebiusAi => "nebius_ai",
+        ProviderPresetKind::Hunyuan => "hunyuan",
+        ProviderPresetKind::Spark => "spark",
+        ProviderPresetKind::FriendliAi => "friendli_ai",
+        ProviderPresetKind::ChutesAi => "chutes_ai",
+        ProviderPresetKind::InfiniAi => "infini_ai",
     }
 }
 
@@ -446,7 +476,22 @@ impl ProviderPresetSpec {
             | ProviderPresetKind::Llamafile
             | ProviderPresetKind::Gpt4all
             | ProviderPresetKind::TabbyApi
-            | ProviderPresetKind::Doubao => Self::openai_compatible(DEFAULT_CHAT_PATH),
+            | ProviderPresetKind::Doubao
+            | ProviderPresetKind::Xai
+            | ProviderPresetKind::DeepInfra
+            | ProviderPresetKind::NvidiaNim
+            | ProviderPresetKind::Replicate
+            | ProviderPresetKind::Ai21
+            | ProviderPresetKind::VoyageAi
+            | ProviderPresetKind::NovitaAi
+            | ProviderPresetKind::Lambda
+            | ProviderPresetKind::LeptonAi
+            | ProviderPresetKind::NebiusAi
+            | ProviderPresetKind::Hunyuan
+            | ProviderPresetKind::Spark
+            | ProviderPresetKind::FriendliAi
+            | ProviderPresetKind::ChutesAi
+            | ProviderPresetKind::InfiniAi => Self::openai_compatible(DEFAULT_CHAT_PATH),
             ProviderPresetKind::Gemini => {
                 Self::openai_compatible("/v1beta/openai/chat/completions")
                     .with_embedding_path("/v1beta/openai/embeddings")

@@ -34,7 +34,7 @@ Add a new provider with a JSON manifest in 5 minutes, no rebuild. Fail-closed st
 | **Quota dimensions** | rpm/tpm/concurrent/budget/lifetime + dry-run | rpm/tpm | rpm/tpm | quota |
 | **Runtime** | Rust + compile-time SQL | Python | Go | Closed source |
 | **Binary size** | 17 MB | ~500 MB image | ~30 MB | n/a |
-| **Provider presets** | 40+ built-in | 100+ (Python config) | ~30 | n/a |
+| **Provider presets** | 55 built-in | 100+ (Python config) | ~30 | n/a |
 
 > **TL;DR:** Kooix Gate brings OneAPI's product shape done right in Rust, with LiteLLM's onboarding convenience via declarative manifests.
 
@@ -94,7 +94,7 @@ Roadmap / Gaps:
 |-------|-------------|
 | Tenancy | Org x Project x ApiKey — 3-layer RBAC + Postgres RLS fallback |
 | Gateway | OpenAI-compatible chat/embeddings/images/audio/responses, streaming SSE + tool calling |
-| Providers | HTTP Plugin manifest v1 + 40 built-in presets (OpenAI, Anthropic, Azure, Bedrock, Gemini, DeepSeek, Mistral, Groq, Fireworks, Perplexity, SiliconFlow, etc.) |
+| Providers | HTTP Plugin manifest v1 + 55 built-in presets (OpenAI, Anthropic, Azure, Bedrock, Gemini, xAI, DeepSeek, Mistral, Groq, Fireworks, Nvidia NIM, DeepInfra, Perplexity, SiliconFlow, etc.) |
 | Routing | priority / weighted_random / round_robin / least_conn / least_latency + fallback + canary |
 | Billing | Multi-dimensional pricing + crash-safe pre-debit + ledger + invoice state machine |
 | Quotas | rpm / tpm / concurrent / daily / monthly / lifetime + dry-run / explain |
@@ -103,10 +103,19 @@ Roadmap / Gaps:
 | Ops | `kgctl` CLI + Docker Compose + Helm + Prometheus + OpenTelemetry |
 | Extensibility | WASM transform plugins (ADR-0003 v0) with Rust + AssemblyScript SDKs |
 
-## Supported Providers (40)
+## Supported Providers (55)
 
-**Cloud APIs:**
-OpenAI, Anthropic, Azure OpenAI, Google Vertex AI, Google Gemini, AWS Bedrock, DeepSeek, Mistral, Cohere, Groq, Together AI, OpenRouter, Fireworks AI, Perplexity, Cerebras, SambaNova, Hyperbolic, Cloudflare AI, Jina AI, Moonshot, Zhipu GLM, Qwen (Tongyi), Yi (Lingyiwanwu), Baichuan, MiniMax, Stepfun, SiliconFlow, Doubao (Volcengine)
+**Major Providers:**
+OpenAI, Anthropic, Azure OpenAI, Google Vertex AI, Google Gemini, AWS Bedrock, xAI (Grok), DeepSeek, Mistral, Cohere, AI21 Labs
+
+**Inference Platforms:**
+Groq, Together AI, Fireworks AI, OpenRouter, Perplexity, Cerebras, SambaNova, DeepInfra, Nvidia NIM, Replicate, Novita AI, Lambda, Lepton AI, Nebius AI, Friendli AI, Chutes AI, Hyperbolic, Cloudflare AI
+
+**Embedding / Specialty:**
+Jina AI, Voyage AI
+
+**China Providers:**
+Moonshot, Zhipu GLM, Qwen (Tongyi), Yi (Lingyiwanwu), Baichuan, MiniMax, Stepfun, SiliconFlow, Doubao (Volcengine), Hunyuan (Tencent), Spark (iFlytek), Infini AI
 
 **Self-hosted / Local:**
 Ollama, vLLM, LM Studio, LocalAI, Xinference, Text Generation Inference (TGI), Jan, Llamafile, GPT4All, TabbyAPI

@@ -232,9 +232,10 @@ pub fn plugin_preset_capabilities(provider: &str) -> Option<ProviderCapabilities
         "openai" | "openai_compatible" | "vllm" | "lm_studio" | "ollama_openai" | "localai"
         | "xinference" | "vertex_openai" | "groq" | "together" | "openrouter" | "moonshot"
         | "zhipu" | "qwen" | "yi" | "fireworks" | "sambanova" | "siliconflow" | "doubao"
-        | "baichuan" | "minimax" | "stepfun" | "hyperbolic" | "cloudflare_ai" | "cerebras" => {
-            Some(ProviderCapabilities::openai_compatible_core())
-        }
+        | "baichuan" | "minimax" | "stepfun" | "hyperbolic" | "cloudflare_ai" | "cerebras"
+        | "xai" | "deep_infra" | "nvidia_nim" | "replicate" | "ai21" | "novita_ai" | "lambda"
+        | "lepton_ai" | "nebius_ai" | "hunyuan" | "spark" | "friendli_ai" | "chutes_ai"
+        | "infini_ai" => Some(ProviderCapabilities::openai_compatible_core()),
         "deepseek" => Some(ProviderCapabilities {
             chat: true,
             streaming: true,
@@ -283,6 +284,11 @@ pub fn plugin_preset_capabilities(provider: &str) -> Option<ProviderCapabilities
         "tgi" | "tabby_api" | "jan" | "llamafile" | "gpt4all" => {
             Some(ProviderCapabilities::chat_stream())
         }
+        "voyage_ai" => Some(ProviderCapabilities {
+            chat: false,
+            embeddings: true,
+            ..ProviderCapabilities::none()
+        }),
         _ => None,
     }
 }
@@ -328,6 +334,21 @@ pub fn plugin_preset_base_url_suggestion(provider: &str) -> Option<&'static str>
         "gpt4all" => Some("http://localhost:4891/v1"),
         "tabby_api" => Some("http://localhost:5000/v1"),
         "doubao" => Some("https://ark.cn-beijing.volces.com/api/v3"),
+        "xai" => Some("https://api.x.ai/v1"),
+        "deep_infra" => Some("https://api.deepinfra.com/v1/openai"),
+        "nvidia_nim" => Some("https://integrate.api.nvidia.com/v1"),
+        "replicate" => Some("https://api.replicate.com/v1"),
+        "ai21" => Some("https://api.ai21.com/studio/v1"),
+        "voyage_ai" => Some("https://api.voyageai.com/v1"),
+        "novita_ai" => Some("https://api.novita.ai/v3/openai"),
+        "lambda" => Some("https://api.lambdalabs.com/v1"),
+        "lepton_ai" => Some("https://api.lepton.ai/v1"),
+        "nebius_ai" => Some("https://api.studio.nebius.ai/v1"),
+        "hunyuan" => Some("https://api.hunyuan.cloud.tencent.com/v1"),
+        "spark" => Some("https://spark-api-open.xf-yun.com/v1"),
+        "friendli_ai" => Some("https://inference.friendli.ai/v1"),
+        "chutes_ai" => Some("https://api.chutes.ai/v1"),
+        "infini_ai" => Some("https://cloud.infini-ai.com/maas/v1"),
         _ => None,
     }
 }
