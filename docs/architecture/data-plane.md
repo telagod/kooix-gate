@@ -66,9 +66,9 @@ Budget quota 三段式（[DESIGN §3.3](../../DESIGN.md#33-流式扣费三段式
 - `crates/gate-server/src/gateway.rs` — auth + rate limit middleware
 - `crates/gate-server/src/route_manifest.rs` — 路由清单
 - `crates/gate-providers/src/lib.rs` — Provider / EmbeddingProvider / ImageProvider / AudioProvider trait
-- `crates/gate-providers/src/router.rs` — ProviderRouter（M1.3 拆分中）
-- `crates/gate-providers/src/custom_provider.rs` — Plugin runtime（M1.3 拆分中）
-- `crates/gate-providers/src/plugin_manifest.rs` — Plugin manifest（M1.3 拆分中）
+- `crates/gate-providers/src/router/` — ProviderRouter（已拆分子模块）
+- `crates/gate-providers/src/custom_provider/` — Plugin runtime（已拆分子模块）
+- `crates/gate-providers/src/plugin_manifest/` — Plugin manifest（已拆分子模块）
 - `crates/gate-providers/src/sse.rs` — SSE decoder
 - `crates/gate-server/src/routes/chat.rs`
 - `crates/gate-server/src/routes/embeddings.rs`

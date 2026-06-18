@@ -1,7 +1,7 @@
 # DataTable Virtualization 设计稿
 
 > Status: **设计稿（0.4.115）→ 0.5.x 实装**
-> 关联：[product-review-followup-2026-05-26 §1](./product-review-followup-2026-05-26.md) | [product-gaps.md G-106](./product-gaps.md#g-106-web-bundle-220--180-kb)
+> 关联：[archived product-review-followup §1](../archive/2026-05-product-reviews/product-review-followup-2026-05-26.md) | [product-gaps.md G-106](../product-gaps.md#g-106-web-bundle-220--180-kb)
 
 ## 当前状态
 

@@ -241,7 +241,7 @@ impl WasmtimeHost {
             )
             .map_err(|e| WasmError::Instantiate(format!("linker host_record_metric: {e}")))?;
 
-        // 0.4.137（按 docs/wasm-secret-slot-design.md，G-003 step 3/3）：
+        // 0.4.137（按 docs/backlog/wasm-secret-slot-design.md，G-003 step 3/3）：
         // host_get_secret_slot(name_ptr, name_len, out_ptr, out_cap) -> i32
         //   >0  = bytes written
         //    0  = slot exists but empty
@@ -780,7 +780,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&cache_dir);
     }
 
-    // 0.4.139（按 wasm-secret-slot-design.md 验收门禁）：host_get_secret_slot
+    // 0.4.139（按 backlog/wasm-secret-slot-design.md 验收门禁）：host_get_secret_slot
     // 端到端测试。用 wat 写 plugin 调 host_get_secret_slot + chat_request_transform。
     // 但 wat 写 host fn 调用 + memory 操作较复杂，本测先验最小 case：
     //   - HookContext.secrets / allowed_slots 字段被 Arc clone 不丢

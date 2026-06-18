@@ -165,7 +165,7 @@
 
 ### 2.7 SCIM 评估边界
 
-P1.7 只完成 SCIM 2.0 评估，不声明当前已有 SCIM runtime endpoints；长期评估文档见 `docs/scim-evaluation.md`。实现边界如下：
+P1.7 只完成 SCIM 2.0 评估，不声明当前已有 SCIM runtime endpoints；长期评估文档见 `docs/backlog/scim-evaluation.md`。实现边界如下：
 
 - SCIM 仅作为 Org-scoped inbound provisioning connector，同步企业用户和组，不授予平台级 `PlatformRole`。
 - 用户同步以 email 归一化匹配现有 `users.email`，外部稳定键必须落独立 SCIM binding；不得复用 OIDC `user_identities.subject`。

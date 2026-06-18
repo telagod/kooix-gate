@@ -282,14 +282,14 @@ gh release upload v0.4.X \
 
 每跑完 10 个 patch 版（如 0.4.10 / 0.4.20 / 0.4.30 / 0.4.40），加：
 
-1. ROADMAP 同步（如 M1.4 全 ticked）
+1. ROADMAP 同步（M5/M6/M7 任务 ticked；历史 M1-M4 已归档）
 2. CHANGELOG 写完整阶段战报（含全 patch 表）
 3. README 当前版本段更新（第一屏）
 4. docs/getting-started.md 引用版本号校对
 
 ---
 
-## v0.5.0-rc1 准备清单（基于 product-review-2026-05-26）
+## v0.5.0-rc1 准备清单（基于 [archived product-review 2026-05](./docs/archive/2026-05-product-reviews/product-review-2026-05-26.md)）
 
 > 第一刀（A1-A5 + Retry + Pool + admin step1 + docs）已在 0.4.65-0.4.75 合 main。
 > 0.4.76-0.4.99 持续打磨；0.4.100 触发 rc1 候选评估。

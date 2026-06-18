@@ -2,7 +2,7 @@
 
 > Status: **0.4.102（2026-05-26）启动 第二刀**
 > 视角：吾对 v0.4.65-0.4.101 第一刀 37 patch **自我批判**——揭"伪完成"，给真图纸。
-> 关联：[product-review-2026-05-26.md](./product-review-2026-05-26.md) | [CHANGELOG.md](../CHANGELOG.md)
+> 关联：[product-review-2026-05-26.md](./product-review-2026-05-26.md) | [CHANGELOG.md](../../../CHANGELOG.md)
 
 ---
 

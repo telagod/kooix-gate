@@ -43,7 +43,7 @@
 | [wasm-runbook.md](./wasm-runbook.md) | WASM transform 上线后的故障处置：load 失败 / timeout-OOM / panic 暴风雨 / 模块回滚。 |
 | [wasm-sdk-as.md](./wasm-sdk-as.md) | AssemblyScript 写 WASM transform 的最小可用方案，与 Rust SDK 对照。 |
 | [manifest-registry-signature.md](./manifest-registry-signature.md) | Registry 签名 schema（cosign / minisign / sigstore_bundle），typed `kind/value/key_id/alg` 字段。 |
-| [scim-evaluation.md](./scim-evaluation.md) | P1.7 SCIM 2.0 用户同步与 group → role mapping 评估，定义 vNext 实现边界。 |
+| [backlog/scim-evaluation.md](./backlog/scim-evaluation.md) | P1.7 SCIM 2.0 用户同步与 group → role mapping 评估，定义 vNext 实现边界（推 0.5.x+）。 |
 | [threat-model.md](./threat-model.md) | P2.3 威胁模型：tenant isolation、secret leakage、plugin SSRF、billing fraud、admin takeover。 |
 | [release-assets.md](./release-assets.md) | P2.5 发布截图 / 短视频素材 checklist，覆盖 Dashboard、Channel wizard、Pricing、Request logs、Playground。 |
 | [security-runbook.md](./security-runbook.md) | 密钥、JWT、Channel key、Redis quota、Plugin 风险处置。 |

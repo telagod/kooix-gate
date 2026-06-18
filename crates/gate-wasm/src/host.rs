@@ -71,7 +71,7 @@ pub struct HookContext {
     pub model: String,
     pub request_id: String,
     pub metadata: HashMap<String, String>,
-    /// 0.4.136（按 docs/wasm-secret-slot-design.md）：secret 解密发生在调用方，
+    /// 0.4.136（按 docs/backlog/wasm-secret-slot-design.md）：secret 解密发生在调用方，
     /// 这里 host 拿到的已经是按 manifest `security.permissions.secret_slots`
     /// 过滤好的明文 map。`allowed_slots` 同步声明合法 slot 名（防 caller 忘传
     /// 时所有 slot 都拒绝）。
