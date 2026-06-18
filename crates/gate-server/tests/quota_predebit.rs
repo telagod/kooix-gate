@@ -235,6 +235,8 @@ async fn setup_embeddings(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -346,6 +348,8 @@ async fn setup_images(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -457,6 +461,8 @@ async fn setup_audio_speech(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1197,6 +1203,8 @@ async fn embedding_request_id_is_shared_by_quota_inflight_and_billing_outbox() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project.id, group_id);
 

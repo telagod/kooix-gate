@@ -883,6 +883,8 @@ async fn admin_channel_draining_stops_new_requests_and_waits_for_inflight() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 

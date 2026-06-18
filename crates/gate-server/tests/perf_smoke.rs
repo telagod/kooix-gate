@@ -120,6 +120,8 @@ async fn harness() -> Harness {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     groups.seed_default(project_id, group_id);
 
