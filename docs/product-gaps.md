@@ -319,14 +319,14 @@
 ### G-105 SCIM v2 实装
 
 - 影响面：enterprise / identity
-- 当前状态：✅ [scim-evaluation.md](./scim-evaluation.md) 评估完成
+- 当前状态：✅ [backlog/scim-evaluation.md](./backlog/scim-evaluation.md) 评估完成
 - 缺口：endpoint 未实装；group → role mapping 未支持
 - 实施路径：
   - 新 routes `/scim/v2/Users` / `Groups` 在 `gate-server`
   - 鉴权走 Bearer + SCIM-specific role
   - 用户 dedup：`externalId` binding，email + status 同步
   - group mapping 由管理员显式配置到 Org / Project role
-- 关联：scim-evaluation.md 已定边界
+- 关联：backlog/scim-evaluation.md 已定边界
 
 ### G-106 Web bundle 220 → 180 KB
 
@@ -427,5 +427,5 @@
 - [ADR-0003 v0](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)
 - [wasm-plugin-abi.md](./wasm-plugin-abi.md)
 - [manifest-registry-signature.md](./manifest-registry-signature.md)
-- [scim-evaluation.md](./scim-evaluation.md)
+- [backlog/scim-evaluation.md](./backlog/scim-evaluation.md)
 - [CHANGELOG.md § 0.5.0 真候选](../CHANGELOG.md)

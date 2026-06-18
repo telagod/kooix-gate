@@ -2,7 +2,7 @@
 
 > Status: **设计稿（0.4.99 占位 → 0.5.x 实装）**
 >
-> 来源：[archived product-review §5.2](./archive/2026-05-product-reviews/product-review-2026-05-26.md) — "chaos test 缺：限流挂掉 / Redis 闪断 / 上游 503 风暴 / pool 耗尽，没有 deterministic 复现 case"。
+> 来源：[archived product-review §5.2](../archive/2026-05-product-reviews/product-review-2026-05-26.md) — "chaos test 缺：限流挂掉 / Redis 闪断 / 上游 503 风暴 / pool 耗尽，没有 deterministic 复现 case"。
 
 ## 目标
 
@@ -54,7 +54,7 @@
 
 - 现有正向测试：`crates/gate-server/tests/auth_endpoints_e2e.rs` 等 ~10 个 e2e 套件
 - 现有 wiremock 用法：`crates/gate-server/tests/channel_plugin_e2e.rs`
-- 产品文档：[observability-runbook § 应急响应](./observability-runbook.md)、[security-runbook](./security-runbook.md)
+- 产品文档：[observability-runbook § 应急响应](../observability-runbook.md)、[security-runbook](../security-runbook.md)
 
 ## 决策原因
 

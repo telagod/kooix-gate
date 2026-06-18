@@ -1,4 +1,4 @@
-//! Chaos test fixture skeleton — Phase 1（按 docs/chaos-testing.md）。
+//! Chaos test fixture skeleton — Phase 1（按 docs/backlog/chaos-testing.md）。
 //!
 //! 0.4.146（按 0.4.99 设计稿）：先把 fixture trait + 默认 NoopChaos 实装
 //! 立起来，让真实 chaos cases（PG 拒绝连接 / Redis 停 / 上游 503 风暴 / pool

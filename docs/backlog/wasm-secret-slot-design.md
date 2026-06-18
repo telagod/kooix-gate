@@ -1,7 +1,7 @@
 # host_get_secret_slot 设计稿 (ABI v0.x)
 
 > Status: **设计稿（0.4.111）→ 0.5.x 实装**
-> 关联：[product-gaps.md G-003](./product-gaps.md#g-003-真实-host-functions-暴露) | [wasm-plugin-abi.md](./wasm-plugin-abi.md) | [ADR-0003 v0](./architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)
+> 关联：[product-gaps.md G-003](../product-gaps.md#g-003-真实-host-functions-暴露) | [wasm-plugin-abi.md](../wasm-plugin-abi.md) | [ADR-0003 v0](../architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md)
 
 ## 为什么要这个
 
@@ -11,7 +11,7 @@ WASM plugin 在 transform hook 里需要拿到 channel 的 secret（API key / OA
 - response transform: 解密上游加密 payload
 - stream transform: 验签 chunk HMAC
 
-**当前情况**（0.4.65-0.4.110）：插件无法访问任何 secret。manifest `security.permissions.secret_slots` 字段已落 schema（[wasm-plugin-abi.md § 6](./wasm-plugin-abi.md)），但 ABI v0 没暴露读取 fn → 插件唯一选择是放弃 secret 操作 / 重新发明轮子（如把 key 嵌 manifest body template 让宿主拼）。
+**当前情况**（0.4.65-0.4.110）：插件无法访问任何 secret。manifest `security.permissions.secret_slots` 字段已落 schema（[wasm-plugin-abi.md § 6](../wasm-plugin-abi.md)），但 ABI v0 没暴露读取 fn → 插件唯一选择是放弃 secret 操作 / 重新发明轮子（如把 key 嵌 manifest body template 让宿主拼）。
 
 `host_log` 和 `host_record_metric` 在 0.4.80-0.4.81 实装，三件套就差这个。
 

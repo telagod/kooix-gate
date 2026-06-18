@@ -319,7 +319,7 @@ Org / Project 页面提供成员邀请面板，对应 API：
 
 ### SCIM 评估边界
 
-P1.7 已完成 SCIM 2.0 评估，结论见 [docs/scim-evaluation.md](./docs/scim-evaluation.md)：SCIM 应作为 vNext 的 Org-scoped inbound provisioning connector，负责企业用户同步与 group → role mapping，不授予平台级角色。用户以 email + 独立 `externalId` binding 幂等同步；deprovision 默认 suspend user 并撤销 refresh sessions；group 不能直接等于 role，必须由管理员显式配置到 Org / Project role，Project mapping 必须校验所属 Org。
+P1.7 已完成 SCIM 2.0 评估，结论见 [docs/backlog/scim-evaluation.md](./docs/backlog/scim-evaluation.md)：SCIM 应作为 vNext 的 Org-scoped inbound provisioning connector，负责企业用户同步与 group → role mapping，不授予平台级角色。用户以 email + 独立 `externalId` binding 幂等同步；deprovision 默认 suspend user 并撤销 refresh sessions；group 不能直接等于 role，必须由管理员显式配置到 Org / Project role，Project mapping 必须校验所属 Org。
 
 ## 设计要点速览
 
