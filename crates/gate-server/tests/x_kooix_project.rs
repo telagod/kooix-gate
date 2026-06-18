@@ -132,6 +132,8 @@ async fn fixture() -> Fixture {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(proj_a, group_id);
 

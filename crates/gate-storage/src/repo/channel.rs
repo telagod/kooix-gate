@@ -614,6 +614,12 @@ pub struct ChannelGroupRecord {
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// ADR-0007 / M5.1 N1.1 opt-in：true 时路由策略消费 `channel_health_score.state` + `.score`。
+    /// 默认 false，保持 v0.4.x 行为零回归。N1.4 路由消费、N1.6 admin UI 切换。
+    pub use_health_score: bool,
+    /// ADR-0007 / M5.1 N1.1 per-group 权重覆写。NULL 走 `Weights::default()`（0.4/0.3/0.2/0.1）。
+    /// 结构示例: `{"success_rate":0.5,"latency_p99":0.3,"banned_signal":0.1,"quota_remaining":0.1}`
+    pub health_weights: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -687,6 +693,10 @@ fn row_to_group(row: &sqlx::postgres::PgRow) -> DbResult<ChannelGroupRecord> {
         enabled: row.try_get("enabled")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
+        // ADR-0007 / N1.1: 兼容读 —— 仅在 migration 20260619000001 跑过的库里有此列；
+        // 老库或非 PG impl 读不到时回落 false / None。
+        use_health_score: row.try_get("use_health_score").unwrap_or(false),
+        health_weights: row.try_get("health_weights").unwrap_or(None),
     })
 }
 
@@ -694,7 +704,7 @@ fn row_to_group(row: &sqlx::postgres::PgRow) -> DbResult<ChannelGroupRecord> {
 impl ChannelGroupRepo for PgChannelGroupRepo {
     async fn find_by_id(&self, id: ChannelGroupId) -> DbResult<ChannelGroupRecord> {
         let row = sqlx::query(
-            "SELECT id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at \
+            "SELECT id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at, use_health_score, health_weights \
              FROM channel_groups WHERE id = $1",
         )
         .bind(id.as_uuid())
@@ -724,7 +734,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
 
     async fn list_all(&self) -> DbResult<Vec<ChannelGroupRecord>> {
         let rows = sqlx::query(
-            "SELECT id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at \
+            "SELECT id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at, use_health_score, health_weights \
              FROM channel_groups ORDER BY created_at ASC",
         )
         .fetch_all(&self.pool)
@@ -735,7 +745,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
     async fn create(&self, name: &str, strategy: &str) -> DbResult<ChannelGroupRecord> {
         let row = sqlx::query(
             "INSERT INTO channel_groups (name, strategy) VALUES ($1, $2) \
-             RETURNING id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at",
+             RETURNING id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at, use_health_score, health_weights",
         )
         .bind(name)
         .bind(strategy)
@@ -767,7 +777,7 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
              fallback_group_id = CASE WHEN $6::boolean THEN $7 ELSE fallback_group_id END, \
              updated_at = now() \
              WHERE id = $1 \
-             RETURNING id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at",
+             RETURNING id, name, description, strategy, fallback_group_id, enabled, created_at, updated_at, use_health_score, health_weights",
         )
         .bind(id.as_uuid())
         .bind(name)
@@ -1353,6 +1363,8 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
             enabled: true,
             created_at: now,
             updated_at: now,
+            use_health_score: false,
+            health_weights: None,
         };
         self.inner.write().groups.insert(id, rec.clone());
         Ok(rec)

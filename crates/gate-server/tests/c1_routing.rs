@@ -208,6 +208,8 @@ async fn provider_router_selects_highest_priority() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -273,6 +275,8 @@ async fn full_chain_api_key_to_upstream() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -408,6 +412,8 @@ async fn full_chain_rewrites_model_from_alias_and_channel_mapping() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -571,6 +577,8 @@ async fn plugin_manifest_channel_model_mapping_rewrites_deployment_path() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -730,6 +738,8 @@ async fn full_chain_plugin_channel_normalizes_private_sse() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -905,6 +915,8 @@ async fn plugin_error_updates_key_health_and_falls_back_to_next_channel() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1229,6 +1241,8 @@ async fn route_chat_skips_channel_missing_requested_capability() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1306,6 +1320,8 @@ async fn route_chat_no_healthy_channel_returns_normalized_error() {
         enabled: true,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 

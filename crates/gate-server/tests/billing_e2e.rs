@@ -217,6 +217,8 @@ async fn setup_embeddings_with_pricing(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -324,6 +326,8 @@ async fn setup_images_with_pricing(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -444,6 +448,8 @@ async fn setup_audio_with_pricing(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1568,6 +1574,8 @@ async fn routed_chat_records_channel_id_in_outbox() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 

@@ -30,8 +30,8 @@ use crate::plugin_manifest::plugin_manifest_retry_config;
 use gate_core::id::{ChannelId, ChannelKeyId, ProjectId};
 use gate_crypto::EnvelopeKms;
 use gate_storage::{
-    ChannelBinding, ChannelGroupRepo, ChannelKeyRepo, ChannelLatencyRepo, ChannelRepo,
-    ModelAliasRepo,
+    ChannelBinding, ChannelGroupRecord, ChannelGroupRepo, ChannelHealthScoreRepo, ChannelKeyRepo,
+    ChannelLatencyRepo, ChannelRepo, ModelAliasRepo,
 };
 use parking_lot::RwLock;
 // use serde::{Deserialize, Serialize}; (moved to trace)
@@ -137,6 +137,10 @@ pub struct ProviderRouter {
     wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>,
     /// 0.4.143: WASM blob store —— auto-mount 装配链的 backend。
     wasm_blob_store: Option<Arc<dyn gate_wasm::WasmBlobStore>>,
+    /// ADR-0007 / M5.1 N1.4：health-aware 路由 opt-in。
+    /// `Some(repo)` + `channel_groups.use_health_score = TRUE` → 5 策略消费 score。
+    /// `None` 或 group flag false → v0.4.x 路径完全不变。
+    health_score_repo: Option<Arc<dyn ChannelHealthScoreRepo>>,
 }
 
 impl ProviderRouter {
@@ -160,6 +164,47 @@ impl ProviderRouter {
             runtime_snapshot: RwLock::new(Arc::new(ProviderRuntimeSnapshot::new(1, Vec::new()))),
             wasm_host: None,
             wasm_blob_store: None,
+            health_score_repo: None,
+        }
+    }
+
+    /// ADR-0007 / M5.1 N1.4：注入 health score repo，启用 health-aware 路由。
+    ///
+    /// 单 group 是否消费由 `channel_groups.use_health_score` 字段决定。
+    /// 即使注入了 repo，未启用的 group 路由行为完全等同 v0.4.x。
+    pub fn with_health_score_repo(mut self, repo: Arc<dyn ChannelHealthScoreRepo>) -> Self {
+        self.health_score_repo = Some(repo);
+        self
+    }
+
+    /// ADR-0007：构造 group 路由用的 HealthView（None 表示 group 未启用 health-aware）。
+    async fn health_view_for_group(
+        &self,
+        group: &ChannelGroupRecord,
+        compatible: &[&ChannelBinding],
+    ) -> Option<selection::HealthView> {
+        if !group.use_health_score {
+            return None;
+        }
+        let repo = self.health_score_repo.as_ref()?;
+        if compatible.is_empty() {
+            return Some(selection::HealthView::new());
+        }
+        let ids: Vec<ChannelId> = compatible.iter().map(|c| c.channel.channel_id).collect();
+        match repo.get_many(&ids).await {
+            Ok(map) => Some(
+                map.into_iter()
+                    .map(|(id, s)| (id, (s.state, s.score)))
+                    .collect(),
+            ),
+            Err(e) => {
+                // fail-open：路由层不阻塞主流量；记 warn 后回落 v0.4.x 路径
+                tracing::warn!(
+                    error = %e,
+                    "channel_health_score query failed; routing falls back to v0.4.x behaviour"
+                );
+                None
+            }
         }
     }
 
@@ -851,6 +896,7 @@ impl ProviderRouter {
         let persistent_latencies = self
             .persistent_latencies_for_strategy(&group.strategy, &compatible)
             .await;
+        let health_view = self.health_view_for_group(group, &compatible).await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
@@ -858,6 +904,7 @@ impl ProviderRouter {
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
             persistent_latencies.as_ref(),
+            health_view.as_ref(),
         );
 
         for candidate in &ordered {
@@ -1062,6 +1109,7 @@ impl ProviderRouter {
         let persistent_latencies = self
             .persistent_latencies_for_strategy(&group.strategy, &compatible)
             .await;
+        let health_view = self.health_view_for_group(group, &compatible).await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
@@ -1069,6 +1117,7 @@ impl ProviderRouter {
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
             persistent_latencies.as_ref(),
+            health_view.as_ref(),
         );
 
         for candidate in &ordered {
@@ -1246,6 +1295,7 @@ impl ProviderRouter {
         let persistent_latencies = self
             .persistent_latencies_for_strategy(&group.strategy, &compatible)
             .await;
+        let health_view = self.health_view_for_group(group, &compatible).await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
@@ -1253,6 +1303,7 @@ impl ProviderRouter {
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
             persistent_latencies.as_ref(),
+            health_view.as_ref(),
         );
 
         for candidate in &ordered {
@@ -1562,6 +1613,7 @@ impl ProviderRouter {
         let persistent_latencies = self
             .persistent_latencies_for_strategy(&group.strategy, &compatible)
             .await;
+        let health_view = self.health_view_for_group(group, &compatible).await;
         let ordered = order_channels_by_strategy(
             &group.strategy,
             &compatible,
@@ -1569,6 +1621,7 @@ impl ProviderRouter {
             &self.inflight,
             self.metrics.as_ref().map(|m| m.as_ref()),
             persistent_latencies.as_ref(),
+            health_view.as_ref(),
         );
         trace.record_candidates(group, &ordered);
         let mut last_miss = RouteMiss {

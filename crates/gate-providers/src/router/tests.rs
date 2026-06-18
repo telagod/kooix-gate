@@ -137,6 +137,8 @@ fn setup_fixtures(channels_spec: &[(&str, &str, Vec<String>, i32)]) -> (ProjectI
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
@@ -348,6 +350,8 @@ async fn route_chat_records_capability_skip_reason() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
     channel_repo.seed_channel(ChannelRecord {
@@ -423,6 +427,8 @@ async fn route_chat_required_normalizes_no_healthy_channel() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
     channel_repo.seed_channel(dead);
@@ -642,6 +648,8 @@ async fn build_router_with_key(secret: &str) -> (ProviderRouter, ChannelId, Proj
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -708,6 +716,8 @@ async fn router_fallback_env_when_no_db_key() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -742,6 +752,8 @@ async fn router_fallback_env_when_no_repo_configured() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -789,6 +801,8 @@ async fn router_channel_key_cache_avoids_repeated_repo_loads() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -860,6 +874,8 @@ async fn router_channel_key_cache_ttl_zero_disables_cache() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -932,6 +948,8 @@ async fn router_channel_key_cache_invalidation_reloads_rotated_secret() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1095,6 +1113,8 @@ async fn router_secret_slots_use_channel_key_labels() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1236,6 +1256,8 @@ async fn route_embedding_uses_plugin_runtime_and_secret_slots() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1326,6 +1348,8 @@ async fn route_embedding_skips_plugin_without_active_secret() {
         enabled: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        use_health_score: false,
+        health_weights: None,
     });
     grp_repo.seed_default(project_id, group_id);
 
@@ -1367,6 +1391,8 @@ fn setup_strategy_fixtures(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
@@ -1405,6 +1431,8 @@ fn setup_strategy_canary_fixtures(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
@@ -1590,6 +1618,8 @@ async fn route_skips_draining_channel() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(pid, group_id);
 
@@ -1684,6 +1714,8 @@ async fn group_fallback_chain_routes_to_fallback_group() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, primary_group_id);
 
@@ -1702,6 +1734,8 @@ async fn group_fallback_chain_routes_to_fallback_group() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     let ch_claude =
         make_channel_with_models("ch-claude", "anthropic", vec!["claude-3-haiku".into()]);
@@ -1736,6 +1770,8 @@ async fn disabled_group_no_fallback_returns_none() {
         enabled: false, // disabled!
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
@@ -1773,6 +1809,8 @@ async fn disabled_group_falls_through_to_fallback() {
         enabled: false,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, primary_id);
 
@@ -1785,6 +1823,8 @@ async fn disabled_group_falls_through_to_fallback() {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     let ch = make_channel_with_models("ch-fb", "openai", vec![]);
     let ch_id = ch.channel_id;
@@ -1827,6 +1867,8 @@ async fn group_fallback_three_levels_deep() {
             enabled: true,
             created_at: now,
             updated_at: now,
+            use_health_score: false,
+            health_weights: None,
         });
     }
     group_repo.seed_default(project_id, id_a);

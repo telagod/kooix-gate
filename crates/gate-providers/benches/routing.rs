@@ -71,6 +71,8 @@ fn build_router(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
@@ -142,6 +144,8 @@ fn build_router_with_channel_key_cache(
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
@@ -314,6 +318,8 @@ fn bench_route_model_not_found(c: &mut Criterion) {
         enabled: true,
         created_at: now,
         updated_at: now,
+        use_health_score: false,
+        health_weights: None,
     });
     group_repo.seed_default(project_id, group_id);
 
