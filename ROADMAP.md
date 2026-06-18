@@ -26,7 +26,7 @@
 - [x] **N1.2** ScoreEngine：4 维加权 + 5 状态机（含 hysteresis 0.05）+ 指数退避 cooldown + Banned 终态。`crates/gate-providers/src/health_score.rs` + 29 单元测试。N1.4 路由消费 / N1.5 异步落库下两刀接。
 - [x] **N1.3→改 N1.4** 路由策略消费 score：5 策略 `priority / weighted_random / round_robin / least_conn / least_latency` 全部接受 health view + Cooldown/Banned skip + `MIN_WEIGHT_FLOOR = 0.05` 探针流量保留。`selection.rs` health-aware 重写 + 11 矩阵单测。Opt-in via `channel_groups.use_health_score`。
 - [x] **N1.5** 异步 batched 落库 + in-memory TTL cache（`HealthScoreCache` + `ScoreFlusher` worker），路由热路径 PG 读改为 cache 优先。10 cache + 7 flusher 单测全绿。
-- [ ] **N1.5** 封号检测器：基于响应特征（特定 error code / response body / 余额耗尽信号）触发状态转移。
+- [x] **N1.3** BannedPatternMatcher trait + 协议层默认实现 + 4 fast-path preset 语义层（OpenAI/Anthropic/Azure/Bedrock）+ Registry 路由。19 单测全绿。
 - [ ] **N1.6** 控制台「号池健康仪表盘」：channel × score × state × cooldown_until × banned_reason。
 
 ### M5.2 账号画像与运营

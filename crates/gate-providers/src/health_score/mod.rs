@@ -23,9 +23,14 @@
 //! - [`cache`] —— [`HealthScoreCache`]：路由热路径 in-memory TTL cache
 //! - [`flusher`] —— [`ScoreFlusher`]：异步 batched OutcomeEvent 处理 worker
 
+pub mod banned;
 pub mod cache;
 pub mod flusher;
 
+pub use banned::{
+    BannedDetectionContext, BannedMatcherRegistry, BannedPatternMatcher, CompositeMatcher,
+    DefaultProtocolMatcher, anthropic_matcher, azure_matcher, bedrock_matcher, openai_matcher,
+};
 pub use cache::{DEFAULT_CACHE_TTL, HealthScoreCache, cached_get_many};
 pub use flusher::{OutcomeEvent, ScoreFlusher, ScoreFlusherConfig, ScoreFlusherHandle};
 
