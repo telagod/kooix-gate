@@ -282,7 +282,7 @@ gh release upload v0.4.X \
 
 每跑完 10 个 patch 版（如 0.4.10 / 0.4.20 / 0.4.30 / 0.4.40），加：
 
-1. ROADMAP 同步（如 M1.4 全 ticked）
+1. ROADMAP 同步（M5/M6/M7 任务 ticked；历史 M1-M4 已归档）
 2. CHANGELOG 写完整阶段战报（含全 patch 表）
 3. README 当前版本段更新（第一屏）
 4. docs/getting-started.md 引用版本号校对
