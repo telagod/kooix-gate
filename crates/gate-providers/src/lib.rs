@@ -15,6 +15,7 @@ pub mod bedrock;
 pub mod capabilities;
 pub mod custom_provider;
 pub mod error;
+pub mod health_score;
 pub mod native;
 pub mod openai;
 pub mod plugin_manifest;
