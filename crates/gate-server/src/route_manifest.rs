@@ -284,6 +284,43 @@ pub const ROUTES: &[RouteMeta] = &[
         PlatformAdmin,
         CONTROL_PLANE
     ),
+    // ADR-0007 / M5.1 N1.6 health-score admin endpoints
+    route!(
+        "GET",
+        "/v1/admin/channels/:id/health-score",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/channels/:id/health/unban",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "POST",
+        "/v1/admin/channels/:id/health/cooldown",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/admin/groups/:id/health-weights",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "PUT",
+        "/v1/admin/groups/:id/health-weights",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
+    route!(
+        "GET",
+        "/v1/admin/health-dashboard",
+        PlatformAdmin,
+        CONTROL_PLANE
+    ),
     route!("GET", "/v1/admin/audit-logs", PlatformAdmin, CONTROL_PLANE),
     route!("GET", "/v1/admin/orgs", PlatformAdmin, CONTROL_PLANE),
     route!("POST", "/v1/admin/orgs", PlatformAdmin, CONTROL_PLANE),

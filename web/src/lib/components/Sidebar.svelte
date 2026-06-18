@@ -59,6 +59,7 @@
 		if (pattern === '/admin/audit') return currentPath.startsWith('/admin/audit');
 		if (pattern === '/admin/requests') return currentPath.startsWith('/admin/requests');
 		if (pattern === '/admin/incidents') return currentPath.startsWith('/admin/incidents');
+		if (pattern === '/admin/health-dashboard') return currentPath.startsWith('/admin/health-dashboard');
 		if (pattern === '/admin/pricing') return currentPath.startsWith('/admin/pricing');
 		return currentPath.startsWith(pattern);
 	}
@@ -200,6 +201,10 @@
 				<a href="/admin/incidents" class={linkCls('/admin/incidents')} title={collapsed ? '事故中心' : ''}>
 					<ShieldAlert size={iconSize} />
 					{#if !collapsed}<span class="truncate">事故中心</span>{/if}
+				</a>
+				<a href="/admin/health-dashboard" class={linkCls('/admin/health-dashboard')} title={collapsed ? '号池健康' : ''}>
+					<Gauge size={iconSize} />
+					{#if !collapsed}<span class="truncate">号池健康</span>{/if}
 				</a>
 				<a href="/admin/pricing" class={linkCls('/admin/pricing')} title={collapsed ? '定价规则' : ''}>
 					<DollarSign size={iconSize} />

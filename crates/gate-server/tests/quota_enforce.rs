@@ -184,6 +184,7 @@ async fn make_fixture() -> Fix {
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
 
     // user 也作为 owner 对该 Org 拥有 Owner role（用于跑 REST endpoint 鉴权）

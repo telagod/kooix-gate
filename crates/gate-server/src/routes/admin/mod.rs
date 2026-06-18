@@ -284,6 +284,24 @@ pub fn router() -> Router<AppState> {
         )
         .route("/channels/:id/test", get(probe::test_channel))
         .route("/channels/:id/balance", get(probe::get_channel_balance))
+        // ADR-0007 / M5.1 N1.6: health-score admin endpoints
+        .route(
+            "/channels/:id/health-score",
+            get(health::get_channel_health_score),
+        )
+        .route(
+            "/channels/:id/health/unban",
+            axum::routing::post(health::unban_channel),
+        )
+        .route(
+            "/channels/:id/health/cooldown",
+            axum::routing::post(health::force_cooldown_channel),
+        )
+        .route(
+            "/groups/:id/health-weights",
+            get(health::get_group_health_weights).put(health::update_group_health_weights),
+        )
+        .route("/health-dashboard", get(health::health_dashboard))
         .route("/audit-logs", get(users::list_audit_logs))
         .route("/orgs", get(users::list_all_orgs).post(users::create_org))
         .route("/orgs/:org_id", axum::routing::put(users::update_org))
@@ -467,6 +485,7 @@ struct PricingRuleRow {
 // 0.4.122：pricing 块物理拆出到 admin/pricing.rs。
 mod channels;
 mod groups;
+mod health;
 mod invitations;
 mod org_members;
 mod pricing;

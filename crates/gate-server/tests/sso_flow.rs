@@ -149,6 +149,7 @@ async fn build_fixture(
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: sessions.clone(),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
 
     let jwt = JwtIssuer::new(

@@ -213,6 +213,7 @@ async fn fixture() -> Fixture {
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
 
     let jwt = JwtIssuer::new(
