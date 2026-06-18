@@ -1,0 +1,14 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a customer support assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hi, my email is alice@example.com and phone 13800138000. ID 110105199001011234. Card 4111111111111111. Server 192.168.1.42."
+    }
+  ],
+  "temperature": 0.7
+}

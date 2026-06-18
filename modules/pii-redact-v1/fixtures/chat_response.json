@@ -1,0 +1,15 @@
+{
+  "id": "chatcmpl-fixture",
+  "object": "chat.completion",
+  "model": "gpt-4o-mini",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I can reach out via alice@example.com or call 13800138000. Bearer abc.token.xyz to verify."
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}
