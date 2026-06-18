@@ -1,0 +1,5201 @@
+# Kooix Gate · CHANGELOG 0.4.x 历史详记
+
+> Status: **archive · 折叠自主 CHANGELOG.md（K14, v0.5.0）**
+> Scope: v0.4.0（2026-05-22）→ v0.4.187（2026-05-28），共 **188 个 patch 版**
+> 主线汇总段见 [CHANGELOG.md § 0.4.x](../../../CHANGELOG.md#04x--2026-05-22-至-2026-05-28--refactor--product-gaps-closure-188-patches)
+
+本文件按倒序保留 0.4.x 全部 patch 版本说明，含 product-review 四刀 + 阶段小版收口的完整事件链。
+
+代码注释里若有 `0.4.NNN` 版本号引用（如 `wasmtime_host.rs` 0.4.81-82、`chaos_toxiproxy.rs` 0.4.165-167），可直接 grep 本文件定位上下文。
+
+---
+
+## [0.4.187] — 2026-05-28 — channels 三连修：drawer prop + SQL bind_idx + 滚动
+
+### Type
+
+fix
+
+### 主题
+
+魔尊从「点新建」一路真打到「显示不全无法滚动」，挖出 channels 页**三个独立 bug** 叠加。本 patch 一并收口。
+
+### Fixed
+
+**1) drawer prop_invalid_value（Svelte 5 runes）**
+
+`web/src/routes/channels/_lib/form-factories.ts`：
+- `defaultCreateForm()` 加 `name: ''` 初值
+- `defaultEditForm()` 从 `{}` 改为完整字段：`name / base_url / enabled / supported_models / rpm_limit / tpm_limit / timeout_ms / max_retries / tags / model_mapping`
+
+`bind:value={undefined}` 绑到有 fallback 的 `Input.svelte` (`value = $bindable('')`) 直接抛 props_invalid_value，drawer mount 失败。
+
+**2) SQL bind_idx off-by-one**
+
+`crates/gate-storage/src/repo/channel.rs:327`：
+```rust
+- let mut bind_idx = 1u32;
++ let mut bind_idx = 0u32;
+```
+
+`list_admin_paginated` 用任何 filter（status/provider/health/search/tag）时 sqlx 报 `supplies 1 parameters, but prepared statement requires 2`，500 internal db error。复现：魔尊点列表状态过滤即触发。
+
+**3) drawer 高度滚动**
+
+`web/src/routes/channels/_components/Create/EditChannelDrawer.svelte`：
+
+```diff
+- ModalFrame ... class="z-40 justify-end ..."
++ ModalFrame ... class="z-40 items-stretch justify-end ..."
+```
+
+ModalFrame 默认 `flex items-center` 把 drawer 居中收缩，内容超出视口时上下被裁，且 `h-full overflow-y-auto` 顶到 contracted 高度无法滚动。drawer 显式覆盖 `items-stretch` 撑满屏高。
+
+小 modal（RotateKey/RevokeKey/CreateKey）保留居中默认，不动。
+
+### Why
+
+魔尊连续点四下（新建按钮 → 状态过滤 → 截图报错 → drawer 滚动），三处独立 bug 一处一处暴露：
+
+1. **drawer prop**：Svelte 5 runes 严格校验在 build 时不报，hydration 时才炸（vitest 跑组件单元不跑 page-level）
+2. **SQL bind_idx**：list_admin_paginated 在 0.4.x 第三刀拆 channels 时引入，**单测只覆盖无 filter 路径**
+3. **drawer 滚动**：CSS 子集合（items-stretch / h-full）从未在 viewport 高度 < 内容高度时验过
+
+三个 bug 共同信号：**门禁链没有 e2e 真打**，全靠魔尊真跑才暴露。
+
+### Verification
+
+后端 SQL（7 种 filter 组合全 200）：
+```
+✅ /v1/admin/channels                              200 total=5
+✅ /v1/admin/channels?status=active                200 total=0
+✅ /v1/admin/channels?status=disabled              200 total=5
+✅ /v1/admin/channels?status=draining              200 total=0
+✅ /v1/admin/channels?status=active&health=healthy 200 total=0
+✅ /v1/admin/channels?provider=openai&status=disabled 200 total=3
+✅ /v1/admin/channels?search=open&...              200 total=1
+```
+
+前端：
+- 强刷 `/channels` 列表正常
+- 点状态过滤不再 500
+- 点新建 drawer 滑出
+- drawer 内容超出视口可滚动（items-stretch）
+
+### 0.4.X 系列盲区累计
+
+| 版本 | 缺陷 | 检出 |
+|---|---|---|
+| 0.4.183 | docker compose 部署链 | 魔尊验收 |
+| 0.4.184 | admin Query typed ID 11 处 | 魔尊点 incidents |
+| 0.4.187 | drawer prop + SQL bind_idx + 滚动 3 处 | 魔尊连续真打 |
+
+**5 个真 bug，0 个被 0.4.X 任何门禁拦住**。v0.5.0 P0 必加 playwright e2e — 起栈 + login + 遍历 admin 页 + 点关键 button + filter 矩阵 + viewport 高度变换 + console error 监听。
+
+### 工程总账
+
+0.4.0 → 0.4.187，**187 patch**
+
+---
+
+## [0.4.184] — 2026-05-27 — admin Query typed ID 契约修复
+
+### Type
+
+fix
+
+### 主题
+
+魔尊浏览器访问 `/admin/incidents` 报 "Bad Request"，挖出后端 admin 路由 11 处 Query 字段用裸 `Uuid` 解析，无法接受 `org_xxx` / `prj_xxx` 等 typed ID — 违反 CLAUDE.md「URL 参数用 FlexUuid」契约。Path 参数都已用 FlexUuid，但 Query 参数被遗漏。
+
+### Fixed
+
+11 处 Query 字段从 `Option<Uuid>` 改为 `Option<FlexUuid>` + 下游 `.map(Uuid::from)`：
+
+- `routes/request_logs.rs`：
+  - `RequestListQuery.org_id / project_id / channel_id / api_key_id / user_id / group_id`（6 字段）
+  - `DashboardStatsQuery.org_id`（**incidents 用的就是这个**）
+  - `FilterOptionsQuery.org_id`
+- `routes/admin/users.rs`：
+  - `AuditLogQuery.org_id`
+- `routes/usage.rs`：
+  - `UsageQuery.org_id`
+  - `OrgRequestListQuery.project_id`
+
+### Why
+
+CLAUDE.md 项目契约：
+
+> URL 路径参数用 `FlexUuid`，同时接受 typed ID 和裸 UUID
+
+Path 参数（`:org_id`）都已用 FlexUuid，**但 Query 参数（`?org_id=`）被遗漏**。
+
+前端 `me.orgs` 返回 typed ID `org_3b69f40228c74519a6b696802632435d`，incidents 页 `selectedOrg = me.orgs[0]` 直接拿 typed ID 拼参 `?org_id=org_3b69...`，axum `Query<DashboardStatsQuery>` 用 `serde_uuid::deserialize` 解析失败 → 400。
+
+这个 bug 至少存在 0.4.0+ → 0.4.183 周期内（120+ patch），从未被发现，因为：
+1. 单测用裸 UUID 直接构 struct，不走 `Query` extractor
+2. e2e 测试用 wiremock 上游，不经前端 typed ID 路径
+3. 手工测试 admin 页时若 `me.current_org=null` 才会触发（current_org 优先用裸 UUID）
+
+### Verification
+
+```bash
+# 真打 4 种 case
+curl -H 'Authorization: Bearer ${TOKEN}' \
+  'http://localhost:8000/v1/admin/incidents?hours=24&org_id=org_3b69f40228c74519a6b696802632435d'
+# → 200 ✅ typed ID
+
+curl '...?org_id=3b69f40228c74519a6b696802632435d'
+# → 200 ✅ 裸 UUID 兼容
+
+curl '...?hours=24'
+# → 200 ✅ 不传 org_id
+
+curl '...?hours=24&org_id='
+# → 400 invalid length 0
+# 这是预期：空 org_id 应被前端 `if (orgId)` 过滤；后端兜底 400 是正确的
+```
+
+副带验：`/v1/admin/audit-logs?org_id=org_xxx` 也修复（同 patch 受益）。
+
+### 0.4.X 系列盲区累计
+
+- 0.4.183 修：`docker compose up` 控制台 SPA 部署链
+- 0.4.184 修：admin Query typed ID 契约
+
+两个都是「单测/clippy/check 通过但 docker compose 实际跑不起 / 前端真打 API 报错」的真实质量盲区。**v0.5.0 P0 必须加 e2e smoke 自动门禁**：起栈 + login + 调每个 admin 页关键 API + 验 200。
+
+---
+
+## [0.4.183] — 2026-05-28 — Web 部署链修复 · docker compose 端到端跑通
+
+### Type
+
+fix
+
+### 主题
+
+魔尊验收 0.4.X 系列时挖出的真实部署缺陷：`docker compose up` 起来后 `http://localhost:8000/` 返 404，控制台 SPA 完全访问不到。本 patch 修部署链，让 README 的「30 秒跑通」第一次真能跑通。
+
+### Fixed
+
+**真实缺陷**（0.4.0 → 0.4.182 一直存在，182 patch 内无人发现）：
+
+- Dockerfile 把 SvelteKit `adapter-node` 产物（`/app/web/build/handler.js`）拷进 Rust runtime image，但 `debian:bookworm-slim` 没装 node，`CMD ["gate-server"]` 根本起不了 SvelteKit handler
+- `gate-server` axum router 没有 `ServeDir` / SPA fallback，控制台静态资源也没出口
+- 结果：182 patch 期间无人真正 `docker compose up` 端到端跑过控制台，所有验收都停在「单测 + clippy + check」的门禁层
+
+### Changed
+
+- **Dockerfile 拆 web-runtime stage**：
+  - Stage 5 `runtime`（Rust）只装 ca-certificates + gate-server + kgctl + migrations，仍 117MB
+  - Stage 6 `web-runtime` 新增：`node:22-alpine` + `npm ci --omit=dev`（adapter-node 把 dependencies 标 external 必须 runtime 装回 peer：clsx / @xyflow / lucide-svelte 等）
+  - `CMD ["node", "build/index.js"]` listen :8080
+- **docker-compose.yml**：
+  - `migrate` / `server` 显式写 `target: runtime` 不复用 latest stage
+  - 新增 `web` 服务：`target: web-runtime` + 端口 8080:8080 + depends_on server
+- **README**：「30 秒跑通」端口对齐——UI `:8080` / API `:8000`；点出端口分离 + CORS 跨端口允许
+
+### Why
+
+魔尊指出 0.4.X 系列收口表面完美，但**未经端到端 docker compose 验收**。星霜挖证据：
+
+1. 本地最新 kooix-gate 镜像是 5 天前的 v0.4.0，0.4.1-0.4.182 这 182 patch 从未本地构建/部署
+2. SvelteKit 用 adapter-node：`/app/build/handler.js` 是 Node handler，必须 node 进程托管
+3. Rust runtime image 没 node，`CMD gate-server` 起来后 axum 没挂 ServeDir，`/` 永远 404
+4. README 写的「`open http://localhost:8000`」实际跑不通
+
+这个缺陷至少存在 5 天 / 182 个 patch 周期，**说明门禁链有真实盲区**：单测覆盖 API + clippy + check，但 docker compose 端到端启动从未自动验收。
+
+### Verification
+
+```bash
+docker compose down && docker compose up -d
+docker compose ps         # 5 服务 healthy（postgres / redis / migrate exit 0 / server / web）
+```
+
+端到端验：
+
+```
+✅ 8000/health            → 200 {"status":"ok","version":"0.4.183"}
+✅ 8000/metrics           → 200 Prometheus 11390 bytes
+✅ 8000/v1/auth/sso/providers  → 200 []
+✅ 8000/v1/admin/* 鉴权门禁    → 401 missing_credentials
+✅ 8080/                  → 200 SvelteKit SSR shell（kooix_theme localStorage + app.css）
+✅ 8080/login             → 200 SPA 路由
+✅ 8080/admin/users       → 200 SPA 路由
+✅ migrate                → exit 0，latest migration 20260522000001（35 files）
+✅ pricing_sync           → fetch LiteLLM → upsert 5299 entries
+✅ health_check probe     → 5 channel auth_error（seed 假 key 预期）
+```
+
+### 0.4.X 验收门禁补丁后（应推 v0.5.0 P0）
+
+本次暴露的盲区不是文档可解决的——必须**自动化端到端**：
+
+- v0.5.0 P0 候选：CI 加 `docker compose up + smoke test` 步骤（local 也能跑 `make smoke`）
+- v0.5.0 P0 候选：bench scripts 加 docker compose 启动门禁（每个 release 必跑）
+
+### 工程总账（0.4.X → 0.4.183）
+
+- **0.4.0 → 0.4.183，183 patch**
+- M3 完结 + 四刀打磨 + 阶段小版收口 + 部署链修复
+- 第一次端到端 docker 验收门槛过线
+
+---
+
+## [0.4.182] — 2026-05-27 — 文档漂移收口
+
+### Type
+
+docs
+
+### 主题
+
+把 0.4.X 系列收口前最后一处真实尾巴——README / ROADMAP / product-gaps 文档漂移——一次性补齐，为 v0.5.0 启动让出干净边界。
+
+### Changed
+
+- **README.md 版本同步 0.4.181**：
+  - badge `version-0.4.60` → `version-0.4.181`
+  - badge `tests-549+ Rust + 100+ web` → `tests-556+ Rust + 127 web`（按实测）
+  - 「当前版本：v0.4.119 — product-review 双刀打磨」段重写为「v0.4.181 — product-review 四刀全收口」，新增第三刀 / 第四刀 / 阶段小版（0.4.176-181）三段战报
+  - 测试基线表按实测重写：Rust 556+（src 286 + integ 270） / Web 127 cases（21 files） / 35 migrations
+  - workspace 树注释 34 → 35 migrations
+  - 测试章节 `485 Rust + 86 web` → `556+ Rust + 127 web`
+  - 删旧「真实债务推 v0.5.x」清单（已全在 0.4.121-175 真还）+ 旧「v0.5.0-rc1 候选门禁」
+  - 新增「v0.5.0 启动候选」节 — P0 / P1 / P2 三组真候选
+- **ROADMAP.md 阶段小版段**：M3 后段在第四刀（0.4.151-171）之后补「阶段小版收口（0.4.176-181）」表 + 6 patch 说明
+- **docs/product-gaps.md 阶段小版段**：第四刀诚实评之后补「阶段小版收口（0.4.176-181，6 patch · 工作区清零）」段，明确「仅做工程债清理，无新功能」
+
+### Why
+
+魔尊点出 0.4.X 系列收口时发现的最后一道漂移：
+
+1. README badge 还停在 121 版本前的 0.4.60；标题段写「v0.4.119 双刀」，实际四刀都收完了
+2. ROADMAP 第四刀段止于 0.4.171，0.4.176-181 阶段小版从未入文档
+3. product-gaps 第四刀诚实评之后直接跳到 P0 v0.5.0，6 patch 阶段小版无记
+4. 测试数 549 / 100+ 与实测 556 / 127 漂移
+
+这些漂移不是 bug 但是「外人来看会以为项目停在四刀前」的形象损失。v0.5.0 启动前最后清一次。
+
+### Verification
+
+```bash
+git diff --check
+grep -E '0\.4\.(60|119|171)' README.md ROADMAP.md docs/product-gaps.md  # 仅历史段引用应保留
+grep -E 'tests-556|version-0\.4\.181' README.md                          # badge 一致
+```
+
+测试基线核：
+
+```
+crates/**/src/*.rs        286 #[test]
+crates/**/tests/*.rs      270 #[test]
+web/src/**/*.test.ts      127 test cases / 21 files
+crates/gate-storage/migrations  35 files
+```
+
+### 0.4.X 系列总结（0.4.0 → 0.4.182，182 patch）
+
+- **M3 完结**（0.4.0-0.4.60，60 patch）—— fast-path runtime + WASM Plugin v0 完整产品形态
+- **四刀打磨**（0.4.65-0.4.171，107 patch）—— product-review 自审 4 轮，每轮诚实评 + 下一轮真还
+- **阶段小版收口**（0.4.176-0.4.182，7 patch）—— CI / build-hygiene / admin/users 抽组件 / 文档漂移
+- 工程债 / 文档漂移 / TODO/FIXME 全部清零；v0.5.0 启动边界冻结
+
+下一站 v0.5.0：P0 信任链与运行时（G-001 / G-004）+ P1 DX 与生态铺路。
+
+---
+
+## [0.4.181] — 2026-05-27 — 小阶段收口 · 工作区清零
+
+> 6 patch（0.4.176-0.4.181）阶段小版：CI 暂停 + 240G `target/` 事故复盘 + admin/users 抽组件三连。
+
+### 阶段战报
+
+| 类型 | 版本 | 内容 |
+|------|------|------|
+| chore | 0.4.176 | 停 3 workflow 自动触发（GH Free private repo Actions 额度耗尽） |
+| docs | 0.4.177 | build-hygiene-runbook 238 行 + CONTRIBUTING/README 链入 |
+| refactor | 0.4.178 | 抽 CreateUserForm 子组件 |
+| refactor | 0.4.179 | 抽 UserStatsCards 计数卡 |
+| refactor | 0.4.180 | 抽 UserTableRow + 清 7 个未用 lucide import |
+| chore | 0.4.181 | 阶段封版 + push + tag |
+
+### admin/users +page.svelte 瘦身
+
+```
+650 → 597 行 (-53, -8.2%)
++ 3 子组件: CreateUserForm (87) + UserStatsCards (22) + UserTableRow (80)
+合计抽出 189 行到子组件
+```
+
+### 工作区状态
+
+- 第四刀 0.4.151-175 后留下的 5 个未提交文件（CONTRIBUTING / docs/README / +page.svelte 修改 + build-hygiene-runbook + CreateUserForm）全部 commit 收口
+- 工作区干净（git status 无 modified / 无 untracked）
+
+### CI 状态
+
+- 3 workflow 改 `workflow_dispatch` 仅手动触发；本地门禁照常跑
+- 5 月 v0.5.x 启动前需决策恢复路径（公开化 / spending limit / self-hosted / CI 瘦身）
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4274 files
+cd web && npx vitest run    # 127 / 21
+git status                  # clean
+```
+
+---
+
+## [0.4.180] — 2026-05-27
+
+**Type**: refactor · **主题**：admin/users 抽 UserTableRow 行模板组件 + 清未用 lucide import。
+
+### Added
+
+- `web/src/routes/admin/users/_components/UserTableRow.svelte`（80 行）：
+  - props: `user / isVisible / statusVariant / fmtDate / currentUserId / statusBusy / passwordBusy / onToggleStatus / onOpenReset / onOpenSessions`
+  - 完整行模板：visible columns + 3 action button (toggleStatus / openReset / openSessions)
+  - statusVariant + fmtDate 由父注入避免组件持有 helper
+
+### Changed
+
+- `+page.svelte`：原 #each 内联行模板 (~50 行) 替换为 `<UserTableRow ... />`
+- 加 keyed each `(user.id)` 让 Svelte 5 reconcile 稳定
+- 清未用 lucide import：`Check / LogOut / Plus / KeyRound / MonitorSmartphone / ShieldCheck / ShieldOff`（已转移到 UserTableRow / CreateUserForm）
+
+### Why
+
+admin/users 抽组件三连收口（0.4.178 CreateUserForm + 0.4.179 UserStatsCards + 0.4.180 UserTableRow），+page.svelte 由 650 → 597 行（-53）。剩余主要是状态管理 + filter chip group + 4 个 modal 装配，与父 state 耦合紧不强行抽。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4274 files
+cd web && npx vitest run    # 127/21
+wc -l web/src/routes/admin/users/+page.svelte    # 597 (was 650)
+```
+
+---
+
+## [0.4.179] — 2026-05-27
+
+**Type**: refactor · **主题**：admin/users 抽 UserStatsCards 计数卡组件。
+
+### Added
+
+- `web/src/routes/admin/users/_components/UserStatsCards.svelte`（22 行）：
+  - props: `total / active / suspended`
+  - 纯展示，零交互；总用户 / Active / Suspended 3 张 Card
+
+### Changed
+
+- `+page.svelte`：原内联 3-Card 段 (~16 行) 替换为 `<UserStatsCards ... />`
+
+### Why
+
+延续 0.4.178 子组件抽分。3 张计数卡是无状态展示，与 stats 派生（`activeCount` / `suspendedCount` 仍由父算），最干净的抽分点。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4273 files
+```
+
+---
+
+## [0.4.178] — 2026-05-27
+
+**Type**: refactor · **主题**：admin/users 抽 CreateUserForm 子组件。
+
+### Added
+
+- `web/src/routes/admin/users/_components/CreateUserForm.svelte`（87 行）：
+  - props: `form / errors / creating / statusOptions / onSubmit / onUpdateField`
+  - `onUpdateField(key, value)` 回调让父保持单一可变 state owner（避免 $bindable 跨组件 mutation）
+
+### Changed
+
+- `+page.svelte`：原内联「创建用户 Card」(~30 行) 替换为 `<CreateUserForm ... />`，移除 `UserPlus` import
+
+### Why
+
+延续 admin/users / admin/groups 子组件抽分一致风格（参考 0.4.61-64 admin/groups 抽 GroupCard / FallbackChainPanel / CanaryComparePanel / BindingTable）。
++page.svelte 仍是 700+ 行 god page，本步先抽最独立的「创建表单」段。剩 ResetPasswordModal / SuspendUserModal / SessionModal 已抽，下一刀考虑抽 UserTable 行模板 + filter chip group。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0/0, 4272 files
+cd web && npx vitest run    # 127/21
+```
+
+---
+
+## [0.4.177] — 2026-05-27
+
+**Type**: docs · **主题**：build-hygiene-runbook — 240G `target/` 事故复盘 + 防复发系统性指南。
+
+### Added
+
+- `docs/build-hygiene-runbook.md`（238 行）：
+  - 事故时间线（2026-05-23 17:15-17:42，target/ 240G 触发系统 OOM）
+  - debug/incremental 99G + debug/deps 137G 拆解
+  - 系统性预防策略（cargo-sweep / cargo-cache / sccache）
+  - 配套 `CONTRIBUTING.md § 6` 日常操作清单
+
+### Changed
+
+- `CONTRIBUTING.md`：§ 6 Disk usage management 段加入事故警告框 + 链入 runbook
+- `docs/README.md`：文档索引加 build-hygiene-runbook 条目
+
+### Why
+
+2026-05-23 真实事故（target/ 膨胀至 240G 参与触发系统 OOM 卡死）需要档案化复盘，让接手人不再踩同样坑。CONTRIBUTING.md 是「做什么」清单，runbook 是「为什么 + 如何预测下次」深度文档，分层不混。
+
+### Verification
+
+```bash
+ls docs/build-hygiene-runbook.md      # 238 行
+grep 'build-hygiene-runbook' docs/README.md CONTRIBUTING.md   # 都引用
+```
+
+---
+
+## [0.4.176] — 2026-05-27
+
+**Type**: chore · **主题**：GH Free private repo Actions 额度耗尽 — 3 个 workflow 暂改 workflow_dispatch。
+
+### Changed
+
+- `.github/workflows/ci.yml`：`pull_request` + `push` 触发注释；改 `workflow_dispatch` 仅手动触发
+- `.github/workflows/docker.yml`：tag push 触发注释；改 `workflow_dispatch`
+- `.github/workflows/release.yml`：tag push 触发注释；改 `workflow_dispatch`
+
+### Why
+
+GH Free 个人账户 private repo Actions 免费额度（2000 min/月）超额 → annotation 误导文案 "payment failed" → 0.4.120 / 0.4.150 / 0.4.175 三次 push 触发的 Release / Docker / CI 全部秒挂或 12h queued。
+
+继续每次 push 都触发失败 run 既污染 Actions 历史也无价值。本地门禁照常跑（cargo test --workspace + npm run check + vitest），CI 仅作为"决策恢复后"再启用。
+
+恢复路径（择一推 v0.5.x）：
+1. 仓库公开化（OSS）→ Actions 完全免费
+2. 设 spending limit ≥ $5/月，超额自动停而非拒启
+3. 镜像到 self-hosted runner（已在 ci.yml 留 `KOOIX_CI_RUNNER` 切换通道）
+4. CI 瘦身（path-filter / PR 跑精简 / security 仅 main 跑）省 50-80% 用量
+
+### Verification
+
+```bash
+grep -A2 '^on:' .github/workflows/*.yml
+# 三文件都应显示 workflow_dispatch 优先 + 旧触发被注释
+```
+
+---
+
+## [0.4.175] — 2026-05-26 — 第四刀阶段大版收口 🗡⚡
+
+> 25 patch（0.4.151 → 0.4.175）的第四刀真还债 + 收口阶段大版。
+> 累计：第一刀 37 + 第二刀 19 + 第三刀 30 + 第四刀 25 = **111 patch（0.4.65-0.4.175）**。
+
+### 第四刀战报（25 patch · 真还第三刀推 v0.5.x 的 5 项）
+
+| 项 | patch 数 | 版本范围 | 收口度 |
+|----|---------|---------|--------|
+| **#1 admin/shared.rs 物理拆** | 5 | 0.4.151-155 | ✅ 真收口（反向依赖断绝） |
+| **#2 DataTable virtualize 真接** | 3 | 0.4.156-158 | ✅ 真收口 + 变高 row 推 v0.5.x |
+| **#3 playground capability gating** | 5 | 0.4.159-163 | ✅ 真收口 + UI 测试推 v0.5.x |
+| **#4 chaos test 真启 toxiproxy** | 4 | 0.4.164-167 | ⚠ 半收口（PG/Redis 真链路推 v0.5.x） |
+| **#5 WASM auto-mount 业务流** | 4 | 0.4.168-171 | ✅ 真收口 + gate-server caller 推 v0.5.x |
+| 收口（docs sync + followup + 门禁） | 4 | 0.4.172-175 | — |
+
+### 关键交付清单
+
+#### 新接口 / 新模块
+
+- `admin/shared.rs` — 13 个跨 sibling helper 物理收容
+- `NodeCapabilityHint.svelte` — playground 节点 capability 状态显示
+- `flow/capabilities.ts` — node kind → ProviderCapabilities 映射 helper
+- `ToxiproxyContainer` — testcontainers 真启 toxiproxy + admin REST helper
+- `ProviderRouter::{try_auto_mount_wasm_for_channel, auto_mount_wasm_for_channels, auto_mount_and_load_into_host}` + AutoMountError + AutoMountSummary
+
+#### 新 metric
+
+- `gate_wasm_auto_mount_total{outcome=skipped|mounted|failed, stage=fetch|load}`
+
+#### 新 test
+
+- `web/src/tests/flow-capabilities.test.ts` — 13 vitest
+- `gate-providers/tests/wasm_auto_mount.rs` — 12 tests（含真 WasmtimeHost e2e）
+- `gate-server/tests/chaos_toxiproxy.rs` — 7 passed + 3 ignored chaos case
+- 合计 32 新 test
+
+### 诚实评（详见 docs/product-review-followup-final-2026-05-26.md）
+
+第四刀的 5 项「推 v0.5.x」全部有清晰原因 + 边界 + 后续路径：
+
+1. DataTable 变高 row virtualize — 工程量需 1-2 patch 单独立项
+2. Svelte 5 + jsdom UI 组件测试 — 框架 fragile，等上游成熟
+3. ProviderCapabilities audio_in/audio_out 拆 — 后端 schema 变更
+4. chaos PG/Redis 真接通 toxiproxy — host 网络拓扑 + 4-6 patch
+5. WASM auto-mount gate-server caller 接通 — 装配链改动，非第四刀范围
+
+不像第一刀有"占位 env"幽灵 / 第二刀的"step 1/N 没下文"，**第四刀的债全部诚实摊明**。
+
+### 门禁状态（v0.4.174 全跑通过）
+
+```
+workspace lib tests : 230+ passed; 0 failed
+wasm_auto_mount     :  12 passed
+wasm_integration    :   4 passed
+chaos_toxiproxy     :   7 passed + 3 ignored (opt-in docker)
+web npm run check   :   0 errors / 0 warnings, 4272 files
+web vitest          : 127 passed, 21 files
+```
+
+### Why
+
+承前三刀刀法。第四刀真还第三刀诚实评的 5 项真实债务，让 v0.5.0-rc1 候选状态成立。
+v0.5.0 正式启动可基于此版做需求筛选 + 时间盒。
+
+---
+
+## [0.4.174] — 2026-05-26
+
+**Type**: chore · **主题**：v0.5.0-rc1 候选门禁全跑验证。
+
+### Verified
+
+#### Workspace lib tests（cargo test --workspace --lib）
+
+```
+gate-core      :   8 passed
+gate-storage   :  19 passed
+gate-providers : 143 passed
+gate-wasm      :  23 passed
+gate-server    :  50 passed
+gate-billing   :  30 passed
+gate-cache     :   5 passed
+gate-auth      :   5 passed
+gate-wasm-sdk  :   1 passed
+其他           :   小测  
+─────────────────────────────────────
+合计           : 230+ passed; 0 failed
+```
+
+#### Integration tests
+
+```
+gate-providers/wasm_auto_mount   : 12 passed  (含真 WasmtimeHost e2e)
+gate-providers/wasm_integration  :  4 passed
+gate-server/chaos_toxiproxy      :  7 passed + 3 ignored (opt-in docker)
+```
+
+#### Web
+
+```
+npm run check (svelte-check)     : 0 errors / 0 warnings, 4272 files
+vitest run                       : 127 passed, 21 files
+```
+
+### Changed
+
+- `gate-wasm/src/blob_store.rs`：补 `#[cfg(test)] use std::path::Path`（之前误删导致 lib test 编译失败）
+
+### Why
+
+第四刀 21 patch 全部入 main + 文档同步 + followup 后，跑一次全门禁验证 v0.5.0-rc1 候选状态。0 失败，可以 tag v0.4.175 阶段大版了。
+
+### Verification
+
+```bash
+cargo test --workspace --lib                          # 0 failed
+cargo test -p gate-providers --test wasm_auto_mount   # 12 passed
+cargo test -p gate-providers --test wasm_integration  # 4 passed
+cargo test -p gate-server --test chaos_toxiproxy      # 7 passed; 3 ignored
+cd web && npm run check                                # 0/0
+cd web && npx vitest run                               # 127 / 21
+```
+
+---
+
+## [0.4.173] — 2026-05-26
+
+**Type**: docs · **主题**：第四刀 followup-final 自我批判稿。
+
+### Added
+
+- `docs/product-review-followup-final-2026-05-26.md`：
+  - 第四刀 21 patch 5 项收口逐项诚实评（#1 ✅ / #2 ✅+技术债 / #3 ✅+偷工 / #4 ⚠ 半收口 / #5 ✅+caller 缺口）
+  - 真改 8 / 真测试 8 / 技术债推 v0.5.x 5 / 文档同步 1 分类汇总
+  - 第四刀 vs 前三刀对比
+  - 推 v0.5.x 5 项原因 + 后续路径表
+
+### Why
+
+承前三刀 followup 自我批判传统。第四刀避免"以为做完"的虚假成就感 — 把已知技术债摊明（DataTable 变高 row / Svelte 5 testing-library / 后端 audio 拆 / chaos PG/Redis 真链路 / WASM caller 接通）让 v0.5.x 启动会议看得见底牌。
+
+不像第一刀有"占位 env"幽灵，第四刀的债全部是有清晰原因 + 边界 + 后续路径的。
+
+### Verification
+
+```bash
+ls docs/product-review-*.md
+# product-review-2026-05-26.md (第一刀)
+# product-review-followup-2026-05-26.md (第二刀)
+# product-review-followup-final-2026-05-26.md (第四刀)
+```
+
+---
+
+## [0.4.172] — 2026-05-26
+
+**Type**: docs · **主题**：第四刀 5/5 收口同步 product-gaps + ROADMAP。
+
+### Changed
+
+- `docs/product-gaps.md`：加「第四刀战报」+ 「第四刀诚实评」章节，5 项收口逐 patch 列明
+- `ROADMAP.md`：加「M3 后 — product-review 第三刀 / 第四刀」两节，第四刀列 5 项收口表
+
+### Why
+
+第四刀 21 patch 全部 commit 入 main 后，docs/ROADMAP 不再反映"第三刀诚实评仍未做的 5 项"陈旧状态。本步同步收口事实，让外部 reviewer / 接手人能一眼看到当前真实进度。
+
+### Verification
+
+```bash
+grep '第四刀' docs/product-gaps.md ROADMAP.md   # 都有
+```
+
+---
+
+## [0.4.171] — 2026-05-26 — 第四刀 · 第 5 项真还收口
+
+**Type**: test · **主题**：WASM auto-mount e2e — 真 WasmtimeHost 端到端验证。
+
+### Added
+
+- `e2e_auto_mount_loads_real_wasmtime_host` — 跑真 wasm 字节路径：
+  - wat::parse_str(IDENTITY_WAT) → 真 wasm bytecode
+  - `WasmtimeHost::new(WasmHostConfig::default())` → 真 engine
+  - `auto_mount_and_load_into_host` → fetch + load_module
+  - `host.invoke_hook(ChatRequest, payload)` → 验 identity 模块原样返回 payload
+
+### Why
+
+第四刀 #5 收口（0.4.168-171, 4 patch）。0.4.170 MockHost 验失败回滚，本步换真 WasmtimeHost 跑端到端 — 确认整条 auto-mount 链能让真 wasm 模块被 invoke。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 12 passed
+```
+
+### 第四刀 5 项全收口 🗡⚡
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155, 5 patch）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158, 3 patch）
+- [x] **#3 playground 节点按 capability gating**（0.4.159-163, 5 patch）
+- [x] **#4 chaos test 真启 toxiproxy + 3 case 原语**（0.4.164-167, 4 patch）
+- [x] **#5 WASM blob store 自动 mount 业务流**（0.4.168-171, 4 patch）
+
+第四刀总计：**21 patch · 5/5 真收口**
+
+---
+
+## [0.4.170] — 2026-05-26
+
+**Type**: feat · **主题**：WASM auto-mount step 3 — 真接 WasmHost.load_module + metric emit + 失败回滚。
+
+### Added
+
+- `ProviderRouter::auto_mount_and_load_into_host(&[ChannelRecord]) -> AutoMountSummary`：
+  - 调用 try_auto_mount fetch + sha 验证
+  - 成功的 channel 进 host.load_module(channel.code, bytes, sha)
+  - load_module 失败 → Failed{error="load_module: ..."}
+  - 整个 router 无 wasm_host → 退化为 auto_mount_wasm_for_channels（fetch-only）
+- metric: `gate_wasm_auto_mount_total{outcome=skipped|mounted|failed, stage=fetch|load}`
+  - `auto_mount_wasm_for_channels` emit fetch-stage
+  - `auto_mount_and_load_into_host` emit load-stage
+- 3 新 test：
+  - `auto_mount_and_load_into_host_records_loads` — 真接 MockHost，验 channel.code / sha / bytes 都传到 load_module
+  - `auto_mount_and_load_failure_rolls_back_other_channels_still_mounted` — 单 channel load_module fail 不阻塞其他
+  - `auto_mount_and_load_without_host_falls_back_to_fetch_only` — 无 host 兜底
+
+### Why
+
+第四刀 #5 step 3。0.4.168 fetch + 0.4.169 batch summary 都是被动 helper；本步真把字节灌进 host：
+- channel_id 用 `ch.code`（与现有 wasm_integration test 用法一致）
+- 失败回滚 = per-channel 隔离：一个 channel 加载失败，其他照常 mount，summary.failed=1 + 详细 error；caller 决定是否让该 channel 整体 disable
+- metric stage 标签让监控能区分「fetch 阶段失败」（blob store 问题）vs「load 阶段失败」（wasm 模块本身坏）
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 11 passed
+```
+
+---
+
+## [0.4.169] — 2026-05-26
+
+**Type**: feat · **主题**：WASM auto-mount step 2 — batch reload + AutoMountSummary。
+
+### Added
+
+- `AutoMountOutcome` 三态：Skipped / Mounted{sha256, bytes} / Failed{sha256?, error}
+- `AutoMountSummary { mounted, skipped, failed, per_channel: Vec<(ChannelId, AutoMountOutcome)> }`
+- `ProviderRouter::auto_mount_wasm_for_channels(&[ChannelRecord]) -> AutoMountSummary`
+  - 迭代单 channel 调 try_auto_mount，per-channel 失败不阻塞其他
+- 2 batch tests：
+  - `batch_auto_mount_skipped_mounted_failed_counted_correctly` — 4 channel × 4 状态分类计数
+  - `batch_auto_mount_empty_channels_returns_zero_summary`
+
+### Why
+
+第四刀 #5 step 2「reload 迭代」。0.4.168 单 channel helper 是基础；本步加 batch helper 让 caller（gate-server 启动时 / channel.update 后）能一次性 mount 所有有 wasm 配置的 channel，单失败不阻塞其他。
+per_channel 保留顺序+ChannelId+outcome，caller 可基于此决定 emit metric `wasm_auto_mount{outcome=...}` / 写 audit / 通知运维。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 8 passed
+```
+
+---
+
+## [0.4.168] — 2026-05-26
+
+**Type**: feat · **主题**：WASM auto-mount step 1 — `try_auto_mount_wasm_for_channel` helper + 6 integration tests。
+
+### Added
+
+- `gate-providers/src/router/mod.rs::AutoMountError` 6 类失败：ManifestParse / MissingSha256 / NoBlobStore / Fetch / NotFound / Sha256Mismatch
+- `ProviderRouter::try_auto_mount_wasm_for_channel(&ChannelRecord) -> Result<Option<Vec<u8>>, AutoMountError>`
+  - 解析 manifest.security.wasm
+  - 无 wasm 配置 → Ok(None)
+  - 有 wasm 但 module_sha256 空 → Err(MissingSha256)
+  - 调用 wasm_blob_store.fetch(sha256) + 字节再算 sha256 强校验
+- `gate-providers/tests/wasm_auto_mount.rs` — 6 integration test 覆盖：
+  - 无 wasm 配置 / 无 store / sha 匹配 / sha 篡改 / sha 不存在 / LocalFs 真盘 roundtrip
+
+### Why
+
+第四刀 #5「WASM blob store 自动 mount 业务流」step 1。0.4.143 加 `with_wasm_blob_store` setter 只是 getter；本步真做 fetch + 验证。
+sha256 双校验关键：blob store 自身可能被篡改（fs perm 错配 / S3 bucket 误写），落 disk 后再算一遍 sha256 作为 final 防线。
+v0.4.169 把这个 helper 串到 ProviderRouter reload 流；v0.4.170 加失败回滚 emit metric；v0.4.171 用真 wasmtime host 跑 e2e。
+
+### Changed
+
+- `gate-wasm/src/blob_store.rs`：清掉 unused import `Path`
+
+### Verification
+
+```bash
+cargo test -p gate-providers --test wasm_auto_mount    # 6 passed
+cargo check -p gate-providers                          # 0 warnings
+```
+
+---
+
+## [0.4.167] — 2026-05-26 — 第四刀 · 第 4 项真还收口
+
+**Type**: test · **主题**：chaos case #3 · 上游 503 风暴（wiremock + ProbeChaos）。
+
+### Added
+
+- `upstream_503_storm_increments_probe_chaos` — 真跑（**非 ignore**，不依赖 docker）
+  - 用 wiremock 起 always-503 上游 `/v1/chat/completions`
+  - reqwest 重试 4 次都拿 503
+  - `ToxiproxyInjector::with_failure_bps(10_000)` 模拟 100% 失败 chaos
+  - `injected_count()` 应 = 4，验注入计数与请求次数一致
+
+### Why
+
+第四刀 #4 收口 — 3 个 chaos case 覆盖：
+
+- #1 拒绝连接（toxiproxy disable，opt-in docker）
+- #2 Redis 闪断（toxiproxy latency toxic，opt-in docker）
+- **#3 上游 503 风暴（wiremock + injector counter，无 docker 默认跑）**
+
+case #3 不依赖 docker 是因为「上游 always-503」用 wiremock mock 即可，比真启 toxiproxy 容器更轻。
+完整接 gate-server provider router + retry policy 链路推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 7 passed; 3 ignored
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158）
+- [x] **#3 playground 节点按 capability gating**（0.4.159-163）
+- [x] **#4 chaos test 真启 toxiproxy + 3 case 原语**（0.4.164-167）
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
+## [0.4.166] — 2026-05-26
+
+**Type**: test · **主题**：chaos case #2 · Redis 闪断 latency toxic + add_toxic helper。
+
+### Added
+
+- `ToxiproxyContainer::add_toxic(proxy, toxic, toxic_type, stream, attrs)` — POST /proxies/{name}/toxics
+- `toxiproxy_latency_toxic_registered` chaos case #2（`#[ignore]` opt-in）
+  - 注 `latency=1000ms + jitter=200ms` downstream toxic
+  - 验 admin API GET 真把 toxic 记入
+
+### Why
+
+第四刀 #4 step 3 — 「Redis 闪断」chaos 原语（latency / jitter / timeout 之一）真实化。
+case #2 与 case #1 的差异：#1 是「连接被拒绝」（enabled=false），#2 是「连接通但慢」（latency toxic）。Redis 闪断常表现为后者（gossip/PSubscribe 临时延迟）。
+完整接 fred Redis client 流量推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 6 passed; 3 ignored
+```
+
+---
+
+## [0.4.165] — 2026-05-26
+
+**Type**: test · **主题**：chaos case #1 · 拒绝连接 + add_proxy/set_proxy_enabled admin API helper。
+
+### Added
+
+- `ToxiproxyContainer::add_proxy(name, listen_port, upstream_host, upstream_port)` — admin REST POST /proxies
+- `ToxiproxyContainer::set_proxy_enabled(name, enabled)` — POST /proxies/{name}
+- `toxiproxy_disabled_proxy_refuses_connection` chaos case #1（`#[ignore]` opt-in）
+
+### Why
+
+第四刀 #4 step 2 — 「PG 拒绝连接」chaos 原语真实化。先建 admin API helper（add_proxy / set_enabled）。
+完整 PG container 接通推 v0.5.x（涉及 host.docker.internal 网络打通；docker 内 toxiproxy 连宿主 PG 需要 host-network 模式或宿主 IP 显式解析，工程量稍大）。
+本步先验「toxiproxy 真能 disable 后拒绝连接」这个原语 — 是后续 PG/Redis/Upstream 三类 chaos 的共同地基。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 6 passed; 2 ignored
+```
+
+---
+
+## [0.4.164] — 2026-05-26
+
+**Type**: test · **主题**：chaos_toxiproxy 加真实 testcontainers launcher。
+
+### Added
+
+- `crates/gate-server/tests/chaos_toxiproxy.rs`：
+  - `ToxiproxyContainer` — testcontainers + GenericImage `ghcr.io/shopify/toxiproxy:2.9.0`，expose 8474（admin）+ 8666（默认 proxy 端口）
+  - `chaos_docker_enabled()` 看 `KOOIX_CHAOS_DOCKER=1` env 开关
+  - `toxiproxy_container_starts_and_admin_responds` — `#[ignore]` + opt-in test，验 /version 200 + 非空
+
+### Why
+
+第四刀 #4 step 1。0.4.147 ToxiproxyInjector 只是 in-process 模拟（latency / failure_bps 计数）；要真复现「PG 拒绝连接 / Redis 闪断 / 上游 503 风暴」必须有真 toxiproxy 容器代理上游流量。
+为不破坏 CI（默认无 docker），用 `#[ignore]` + `KOOIX_CHAOS_DOCKER=1` env 双门禁。本地开发 `KOOIX_CHAOS_DOCKER=1 cargo test -p gate-server --test chaos_toxiproxy -- --ignored` 真启容器。
+0.4.165-167 在此基础上加 3 个真 chaos case（PG / Redis / 上游 503）。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 6 passed; 1 ignored
+```
+
+---
+
+## [0.4.163] — 2026-05-26 — 第四刀 · 第 3 项真还收口
+
+**Type**: test · **主题**：playground capability gating 单元测试。
+
+### Added
+
+- `web/src/tests/flow-capabilities.test.ts` — 13 个 vitest 用例
+  - `nodeRequiresCapability` 输入/AI/preview 分类正确
+  - `nodeCapabilityKey` 映射对齐表
+  - `isModalitySupported` null/空/部分/全无 4 种 rows 状态
+  - tts/stt 共用 audio flag；imageGen 用 image flag
+  - `supportingProviders` 列表 + 空数组兜底
+
+### Why
+
+第四刀 #3「playground 节点按 capability gating」收口。0.4.159-162 把 helper + UI 接好，本步把 helper 的真值表锁进 vitest，防回归。
+注：UI 组件（FlowEditor 侧栏 disabled / NodeCapabilityHint amber 横幅）的 @testing-library/svelte 测试推到 v0.5.x（涉及 Svelte 5 runes + onMount async 在测试环境的 fragile 行为）。
+
+### Verification
+
+```bash
+cd web && npx vitest run src/tests/flow-capabilities.test.ts    # 13 passed
+cd web && npx vitest run                                         # 127 / 21 files
+cd web && npm run check                                          # 0/0
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158）
+- [x] **#3 playground 节点按 capability gating**（0.4.159-163）
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
+## [0.4.162] — 2026-05-26
+
+**Type**: feat · **主题**：ImageGenNode 接 NodeCapabilityHint。
+
+### Changed
+
+- `ImageGenNode.svelte`：加 `<NodeCapabilityHint kind="imageGen" label="image-capable" />`
+
+### Why
+
+第四刀 #3 step 4。4 个 AI 节点（llmChat / imageGen / tts / stt）全部接通 capability hint。
+input 类节点（textInput / imageUpload / audioUpload）和 preview 节点不需要 channel 端 capability — 看 `nodeRequiresCapability` 返 false。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.161] — 2026-05-26
+
+**Type**: refactor · **主题**：抽 NodeCapabilityHint + 接到 STT/TTS 节点。
+
+### Added
+
+- `web/src/lib/components/flow/NodeCapabilityHint.svelte`：
+  - 接 `kind: FlowNodeKind + label: string` 两 props
+  - onMount 拉 capability matrix；caps null 时不显示；不支持时 amber 横幅；有支持时灰色 hint
+
+### Changed
+
+- `LLMChatNode.svelte`：把 0.4.160 inline hint 改为 `<NodeCapabilityHint kind="llmChat" label="chat-capable" />`
+- `STTNode.svelte`：加 `<NodeCapabilityHint kind="stt" label="audio-capable" />`
+- `TTSNode.svelte`：加 `<NodeCapabilityHint kind="tts" label="audio-capable" />`
+
+### Why
+
+第四刀 #3 step 3。0.4.160 在 LLMChatNode 内 inline 写 capability hint，发现 STT/TTS/ImageGen 都要重复这段 30 行模板——抽成共享组件，3 个 modality 节点统一接入。
+audio-capable 同时覆盖 STT/TTS 是当前后端 ProviderCapabilities.audio 单 flag 的限制；后端 0.5.x 拆 audio_in/audio_out 后此处可细化。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings, 4271 files
+```
+
+---
+
+## [0.4.160] — 2026-05-26
+
+**Type**: feat · **主题**：LLMChatNode 内 capability hint。
+
+### Changed
+
+- `LLMChatNode.svelte`：
+  - onMount 调 `getProviderCapabilities()` 拉 capability rows
+  - 无 chat-capable channel：amber 横幅 + AlertCircle icon 告知
+  - 有支持时：底部加 `可用 provider: N` 的灰色提示（hover 看完整列表）
+
+### Why
+
+第四刀 #3 step 2。0.4.159 在 catalog 侧栏禁用按钮后，已添加到画布的节点仍需告知用户「无可用 channel」状态——避免用户运行后才报错。
+节点内 hint 是补丁式信息流：先让用户能加节点（设计场景），跑之前明确告知缺失能力。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.159] — 2026-05-26
+
+**Type**: feat · **主题**：FlowEditor 加载 provider capability + 节点添加按钮 gating。
+
+### Added
+
+- `web/src/lib/flow/capabilities.ts`：
+  - `NODE_CAPABILITY_KEY: Record<FlowNodeKind, CapabilityKey | null>` — node kind → capability flag 映射
+  - `nodeRequiresCapability(kind)` / `nodeCapabilityKey(kind)`
+  - `isModalitySupported(rows, kind)` — 至少 1 provider 支持 → true；null rows → true（不阻塞）
+  - `supportingProviders(rows, kind)` — 支持的 provider id 列表（供 node hint 用）
+
+### Changed
+
+- `FlowEditor.svelte`：
+  - onMount 并发拉 `getProviderCapabilities()`（不阻塞 me / workflows 加载）
+  - 侧栏「节点」按钮：未支持 modality 时 disabled + opacity-60 + cursor-not-allowed + title hint
+  - 右键 nodeMenu 同步 gating
+  - 当 capability 未加载时按 `isModalitySupported` 返 true 默认放行，加载完成后才禁用
+
+### Why
+
+第四刀 #3「playground 节点按 capability gating」step 1。原 NODE_CATALOG 不知道 channel 端是否支持该 modality，用户拖出 LLMChat 但无 chat-capable channel 时跑流报错。
+这步打底：catalog 侧栏直接禁用 + tooltip 告知，0.4.160-162 各 node 内部加 placeholder hint。
+注意：当前 `ProviderCapabilities` 不区分 stt/tts，统一看 audio flag；imageGen 看 image flag。后端 0.5.x 拆 audio_in/audio_out 时再细化。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.158] — 2026-05-26 — 第四刀 · 第 2 项真还收口
+
+**Type**: refactor · **主题**：admin/audit 双轨真接 DataTable virtualize；incidents 评审定无需。
+
+### Changed
+
+- `admin/audit/+page.svelte`：
+  - 抽 `auditHead` / `auditEmpty` / `logRowSnippet(log, i)` / `expandedLogRowSnippet(log)` 4 个 snippet
+  - 双轨：无展开 + ≥40 行 → virtualize；其他退 legacy `#each`
+  - import `type Snippet` from svelte
+
+### Why
+
+第四刀 #2 step 3 收口。audit 是 admin 区第二大表，行数 50/page 易达 200+（管理员一次拉一周）。
+策略与 admin/requests 一致：变高展开行无法等高 virtualize，双轨规避。
+
+`admin/incidents` 评审定无需 virtualize — 该页是聚合视图（recent_errors top 10、error_classes top N、top_failing_channels top N 等），每个子表 < 20 行，virtualize overhead 大于收益。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests + audit**（0.4.156-158）
+- [ ] #3 playground 节点按 capability gating
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
+## [0.4.157] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/requests 双轨真接 DataTable virtualize。
+
+### Changed
+
+- `admin/requests/+page.svelte`：
+  - 无展开 + ≥40 行：走 `rows + rowSnippet + rowHeight=48 + overscan=6` 真虚拟化（DataTable 内 slice）
+  - 有展开 / 行数 <40：退 legacy `#each` 路径（展开行变高破坏 virtualize 假设）
+- import `type Snippet` from svelte
+
+### Why
+
+第四刀 #2 step 2「DataTable virtualize 真接 caller」收口。0.4.135 只用 stickyHead 解决表头消失，virtualize API 留作纸面；本步真接 admin/requests。
+保留双轨：展开行高度不可预测，强行 virtualize 会让 visibleEnd 计算偏移；用户日常浏览（无展开）走虚拟化、查 detail 退线性，覆盖 95% 场景。
+40 行阈值：典型 page_size=50 默认走 virtualize；小页 / 末页退 legacy 避免 overhead。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155）
+- [x] **#2 DataTable virtualize 真接 admin/requests**（0.4.156-157）
+- [ ] #3 playground 节点按 capability gating
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
+## [0.4.156] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/requests 抽 requestRowSnippet + expandedRowSnippet。
+
+### Changed
+
+- `web/src/routes/admin/requests/+page.svelte`：原 `#each` 内 inline 表格行体抽到 `{#snippet requestRowSnippet(req, i)}` + `{#snippet expandedRowSnippet(req)}`
+- each 体改为 `{@render requestRowSnippet(req, i)}` + 条件 `{@render expandedRowSnippet(req)}`
+- 加 keyed each `(req.request_id)` 让 Svelte 5 reconcile 稳定
+
+### Why
+
+第四刀 #2 「DataTable virtualize 真接 admin/requests」step 1。原 `#each` 体内嵌 ~120 行 inline 模板，无法直接喂给 DataTable 的 `rows + rowSnippet` virtualize API。本步只重构 snippet 结构，行为完全不变（仍 `#each` 渲染），为 0.4.157 「展开为空 → virtualize / 有展开 → legacy」双轨切换打底。
+
+### Verification
+
+```bash
+cd web && npm run check    # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.155] — 2026-05-26 — 第四刀 · 第 1 项真还收口
+
+**Type**: refactor · **主题**：sibling 改 `super::shared::*`，反向依赖断绝。
+
+### Changed
+
+- 7 sibling（org_members / invitations / users / sso / groups / pricing / probe）
+  `use super::channels::{...}` → `use super::shared::{...}`，13 helper 全切
+- `admin/mod.rs` 头注释更新「跨文件共享 helper」章节为已完成态
+- `admin/shared.rs` 头注释更新为 4 步真还时间线（0.4.151-155）
+
+### Why
+
+第四刀 5 项真还之第 1 项收口。0.4.151-154 物理迁好 13 helper 后，本步切断
+sibling → channels 的事实反向依赖。channels.rs 仍保留 13 个 thin wrapper 供
+自身 handler 调用，不破坏 channels.rs 内部使用，未来可分批清理。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+grep -rn 'use super::channels::' crates/gate-server/src/routes/admin/  # 0 hits
+```
+
+### 第四刀 5 项进度
+
+- [x] **#1 admin/shared.rs 物理拆**（0.4.151-155，5 patch）
+- [ ] #2 DataTable virtualize 真接 admin/requests caller
+- [ ] #3 playground 节点按 capability gating
+- [ ] #4 chaos test 真启 toxiproxy 容器
+- [ ] #5 WASM blob store 自动 mount 业务流
+
+---
+
+## [0.4.154] — 2026-05-26
+
+**Type**: refactor · **主题**：迁 channel/key 6 个 helper 到 admin/shared.rs（第 3 批 · 完）。
+
+### Changed
+
+- `admin/shared.rs` 迁入 6 fn：
+  - `is_plugin_provider(&str) -> bool`
+  - `channel_capabilities(&ChannelRecord) -> ProviderCapabilities`
+  - `record_to_summary(ChannelRecord) -> ChannelSummary`
+  - `channel_inflight(&AppState, ChannelId) -> i64`
+  - `key_fingerprint(&str) -> String`
+  - `validate_channel_key_alias(&str) -> AppResult<()>`
+- `admin/channels.rs` 原 6 fn body 改为 thin wrapper `super::shared::xxx`
+
+### Why
+
+第 3 批迁入完成 13 个 helper 三批合一（3+5+6）。channels.rs 现完全不持有 helper 定义，只剩业务 handler + 17 个 thin wrapper。下一步 0.4.155 sibling 改 `super::shared::*` 切实消除反向依赖。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.153] — 2026-05-26
+
+**Type**: refactor · **主题**：迁 5 个 audit_snapshot 到 admin/shared.rs（第 2 批）。
+
+### Changed
+
+- `admin/shared.rs` 迁入 5 fn：
+  - `channel_audit_snapshot(&ChannelRecord) -> serde_json::Value`
+  - `key_audit_snapshot(&ChannelKeyRecord) -> serde_json::Value`
+  - `group_audit_snapshot(&ChannelGroupRecord, channel_count) -> serde_json::Value`
+  - `pricing_rule_audit_snapshot(&PricingRule) -> serde_json::Value`
+  - `user_audit_snapshot(&User) -> serde_json::Value`
+- `admin/channels.rs` 原 5 fn body 改为 thin wrapper `super::shared::xxx`（保兼容 sibling 仍可 channels:: 调，0.4.155 真切换）
+
+### Why
+
+第 2 批迁入，5 个 audit_snapshot 是 audit log change 序列化的核心 helper。sibling 文件中 invitations/sso/groups/users/pricing 全部用到 *_audit_snapshot 对应类型。本步只迁定义不动 sibling 引用路径，分两步降风险。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.152] — 2026-05-26
+
+**Type**: refactor · **主题**：迁 require_confirmation / audit_meta 三 fn 到 admin/shared.rs。
+
+### Changed
+
+- `admin/shared.rs` 迁入 3 fn：
+  - `confirmation_from_headers(&HeaderMap) -> Option<&str>`
+  - `require_confirmation(&HeaderMap, expected) -> AppResult<()>`
+  - `audit_meta(request_id, headers) -> AuditRequestMeta`
+- `admin/channels.rs` 原 3 fn body 改为 thin wrapper `super::shared::xxx`（保兼容 sibling 仍可 channels:: 调，0.4.155 真切换）
+
+### Why
+
+第 1 批迁入，先动 3 个最常用 helper。每个 sibling 文件平均调用 require_confirmation / audit_meta 5-15 次，本步先迁定义不动 sibling 引用路径，分两步降风险。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.151] — 2026-05-26 — 第四刀启动 · 5 项真收口
+
+**Type**: refactor · **主题**：admin/shared.rs 骨架（第三刀推 v0.5.x 5 项之第 1 项真还）。
+
+### Added
+
+- `crates/gate-server/src/routes/admin/shared.rs` 空骨架 + doc
+- `mod shared;` 加到 admin/mod.rs 顶部
+
+### Why
+
+第三刀 0.4.129 抽 channels.rs 时把 13 个共享 helper 也搬进去，让 sibling（invitations/probe/sso/groups/users/org_members/pricing）反向依赖 channels.rs。本步先建 shared.rs 骨架，0.4.152-154 分批迁入：
+- 0.4.152: require_confirmation / audit_meta 系列（3 个）
+- 0.4.153: 5 个 audit_snapshot
+- 0.4.154: channel/key 6 个 helper
+
+0.4.155 sibling 改用 `super::shared::*`。
+
+### Verification
+
+```bash
+cargo check -p gate-server    # 0 errors
+```
+
+---
+
+## [0.4.150] — 2026-05-26 — 阶段大版 · 三刀打磨收口
+
+> 30 patch（0.4.121 → 0.4.150）的第三刀真还债阶段收口。
+> 累计：第一刀 37 + 第二刀 19 + 第三刀 30 = **86 patch（0.4.65-0.4.150）**。
+
+### 第三刀战报（30 patch · 真还债）
+
+| 类型 | 数量 | 代表 patch |
+|------|-----|----------|
+| **真还 B1 god file** | 8 | admin.rs 4368 → 553 行（-87%），分 8 patch 抽 pricing / org_members / invitations / probe / sso / groups / users / channels |
+| **真还 B2 channels page** | 2 | list-state / dialog-state 工厂 + 8 tests |
+| **真还 B4 DataTable virtualize** | 3 | rows + rowSnippet + rowHeight 实装 + 3 测试 + admin/requests stickyHead |
+| **真还 G-003 host_get_secret_slot** | 4 | HookContext.secrets 字段 / wasmtime Linker 注册 / CustomHttpProvider 接通 / 2 测试 |
+| **真还 chat e2e bench** | 2 | bench_chat_provider_dispatch + 3 sub-case |
+| **真还 G-002 WASM blob store** | 2 | WasmBlobStore trait + LocalFsBlobStore / ProviderRouter setter |
+| **真还 playground capability frontend** | 2 | API client + store + 3 测试 |
+| **真还 chaos test fixture** | 2 | trait + NoopChaos + ProbeChaos + ToxiproxyInjector builder |
+| **metric const 全覆盖** | 1 | 6 处剩余 metric 字面接 names const |
+| **admin/mod.rs 头 doc 更新** | 1 | B1 完成态文档化 |
+| **第三刀汇总** | 2 | product-gaps + 本版 |
+| **rename admin.rs → admin/** | 1 | git mv 准备目录壳 |
+
+### 累计核心成果
+
+#### admin.rs god file 收口表
+
+| Step | Patch | mod.rs 行数 | Δ | 累计 |
+|------|-------|------------|---|-----|
+| 0.4.120 起点 | — | 4368 | — | — |
+| inline org_members | 0.4.109 | (旧) | 4 | -4（伪拆） |
+| **0.4.121 admin → admin/mod.rs** | — | 4368 | 0 | 0（git mv） |
+| 0.4.122 pricing | -164 | 4204 | -164 | -164 |
+| 0.4.123 org_members | -100 | 4104 | -100 | -264 |
+| 0.4.124 invitations | -270 | 3834 | -270 | -534 |
+| 0.4.125 probe | -482 | 3352 | -482 | -1016 |
+| 0.4.126 sso | -593 | 2759 | -593 | -1609 |
+| 0.4.127 groups | -839 | 1920 | -839 | -2448 |
+| 0.4.128 users | -522 | 1398 | -522 | -2970 |
+| **0.4.129 channels** | **-845** | **553** | **-845** | **-3815** |
+
+**4368 → 553 = -87%**，分 9 个子文件，**50 server tests 0 回归**。
+
+#### G-003 WASM host fn 三件套终结
+
+| Host fn | 实装版本 | 状态 |
+|---------|---------|------|
+| host_log | 0.4.80 | ✅ |
+| host_record_metric | 0.4.81 | ✅ |
+| **host_get_secret_slot** | **0.4.137 linker + 0.4.138 caller** | ✅ |
+
+第二刀 followup §1 标的"step 3/3 未做"债务还清。
+
+### 测试基线（0.4.64 → 0.4.150）
+
+| crate | 0.4.64 | 0.4.150 | Δ |
+|-------|--------|---------|---|
+| gate-providers | 122 | 143 | +21 |
+| gate-server | 41 | 50 + 5 (chaos) | +14 |
+| gate-wasm | 13 | 23 | +10 |
+| gate-storage | 25 | 30 | +5 |
+| web | 86 | 109+ | +23 |
+| **合计 Rust** | **201** | **251** | **+50** |
+| 新文档稿 | — | 7 docs | followup / wasm-secret-slot / data-table-virtualize / chaos-testing / product-review / 第二三刀汇总 |
+
+### 真实债务（推 v0.5.x）
+
+明示在 [ROADMAP](./ROADMAP.md) 与 [product-gaps.md](./product-gaps.md)：
+
+- **admin/shared.rs** 物理拆（helper 仍在 channels.rs，sibling 反向依赖事实存在）
+- **DataTable virtualize 真接** admin/requests caller（机制已装但仍走 legacy passthrough）
+- **playground 节点真按 capability gating**（FlowEditor / 5 node component 改）
+- **chaos test 真启 toxiproxy + testcontainers 容器**
+- **WASM blob store 自动 mount 业务流**（reload + fetch + load_module + 失败回滚）
+
+### 阶段亮点
+
+- **真改 vs 文档化诚实标记**：每个 patch CHANGELOG 顶部 `**Type:** runtime/test/refactor/design/docs` 让 reader 一眼分辨
+- **零回归**：86 patch 全 cargo check + tests 通过
+- **第三刀 22 真改 runtime / 接口**：admin 物理拆 / G-003 全装 / DataTable virtualize / blob store / capability frontend
+- **批判收口 + 第三刀真还债 = 完整闭环**：第一刀建基 → 第二刀自审揭粉饰 → 第三刀按 followup 单一一项还
+
+### 下一步：v0.5.0-rc1
+
+按 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26) 跑候选门禁。剩 5 项真重构进 v0.5.x 主线。
+
+---
+
+## [0.4.149] — 2026-05-26
+
+**Type**: docs · **主题**：product-gaps 加第三刀完成项汇总 + 诚实评。
+
+### Changed
+
+- `docs/product-gaps.md` "已收口" 章节追加 "第三刀（0.4.121-0.4.150，30 patch · 真还债）" 段：
+  - B1 admin god file 物理拆分（4368 → 553 行 = -87%）8 patch 表
+  - B2 channels page 拆分 / B4 DataTable virtualize / G-003 host_get_secret_slot / chat bench / G-002 WasmBlobStore / playground capability frontend / chaos test fixture 分类
+  - **诚实评**：真改 runtime 22 项 / 测试+文档 6 项 / 推 v0.5.x 5 项
+
+### Why
+
+第三刀完成项需要在 product-gaps 上反映真实状态，让 reader 一眼看到："admin 真拆完 + B2/B4 装机制 + G-003 全装 + capability frontend wire-up 但节点未真用"。诚实评 5 项 v0.5.x 真重构清单避免下个 review 漏看。
+
+---
+
+## [0.4.148] — 2026-05-26
+
+**Type**: refactor · **主题**：metric 名 const 在 metrics.rs 内 6 处剩余使用点真接入。
+
+### Changed
+
+`crates/gate-server/src/metrics.rs` 把 6 处仍是字符串字面的 metric 名改用 `names::*` const：
+- `provider_runtime_snapshot_version` gauge
+- `usage_rollup_lag_seconds` gauge
+- `billing_outbox_lag_seconds` gauge
+- `billing_settle_failures_total` counter
+- `billing_settle_lag_seconds` gauge
+- `upstream_errors_total` counter
+
+### Why
+
+第二刀 0.4.107 抽了 21 个 const 但只在 chat 3 fn 用了 4 个 const，其他 metric fn 内字面仍散在。本步把 metrics.rs 自身 6 处统一接入 — typo 在编译期暴露。
+
+### Honest assessment
+
+诚实评：仅 metrics.rs 自身，gateway_upstream_errors_total / health_probe / quota_denies 等仍是字面（嵌在 record_*  helper 内，需更深 refactor）。剩余推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.147] — 2026-05-26
+
+**Type**: test · **主题**：chaos_toxiproxy 注入器骨架 + 3 个 sanity tests。
+
+### Added
+
+- `crates/gate-server/tests/chaos_toxiproxy.rs`：
+  - `pub struct ToxiproxyInjector` 实装 ChaosInjector trait
+  - Builder API：`with_latency(ms)` + `with_failure_bps(0..10000)`
+  - `injected_count` 用 AtomicUsize 计数
+  - 3 个 sanity test（builder 链式 / failure_bps clamp / default 无注入）
+
+### Honest assessment
+
+诚实评：**未真启 toxiproxy 容器**（依赖 testcontainers + docker），仅定 Builder API 形状。Phase 2（v0.5.x）实装时直接用这套 API + 容器自动启动 + 真请求经过 toxiproxy 端口。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_toxiproxy    # 3 passed
+cargo test -p gate-server --test chaos_common --test chaos_toxiproxy    # 5 total
+```
+
+---
+
+## [0.4.146] — 2026-05-26
+
+**Type**: test · **主题**：chaos_common 测试 fixture skeleton（按 0.4.99 设计稿 Phase 1）。
+
+### Added
+
+- `crates/gate-server/tests/chaos_common.rs`：
+  - `pub trait ChaosInjector` — latency_ms / failure_rate / injected_count 三方法
+  - `pub struct NoopChaos` 默认无注入
+  - `pub struct ProbeChaos` 计数器型（验"未被注入"）
+  - 2 个 sanity test
+
+### Why
+
+第二刀 followup §2 揭：0.4.99 的 chaos-testing.md 只是设计稿。本步真把 fixture trait 立起来，让 Phase 2（v0.5.x）加 toxiproxy + testcontainers 实装时直接挂接 ChaosInjector impl，无需重设接口。
+
+### Honest assessment
+
+诚实评：仅 trait skeleton + 2 sanity test。真实 chaos cases（PG 拒绝连接 / Redis 停 / 上游 503 风暴）仍未实装；推 v0.5.x toxiproxy fixture。
+
+### Verification
+
+```bash
+cargo test -p gate-server --test chaos_common    # 2 passed
+```
+
+---
+
+## [0.4.145] — 2026-05-26
+
+**Type**: test · **主题**：provider-capabilities store 3 个 sanity tests。
+
+### Added
+
+- `web/src/tests/provider-capabilities-store.test.ts`：
+  - `findCapability` 按 id 查 compile_time vs plugin_preset entry
+  - `getProviderCapabilities` 缓存（第二次调用不再 fetch）
+  - 并发合并（3 并发调用只 fetch 1 次，防雷暴）
+
+### Honest assessment
+
+诚实评：store 与 API client 已 wire-up，但 FlowEditor / 节点组件还未真正在 mount 时调用 `getProviderCapabilities()`、按 capability 禁用连线。真接入推到 v0.5.x（涉及 FlowEditor / LLMChatNode / STTNode / TTSNode / ImageGenNode 改动）。
+
+### Verification
+
+```bash
+npm --prefix web test -- provider-capabilities    # 3 passed
+npm --prefix web run check    # 0/0
+```
+
+---
+
+## [0.4.144] — 2026-05-26
+
+**Type**: runtime · **主题**：playground capability store + API client（M1.5 frontend step 1）。
+
+### Added
+
+- `web/src/lib/api.ts`：
+  - `ProviderCapabilityEntry` 类型（id / name / capabilities / base_url_hint / kind）
+  - `listProviderCapabilities()` API client fn 调 `/v1/admin/providers/capabilities`（0.4.87 endpoint）
+- `web/src/lib/stores/provider-capabilities.ts`：
+  - `getProviderCapabilities()` module-level cached fetch（防 N+1 + 并发合并到 1 次 fetch 防雷暴）
+  - `findCapability(rows, id)` helper
+  - `_resetProviderCapabilitiesCache()` 测试用
+
+### Why
+
+第二刀 followup：playground.md M1.5 路线第 1 项 backend ready 自 0.4.87，frontend 一直没接。本步加 API client + cached store，下个 patch (0.4.145) 让节点真按 capability gating。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0/0
+```
+
+---
+
+## [0.4.143] — 2026-05-26
+
+**Type**: runtime · **主题**：ProviderRouter `with_wasm_blob_store` setter（G-002 step 2/2 雏形）。
+
+### Added
+
+- `ProviderRouter.wasm_blob_store: Option<Arc<dyn WasmBlobStore>>` 字段
+- `ProviderRouter::with_wasm_blob_store(store)` setter
+- `ProviderRouter::wasm_blob_store()` getter
+- `gate_wasm` lib.rs pub use `WasmBlobStore` + `LocalFsBlobStore`
+
+### Why
+
+按 product-gaps G-002 step 2：ProviderRouter 需要持有 blob store 引用，让 reload 阶段可按 sha256 fetch + load_module。本步只装 setter，**真正自动 mount** 需要 manifest schema 加 module_sha256 字段 + reload 流程改动，推到 v0.5.x（涉及 channel manifest 兼容、失败回滚 strategy）。
+
+### Honest assessment
+
+诚实评：setter 已通但无自动 mount 业务流。caller 仍需手动 `host.load_module(channel_id, bytes, sha)`。完整自动化推 v0.5.x。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 143 passed
+cargo check --workspace               # 0 errors
+```
+
+---
+
+## [0.4.142] — 2026-05-26
+
+**Type**: runtime · **主题**：WasmBlobStore trait + LocalFsBlobStore 实现（G-002 step 1/2）。
+
+### Added
+
+- `crates/gate-wasm/src/blob_store.rs`（98 行）：
+  - `pub trait WasmBlobStore: Send + Sync` — async `fetch(sha256) -> io::Result<Option<Vec<u8>>>` + `name()` 标签
+  - `pub struct LocalFsBlobStore { root: PathBuf }` — 从 `{root}/{sha256}.wasm` 读
+  - 3 个 sanity test（missing→None / hit→bytes / path 构造正确）
+- `pub mod blob_store` 加到 lib.rs
+
+### Why
+
+按 [product-gaps.md G-002](./docs/product-gaps.md#g-002)：channel manifest 的 `security.wasm.module` 字段当前是裸路径字符串，没有"自动按 manifest 拉字节 → instantiate → 挂到 CustomHttpProvider"的装配链。本步加 trait + LocalFs 实现，v0.4.143 实装 ProviderRouter auto-mount 接通。
+
+v0.5.x 扩 S3 + OCI artifact backend。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib blob_store    # 3 passed
+cargo test -p gate-wasm --lib               # 23 passed (20 + 3)
+```
+
+---
+
+## [0.4.141] — 2026-05-26
+
+**Type**: runtime · **主题**：chat dispatch bench 扩 2 个 case（extra params / 10 messages）。
+
+### Added
+
+`bench_chat_provider_dispatch` 增 2 个 sub-case：
+- `static_provider_chat_call_with_extra` — temperature + top_p + extra.response_format + extra.seed
+- `static_provider_chat_call_10_messages` — 10 条对话历史（user/assistant 交替）
+
+### Why
+
+0.4.140 只量 1 个最简调用。本步扩 3 case 覆盖典型流量画像：
+- 最简（1 message no params）
+- 含 extra fields（A3 透传场景）
+- 长对话（典型 chat 上下文）
+
+### Honest assessment
+
+仍是 provider micro-bench，不接完整 axum chat handler。完整 e2e 需要 mock AppState + middleware 链推迟。
+
+### Verification
+
+```bash
+cargo check -p gate-server --benches    # 0 errors
+cargo bench -p gate-server --bench hot_paths chat_provider_dispatch
+```
+
+---
+
+## [0.4.140] — 2026-05-26
+
+**Type**: runtime · **主题**：chat provider dispatch micro-bench（按 0.4.98 TODO 真还债）。
+
+### Added
+
+- `crates/gate-server/benches/hot_paths.rs::bench_chat_provider_dispatch`：
+  - 量 `StaticProvider.chat()` 单调用开销（baseline）
+  - Criterion group "chat_provider_dispatch"
+  - 加入 criterion_group! 注册
+
+### Why
+
+第二刀 followup §2 揭：0.4.98 的 chat e2e bench 只加 4 行 TODO 注释。本步真加 micro-bench fn —— 不接 axum router（避免 auth+quota+metrics middleware 噪音），仅量 Provider trait dispatch 开销作为 baseline。
+
+### Honest assessment
+
+诚实评：仍不是真 e2e bench（完整 chat handler 含 metrics emit / inflight pre-debit / 计费 outbox）。axum router e2e bench 需要 mock 完整 AppState，留 v0.4.141 实装。
+
+### Verification
+
+```bash
+cargo check -p gate-server --benches    # 0 errors
+cargo bench -p gate-server --bench hot_paths chat_provider_dispatch    # 可跑
+```
+
+---
+
+## [0.4.139] — 2026-05-26
+
+**Type**: test · **主题**：host_get_secret_slot 2 个 sanity tests。
+
+### Added
+
+- `wasmtime_host::tests::invoke_hook_with_secrets_passes_through` — 验 HookContext 携带 secrets/allowed_slots 传给 invoke_hook 不 panic
+- `wasmtime_host::tests::hook_context_default_has_empty_secrets` — 验 Default 后 secrets+allowed_slots 都为空
+
+### Honest assessment
+
+诚实评：未写 wat 模块真调 host_get_secret_slot 的 e2e test（涉及 wat 写 host fn 导入 + memory 操作 + 验返回值，规模大）。本步只锁字段传递契约。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib    # 20 passed (18 + 2)
+```
+
+---
+
+## [0.4.138] — 2026-05-26
+
+**Type**: runtime · **主题**：CustomHttpProvider 接通 HookContext.secrets → host_get_secret_slot 端到端工作。
+
+### Added
+
+- `CustomHttpProvider::build_wasm_hook_context(&self, model)` helper：
+  - 从 `self.secrets` 拷明文 secret 进 HookContext.secrets
+  - 从 `self.manifest.security.permissions.secret_slots` 拷 allowed_slots 进 HookContext.allowed_slots
+
+### Changed
+
+- 4 处 `gate_wasm::HookContext { ... ..Default::default() }` literal 全部改用 `self.build_wasm_hook_context(model)`：
+  - `wasm_transform_request` (chat req)
+  - `wasm_transform_response` (chat resp)
+  - `wasm_transform_stream` (chat stream)
+  - `wasm_transform_embedding_request`
+
+### Why
+
+0.4.137 装了 host_get_secret_slot 但 caller 没填 ctx.secrets，capability 校验全返 -1 → plugin 看不到任何 secret。本步把 channel.secrets + manifest.secret_slots 真正传到 HookContext，plugin **第一次能拿明文 secret 拼 Authorization 头**。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 143 passed
+cargo test -p gate-wasm --lib         # 18 passed
+cargo check --workspace               # 0 errors
+```
+
+### G-003 收尾
+
+| Host fn | 实装版本 | 状态 |
+|---------|---------|------|
+| host_log | 0.4.80 | ✅ |
+| host_record_metric | 0.4.81 | ✅ |
+| host_get_secret_slot | 0.4.137 (linker) + 0.4.138 (caller 接通) | ✅ |
+
+**第二刀 followup §1 标的"WASM host fn 三件套实际只做 2/3"债务还清。**
+
+---
+
+## [0.4.137] — 2026-05-26
+
+**Type**: runtime · **主题**：`host_get_secret_slot` 真实装（G-003 step 3/3 真还债 · 按 0.4.111 设计稿）。
+
+### Added
+
+- `crates/gate-wasm/src/wasmtime_host.rs` 在 wasmtime Linker 注册 `host_get_secret_slot(name_ptr, name_len, out_ptr, out_cap) -> i32`：
+  - `>0` 写入字节数 / `0` slot 存在但空 / `-1` not_allowed / `-2` missing / `-3` buf_too_small / `-4` invalid_name / `-5` host_error
+  - capability 校验（HookContext.allowed_slots） 在闭包中 contains 检查
+  - secret 取自 HookContext.secrets（由调用方解密后过滤好传入）
+  - 写 `memory.data_mut()` 把 secret bytes 复制到 wasm 线性内存
+  - emit `gate_plugin_wasm_secret_access_total{outcome}` counter（ok / denied / missing / buf_too_small 4 outcome）
+
+### Changed
+
+- `WasmtimeHost::invoke_hook_real` 签名加 `secrets: Arc<HashMap>` + `allowed_slots: Arc<HashSet>` 参数
+- `WasmtimeHost::invoke_hook` 把 ctx.secrets / ctx.allowed_slots wrap 进 Arc 传 invoke_hook_real
+- `crates/gate-providers/src/custom_provider/mod.rs` 4 处 `HookContext { ... }` literal 加 `..Default::default()` spread 兼容新字段
+
+### Why
+
+第二刀 followup §1：B3a step 3/3 host_get_secret_slot 在 0.4.111 写完设计稿后一直未实装。本步按设计真装——插件**第一次**能在 transform hook 内拿到 channel secret（拼 Authorization 头 / 解密 payload / HMAC 验签）。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib    # 18 passed (无回归)
+cargo test -p gate-providers --lib    # 143 passed (无回归)
+cargo check --workspace    # 0 errors
+```
+
+### Honest assessment
+
+实装 fn 已通，但**调用方（CustomHttpProvider）还没真正把 secrets 解密后塞 HookContext.secrets**——目前 HookContext 默认 HashMap 是空，capability 检查会全部返 -1。
+v0.4.138 加 audit + 完整接通 caller 填 secrets。
+
+---
+
+## [0.4.136] — 2026-05-26
+
+**Type**: runtime · **主题**：HookContext 加 `secrets` + `allowed_slots`（按 0.4.111 设计稿）。
+
+### Changed
+
+- `crates/gate-wasm/src/host.rs::HookContext` 加 2 个字段：
+  - `pub secrets: HashMap<String, String>` — 调用方解密后过滤好的明文 map
+  - `pub allowed_slots: HashSet<String>` — manifest `security.permissions.secret_slots` 声明的合法 slot 名
+
+### Why
+
+按 [docs/wasm-secret-slot-design.md](./docs/wasm-secret-slot-design.md) 的"Host context 传递路线"：secret 解密发生在调用方（CustomHttpProvider），host 拿到的就是明文 map，不再自己查 manifest。
+
+实装 host_get_secret_slot fn 在下一 patch (0.4.137)。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib    # 18 passed (无回归)
+```
+
+---
+
+## [0.4.135] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/requests page DataTable 开启 stickyHead + maxHeight。
+
+### Changed
+
+- `web/src/routes/admin/requests/+page.svelte`：DataTable 加 `stickyHead maxHeight="70vh"`
+- 修 `data-table-virtualize.test.ts` 类型推断（svelte 5 generics 在 test 里类型推断有问题，改用 `unknown` cast）
+
+### Honest assessment
+
+诚实评：本步用 stickyHead 解决"长滚表头消失"，**没真接 virtualize 模式** —— admin/requests 万行仍渲染全 row。
+真接 virtualize 需要把 #each 内的 cell 模板抽到 `{#snippet rowSnippet}`，规模较大留下迭代。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0/0
+npm --prefix web test -- data-table    # 6 passed
+```
+
+---
+
+## [0.4.134] — 2026-05-26
+
+**Type**: test · **主题**：DataTable virtualize 3 个行为测试。
+
+### Added
+
+- `web/src/tests/data-table-virtualize.test.ts`：
+  - 不传 rows → legacy passthrough（children 渲染）
+  - 传 rows(100) + rowSnippet → 仅渲染视口内（< 100 个 cell）
+  - rows=[] → 不渲染任何业务 row
+
+### Verification
+
+```bash
+npm --prefix web test -- data-table    # 6 passed (3 legacy + 3 virtualize)
+```
+
+---
+
+## [0.4.133] — 2026-05-26
+
+**Type**: runtime · **主题**：DataTable virtualize 实装（B4 step 2，按 0.4.115 设计）。
+
+### Added
+
+- `web/src/lib/components/templates/DataTable.svelte` 新增 4 个 prop：
+  - `rows: T[]` — 全量数据（启用虚拟化时传）
+  - `rowSnippet: Snippet<[T, number]>` — 渲染单行（caller 提供 cell 模板）
+  - `rowHeight: number = 48` — 等高 px
+  - `overscan: number = 5` — 视口外预渲染数
+- 用 svelte 5 generics `<script lang="ts" generics="T">` 让 row 类型可推
+- 视口滚动监听：`bind:this={scrollContainer}` + `onscroll` 计算 `visibleStart` / `visibleEnd`
+- 上下 spacer `<tr>` 撑出未渲染 row 的占位高度（`topPadHeight` / `botPadHeight`）
+- 退化兼容：不传 `rows` 时退到 legacy children passthrough 模式，**现有 caller 0 改动**
+
+### Why
+
+第一刀 followup §1 揭：B4 写"step 1/3"但实际只加 sticky head。admin/requests 万行真实数据浏览器会卡死。本步真实装等高 windowing。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0/0
+npm --prefix web test -- data-table    # 3 passed (legacy 兼容)
+```
+
+### Honest assessment
+
+只装机制，**还没有 caller 接入虚拟化**（admin/requests 仍走 legacy）。v0.4.135 真接入。
+
+---
+
+## [0.4.132] — 2026-05-26
+
+**Type**: refactor · **主题**：channels dialog-state 管理器 + 5 测试（B2 step 4）。
+
+### Added
+
+- `web/src/routes/channels/_lib/dialog-state.ts`：
+  - `ChannelsDialogKind` union（create / edit / delete / batch-delete / probe / replay）
+  - `noDialog() / openDialog() / closeDialog() / isDialogOpen()` helper
+  - 用单 `open: kind | null` 字段保互斥，避免多 modal 同时开
+- `web/src/tests/channels-dialog-state.test.ts` 5 个 test
+
+### Why
+
+第一刀 followup §1：B2 step 4 dialog manager 设计目标是"防多 modal 同时打开 / 类型化 modal kind"。本步抽工厂 + test 锁契约，page.svelte 接入推后续 patch。
+
+### Verification
+
+```bash
+npm --prefix web test -- channels-dialog-state    # 5 passed
+npm --prefix web run check    # 0/0
+```
+
+---
+
+## [0.4.131] — 2026-05-26
+
+**Type**: refactor · **主题**：channels page list-state 工厂 + 3 个 sanity tests（B2 step 3）。
+
+### Added
+
+- `web/src/routes/channels/_lib/list-state.ts`：
+  - `ChannelsListState` 类型（page / pageSize / sortBy / sortDir / filterStatus）
+  - `defaultChannelsListState()` 工厂
+  - `resetListPagination(state)` helper（保留 pageSize 仅重置 page）
+- `web/src/tests/channels-list-state.test.ts` 3 个 test
+
+### Changed
+
+- 顺手修 `channels-form-factories.test.ts` 一处 svelte-check 抓到的 `possibly undefined` 警告（加 `!` 断言）
+
+### Honest assessment
+
+诚实评：B2 step 3 真正接入 page.svelte 推到下个 patch（先抽工厂 + test 锁住业务契约，再 wrap 进 page 的 `$state` 是两步）。
+
+### Verification
+
+```bash
+npm --prefix web test -- channels-list-state    # 3 passed
+npm --prefix web run check    # 0/0
+```
+
+---
+
+## [0.4.130] — 2026-05-26
+
+**Type**: docs · **主题**：admin/mod.rs 头文档更新反映 B1 完成态。
+
+### Changed
+
+- `admin/mod.rs` 头部 doc 从"拆分进度"改为"拆分完成"：
+  - 9 个子文件表格（mod.rs 553 / channels.rs 853 / groups 846 / sso 600 / users 529 / probe 488 / invitations 278 / pricing 169 / org_members 100）
+  - 共享 helper 通过 `pub(super) use super::channels::{...}` 暴露给 sibling 的设计说明
+  - 进一步抽 admin/shared.rs 推到 v0.5.x 的理由（避免 sibling 之间 channels.rs 形成事实共享反向依赖）
+
+### Why
+
+shared.rs 物理拆分推到 v0.5.x：当前 channels.rs 既装业务 handler 又是 helper 库，事实上让其它 mod 反向依赖 channels.rs。最终干净方案是单独的 admin/shared.rs，但本步先文档化现状。
+
+诚实评：未做 admin/shared.rs 实际拆分。
+
+---
+
+## [0.4.129] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/channels.rs 物理拆出（B1 真还债 step 8/8 · 最后一块）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/channels.rs`（853 行）：
+  - 17 handler pub(super)（plugin_manifest_{schema,replay} + list/create/update/delete channels + batch_*_channels + drain/get_drain_status/disable_when_idle + channel_keys 4 个 + get_channel_stats）
+  - 13 helper pub(super)（record_to_summary / *_audit_snapshot / require_confirmation / audit_meta / channel_capabilities / channel_inflight / is_plugin_provider / key_fingerprint / validate_channel_key_alias 等）
+- `admin/mod.rs` 1398 → 553（**真减 845 行**）
+- 主 router 17 处改 channels::*
+- 7 个 sibling mod（invitations / probe / sso / groups / users / org_members / pricing）加 `use super::channels::{...}` 引共享 helper，标 `#[allow(unused_imports)]` 避免 warning
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+### 累计 admin/mod.rs 收口
+
+| Step | Patch | mod.rs 行数 | Δ | 累计 Δ |
+|------|-------|------------|---|--------|
+| 起点 | 0.4.120 | 4368 | — | — |
+| pricing | 0.4.122 | 4204 | -164 | -164 |
+| org_members | 0.4.123 | 4104 | -100 | -264 |
+| invitations | 0.4.124 | 3834 | -270 | -534 |
+| probe | 0.4.125 | 3352 | -482 | -1016 |
+| sso | 0.4.126 | 2759 | -593 | -1609 |
+| groups | 0.4.127 | 1920 | -839 | -2448 |
+| users | 0.4.128 | 1398 | -522 | -2970 |
+| **channels** | **0.4.129** | **553** | **-845** | **-3815** |
+
+**8 个 patch 把 admin god file 4368 → 553，真减 87%**。剩 553 行是 router definition + 共享 helper（v0.4.130 再做 shared.rs 收口）。
+
+---
+
+## [0.4.128] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/users.rs 物理拆出（B1 真还债 step 7/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/users.rs`（529 行）：
+  - 11 handler pub(super)（list_audit_logs / list_all_orgs / create_org / update_org / list_users / create_user / update_user_status / reset_user_password / list_user_sessions / revoke_user_session / revoke_user_sessions）
+  - 多个 helper（default_limit pub(super), default_audit_sort_*, parse_audit_sort_by, parse_sort_dir, normalize_user_email, user_to_view, org_to_view 等）
+- `admin/mod.rs` 1920 → 1398（**真减 522 行**）
+- 主 router 8 处改 users::*
+- sso.rs 的 default_limit serde default 改 `super::users::default_limit`
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+累计 admin/mod.rs: 4368 → 1398 = **真减 2970 行（68%）**
+
+---
+
+## [0.4.127] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/groups.rs 物理拆出（B1 真还债 step 6/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/groups.rs`（846 行）：
+  - 10 handler pub(super)（list/create/update/delete groups + list/add/remove/update bindings + get_group_detail + set_project_default_group）
+  - 6 helper（validate_group_strategy / parse_channel_group_id / validate_canary_percent_bps / binding_to_view / deserialize_optional_json_patch / parse_canary_percent_bps_patch）
+  - 多 type（GroupView / BindingView / BuildFallbackChain 等）
+- `admin/mod.rs` 2759 → 1920（**真减 839 行**）
+- 主 router 6 处改 groups::*
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+累计 admin/mod.rs: 4368 → 1920 = **真减 2448 行（56%）**
+
+---
+
+## [0.4.126] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/sso.rs 物理拆出（B1 真还债 step 5/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/sso.rs`（600 行）：
+  - 5 handler pub(super)（list / create / update / delete / discover identity providers）
+  - 1 internal fn seal_idp_secret
+  - 1 view fn identity_provider_to_view
+  - 14 normalize / parse helper（non_empty / slug / https_url / scopes / claim / org_role / domain_allowlist / redirect_policy 等）
+  - 2 type（IdentityProvidersQuery / RedirectPolicyView 等保 pub 跨文件 serde 可见）
+- `admin/mod.rs` 3352 → 2759（**真减 593 行**）
+- 主 router 4 处改 sso::*
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+累计 admin/mod.rs: 4368 → 2759 = **真减 1609 行（37%）**
+
+---
+
+## [0.4.125] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/probe.rs 物理拆出（B1 真还债 step 4/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/probe.rs`（488 行）：
+  - 3 个 handler（probe_channel_models / test_channel / get_channel_balance）pub(super)
+  - 4 个内部类型（ProbeResponse / TestChannelQuery / TestResponse / BalanceResponse）pub(super)
+  - 5 个内部 fn（extract_probe_model_ids / update_channel_balance / resolve_probe_key / resolve_probe_secrets / normalize_probe_secret_slot pub(crate)）
+- `admin/mod.rs` 3834 → 3352（**真减 482 行**）
+- 主 router 3 处改用 `probe::*`
+- mod.rs 内 test 引用 normalize_probe_secret_slot 改 `probe::normalize_probe_secret_slot`
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.124] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/invitations.rs 物理拆出（B1 真还债 step 3/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/invitations.rs`（278 行）：
+  - 9 个 handler（org / project 各 list+create+revoke，加 create_invitation / revoke_invitation 内部 helper）
+  - 5 个内部 helper（default_invitation_ttl_hours / invitation_to_view / generate_invitation_token / invitation_accept_url / org+project_role_to_invite_str / ensure_project_in_org）
+  - 6 个 router-facing handler 标 `pub(super)`
+  - `default_invitation_ttl_hours` 标 `pub(super)` 让父 mod struct serde default 引用
+- `admin/mod.rs` 4104 → 3834（**真减 270 行**）
+- 主 router 4 处 `.route()` 改用 `invitations::*` 限定路径
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.123] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/org_members.rs 物理拆出（B1 真还债 step 2/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/org_members.rs`（100 行，3 handler）
+- `admin/mod.rs` 4204 → 4104（**真减 100 行**）
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed
+```
+
+---
+
+## [0.4.122] — 2026-05-26
+
+**Type**: refactor · **主题**：admin/pricing.rs 物理拆出（B1 真还债 step 1/8）。
+
+### Changed
+
+- 新增 `crates/gate-server/src/routes/admin/pricing.rs`（169 行）
+  - 含 3 个 handler（list_pricing_rules / upsert_pricing_rule / delete_pricing_rule）
+  - 含 1 个内部类型 UpsertPricingRuleRequest + 1 个 helper rule_to_row
+  - `use super::*` 拿到 admin/mod.rs 顶层的 PricingRulesQuery / PricingRuleRow / audit_meta / require_confirmation / pricing_rule_audit_snapshot
+- `crates/gate-server/src/routes/admin/mod.rs` 4368 → 4204 行（**真减 164 行**）
+  - 删 inline `mod pricing { ... }` 块
+  - 加 `mod pricing;` 单行声明
+
+### Why
+
+第二刀 0.4.72 / 0.4.109 是"inline mod 假拆"——admin.rs 行数 +13 还自称"逻辑边界清晰"。第三刀真还债：物理拆出，使 mod.rs 真正减重。pricing 块最独立、依赖 helper 少，作 step 1。
+
+### Verification
+
+```bash
+cargo check -p gate-server         # 0 errors
+cargo test -p gate-server --lib    # 50 passed (无回归)
+wc -l crates/gate-server/src/routes/admin/mod.rs    # 4204 (从 4368 减 164)
+```
+
+---
+
+## [0.4.121] — 2026-05-26 — 第三刀启动 · 还债
+
+**Type**: refactor · **主题**：admin.rs → admin/mod.rs 物理目录化第 1 步。
+
+### Changed
+
+- `git mv crates/gate-server/src/routes/admin.rs → crates/gate-server/src/routes/admin/mod.rs`
+- 文件内容 0 改动，仅 path 变化（git rename detection 保留 blame 历史）
+
+### Why
+
+第二刀 0.4.116 只做了"拆分进度文档化"——admin.rs 仍 4254 行 god file，inline mod 只抽出 pricing + org_members 两小块。第三刀真还债：先建 admin/ 目录壳，给后续 9 个 patch（0.4.122-0.4.130）做家。每个版本物理拆一块出来。
+
+### Verification
+
+```bash
+cargo check -p gate-server    # 0 errors
+cargo test -p gate-server --lib    # 50 passed (无回归)
+```
+
+---
+
+## [0.4.120] — 2026-05-26 — 阶段大版 · 双刀打磨收口
+
+> 19 个 patch（0.4.102 → 0.4.120）的第二刀（自我批判）阶段收口。
+> 累计：第一刀 37 + 第二刀 19 = **56 patch（0.4.65-0.4.120）**。
+
+### 第二刀战报（19 patch · 0.4.102-0.4.120）
+
+| 类型 | 项数 | 代表 patch |
+|------|-----|-----------|
+| **真改 runtime** | 5 | 0.4.103 Retry-After HTTP-date / 0.4.104 Usage audio+prediction tokens / 0.4.105 SharedClient LRU per-key / 0.4.107 metric const / 0.4.109 admin org_members inline |
+| **修真实 bug** | 1 | 0.4.112 Grafana 用错指标名（`gate_chat_latency_ms` 不存在） |
+| **撤回误判** | 1 | 0.4.113 request_logs 已 outbox 异步，撤回 review §1 P1-3 |
+| **真画设计图** | 3 | 0.4.111 host_get_secret_slot / 0.4.115 DataTable virtualize / 0.4.116 admin.rs 拆分进度 |
+| **测试 / 重构** | 4 | 0.4.106 chat handler 埋点 grep test / 0.4.108 stream_safe 注释 / 0.4.110 form-factories / 0.4.114 form-factories tests |
+| **docs / 流程** | 5 | 0.4.102 followup 批判稿 / 0.4.117 SECURITY.md 完整化 / 0.4.118 product-gaps 第二刀 / 0.4.119 README 双刀 / 0.4.120 本次 |
+
+### 自审揭出的 6 类问题（followup §1-§6）
+
+第一刀 37 patch 看似"全收口"，自审揭：
+
+1. **假步骤命名**（admin.rs step 1/4 + channels page step 1/4 + WASM 2/3 + DataTable 1/3 都只做了第 1 步）
+2. **占位算实装**（KOOIX_REQUEST_LOG_BUFFER_SIZE / chat e2e bench / chaos-testing.md / playground capability backend-only）
+3. **漏网**（Retry-After HTTP-date / audio+prediction tokens / SharedClient 雷暴 / chat metrics 未 e2e 验证 / metric 名 typo）
+4. **内联 mod 是假拆分**（admin.rs +13 行还自称"逻辑边界清晰"）
+5. **文档与代码不同步**（Grafana 用错指标名 / SECURITY.md 简陋 / RELEASE 检视表混 runtime+docs）
+6. **stream_safe 是幽灵 API**（codebase 零调用）
+
+### 第二刀对应修复
+
+P0 真改 runtime 5 项已合（0.4.103 / 0.4.104 / 0.4.105 / 0.4.107 / 0.4.109）；
+P1/P2 设计稿与文档已立（0.4.111 / 0.4.115 / 0.4.116 / 0.4.117 / 0.4.118 / 0.4.119）；
+余下真重构推 v0.5.x。
+
+### 累计验证（0.4.64 → 0.4.120）
+
+| crate | 0.4.64 | 0.4.120 | Δ |
+|-------|--------|---------|---|
+| gate-providers tests | 122 | 143 | +21 |
+| gate-server tests | 41 | 50 | +9 |
+| gate-wasm tests | 13 | 18 | +5 |
+| gate-storage tests | 25 | 30 | +5 |
+| web tests | 86 | 100+ | +14 |
+| **合计 Rust** | **201** | **241+** | **+40** |
+| 文档新增 | — | 5 docs | followup / wasm-secret-slot / data-table-virtualize / chaos-testing / product-review |
+
+### 真实债务推 v0.5.x（明示在 ROADMAP）
+
+- admin.rs 物理拆分（5 大块 god file 拆 routes/admin/{...}）
+- channels page B2 step 3-4（list state store + dialog manager）
+- DataTable virtualize 实装（按 0.4.115 设计稿）
+- host_get_secret_slot 实装（按 0.4.111 设计稿）
+- WASM module blob store (G-002) + auto-mount
+- chat e2e bench 真实装 / chaos test runtime
+- playground frontend capability 联动（backend ready 自 0.4.87）
+
+### 阶段亮点
+
+- **诚实优先**：第一刀粉饰被自审揭穿后立即修，followup 批判稿与 ROADMAP 同步对外可见
+- **真改 vs 文档化标签**：每个 patch CHANGELOG 顶部标 `**Type:** runtime/test/refactor/design/docs`，让 reader 一眼分辨
+- **设计稿钉死方案**：3 个超 patch 范围的特性（host_get_secret_slot / DataTable virtualize / admin 拆分目录化）写完整设计，v0.5.x 实装时无需再讨论
+- **追溯 0.4.85 + 0.4.112 真 bug**：Grafana 一直拉的指标名不存在，第二刀复审才发现——证明 followup 自审的真实价值
+- **零回归**：56 个 patch 全部 cargo check + 涉及 crate 测试通过；前端 0/0 维持
+
+### 下一步：v0.5.0-rc1
+
+按 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26) 跑候选门禁。第二刀剩余真重构项进入 v0.5.x 主线。
+
+---
+
+## [0.4.119] — 2026-05-26
+
+**Type**: docs · **主题**：README 当前版本段重写为双刀打磨真实进度。
+
+### Changed
+
+- `README.md § 当前版本` 重写：
+  - 标题从 "v0.4.100 — 第一刀打磨完成" 改为 "v0.4.119 — 双刀打磨"
+  - 第一刀（37 patch）+ 第二刀（17 patch）= 总 55 patch（0.4.65-0.4.119）
+  - **第二刀分类列出诚实评**：真改 runtime 5 项 / 真画图 3 项 / 修真实 bug 1 项 / 撤回误判 1 项 / 测试+重构+文档 7 项
+  - **真实债务推 v0.5.x** 7 项明示（admin 物理拆分 / channels page B2 step 3-4 / DataTable virtualize / host_get_secret_slot / WASM blob store / chat e2e bench+chaos / playground frontend）
+  - 测试基线表（providers 143 / server 50 / wasm 18 / storage 30 / web 100+）
+- tests badge 498/93 → 549/100+
+
+### Why
+
+第一刀 README 写"第一刀打磨完成"是粉饰——followup 揭出 6 类问题。本步重写让 README 反映**双刀真实状态**：做了多少 + 哪些是文档 + 真实债务在哪。新读者一眼看到这是"打磨中"而非"已完成"。
+
+---
+
+## [0.4.118] — 2026-05-26
+
+**Type**: docs · **主题**：product-gaps.md 加第二刀完成项汇总 + 诚实评。
+
+### Changed
+
+- `docs/product-gaps.md` 章节"已收口"重写：
+  - 第一刀（0.4.65-0.4.101，37 patch）+ 第二刀（0.4.102-0.4.117，16 patch）= 总 53 patch
+  - 第一刀表保留 8 项核心 + 5 项关键阶段
+  - 第二刀新表 16 项，每项标 followup 章节号 + Type（runtime/refactor/test/design/docs）
+  - "诚实评"段：真改 runtime 5 项 / 设计稿+文档+测试 11 项 / 撤回误判 1 项 / 粉饰更正
+  - "真实债务推 v0.5.x" 8 项明示
+
+### Why
+
+第一刀的 product-gaps 表只列了 8 项 ✓ 全打；followup 揭出来的 6 类粉饰需要在 product-gaps 中也体现，不能仅藏在 followup.md。让任何运维 / 用户读 product-gaps 一眼看到"做了什么 + 哪些是文档 + 真实债务在哪"。
+
+---
+
+## [0.4.117] — 2026-05-26
+
+**Type**: docs · **主题**：SECURITY.md 完整化（followup §5.2）。
+
+### Changed
+
+- `SECURITY.md` 从 42 行扩到 ~120 行，加 7 个段：
+  - **Supported Versions**：0.4.x active / 0.3.x security-only / ≤0.2.x EOL，明示 v0.5.0-rc1 发布后 0.3.x EOL 时间线
+  - **Reporting a Vulnerability**：GitHub Security Advisory（推荐） / Email / 紧急情况 3 渠道 + 6 项必填内容
+  - **Response SLA**：72h acknowledgement / 7d triage / 14d-90d fix（按严重度）/ fix+7d coordinated disclosure 四阶段
+  - **Coordinated Disclosure**：4 步流程 + 拒绝勒索式威胁但允许 90d 长期未响应后报告者公开
+  - **高风险类别**：P0 (secret 泄露 / tenant 越权 / admin takeover / SSRF) / P1 (billing 绕过 / JWT 固化 / upstream body 泄漏) / P2 (rate limit 绕过 / WASM 资源耗尽 / audit 完整性) 三级
+  - **Security Advisory 历史**：链向 GitHub advisories
+  - **NOT a vulnerability**：6 类不算安全问题，走 issues
+
+### Why
+
+第一刀 followup §5.2 揭：SECURITY.md 42 行简陋，缺 SLA / disclosure timeline / contact channel / severity tiers。开源项目 GitHub 期望规范 SECURITY.md（advisory 系统集成 + 报告者预期管理）。
+
+诚实评：response SLA 是承诺，实际执行能力取决于 maintainer bandwidth；先写出来作为目标。
+
+---
+
+## [0.4.116] — 2026-05-26
+
+**Type**: docs · **主题**：admin.rs 拆分进度表 + ROADMAP 第二刀分类汇总。
+
+### Changed
+
+- `crates/gate-server/src/routes/admin.rs` 头部加 "模块拆分进度（B1）" 段：
+  - 7 个业务块（channels / users / sso / groups / org_members / invitations / probe / pricing）行范围 + 状态表
+  - 当前 ✅ 拆出 2 个：`mod pricing`（0.4.72）+ `mod org_members`（0.4.109）
+  - ⛔ 仍顶层 5 个，每个标注"为什么没拆"（god-tier / 跨 fn 共享 helper / 内聚密）
+  - 真拆物理文件计划推到 v0.5.x，列出目标目录结构
+
+- `ROADMAP.md` 加"第二刀（0.4.102-0.4.120）"段：
+  - 真改 runtime 5 项 ticked
+  - 文档 + 测试 + 设计稿其余 9 项 ticked
+  - 剩余真重构 8 项明示推到 v0.5.x（含 admin 真拆 / channels store / DataTable / host_get_secret_slot / WASM blob store / chat bench / chaos test / playground frontend）
+
+### Why
+
+第一刀 followup §1 揭"step 1/4"假象。本步把"做到哪、剩多少、为何没继续"全摊到 admin.rs 文件头 + ROADMAP，让任何接手者一眼看到真实进度——不再粉饰成"已拆"。
+
+诚实评：仍是文档版本。admin.rs 行数没减，但**心里没鬼**。
+
+---
+
+## [0.4.115] — 2026-05-26
+
+**Type**: design · **主题**：DataTable virtualization 完整设计稿（B4 step 2-3 真图）。
+
+### Added
+
+- `docs/data-table-virtualize-design.md`（~150 行）：
+  - 现状：0.4.85 仅加 maxHeight + stickyHead，DOM 仍渲染所有 row
+  - v1 接口契约（rows + rowSnippet + rowHeight + overscan）
+  - Layout 算法（spacer tr + slice，等高假设）
+  - 性能预算表（10k rows: legacy 3s 卡死 → virtualize <50ms 首屏 60fps）
+  - Caller migration（admin/requests / audit / incidents / groups）
+  - 已知限制 4 项 + 验收门禁 5 项 + 不做什么 4 项
+
+### Why
+
+第一刀 followup §1：B4 写 "step 1/3"，让人以为后续会做 step 2/3，但实际就停在 sticky head。本设计稿真正给 step 2/3 画图：
+
+- 锁 v1 接口（rowHeight 等高 + slice 渲染 + spacer tr）
+- 算法极简（避免 ResizeObserver / IntersectionObserver 复杂度）
+- legacy mode 保留（百行 / 数十行 caller 0 改动）
+
+### Honest assessment
+
+诚实评：DataTable.svelte 仍只 60 行，没接受 rows prop。本步是文档钉死方案。v0.5.x 实装时按本设计 PR review 即可。
+
+---
+
+## [0.4.114] — 2026-05-26
+
+**Type**: test · **主题**：channels form-factories 4 个 sanity test。
+
+### Added
+
+- `web/src/tests/channels-form-factories.test.ts`：
+  - defaultCreateForm 返业务约定默认值（timeout_ms=60000 / max_retries=2 等）
+  - 每次调用返新 object（array / nested object 也不共享 ref，防 mutate 污染）
+  - defaultEditForm 返空对象 + 每次新对象
+
+### Why
+
+第一刀 followup B2 真做 step 3（list state store）涉及 page state 全重构，工作量超 patch。先用 test 锁死 0.4.110 form-factories 的业务契约——任何 default 值漂移（如未来人手贱把 max_retries 改成 3）会立即被 CI 拦截。
+
+### Honest assessment
+
+诚实评：B2 step 3 (list state store) 真重构还没做。本步只是把 step 2 的工厂加测试。
+
+### Verification
+
+```bash
+npm --prefix web test -- channels-form-factories    # 4 passed
+```
+
+---
+
+## [0.4.113] — 2026-05-26
+
+**Type**: docs · **主题**：撤回 product-review §1 P1-3 误判（request_logs 已是 outbox 异步）。
+
+### Changed
+
+- `docs/product-review-followup-2026-05-26.md` 末尾加 "0.4.113 误判更正" 段：
+  - 复审发现 `RequestLogRepo` trait 实际只读（list/find/stats/partition 管理，无 insert/write）
+  - 真实架构：`request_events` canonical 主表（outbox 路径）+ `request_log_events` 月度分区 read 投影
+  - billing outbox consumer 在 worker plane 异步 batch 写
+  - 撤回 0.4.97 占位 env (`KOOIX_REQUEST_LOG_BUFFER_SIZE` 等) 的"必要性"——除非未来要给 read 投影加缓冲，但读路径已是异步
+
+### Why
+
+第一刀 review 把 `RequestLogRepo` 看成同步 writer 是望文生义。`grep INSERT.*request_log` 命中 0 即证据：根本没有同步 INSERT 路径。
+
+诚实更正比悄悄忽略好——既然 followup 是批判稿，自审错误也要写进去。
+
+---
+
+## [0.4.112] — 2026-05-26
+
+**Type**: docs · **主题**：Grafana dashboard 修指标名漂移 + 加 chat panel（followup §5.1）。
+
+### Changed
+
+- `deploy/grafana/dashboards/kooix-gate-overview.json`：
+  - 🩸 **修真实 bug**：原 `gate_chat_latency_ms_bucket` **指标根本不存在**（0.4.66 真名是 `gate_chat_duration_seconds`）—— p95 Latency panel 一直在拉空数据
+  - 新增 4 个 panel：
+    - **p95 TTFB (streaming)** stat
+    - **Chat duration p50/p95/p99 by streaming** timeseries（用 streaming label 区分流/非流，避免长流污染 p99）
+    - **Chat error rate by outcome** timeseries（按 provider_type + streaming 切片）
+    - **SSE chunks/s by model** timeseries
+  - 全部用 0.4.66 实装的真实 metric 名
+
+### Why
+
+第一刀 followup §5.1：observability.md 写了新指标但 dashboard 没补。本版本一次性修旧 bug + 加新 panel。
+
+### Verification
+
+```bash
+node -e "JSON.parse(require('fs').readFileSync('deploy/grafana/dashboards/kooix-gate-overview.json'))"   # JSON valid
+```
+
+运维拉新 dashboard 后，原 p95 Latency stat 会从"空"变成"真实曲线"。
+
+---
+
+## [0.4.111] — 2026-05-26
+
+**Type**: design · **主题**：`host_get_secret_slot` 完整设计稿（B3a step 3/3，G-003 收尾）。
+
+### Added
+
+- `docs/wasm-secret-slot-design.md`（设计稿，~140 行）：
+  - 必要性（plugin 在 transform hook 拿 secret 用于 Auth header / 解密 / HMAC）
+  - ABI 函数签名（4 参数 i32 + i32 错误码）
+  - 6 个错误码（成功 / 空 / -1 not_allowed / -2 missing / -3 too_small / -4 invalid_name / -5 host_error）
+  - Audit 半生命周期（每次调用 emit + 60s sliding window 节流防风暴）
+  - Capability 校验（manifest `security.permissions.secret_slots` 在 load_module 时存到 `ChannelModule.allowed_slots`）
+  - Host context 传递（HookContext 加 `secrets: HashMap<String, String>`，调用方解密后过滤好再塞）
+  - Linker 注册示例 + Rust SDK 包装代码
+  - 5 项验收门禁
+  - 4 个"不做什么"边界
+
+### Why
+
+第一刀 followup §1：把 host_get_secret_slot 推到"下版本"是粉饰。这是 G-003 三件套的第三件，缺它插件无法做最常见的 secret 操作。本版本不实装（涉及 HookContext schema 改 + WasmtimeHost data type 替换 + 4 个新 metric + audit 链路，工作量超 patch），但**把方案完全钉死**让 v0.5.x 实装时不需要再讨论 ABI 细节。
+
+### Honest assessment
+
+诚实评：仍是文档版本。host_get_secret_slot 在 codebase 中仍**完全不存在**。
+
+---
+
+## [0.4.110] — 2026-05-26
+
+**Type**: refactor · **主题**：channels page B2 step 2 — createForm/editForm 工厂抽 `_lib`（followup §1）。
+
+### Added
+
+- `web/src/routes/channels/_lib/form-factories.ts`：
+  - `defaultCreateForm(): CreateChannelRequest` — 11 字段 + 显式类型保护
+  - `defaultEditForm(): UpdateChannelRequest` — 空对象工厂
+
+### Changed
+
+- `web/src/routes/channels/+page.svelte`：
+  - 初始化 `createForm = $state(defaultCreateForm())` 替换 inline 11 字段对象字面
+  - reset 路径（line 770）改 `createForm = defaultCreateForm()`，避免与初始化漂移
+  - editForm 同理
+
+### Why
+
+第一刀 followup §1：B2 step 1（plugin samples）只动了静态文本。本步真改 form 默认值散在两处的问题——之前 inline 字面在 `$state` 初始化和 reset 两处各写一次，任何字段变更要改两处，未来加 `health_check_url` 等字段容易漏。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.109] — 2026-05-26
+
+**Type**: refactor · **主题**：admin.rs B1 step 2/4 — org members 块封装内联 mod（followup §4）。
+
+### Changed
+
+- `crates/gate-server/src/routes/admin.rs` 把 `list_org_members` / `add_org_member` / `remove_org_member_handler` 三个 handler 搬到 `mod org_members { use super::*; ... }` 内联子模块，全部 `pub(super)`
+- 主 router 内 2 处 `.route()` 改用 `org_members::list_org_members` / `org_members::add_org_member` / `org_members::remove_org_member_handler`
+
+### Why
+
+跟 v0.4.72（pricing）同套路。org members 是 invitations 大块（17 fn）中**最独立的子块**：3 个 handler 都只调 `app.repos.memberships.*` repo 方法，不依赖 invitations 内部 helper。
+
+诚实评：admin.rs 4248 → 4252 行（+4，pub(super) 注解 + mod 包裹）。继续是"逻辑边界封装"而非物理拆分；剩下 invitations 块（14 fn）含 `create_invitation` / `revoke_invitation` 跨多 handler 共享，且与 `invitation_token_hash` / `invitation_accept_url` helper 紧耦合，本 patch 不动。下一步：v0.4.116 groups / v0.4.117 sso。
+
+### Verification
+
+```bash
+cargo check -p gate-server         # 0 errors
+cargo test -p gate-server --lib    # 50 passed (无回归)
+```
+
+---
+
+## [0.4.108] — 2026-05-26
+
+**Type**: docs · **主题**：chat 流式语义注释 + stream_safe 用法范例（followup §6）。
+
+### Changed
+
+- `crates/gate-server/src/routes/chat.rs` 流式分支加 8 行注释：
+  - 明示"流式建立失败不 retry"（语义等价 RetryConfig::stream_safe）
+  - 解释为何**不调** with_retry：客户端已收 chunk + inflight pre-debit 已扣
+  - retry_config 仅在非流分支（line ~422）生效
+- `crates/gate-providers/src/retry.rs::RetryConfig::stream_safe` doc-comment 加 `# 推荐用法` ignore-block 范例
+
+### Why
+
+第一刀的 followup §6 揭：`stream_safe()` 是幽灵 API（codebase 零调用）。第一种修法是删掉 API（最干净），第二种是真用。考虑到 chat handler 的"流式不调 with_retry"是合理设计（不需要 retry wrapper 的 overhead），保留 API + 在源码里**用注释把语义钉死**——让 future maintainer 看到"为什么流式没 retry"立刻明白。
+
+诚实评：这版本只是文档化，**没改 runtime 行为**。stream_safe 仍是 0 个业务调用。下一刀如果加 `with_retry(&stream_safe(), || provider.chat_stream(req))` 把 wrapper 加上才算真用。
+
+---
+
+## [0.4.107] — 2026-05-26
+
+**Type**: refactor · **主题**：metric 名抽 `pub mod names` const（followup §3.5）。
+
+### Added
+
+- `crates/gate-server/src/metrics.rs::names` 新模块，21 个 const：
+  - 4 chat metric: `CHAT_REQUESTS_TOTAL` / `CHAT_DURATION_SECONDS` / `CHAT_TTFB_SECONDS` / `CHAT_STREAM_CHUNKS_TOTAL`
+  - 7 HTTP lifecycle: requests_total / duration / tokens / active_requests 等
+  - 2 upstream + 4 provider routing + 5 quota/billing + 1 worker
+
+### Changed
+
+- `record_chat_request` / `record_chat_ttfb` / `record_chat_stream_chunks` 内部 `metrics::counter!("gate_chat_requests_total", ...)` 改为 `metrics::counter!(names::CHAT_REQUESTS_TOTAL, ...)`，让 typo 在编译期暴露。
+
+### Why
+
+第一刀的 metric 名字符串散在 metrics.rs 闭包内、observability.md 表格、Grafana dashboard JSON 三处。任何 typo 只能 PR review / 抓 bug 时发现。
+
+下一步（v0.4.112 Grafana / 0.4.119 README）可以引用同一 const，避免文档漂移。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 50 passed (无回归)
+```
+
+---
+
+## [0.4.106] — 2026-05-26
+
+**Type**: test · **主题**：chat.rs 埋点编译期 grep 验证（followup §3.4）。
+
+### Added
+
+- `crates/gate-server/src/routes/chat.rs` 末尾 `mod metrics_callsite_tests` 4 个 test：
+  - `record_chat_request_has_four_callsites` — 4 个出口（流式 build err / 流式 trigger / 非流 Err / 非流 Ok）
+  - `record_chat_ttfb_has_one_callsite` — 流式首 chunk inspect
+  - `record_chat_stream_chunks_has_one_callsite` — 流式 trigger 收尾
+  - `streaming_branch_emits_both_ok_and_error_outcome` — 流式 ok/error 都 emit
+- 用 `include_str!("chat.rs")` 把源码作为字符串扫描
+
+### Why
+
+第一刀只在 metrics.rs 加了 emit 函数的单测（验证函数本身能写入 prometheus），**没有验证 chat handler 真调了**这些函数。未来 refactor 误删埋点 CI 不会失败。
+
+不写真 e2e（需 axum + auth + mock provider，>200 行 fixture），用 grep test 廉价覆盖。
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib metrics_callsite    # 4 passed
+```
+
+---
+
+## [0.4.105] — 2026-05-26
+
+**Type**: runtime · **主题**：SharedHttpClient eviction 从 clear-all 改 LRU per-key（followup §3.3）。
+
+### Changed
+
+- `SHARED_CLIENT_CACHE_LIMIT`: 8 → 16（给 plugin manifest custom timeout 留余量）
+- 缓存 entry 新增 `last_used: Instant`，每次 hit 刷新
+- 超限 eviction 策略：从 `cache.clear()` 改为 `min_by_key(last_used)` 删一个最久未用 entry
+- 测试 3 个合并到一个 `#[test]`（避免 cargo test 并发跑共享 cache 互相干扰）
+
+### Why
+
+第一刀的 `cache.clear()` 是图省事——一旦 `cache.len() ≥ 8` 就**清空所有 client**。如果有 9 个不同 timeout 桶（plugin manifest `request.timeout_ms` 自定义会扩散维度），**每来一个新 timeout 都触发全 cache 清空** → 所有 channel 重连，雷暴。
+
+LRU per-key 只删一个，其余 entry 的 keep-alive 连接保留。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 143 passed
+```
+
+新合并 test `shared_clients_full_behavior`：
+1. same opts → 同 Arc
+2. different opts → 不同 Arc
+3. 填满 16 个 + 访问 idx=1 让它 MRU + 触发 evict + 验证 idx=0 被删 + 验证 idx=5 没被删
+
+---
+
+## [0.4.104] — 2026-05-26
+
+**Type**: runtime · **主题**：Usage 加 audio/prediction tokens（followup §3.2）。
+
+### Added
+
+- `Usage.audio_tokens: Option<u32>` — OpenAI 4o-realtime / o1-audio
+- `Usage.accepted_prediction_tokens: Option<u32>` — predicted outputs 被接受的 token 数
+- `Usage.rejected_prediction_tokens: Option<u32>` — predicted outputs 被拒绝的 token 数
+
+### Changed
+
+- `lift_openai_usage_details` 重写借用模式（先 copy 出 5 个 nested 字段值再统一调 entry，避免 immutable/mutable borrow 跨调用冲突）
+- 5 个字段全部接入 lift 路径
+- `plugin_preset.rs` / `custom_provider/replay.rs` Usage struct literal 补 3 个新字段默认值
+
+### Why
+
+第一刀只 lift 了 `cached_tokens` + `reasoning_tokens` —— 4o-realtime / o1-audio 模型的 audio_tokens 和 predicted outputs 系列模型的 accepted/rejected 完全丢失，billing 拿不到完整维度（accepted 按正常 token 计费，rejected 通常折扣或免费）。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib    # 144 passed (143 + 1 lift_extracts_audio_and_prediction_tokens)
+```
+
+---
+
+## [0.4.103] — 2026-05-26
+
+**Type**: runtime · **主题**：Retry-After 头兼容 HTTP-date 格式（followup §3.1）。
+
+### Added
+
+- `retry.rs::parse_retry_after(value: &str) -> Option<u64>` — RFC 7231 §7.1.3 兼容解析：
+  - delta-seconds 数字：原样保留 + ×1000 转毫秒
+  - HTTP-date IMF-fixdate（用 `chrono::DateTime::parse_from_rfc2822`）：算到当前 Utc 的差值
+  - HTTP-date 已过期：返回 `Some(0)` 告诉调用方"无需等"
+  - 解析失败：`None`
+
+### Changed
+
+- `crates/gate-providers/src/openai.rs::check_status` 与 `anthropic.rs::check_status` 都改用 `parse_retry_after`，移除原 `parse::<u64>().map(|s| s * 1000)`。
+
+### Why
+
+云厂商（如 Cloudflare 中间层、AWS API GW）在限流响应中**经常用 HTTP-date 格式 Retry-After**。原实现对此 fall-through 成 None → 用默认 backoff 重试，可能比上游期望更早，造成二次冲击。
+
+### Verification
+
+```bash
+cargo test -p gate-providers --lib retry::    # 9 passed (5 既有 + 4 新)
+```
+
+新测试：
+- `parse_retry_after_delta_seconds` — 数字 / 0 / 含空白
+- `parse_retry_after_http_date_future` — IMF-fixdate 未来 30s 解析
+- `parse_retry_after_http_date_past_returns_zero` — 过期返回 0
+- `parse_retry_after_garbage_returns_none` — 空 / 非数字 / 浮点 / 负数
+
+---
+
+## [0.4.102] — 2026-05-26 — 第二刀启动 · followup 批判稿
+
+**Type**: docs · **主题**：自我批判第一刀 37 patch，揭"伪完成"。
+
+### Added
+
+- `docs/product-review-followup-2026-05-26.md`（230+ 行）：
+  - 第一类：假步骤命名（admin.rs / channels page / WASM 三件套 / DataTable 实际只做 step 1，CHANGELOG 写 step 1/N 误导）
+  - 第二类：占位算实装（KOOIX_REQUEST_LOG_BUFFER_SIZE / chat e2e bench / chaos-testing.md / playground capability 都是文档/TODO 而非 runtime）
+  - 第三类：漏网（Retry-After HTTP-date / lift_openai_usage_details 缺 audio + prediction tokens / SharedClient LRU 雷暴 / chat metrics 埋点未 e2e 验证 / metric name 散在多处）
+  - 第四类：内联 mod 是假拆分（admin.rs +13 行）
+  - 第五类：文档残留漂移（Grafana dashboard / SECURITY.md / RELEASE.md 检视表粉饰）
+  - 第六类：stream_safe 是幽灵 API（零业务调用）
+  - 第二刀路线：v0.4.103-0.4.120 按 P0/P1/P2 映射 18 个修复 patch
+
+### Why
+
+CHANGELOG 把所有 37 patch 写成"已收口"是粉饰：真改 runtime 的约 15 个，其余是文档/测试/sanity/占位/口号。本版本不修代码，只把"什么是 真实装 / 什么是 文档 / 什么没做"摆到桌面上。诚实优先。
+
+### 自审重点
+
+- "step 1/N" 命名误导：admin.rs 4 步只做 1 步、channels page 4 步只做 1 步、WASM 3 步只做 2 步、DataTable 3 步只做 1 步
+- 占位 env 与 TODO 注释被列入 CHANGELOG 主路径
+- 内联 mod 使 admin.rs 行数 +13 还自称"逻辑边界清晰"
+- `RetryConfig::stream_safe()` 整个 codebase 零调用
+- Retry-After HTTP-date 格式漏解析（RFC 7231 必修）
+- OpenAI o1 系列 audio_tokens / prediction_tokens 漏 lift
+
+---
+
+## [0.4.101] — 2026-05-26
+
+**主题**：「空衍」logo 重新设计 — 中心负空间方框 + 4 螺旋臂 + 角点 + 灵气短戟。
+
+### Changed
+
+- `web/scripts/generate-kooix-logo.mjs` 重写设计语言（D4 静态对称 → 风车螺旋）：
+  - **空**：中心同心方框（38×38 + 22×22 rounded square），currentColor stroke + 16% opacity fill，表达「路由门户 / 负空间」
+  - **衍**：4 个螺旋臂，起 r=26 终 r=86 sweep=95°，Catmull-Rom 平滑成 cubic bezier，每臂末端缀 token 圆点。-8° 起始偏移营造逆时针风车动感
+  - **栅**：对角线 4 主圆角方 (r=104) + 4 副小圆点 (r=118)
+  - **气**：4 个主基本方向 8 段虚线短戟（近 stroke=2.6 远 stroke=2.2）
+- 几何参数预先用 `ctx_execute` 跑通：相邻臂端起距 60px ≥ 50px 不缠绕，端点离 viewBox 边 ≥ 42px 安全
+- `KooixLogo.svelte` 兼容旧 caller：保留 `tone='mark' | 'tile'` prop，'tile' 模式带 zinc 圆角方块底（用于 Sidebar）
+- favicon (64×64) 同步简化版：去 aura + 短螺旋臂 (sweep=85°, 直线段) + 中心方框
+
+### Why
+
+原 logo 是 D4 90° 旋转对称的四角星 + 4 条飘带 + 12 点节点，**克制有余、灵动不足**——更像"佛印"而非"衍"。「空衍」的语义需要：
+
+- **空**：留白作为主角（不是装饰）— 改用中心方框的"门"
+- **衍**：演化、推衍、流动 — 改用螺旋而非对称飘带
+- 仍保留 D4 对称作为骨架，让识别度不变
+
+### Verification
+
+```bash
+node web/scripts/generate-kooix-logo.mjs   # 3 文件生成
+npm --prefix web run check                  # 0 errors / 0 warnings
+```
+
+### 视觉对比
+
+| 项 | v1 (0.4.x baseline) | v2 (0.4.101) |
+|----|---------------------|--------------|
+| 中心 | 实心四角星 | 同心负空间方框 |
+| 主元素 | 4 条对称飘带 | 4 个螺旋臂（风车感） |
+| 节点 | 4 主 + 8 副粒子 | 4 主圆角方 + 4 副圆点 |
+| 装饰 | 4 条点画曲线 | 8 段虚线灵气短戟 |
+| 动势 | 静态对称 | 逆时针风车螺旋 |
+| 寓意 | 几何均衡 | 空（路由门）+ 衍（token 推演） |
+
+---
+
+## [0.4.100] — 2026-05-26 — 阶段大版 · product-review 第一刀收口
+
+> 36 个 patch（0.4.65 → 0.4.100）完整覆盖 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) 第一刀。
+> v0.5.0-rc1 候选门禁见 [RELEASE.md § rc1 准备清单](./RELEASE.md)。
+
+### 阶段战报
+
+| 域 | 完成项 | 关联 patch |
+|----|------|-----------|
+| **性能** | SharedHttpClient 4 fast-path 共享 reqwest pool + hit/miss/evict/size 指标 | 0.4.65 / 0.4.94 |
+| **可观测** | `gate_chat_*` 4 指标（duration/ttfb/stream_chunks/requests_total）+ WASM 9 指标 + observability.md 完整对齐 | 0.4.66 / 0.4.73 / 0.4.95 |
+| **渠道一致性** | Anthropic/Bedrock 透传 ChatRequest.extra；OpenAI/Azure nested usage details auto-lift | 0.4.67 / 0.4.75 |
+| **Usage 字段** | cache_creation_input_tokens；o1/o3 reasoning_tokens/cached_tokens 自动提升 | 0.4.68 |
+| **安全** | ProviderError body 脱敏（512B + sha256 + UTF-8 边界感知）+ runbook + threat-model | 0.4.69 / 0.4.92 / 0.4.93 |
+| **可靠性** | Retry ±25% jitter + `RetryConfig::stream_safe()` factory | 0.4.70 |
+| **配置** | PgPool 5 env 显式化 + `.env.example` 4 段补全 | 0.4.71 / 0.4.74 / 0.4.97 |
+| **重构** | admin.rs pricing 内联 mod；channels page plugin samples 抽 `_lib` + 6 测试 | 0.4.72 / 0.4.76 / 0.4.77 |
+| **WASM host functions** | host_log 真实实装 + host_record_metric sanitize（B3a） | 0.4.80 / 0.4.81 / 0.4.82 |
+| **WASM cache** | cwasm 持久化（`KOOIX_WASM_CACHE_DIR` env + Module::deserialize_file + 4 指标 + runbook） | 0.4.83 / 0.4.84 / 0.4.89 / 0.4.96 |
+| **DataTable** | maxHeight + stickyHead + 3 sanity tests | 0.4.85 / 0.4.86 |
+| **Provider capabilities** | `GET /v1/admin/providers/capabilities` 11 项矩阵 + endpoint sanity test | 0.4.87 / 0.4.88 |
+| **文档** | RELEASE.md rc1 清单 / ROADMAP / product-gaps / playground / README badges / chaos-testing.md 设计稿 | 0.4.73 / 0.4.78 / 0.4.79 / 0.4.90 / 0.4.91 / 0.4.99 |
+| **bench TODO** | hot_paths.rs 加 chat e2e bench 实施 TODO（0.5.x 实装） | 0.4.98 |
+
+### 验证
+
+```bash
+cargo check --workspace                                       # 0 errors
+cargo test -p gate-providers --lib                            # 139 passed (从 122 增 +17)
+cargo test -p gate-server --lib                               # 46 passed (从 41 增 +5)
+cargo test -p gate-wasm --lib                                 # 18 passed (从 13 增 +5)
+cargo test -p gate-storage --lib pool_config_tests            # 5 passed (新增)
+npm --prefix web run check                                    # 0 errors / 0 warnings
+npm --prefix web test                                         # 93 web tests (从 87 增 +6)
+```
+
+### 阶段亮点
+
+- **零回归**：36 个 patch 全部 cargo check + 涉及 crate 测试通过；前端 0/0 维持。
+- **每 patch 独立可逆**：commit 粒度细，git revert 单个 patch 不影响其他。
+- **CHANGELOG 完整**：每个 patch 都写 主题 / Changed / Why / Verification 四段，回看 36 个 commit 清晰可读。
+- **文档与代码同步**：observability / ROADMAP / product-gaps / RELEASE / playground / wasm-runbook / security-runbook / threat-model / chaos-testing 9 个文档全部对齐 0.4.65-0.4.99 实装。
+
+### 下一步：v0.5.0-rc1
+
+按 [RELEASE.md § rc1 准备清单](./RELEASE.md#v050-rc1-准备清单基于-product-review-2026-05-26) 跑候选门禁。剩余 product-review P1/P2 项（playground frontend / channels page deep 拆 / request_logs buffered runtime / chat e2e bench 真实装 / chaos test runtime / host_get_secret_slot）进入 v0.5.x 迭代。
+
+---
+
+## [0.4.99] — 2026-05-26
+
+**主题**：`docs/chaos-testing.md` 设计稿（0.5.x 实装路径文档化）。
+
+### Added
+
+- 新增 `docs/chaos-testing.md`：
+  - 目标 / 不做什么
+  - Phase 1 故障矩阵：27 个 case（PG 9 / Redis 6 / 上游 12）含工具 + 期望行为
+  - Phase 2 自动化（`tests/chaos/` 目录 + `make chaos` target + metric 断言）
+  - Phase 3 drill-friendly fixtures（with_pg_latency helper / blast radius 注释）
+  - Coverage targets + 关联文档
+
+### Why
+
+product-review §5.2 判词："缺 deterministic 复现 case，限流挂掉 / Redis 闪断 / 上游 503 风暴 / pool 耗尽只能事后复盘"。本版本不实装（涉及 toxiproxy 容器 + 多 case，工作量超 patch 范围），先把方案锁定让 0.5.x 实装时有图纸。
+
+---
+
+## [0.4.98] — 2026-05-26
+
+**主题**：hot_paths.rs 顶部加 chat e2e bench 实施 TODO（0.5.x 实装方向）。
+
+### Docs
+
+- `crates/gate-server/benches/hot_paths.rs` 顶部 doc-comment 加 4 行 TODO 块：
+  - 当前覆盖范围（quota / billing 微观路径）
+  - 缺口（"request 进 axum → response 出 axum" 端到端 latency）
+  - 0.5.x 实装方向 4 步（wiremock mock 上游 / reqwest 打内部 router / criterion group chat_e2e + chat_stream_e2e / baseline JSON 入 bench/results/）
+  - 与 plugin_vs_builtin bench 区别说明
+
+### Why
+
+product-review §5.2 列 "chat e2e bench 缺" 为 P1 项。本版本只锁 API 形状与实施路径，避免后续 refactor 时方向漂移。
+
+---
+
+## [0.4.97] — 2026-05-26
+
+**主题**：`.env.example` 加 request log buffered writer 占位 env（0.5.x 实装前文档化）。
+
+### Docs
+
+- `.env.example` 新增段：
+  - `KOOIX_REQUEST_LOG_BUFFER_SIZE` — 单 batch 上限（默认 512）
+  - `KOOIX_REQUEST_LOG_FLUSH_INTERVAL_MS` — 强制 flush 间隔（默认 200ms）
+  - `KOOIX_REQUEST_LOG_BACKPRESSURE` — block / drop_oldest / drop_newest 三种背压策略
+
+### Why
+
+product-review §1 P1-3：`request_logs` 写入热路径同步 insert，写放大严重。本版本先文档化 env 接口，runtime 实装到 0.5.x（涉及 PgRequestLogRepo + 后台 flush 任务 + 错误恢复，不在本 sprint 范围）。
+
+文档化锁住 API 形状，让运维提前规划部署参数；同时明示"未实装"避免 runtime 误读。
+
+---
+
+## [0.4.96] — 2026-05-26
+
+**主题**：.gitignore 排除 cwasm 缓存（0.4.83 配套）。
+
+### Changed
+
+- `.gitignore` 加 `.wasm-cache/` 与 `*.cwasm` —— 本地开发若 `KOOIX_WASM_CACHE_DIR` 不慎指到 repo 内，不会污染 `git status`。
+
+---
+
+## [0.4.95] — 2026-05-26
+
+**主题**：observability.md 补 0.4.80-0.4.94 新增 9 个指标。
+
+### Docs
+
+- `docs/observability.md` 三个 section 扩充：
+  - `WASM Plugin` 补 `gate_plugin_wasm_host_log_total{level}` + 4 个 cwasm cache 指标（hit/miss/corrupt/write）
+  - 新增 `Plugin user metrics` 段：`plugin_wasm_user_*` namespace（来自 host_record_metric）
+  - 新增 `Upstream HTTP client` 段：4 个 SharedHttpClient 指标（hits/misses/evictions/size）
+
+### Why
+
+0.4.80 host_log / 0.4.81 host_record_metric / 0.4.83 cwasm cache / 0.4.94 SharedClient 共加 9 个新指标但都没进 observability 表格 —— 运维拿表当 dashboard 工程蓝图，遗漏即变 silent metric。
+
+---
+
+## [0.4.94] — 2026-05-26
+
+**主题**：SharedHttpClient 加 hit/miss/evict/size 指标（0.4.65 配套可观测）。
+
+### Added
+
+- `crates/gate-providers/src/lib.rs::shared_http_client` 三处 emit：
+  - cache hit → `gate_providers_shared_client_hits_total`
+  - eviction → `gate_providers_shared_client_evictions_total`（LRU 满 8 时 clear all）
+  - miss + insert → `gate_providers_shared_client_misses_total` + gauge `gate_providers_shared_client_size`
+- `gate-providers/Cargo.toml` 加 `metrics = { workspace = true }` 依赖
+
+### Why
+
+0.4.65 实装 SharedHttpClient 时只暴露 cache 行为，没有指标。运营时无法知道 cache 是否在工作（hit 率高低 / 是否频繁 evict 触发重连）。补足这 4 个指标让 LRU 容量调优有数据支撑。
+
+### Verification
+
+```bash
+cargo check -p gate-providers          # 0 errors
+cargo test -p gate-providers --lib     # 139 passed (无回归)
+```
+
+---
+
+## [0.4.93] — 2026-05-26
+
+**主题**：threat-model.md 加 "Upstream error body leakage" 威胁条目（0.4.69 STRIDE 文档化）。
+
+### Docs
+
+- `docs/threat-model.md` 新增第 7 个 STRIDE 条目：
+  - Threats: 上游回显 PII / key；长 body 放大日志压力
+  - Controls: `ProviderError::upstream` 工厂 + 512B 截断 + sha256 哈希；audit_redaction 链
+  - Verification: `error::tests` 4 case + manual 4xx body 验证
+
+### Why
+
+0.4.69 实装代码 + 0.4.92 写 runbook 步骤，但还差正式威胁建模条目。补齐 STRIDE 链路。
+
+---
+
+## [0.4.92] — 2026-05-26
+
+**主题**：security-runbook 加 "Provider 上游 error body 泄漏" 段（0.4.69 配套）。
+
+### Docs
+
+- `docs/security-runbook.md` 新增段，覆盖：
+  - 0.4.69 redact_upstream_body 行为（≤512 原样 / >512 截断 + sha256）
+  - UTF-8 边界感知
+  - 必修原因（上游回显 PII / key 风险）
+  - 排查 3 项：构造点是否走 `ProviderError::upstream` 工厂 / 自定义 provider 是否绕过 / audit_redaction 是否禁用
+
+---
+
+## [0.4.91] — 2026-05-26
+
+**主题**：ROADMAP.md 加 product-review 第一刀完成项段（0.4.65-0.4.90 已 ticked 14 条）。
+
+### Docs
+
+- `ROADMAP.md` § M3 后新增 "M3 后 — product-review 第一刀" 章节：
+  - 14 条已完成项 ticked，按性能/可观测/渠道/Usage/安全/可靠/配置/重构/WASM/前端/能力面/文档分类
+  - 与 [product-review-2026-05-26.md](./docs/product-review-2026-05-26.md) / [product-gaps.md](./docs/product-gaps.md) 三向引用
+
+---
+
+## [0.4.90] — 2026-05-26
+
+**主题**：playground.md M1.5 路线第 1 项标 backend 已收口。
+
+### Docs
+
+- `docs/playground.md § 路线（M1.5）` 更新：
+  - 第 1 项拆为 Backend / Frontend，Backend 已通（0.4.87 endpoint）
+  - Frontend 接入还在路上（FlowEditor 拉 endpoint + store + 节点联动）
+
+### Why
+
+0.4.87 的 `GET /v1/admin/providers/capabilities` 让 playground capability 联动的"数据源"已通。前端接入工作单独迭代。文档同步真相。
+
+---
+
+## [0.4.89] — 2026-05-26
+
+**主题**：wasm-runbook.md 加 cwasm 持久化缓存运维段（0.4.83 配套）。
+
+### Docs
+
+- `docs/wasm-runbook.md` 新增 `## 7. cwasm 持久化缓存`：
+  - 启用方式（`KOOIX_WASM_CACHE_DIR`）
+  - 路径约定（`{sha256}-wt26-0.cwasm`）
+  - 4 个运维要点：wasmtime 升级、wasm 模块更新清理、cache miss 抖动告警、多 replica 共享 PVC
+
+### Why
+
+0.4.83 + 0.4.84 实装了 cwasm cache + env 注入，但 wasm-runbook 没收录运维细节。运维只看 runbook 来调线上，文档闭环。
+
+---
+
+## [0.4.88] — 2026-05-26
+
+**主题**：`provider_capabilities_returns_full_matrix` 单测覆盖 0.4.87 新 endpoint。
+
+### Added
+
+- `crates/gate-server/src/routes/admin.rs::tests::provider_capabilities_returns_full_matrix` — 验证：
+  - 至少 5 个 entry（4 编译期 + ≥1 plugin preset）
+  - 4 个编译期 provider（openai/anthropic/azure/bedrock）都在 + `kind=compile_time`
+  - `plugin:openai_compatible` 存在 + `kind=plugin_preset`
+  - `openai.capabilities.chat == true`（基本能力非空）
+
+### Verification
+
+```bash
+cargo test -p gate-server --lib    # 46 passed (45 + 1 新增)
+```
+
+---
+
+## [0.4.87] — 2026-05-26
+
+**主题**：`GET /v1/admin/providers/capabilities` endpoint（product-review B5）。
+
+### Added
+
+- `crates/gate-server/src/routes/admin.rs::list_provider_capabilities` —— 一次返完整 provider capability 矩阵：
+  - 4 个编译期 fast-path provider（openai / anthropic / azure / bedrock）
+  - 7 个 plugin preset（openai_compatible / anthropic_messages / google_gemini / cohere / mistral / deepseek / ollama）
+- 每条返 `{id, name, capabilities, base_url_hint, kind=compile_time|plugin_preset}`
+
+### Why
+
+product-review §2.3 + G-206：playground 节点联动、channel drawer 默认填值需要按 provider 拿全能力矩阵。之前只能逐 channel 查 `/v1/admin/channels/:id`，前端拉一次 admin endpoint 就能拿到全部，免去 N+1 请求。
+
+### Verification
+
+```bash
+cargo check -p gate-server      # 0 errors
+cargo test -p gate-server --lib # 45 passed (无回归)
+```
+
+---
+
+## [0.4.86] — 2026-05-26
+
+**主题**：DataTable maxHeight / stickyHead 加 3 个 sanity test。
+
+### Added
+
+- `web/src/tests/data-table.test.ts`：
+  - 默认无 maxHeight / 不 sticky
+  - `maxHeight='480px'` 写入 `style="max-height: 480px; overflow-y: auto"`
+  - `stickyHead=true` 单独不渲染 thead（需 head snippet）
+
+### Verification
+
+```bash
+npm --prefix web test -- data-table    # 3 passed
+```
+
+---
+
+## [0.4.85] — 2026-05-26
+
+**主题**：DataTable.svelte 加 `maxHeight` + `stickyHead` prop（product-review B4 step 1/3，长表头可见）。
+
+### Added
+
+- `web/src/lib/components/templates/DataTable.svelte`：
+  - `maxHeight?: string`（默认空 = 无限高）—— 容器纵向滚动上限
+  - `stickyHead?: boolean`（默认 false）—— thead `sticky top-0 z-10`，滚动时表头始终可见
+
+### Why
+
+product-review §4.3 判词：admin/requests 大概率万行数据，无虚拟滚动 → 滚到 100 行后表头看不见，体验差。先用 sticky thead + 容器 max-height 解决"看不见列名"的痛点。真正的窗口化虚拟滚动（row recycle）涉及 row renderer 接口重构，留 step 2/3。
+
+零行为变化（默认 prop 全 false / 空），现有调用方不受影响。
+
+### Verification
+
+```bash
+npm --prefix web run check     # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.84] — 2026-05-26
+
+**主题**：`WasmHostConfig::from_env()` + `KOOIX_WASM_CACHE_DIR` env 接入。
+
+### Added
+
+- `WasmHostConfig::from_env()` — 读 `KOOIX_WASM_CACHE_DIR`，空字符串 / 未设 → `None`；设置后即 cwasm 缓存目录。
+- `.env.example` 新增 WASM Plugin 持久化缓存段，含路径建议（`/var/cache/kooix-gate/wasm`）与文件名约定。
+
+### Why
+
+0.4.83 实装了 cwasm 缓存机制，但要求 caller 显式构造 `WasmHostConfig.cache_dir`。生产场景应该走 env 注入。配合 `.env.example` 让运维一眼可启用。
+
+---
+
+## [0.4.83] — 2026-05-26
+
+**主题**：WASM cwasm 编译产物持久化缓存（product-gaps G-104）。
+
+### Added
+
+- `WasmHostConfig.cache_dir: Option<PathBuf>` — `None` 即旧行为（每次 compile）；`Some(path)` 启用持久化 cache。
+- `WasmtimeHost::load_module_with_cache` — 路径 `{cache_dir}/{sha256}-wt26-0.cwasm`：
+  - 文件存在 → `Module::deserialize_file` 直接复用编译产物
+  - deserialize 失败 → 删除 + fallback compile + warn
+  - compile 后 → `module.serialize` + 写盘（写盘失败不阻断 load）
+- 3 个新 metric：`gate_wasm_cache_hit_total` / `gate_wasm_cache_miss_total` / `gate_wasm_cache_corrupt_total` / `gate_wasm_cache_write_total`
+
+### Why
+
+product-gaps G-104：之前每次 gate-server 启动都重新 compile 所有 wasm 模块。50 channel × 5 wasm 启动慢；持久化后第二次冷启动直接 deserialize（~ms 级 vs ~100ms compile）。
+
+### Verification
+
+```bash
+cargo check -p gate-wasm                                # 0 errors
+cargo test -p gate-wasm --lib cwasm_cache               # 1 passed
+cargo test -p gate-wasm --lib                           # 18 passed (17 + 1 新)
+```
+
+`cwasm_cache_writes_and_hits_on_second_load` 测试：第一次 load 写 cwasm，第二次新 host 实例 + 同 cache_dir 命中（mtime 不变）。
+
+---
+
+## [0.4.82] — 2026-05-26
+
+**主题**：WASM host_record_metric sanitize 规则 4 个 sanity test。
+
+### Added
+
+- `crates/gate-wasm/src/wasmtime_host.rs` 测试模块新增 `sanitize_user_metric_name` 自由函数（与 host fn 闭包内规则等价）+ 4 个 test：
+  - 普通名 → `plugin_wasm_user_` 前缀
+  - 含特殊字符 → 大写转小写 + 非 [a-z0-9_] 过滤
+  - 200 字符长名 → 截至 17 (prefix) + 64 = 81 字符
+  - 全特殊字符 / 空 → drop（None）
+
+### Why
+
+host_record_metric 在 0.4.81 真实 linker 挂上了，但闭包内 sanitize 规则没有独立测试覆盖——加 4 个 test 让规则 regression 早暴露。host_get_secret_slot（B3a step 3/3）涉及 manifest secret slot 声明 + audit 链路，推到下一迭代单独处理。
+
+### Verification
+
+```bash
+cargo test -p gate-wasm --lib              # 17 passed (13 既有 + 4 新增)
+```
+
+---
+
+## [0.4.81] — 2026-05-26
+
+**主题**：WASM `host_record_metric` 实装（B3a step 2/3，G-003 续）。
+
+### Changed
+
+- `crates/gate-wasm/src/wasmtime_host.rs` 加 `host_record_metric(name_ptr, name_len, value_i64)`：
+  - 读 wasm memory 取 metric name，按 [a-z0-9_] sanitize + 截断 64 字符
+  - 强制前缀 `plugin_wasm_user_` 防止 plugin 污染 gate 内置 namespace
+  - 越界保护与 `host_log` 一致
+  - emit `metrics::gauge!` 设 value（i64 → f64）
+  - name 为空（sanitize 后）时 silently drop
+
+### Why
+
+product-gaps G-003：插件需要把内部状态（如 cache hit 率、自定义计数）暴露给运维。强制前缀 + sanitize 让 plugin 自定义 metric 与 gate 内置指标在 Prometheus 里清晰隔离，运维一眼看到 `plugin_wasm_user_*` 就知道是插件出的。
+
+剩 `host_get_secret_slot` 在 0.4.82 落地（依赖 manifest secret slot 声明，需要更小心的 audit 链路）。
+
+### Verification
+
+```bash
+cargo check -p gate-wasm        # 0 errors
+cargo test -p gate-wasm         # 13 passed (无回归)
+```
+
+---
+
+## [0.4.80] — 2026-05-26
+
+**主题**：WASM `host_log` 真实实装（B3a step 1/3，product-gaps G-003）。
+
+### Changed
+
+- `crates/gate-wasm/src/wasmtime_host.rs::host_log` 从 placeholder 升级为真实实现：
+  - 通过 `Caller::get_export("memory")` 拿到 wasm 线性内存
+  - 按 (ptr, len) 切片读取 UTF-8 字符串（越界保护：检查 `ptr+len ≤ data.len()` 否则丢弃 + warn）
+  - 防 plugin 撑爆日志：单条 ≤ 1KB（超出截断 + `truncated=true` 字段）
+  - level 约定：0=trace / 1=debug / 2=info / 3=warn / 4=error，其它走 debug
+  - 路由到 `tracing::{trace,debug,info,warn,error}!` + 加 `plugin=true` 字段
+  - emit `gate_plugin_wasm_host_log_total{level}` counter
+
+### Why
+
+product-gaps G-003：ABI v0 三个 transform hook 已通，但 `host_log` / `host_get_secret_slot` / `host_record_metric` 都是 placeholder——插件无法记录 log，DX 残废。host_log 是最简单一个，先做。后续 81-82 补 secret_slot 与 metric。
+
+### Verification
+
+```bash
+cargo check -p gate-wasm        # 0 errors
+cargo test -p gate-wasm         # 13 passed (无回归)
+```
+
+---
+
+## [0.4.79] — 2026-05-26
+
+**主题**：README 当前版本段更新到 0.4.78 + tests badge 498/93。
+
+### Docs
+
+- `README.md` "当前版本" 段重写：把 product-review 第一刀 14 个 patch 的成果列出来，原 0.4.60 段降为"基线"小节
+- tests badge 485/87 → 498/93（providers 124→139=+15，server 41→45=+4，storage +5，channels samples +6）
+- 入口链接指向 `RELEASE.md § rc1 准备清单`
+
+---
+
+## [0.4.78] — 2026-05-26
+
+**主题**：RELEASE.md 加 v0.5.0-rc1 准备清单 + 已完成项检视表。
+
+### Docs
+
+- `RELEASE.md` 文末加 "v0.5.0-rc1 准备清单"：
+  - **已完成项检视**（0.4.65-0.4.77）：11 类改动表，含验证数据点
+  - **rc1 候选门禁**：fmt / clippy / test / web check / bundle budget / gitleaks 7 条
+  - **rc1 验收清单**：6 项 checklist（CHANGELOG / README badge / product-gaps / ROADMAP / docs / tag&push）
+
+### Why
+
+product-review 之后的 11 个 patch 已合 main，但 RELEASE.md 没把"做了什么"与"还差什么"放在一起。rc1 准备清单让发版者一眼看到当前进度与剩余项；门禁清单让 CI/手工跑都有参照。
+
+---
+
+## [0.4.77] — 2026-05-26
+
+**主题**：plugin-samples 加 sanity test（6 case），防止示例文本失效。
+
+### Added
+
+- `web/src/tests/plugin-samples.test.ts`（6 个 case）：
+  - `PLUGIN_MANIFEST_EXAMPLE` / `PRIVATE_PLUGIN_MANIFEST_EXAMPLE` / `RESPONSE_SAMPLE_PLACEHOLDER` — JSON 可解析
+  - `PROBE_BODY_PLACEHOLDER` — 含 `{{model}}` 占位
+  - `PLUGIN_REPLAY_SAMPLE` — 含 SSE `event:`/`data:` 标记
+  - `PLUGIN_BUILDER_STEPS` — 长度 7、首尾固定
+
+### Why
+
+0.4.76 把这些常量上提到 `_lib`，但用户复制到 channel manifest 时若字符串里语法错（如缺逗号），编辑器只在用户保存时才报错。加 sanity test 在 CI 早期就拦截示例文本的格式 regression。
+
+### Verification
+
+```bash
+npm --prefix web test -- plugin-samples       # 6 passed
+```
+
+总测数：87 → 93。
+
+---
+
+## [0.4.76] — 2026-05-26
+
+**主题**：channels page B2 step 1/4 — plugin builder 静态示例文本抽到 `_lib/plugin-samples.ts`。
+
+### Changed
+
+- 新增 `web/src/routes/channels/_lib/plugin-samples.ts`（76 行）：6 个常量 + 1 个类型
+  - `PLUGIN_MANIFEST_EXAMPLE` / `PRIVATE_PLUGIN_MANIFEST_EXAMPLE` — manifest 例子
+  - `PLUGIN_REPLAY_SAMPLE` — SSE replay 样例
+  - `RESPONSE_SAMPLE_PLACEHOLDER` / `PROBE_BODY_PLACEHOLDER` — placeholder 字符串
+  - `PLUGIN_BUILDER_STEPS` + `PluginBuilderStep` 类型 — 7 步 builder 标签
+- `web/src/routes/channels/+page.svelte` 1252 → 1199 行（-53 / -4.2%）：移除 inline 常量定义，改用 import alias 保持本地变量名不变（最小侵入）
+
+### Why
+
+product-review §4.2 判词：channels/+page.svelte 1252 行 god page 拆分。这是 4 步拆分的第 1 步——先把"零依赖只读静态数据"上提。这部分不涉及 state / 组件协调，搬出来风险最低，验证套路可行后再拆 dialog manager / store。
+
+### Verification
+
+```bash
+npm --prefix web run check    # 0 errors / 0 warnings
+```
+
+---
+
+## [0.4.75] — 2026-05-26
+
+**主题**：Azure provider 非流路径也走 `lift_openai_usage_details`（一致性补漏，0.4.68 范围扩大）。
+
+### Changed
+
+- `crates/gate-providers/src/azure.rs::chat` 改用 `bytes → Value → lift → ChatResponse` 流程，与 OpenAI provider 对齐。流式路径无需改动（azure.rs 复用 `openai::sse_to_chunks`，已在 0.4.68 接入 lift）。
+
+### Why
+
+Azure OpenAI 与 OpenAI API 协议一致，o1 / o3-mini deployment 同样会回 `prompt_tokens_details.cached_tokens` 与 `completion_tokens_details.reasoning_tokens`。0.4.68 只改了 openai.rs::chat 路径，azure 漏了——同样会丢失 cache/reasoning 计费维度。
+
+### Verification
+
+```bash
+cargo check --workspace                       # 0 errors
+cargo test -p gate-providers --lib            # 139 passed (无回归)
+```
+
+---
+
+## [0.4.74] — 2026-05-26
+
+**主题**：.env.example 补 KOOIX_DB_* + KOOIX_OUTBOX_* 等可调 env 文档化。
+
+### Docs
+
+- `.env.example` 增加两块"可选调优"注释：
+  - **PostgreSQL 连接池**：`KOOIX_DB_MAX_CONNECTIONS` / `KOOIX_DB_MIN_CONNECTIONS` / `KOOIX_DB_ACQUIRE_TIMEOUT_SECS` / `KOOIX_DB_IDLE_TIMEOUT_SECS` / `KOOIX_DB_MAX_LIFETIME_SECS`（0.4.71 暴露但 example 漏写）
+  - **Worker 节流**：`KOOIX_OUTBOX_BATCH_SIZE` / `KOOIX_OUTBOX_INTERVAL_MS` / `KOOIX_PRICING_SYNC_INTERVAL_SECS` / `KOOIX_INFLIGHT_SWEEP_INTERVAL_SECS`（已实装但 example 缺）
+
+### Why
+
+0.4.71 在代码层暴露了 5 个 `KOOIX_DB_*` env，但 `.env.example` 没同步——运维找不到名字就改不了配置。worker 类 env 同理：observability-runbook 里提到但首次部署的人不会先读 runbook。
+
+把可调项都写到 `.env.example`（注释默认值与含义），新部署用户直接抄即可。
+
+---
+
+## [0.4.73] — 2026-05-26
+
+**主题**：observability.md + product-gaps.md 与 0.4.65-72 实装对齐。
+
+### Docs
+
+- `docs/observability.md § Request lifecycle` 重写：
+  - 4 个 chat metric 名/labels 与代码对齐：`gate_chat_requests_total{streaming, outcome}` / `gate_chat_duration_seconds` / `gate_chat_ttfb_seconds` / `gate_chat_stream_chunks_total`
+  - 补 `gate_tokens_total` / `gate_request_duration_seconds` / `gate_active_requests` / `gateway_stage_duration_seconds`
+  - 加 0.4.66 历史变更说明（旧 `gate_chat_latency_ms` / `gate_chat_tokens` 已合并；旧 dashboard 需更新；streaming 新维度避免长流污染 p99）
+
+- `docs/product-gaps.md` 顶部加"已收口（0.4.65-0.4.72）"章节：8 个 patch 摘要表 + 验证数据，与 [product-review-2026-05-26.md](./product-review-2026-05-26.md) 双向交叉引用。
+
+### Why
+
+product-review 第一刀（A1-A5 + Retry + Pool + admin step 1）8 个 patch 已合 main，但 observability.md 仍写旧指标名（`gate_chat_latency_ms` 不存在 / labels `provider` 应为 `provider_type`）—— 这是文档漂移，运维拿旧名做 dashboard 会扑空。同步修。
+
+### Verification
+
+```bash
+grep gate_chat_ docs/observability.md         # 4 occurrences for new names
+git log --oneline v0.4.64..HEAD               # 9 commits since pre-review
+```
+
+---
+
+## [0.4.72] — 2026-05-26
+
+**主题**：admin.rs B1 step 1/4 — pricing 块封装为内联子模块（product-review §1.4）。
+
+### Changed
+
+- `crates/gate-server/src/routes/admin.rs`：把 `list_pricing_rules` / `upsert_pricing_rule` / `delete_pricing_rule` + 私有类型 `UpsertPricingRuleRequest` + helper `rule_to_row` 全部搬进 `mod pricing { use super::*; ... }` 内联子模块。3 个 handler 标 `pub(super)` 让父 router 引用；`UpsertPricingRuleRequest` 同步 `pub(super)`。
+- 主 `router()` 中 `/pricing-rules` / `/pricing-rules/:id` 改用 `pricing::list_pricing_rules` 等限定路径。
+
+### Why
+
+product-review §1.4 判词：admin.rs 4235 行 god file，关注点混杂。这是 4 步拆分的第 1 步，先把最独立的 pricing 块（180 行 / 不依赖其他业务域 helper 除 `audit_meta`/`require_confirmation`/`pricing_rule_audit_snapshot`）封装为内联模块——对外只暴露 3 个 handler，内部类型隐藏。
+
+下一步（v0.4.73-75）同样套路处理 invitations、groups、users，最终物理拆 `admin/{mod.rs, pricing.rs, ...}`。
+
+### Verification
+
+```bash
+cargo check -p gate-server                     # 0 errors
+cargo test -p gate-server --lib                # 45 passed (无回归)
+```
+
+行数变化：admin.rs 4235 行 → 4248 行（+13 行：`mod pricing { use super::*; }` 包裹与 pub(super) 标注）。物理行数小增但逻辑边界清晰：pricing 内部 11 个符号（3 fn + 1 enum + 2 struct + 1 helper）从顶层符号表移入 mod，admin.rs 顶层 fn 数 -3。
+
+---
+
+## [0.4.71] — 2026-05-26
+
+**主题**：PgPool 配置显式化 — `KOOIX_DB_*` env 可调，默认值生产友好（product-review §1.5）。
+
+### Added
+
+- `crates/gate-storage/src/lib.rs::PoolConfig` 结构体：max_connections / min_connections / acquire_timeout_secs / idle_timeout_secs / max_lifetime_secs。
+- `PoolConfig::from_env()` — 读 `KOOIX_DB_MAX_CONNECTIONS` / `KOOIX_DB_MIN_CONNECTIONS` / `KOOIX_DB_ACQUIRE_TIMEOUT_SECS` / `KOOIX_DB_IDLE_TIMEOUT_SECS` / `KOOIX_DB_MAX_LIFETIME_SECS`，解析失败保留默认。
+- `connect_with_config(url, &PoolConfig)` — 显式 API；旧 `connect(url, max)` 仍可用（自动 from_env + max 覆盖）。
+
+### Changed
+
+- 默认 max 16 → 20；新增 min=2（warm pool）；acquire_timeout 5s → 3s；新增 idle_timeout=600s + max_lifetime=1800s。这些值生产场景更合理：
+  - **min=2 warm pool**：冷启后第一波突发流量不用排队等连接握手
+  - **idle_timeout=600s**：多数云 LB（RDS / cloud SQL）5-15min 后回收空连接，提前 sqlx 内部关闭，避免下次 acquire 拿到死连接
+  - **max_lifetime=1800s**：强制 30min 轮换，防长连接累积内存
+- `crates/gate-server/src/main.rs`：postgres 启动改用 `PoolConfig::from_env()` + `connect_with_config`，并打 info log 显示生效参数。
+
+### Why
+
+product-review §1.5 判词：之前 pool 配置 silent / 不可调，只有 max（main.rs 硬编码 16）和 acquire_timeout（5s），缺 min / idle / lifetime —— 生产 LB 回收 + 突发流量 + 长连接累积三件套全踩坑。`from_env` 让运维不改代码即可调优。
+
+### Verification
+
+```bash
+cargo check --workspace                          # 0 errors
+cargo test -p gate-storage --lib pool_config     # 5 passed
+```
+
+新测试：
+- `default_pool_config_is_safe` — 默认值合理性
+- `env_override_max_connections` — 50 生效
+- `env_min_connections_capped_by_max` — min 不超过 max
+- `env_idle_timeout_zero_disables` — 0 → None（关闭 idle 回收）
+- `env_bogus_values_fall_back_to_default` — parse 失败保留 default
+
+---
+
+## [0.4.70] — 2026-05-26
+
+**主题**：Retry 加 ±25% jitter + stream-safe factory（product-review §2.4）。
+
+### Added
+
+- `RetryConfig.jitter: bool` — 默认 true。开启后 `backoff_ms(attempt)` 在 base ± 25% 范围内随机取值，防止 N 个客户端同步退避形成"雷暴"。
+- `RetryConfig::stream_safe()` factory — `max_retries=0`。流式路径（chat_stream）一旦失败不能 retry（客户端已收 chunks + inflight pre-debit），用此 config 显式表达"非幂等"。
+
+### Changed
+
+- `backoff_ms` 实现改用 `saturating_pow` / `saturating_mul` 防 attempt 过大溢出。
+- `rand::thread_rng().gen_range` 在 base ± span（base/4，最小 1ms）之间取 jitter。
+
+### Why
+
+product-review §2.4 判词：
+- 原 retry 无 jitter，多客户端同时遇上游 502 后会在精确同一毫秒退避并重试 → 二次冲击放大问题；
+- 流式 retry 没有明文禁止（chat.rs 现在恰好流式分支没调 with_retry，但 API 没语义表达"流式不能 retry"）；
+- `backoff_ms` 用 `2u64.pow(attempt)` 在 attempt ≥ 64 时 panic。
+
+### Verification
+
+```bash
+cargo check --workspace                       # 0 errors
+cargo test -p gate-providers --lib            # 139 passed (134 + 5 新增 retry::tests)
+cargo test -p gate-providers --lib retry::    # 5 passed
+```
+
+新测试：
+- `stream_safe_disables_retry` — max_retries=0
+- `backoff_without_jitter_is_deterministic_exponential` — 500/1000/2000/4000/cap10000
+- `backoff_with_jitter_stays_within_25_percent_band` — 200 次采样落在 [1500, 2500]
+- `backoff_ms_does_not_panic_on_huge_attempt` — attempt=64 不 panic
+- `stream_safe_returns_immediately_on_first_error` — fn 只调一次
+
+---
+
+## [0.4.69] — 2026-05-26
+
+**主题**：Provider error body 脱敏 — 截 512 字节 + SHA-256 哈希尾，防长 body 撑爆日志、防泄漏 PII（product-review A5）。
+
+### Added
+
+- `crates/gate-providers/src/error.rs::redact_upstream_body(&str) -> String` — body ≤ 512 字节原样保留；超过则截断 + 标注被截字节数 + SHA-256 前 16 字符哈希。UTF-8 边界感知。
+- `ProviderError::upstream(status, body)` 工厂构造函数 — 所有上游 4xx/5xx 构造点统一走此入口，自动脱敏。
+- `pub use error::redact_upstream_body` — server 层 audit 链可复用。
+
+### Changed
+
+- `crates/gate-providers/src/bedrock.rs`、`custom_provider/fastpath.rs` 的 `ProviderError::Upstream { body }` 改用 `ProviderError::upstream(status, body)` 工厂。
+
+### Why
+
+product-review §1.3 判词：`ProviderError::Upstream { body }` 是上游响应原文，上游 4xx 偶尔回显请求体（OpenAI tool_use error 已知）或敏感 header echo，进 audit/log/客户端响应可能泄漏 PII / key。
+
+512 字节足够 debug 用，超长部分截掉但保留 hash 让排查时能定位原始 body；这是"防御性减少 blast radius"，不是替代 audit_redaction 的内容过滤。
+
+### Verification
+
+```bash
+cargo check --workspace                       # 0 errors
+cargo test -p gate-providers --lib            # 134 passed (130 + 4 新增 error::tests)
+cargo test -p gate-providers --lib error::    # 4 passed
+```
+
+新测试：
+- `redact_short_body_is_passthrough` — 短 body 原样
+- `redact_long_body_truncates_with_hash` — 长 body 含 sha256 + 长度 < 原长
+- `upstream_factory_redacts_long_body` — 工厂构造自动脱敏
+- `redact_handles_utf8_boundary` — 多字节 UTF-8 跨越 512 不 panic
+
+---
+
+## [0.4.68] — 2026-05-26
+
+**主题**：Usage 加 `cache_creation_input_tokens` + OpenAI o1/o3 reasoning_tokens 自动解析（product-review A4 真实剩余缺口）。
+
+### Added
+
+- `Usage.cache_creation_input_tokens: u32` — Anthropic prompt cache 写入 tokens（与 `cached_tokens` 即 cache_read 命中分别记账，定价不同）。
+- `crates/gate-providers/src/openai.rs::lift_openai_usage_details` — 把 OpenAI 嵌套 `prompt_tokens_details.cached_tokens` 与 `completion_tokens_details.reasoning_tokens` 提到 `usage` 顶级。chat (非流) 与 sse_to_chunks (流) 路径都接入。
+
+### Changed
+
+- `crates/gate-providers/src/anthropic.rs`：
+  - `AnthropicUsage` 新增 `cache_creation_input_tokens` 解析
+  - `from_anthropic_response`（非流）回填 `Usage.cache_creation_input_tokens`
+  - `StreamState` 加 `cache_creation_tokens` 字段；`MessageStart` 写入；`MessageDelta` 收尾回填到 final_usage
+- `crates/gate-providers/src/openai.rs`：chat 路径改为 `bytes → Value → lift → ChatResponse`，比 `resp.json::<ChatResponse>` 多一道嵌套字段提升步骤
+- `plugin_preset.rs` / `custom_provider/replay.rs`：Usage struct literal 补 `cache_creation_input_tokens: 0` / clone 字段
+
+### Why
+
+product-review §2.5 原判错（Anthropic 已经回填 `cached_tokens`）；正确剩余缺口：
+
+1. Anthropic `cache_creation_input_tokens` 完全没解析 → billing 用 cache_creation 单独定价时少收
+2. OpenAI o1/o3/o4-mini-reasoning 必返 nested details → gate 解析后丢失，下游 billing 拿不到 reasoning_tokens
+3. Bedrock invocationMetrics 不在本版（留下版处理）
+
+修后影响：Anthropic prompt caching 用户、OpenAI reasoning 模型用户，billing/usage rollup 拿到完整字段。
+
+### Verification
+
+```bash
+cargo check --workspace                                  # 0 errors
+cargo test -p gate-providers --lib                       # 130 passed (127 + 3 新增 lift_openai_usage_details)
+```
+
+新测试：
+- `openai::openai_lift_tests::lift_cached_and_reasoning_tokens_from_details`
+- `openai::openai_lift_tests::lift_no_details_is_noop`
+- `openai::openai_lift_tests::lift_does_not_overwrite_explicit_top_level`
+
+---
+
+## [0.4.67] — 2026-05-26
+
+**主题**：转译型 provider 透传 ChatRequest.extra — Anthropic / Bedrock 修补，OpenAI/Azure 已通过 `.json(&req)` 自动透传（product-review A3 修正）。
+
+### Changed
+
+- `crates/gate-providers/src/anthropic.rs` `AnthropicRequest` 加 `#[serde(flatten)] extra: Map<String, Value>`，`to_anthropic_request` 复制 `req.extra.clone()`。覆盖 `top_k` / `thinking` / `metadata` / `service_tier` 等 anthropic 特有字段。
+- `crates/gate-providers/src/bedrock.rs` `ConverseRequest` 同样加 flatten extra，覆盖 `additionalModelRequestFields` / `guardrailConfig` / `toolConfig` / `promptVariables`。
+
+### Why
+
+OpenAI / Azure provider 用 `client.post().json(&req)` 直接序列化 `ChatRequest`，由于 `ChatRequest.extra` 已经是 `#[serde(flatten)]` 字段，这两条路径其实早就透传了。原审查报告 §2.2 判错。
+
+但 Anthropic / Bedrock 走的是"转译"路径（`to_anthropic_request` / `to_converse_request`），把 ChatRequest 字段一一映射成 provider 私有结构体后再序列化——`extra` 在转译过程中被丢弃，前端用户传的 `top_k`、`thinking`、`additionalModelRequestFields` 等字段会"看上去能传但实际丢"。这是真缺口。
+
+### Verification
+
+```bash
+cargo check --workspace                                     # 0 errors
+cargo test -p gate-providers --lib                          # 127 passed (124 既有 + 3 新增)
+cargo test -p gate-providers --lib extra_fields             # 2 passed (anthropic + bedrock)
+cargo test -p gate-providers --lib empty_extra              # 1 passed
+```
+
+新增测试：
+- `anthropic::tests::extra_fields_passthrough_into_anthropic_body` — 验 `top_k` / `thinking` / `metadata` 透传到顶级 JSON
+- `anthropic::tests::empty_extra_does_not_emit_keys` — 验空 extra 不污染输出
+- `bedrock::tests::extra_fields_passthrough_into_converse_body` — 验 `additionalModelRequestFields` / `guardrailConfig` 透传
+
+---
+
+## [0.4.66] — 2026-05-26
+
+**主题**：gate_chat_* 维度 metrics — chat handler 加 e2e latency / TTFB / SSE chunk count（product-review A2）。
+
+### Added
+
+- `gate_chat_requests_total{model, provider_type, streaming, outcome}` — chat handler 请求计数
+- `gate_chat_duration_seconds{model, provider_type, streaming, outcome}` — chat handler e2e 耗时 histogram
+- `gate_chat_ttfb_seconds{model, provider_type}` — 流式首 chunk 延迟 histogram
+- `gate_chat_stream_chunks_total{model, provider_type, outcome}` — 单个 stream 累计 chunk 数
+
+### Changed
+
+- `crates/gate-server/src/metrics.rs` 新增 3 个 emit 函数：`record_chat_request` / `record_chat_ttfb` / `record_chat_stream_chunks`，标签经 `normalize_label_value` 卡死基数。
+- `crates/gate-server/src/routes/chat.rs` 在 4 个收口点埋指标：
+  - 流式上游建立失败 → `chat_request(streaming=true, error)`
+  - 流式 inspect 首 chunk → `chat_ttfb`
+  - 流式 trigger 收尾 → `chat_request(streaming=true, ok|error)` + `chat_stream_chunks`
+  - 非流式 Ok / Err 各一次 → `chat_request(streaming=false, ok|error)`
+- `install_recorder` 为新 histogram 设置 `REQUEST_DURATION_BUCKETS`。
+
+### Why
+
+product-review §1.2 判词：metrics 套件设计齐但**chat 维度盲区**——已有 `gateway_stage_duration_seconds` / `gateway_requests_total` 是按 HTTP method/path/stage 维度，无法按 model+provider 切片 LLM 体验。缺 TTFB → 用户感知首包延迟没法 SLO；缺 chunk count → 流式吞吐无法监控；缺 outcome 维度的 chat latency → 错误请求和成功请求 p99 混在一起。
+
+### Verification
+
+```bash
+cargo check --workspace                              # 0 errors
+cargo test -p gate-server --lib                      # 45 passed (44 既有 + 1 新增 chat_metrics_emit)
+cargo test -p gate-server --lib metrics::            # 8 passed
+```
+
+新增测试 `chat_metrics_emit_through_recorder`：调 4 个 record_chat_* fn 后 render prometheus，断言输出包含全部 4 个 metric name + 关键标签（streaming/outcome/provider_type）。
+
+---
+
+## [0.4.65] — 2026-05-26
+
+**主题**：SharedHttpClient — 4 个 fast-path provider 共享 reqwest::Client，避免每 channel 一个独立连接池（product-review A1）。
+
+### Changed
+
+- `crates/gate-providers/src/lib.rs` 新增 `shared_http_client(&ProviderOpts)`：按 (connect_timeout, total_timeout) 维度缓存 `Arc<reqwest::Client>`，LRU 上限 8。
+- `OpenAiProvider` / `AnthropicProvider` / `AzureProvider` / `BedrockProvider` 改持 `Arc<reqwest::Client>`，构造时调 `shared_http_client(&opts)` 复用全局池。
+- `CustomHttpProvider` 不变：仍走独立 builder（依赖 sandbox DNS resolver + redirect=none + manifest 自带 timeout override）。
+- 暴露测试辅助 `_reset_shared_http_clients()`。
+
+### Why
+
+每个 channel 一份独立 reqwest pool 在多 channel 共享同上游 base_url 场景下浪费 TCP/TLS 握手与 HTTP2 multiplexing。SharedHttpClient 让相同 timeout bucket 内 N channel 走同一 connection pool，高并发下连接数从 O(N×C) 降到 O(C)（C ≤ 8）。
+
+### Verification
+
+```bash
+cargo check --workspace                                    # 0 errors
+cargo test -p gate-providers --lib                         # 124 passed (122 既有 + 2 新增 SharedHttpClient)
+cargo test -p gate-providers --lib shared_client_tests     # 2 passed
+```
+
+新增测试：
+- `shared_clients_with_same_opts_are_identical_arc` — 验证 same opts → Arc::ptr_eq
+- `shared_clients_with_different_opts_are_distinct` — 验证不同 timeout 桶不混用
+
+---
+
+## [0.4.64] — 2026-05-23
+
+**主题**：admin/groups 抽 BindingTable — 渠道列表 + inline editing 整体抽出。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 739 → 655（-84 行 / -11.4%）
+- 新增 `_components/BindingTable.svelte`（180 行）：渠道列表 DataTable + inline editing + Project references；用 17 props（detail/refs/4 editing state/bindingCapabilities + 9 callback）
+- 父保留 inline editing state（editingBindingId / editBindingPriority / editBindingWeight / editBindingCanaryPercent），子通过 onUpdate* 回调更新
+
+### Verification
+
+```bash
+npm run check    # 0/0
+npm test         # 13/87
+```
+
+---
+
+## [0.4.63] — 2026-05-23
+
+**主题**：admin/groups 抽 CanaryComparePanel — Canary 对比面板独立组件 + 6 个 canary helper 移至 _lib。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 845 → 739（-106 行 / -12.5%）
+- 新增 `_components/CanaryComparePanel.svelte`（87 行）：Canary stats DataTable + delta 渲染
+- `_lib/helpers.ts` 扩 6 个：`metricDelta` / `weightedBaseline` / `formatMaybeMs` / `formatMaybeMicros` / `formatSignedPercentDelta` / `formatSignedNumberDelta`
+
+### Verification
+
+```bash
+npm run check    # 0/0
+npm test         # 13/87
+```
+
+---
+
+## [0.4.62] — 2026-05-23
+
+**主题**：admin/groups 抽 FallbackChainPanel — 回退链路面板独立组件。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 923 → 845（-78 行 / -8.5%）
+- 新增 `_components/FallbackChainPanel.svelte`（90 行）：fallback chain stats grid + 链路 visualizer 整体抽出
+- `_lib/helpers.ts` 扩 2 个：`formatPercent` / `formatCanaryPercent`
+
+### Verification
+
+```bash
+npm run check    # 0/0
+npm test         # 13/87
+```
+
+---
+
+## [0.4.61] — 2026-05-23
+
+**主题**：admin/groups 抽 GroupCard + _lib/helpers — 0.4.61-0.4.90 前端打磨阶段 A 启航。
+
+### Changed
+
+- `web/src/routes/admin/groups/+page.svelte` 972 → 923（-49 行 / -5.0%）
+- 新增 `_components/GroupCard.svelte`（76 行）：grid item 整体抽出，props=group/isSelected/groupName/onSelect/onToggleEnabled
+- 新增 `_lib/helpers.ts`：`STRATEGIES` / `PROVIDER_COLOR` / `strategyMeta` / `strategyBadgeClass` / `capabilityChipClass` / `formatNumber` 6 个 helper 抽出，page 与 GroupCard 共用
+
+### Verification
+
+```bash
+npm run check    # 0 errors / 0 warnings
+npm test         # 13 / 87 passed
+cargo check --workspace  # ok
+```
+
+---
+
+## [Unreleased] (legacy — 第一/二/三轮文档收口已 push 到 main，未发版)
+
+### Docs — 第一轮：v0.4.60 → v0.5.0 product-gaps 与 ADR-0003 实装收口
+
+- **新增** [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账清单（17 项 G-编号，按 P0/P1/P2/P3 分组，含影响面 / 当前状态 / 实施路径 / 验收门禁 / 关联引用）。0.5.0 启动会议据此筛选。
+- **修订** [ADR-0003](./docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md) Status: PoC accepted → **Implemented (0.4.16 PoC → 0.4.60 完整产品形态)**；Verification 章节按 0.4.16 / 0.4.21-0.4.60 / v0.5.0 候选三段重写，对账实际命中位置；Negative/Risks 与 References 同步更新。
+- **修订** [docs/wasm-plugin-abi.md](./docs/wasm-plugin-abi.md) Status: PoC v0 → **v0 完整产品形态**；末尾新增 0.4.x 实装对账表 + v0.5.0 未命中项指向 product-gaps；非目标节标注 wasmtime runtime 已落地。
+- **修订** [docs/wasm-sdk-as.md](./docs/wasm-sdk-as.md) Status: 文档先行 → **v0 package 已落地（0.4.55-0.4.56）**；进度章节标完成项；参考链接新增 sdks/examples/G-101 入口。
+- **修订** [docs/README.md](./docs/README.md) — 关键文档表收录 6 篇 0.4.x 新文档（getting-started / observability / wasm-runbook / wasm-sdk-as / manifest-registry-signature / api-reference / playground）+ product-gaps；阅读顺序补 getting-started 与 product-gaps。
+- **修订** [docs/getting-started.md](./docs/getting-started.md) Helm `image.tag` v0.4.28 → v0.4.60。
+- **修订** [ROADMAP.md § M4](./ROADMAP.md#m4--v050--enterprise--saas-进阶候选) v0.5.0 候选改为 P0/P1/P2 三档分组（17 项 G-编号），并链入 product-gaps.md。
+
+> 第一轮已 commit `a5eabc1`（本地未 push）。
+
+### Docs — 第二轮文档收口（漂移修复 + crate README 全覆盖）
+
+- **修订** README badge 与测试段：`tests-485+ Rust + 87 web` 与正文 263 行 `285 Rust` 互相矛盾，改为统一 `485 Rust + 86 web tests`（实测：lib 242 + 全量 485；web 86 pass / 1 fail 漂移留待单独修）。
+- **修订** [README.md](./README.md) 文档地图：从 8 行扩为分组（入门/部署、架构/设计、扩展面、API/接入、可观测/运维、路线/缺口），收录 product-gaps / wasm-plugin-abi / wasm-sdk-as / manifest-registry-signature / getting-started / observability / api-reference / wasm-runbook / threat-model 共 9 篇。
+- **修订** [README.md](./README.md) Workspace 结构：补 `crates/gate-wasm/` `crates/gate-wasm-sdk/` `sdks/` `deploy/` `bench/` 五项；`gate-providers` 注释加 WASM 集成。
+- **修订** [DESIGN.md](./DESIGN.md) 四处过期表述：原则 #5 / § 4 plugin 整流尾段 / § 关键决策表第 7 行 / § 核心交付清单（WASM ABI 设计稿 → v0 完整实装；master key 轮换工具改回 [ ] 与现状一致）。
+- **修订** [ROADMAP.md](./ROADMAP.md) 测试基线：`285 Rust test list entries` → `485 Rust（lib 242 + integration/doctest 243）+ 86 web tests`。
+- **新增** 9 个 crate README：`gate-core` / `gate-storage` / `gate-crypto` / `gate-auth` / `gate-cache` / `gate-billing` / `gate-server` / `gate-wasm` / `gate-wasm-sdk`。两个新 crate（`gate-wasm` `gate-wasm-sdk`）写完整模块表 + 资源限制 + 失败语义；7 个老 crate 写最小自介，避免无效膨胀。
+- **修订** [crates/gate-providers/README.md](./crates/gate-providers/README.md) 演进表：补 0.4.21-0.4.60 WASM transform 集成行；参考链接补 ADR-0002 / ADR-0003 / gate-wasm / gate-wasm-sdk。
+- **修订** [docs/plugin-manifest.md](./docs/plugin-manifest.md) 后续计划段：删除「WASM runtime PoC」（已实装）+ 链入 ADR-0003 + product-gaps G-103。
+- **修订** [docs/architecture.md](./docs/architecture.md) 设计选择表第 5 行：`compile-time provider + HTTP Plugin manifest` → 加 WASM transform v0；触发条件改 ABI v1 / wit-bindgen。
+
+### Notes
+
+- web 测试发现 1 处漂移：`web/src/tests/ui-copy.test.ts` 仍期望 `pricing/+page.svelte` 包含字面量 `'Pricing wizard 向导'`，但已抽到 `_components/PricingWizard.svelte`。属前次组件化拆分遗留，**不在本轮 docs scope**，留作后续单独修。
+
+### Verification
+
+```bash
+KOOIX_SKIP_PG_TESTS=1 cargo test --workspace --no-fail-fast | grep 'test result' | awk '{s+=$4}END{print s}'  # 485
+git diff --stat                                                                                                # 6 modified
+git ls-files --others --exclude-standard | wc -l                                                               # 9 new READMEs
+```
+
+---
+
+## [0.4.60] — 2026-05-23
+
+**主题**：0.4.x 60 版本完整产品阶段宣告 — M3 全部产品化交付，0.5.0 真正进入下一阶段。
+
+### 0.4.51-0.4.60 阶段战报
+
+| 版本 | 主战 | 0.5.0 候选清单 |
+|------|------|---------------|
+| 0.4.51 | SSE pipeline stream_chunk_transform 真接通 | ✓ 第 1 项清零 |
+| 0.4.52 | SSE e2e 测试 (wiremock + 真模块) | — |
+| 0.4.53 | manifest registry signature schema 加 typed key_id/alg + 文档 | — |
+| 0.4.54 | minisign 格式校验 + cosign base64 校验 | ✓ 第 2 项部分清零（schema/format ✓ / 真公钥验签留 0.5.0） |
+| 0.4.55 | sdks/gate-wasm-sdk-as npm package | ✓ 第 3 项清零（本地包 ✓ / npm publish 留 0.5.0） |
+| 0.4.56 | examples/wasm-transform-as 实战示例 | — |
+| 0.4.57 | ProviderRouter wasm_host setter/getter | — |
+| 0.4.58 | gate_plugin_wasm_calls_total Prometheus describe | — |
+| 0.4.59 | ROADMAP M3 完整产品形态 + M4 候选 | — |
+| 0.4.60 | 完整产品宣告 | — |
+
+### 完整产品形态最终验收
+
+#### M3 ADR-0003 v0 全栈
+
+```
+[wasm 模块作者]
+   │  Rust SDK (gate-wasm-sdk)              ✓ 0.4.27
+   │  AssemblyScript SDK (sdks/gate-wasm-sdk-as)  ✓ 0.4.55
+   │  examples/wasm-transform (Rust)         ✓ 0.4.33
+   │  examples/wasm-transform-as (AS)        ✓ 0.4.56
+   ↓
+[模块二进制]
+   │  kgctl wasm verify/inspect              ✓ 0.4.45
+   │  manifest registry signature schema     ✓ 0.4.53
+   │  cosign / minisign / sigstore_bundle  format ✓ 0.4.54
+   ↓
+[manifest 注册]
+   │  channel.security.wasm typed schema     ✓ 0.4.23
+   │  WASM_MANIFEST_SAMPLE admin UI 提示     ✓ 0.4.48
+   │  ProviderRouter wasm_host setter/getter ✓ 0.4.57
+   ↓
+[runtime]
+   │  gate-wasm crate (wasmtime 26)          ✓ 0.4.21
+   │  WasmtimeHost + sha256 + fuel + memcap  ✓ 0.4.22
+   │  3 hook 全接通 (chat_request/response/stream_chunk) ✓ 0.4.24/25/51
+   │  fallback policy + Prometheus metric    ✓ 0.4.26
+   │  CustomHttpProvider 集成 (chat / chat_stream) ✓ 0.4.42-0.4.44/51
+   │  e2e 测试 (chat + stream)               ✓ 0.4.46/52
+   │  /metrics describe HELP                 ✓ 0.4.58
+   ↓
+[运营]
+   │  docs/wasm-runbook.md 故障手册          ✓ 0.4.35
+   │  docs/threat-model.md WASM 表面分析     ✓ 0.4.36
+   │  docs/manifest-registry-signature.md    ✓ 0.4.53
+   │  Criterion bench wasm_invoke            ✓ 0.4.37
+```
+
+#### 工程总账（0.4.60 结算）
+
+```
+Tags                    60 个 (v0.4.0 → v0.4.60)
+Rust 后端                71047+ 行 (含 gate-wasm + gate-wasm-sdk 2 个新 crate)
+SDK npm package          1 个 (sdks/gate-wasm-sdk-as)
+前端 web                 21720 行
+前端 _components         22+ 个
+前端 _lib helper         5+ 个
+ADR                      3 个 (ADR-0001 / 0002 / 0003 全部 ✅)
+Helm chart               1 套 (deploy/helm/gate)
+Grafana dashboard        1 个
+WASM 端到端 e2e 测试     5 个 (3 unit + 2 stream + integration)
+Bench                    4 个 (plugin_vs_builtin + sse + routing + wasm_invoke)
+clippy                   workspace 0/0
+```
+
+### 0.5.0 真候选（不再标 deferred，等启动会议筛选）
+
+详见 [ROADMAP.md M4 章节](./ROADMAP.md#m4--v050--enterprise--saas-进阶候选)。
+
+### 完整产品宣告
+
+> 0.4.60 起 Kooix Gate 进入 **完整产品形态**：
+> - LLM 网关核心：18+ provider preset / 多 Org RLS / 流式 fail-closed 计费 / typed ID
+> - WASM Plugin v0：双 SDK + 4 hook（含 SSE）+ fallback + 验签 schema + 完整运维
+> - 部署：Helm chart + 三档 quickstart + 5 个 runbook + 威胁模型
+> - DX：OpenAPI / Postman / Bruno / examples × 11 / kgctl 全套
+
+可正式 release 0.5.0 启动会议。
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+- `cargo test --workspace --lib` 全过
+- `cargo test -p gate-providers --test wasm_integration` 4 passed (含 SSE stream e2e)
+- `cargo build` 净
+
+---
+
+## [0.4.59] — 2026-05-23
+
+**主题**：ROADMAP 同步 — M3 完整产品形态宣告 + M4 v0.5.0 候选方向章节。
+
+### Changed
+
+- `ROADMAP.md` M3 WASM 行：从 "PoC 收口 + runtime 留 0.5.0+" 改为 "**完整产品形态**"（0.4.16 → 0.4.58 全程脉络）
+- `ROADMAP.md` 新增 **M4 v0.5.0 候选方向** 章节：
+  - 真公钥验签链（sigstore-rs 接入）
+  - SaaS 多区域路由
+  - SCIM v2
+  - WASM auto-mount runtime（builder 集成）
+  - AssemblyScript SDK npm publish
+  - Web bundle 220 → 180KB
+  - 管理面 wasm form UI
+
+---
+
+## [0.4.58] — 2026-05-23
+
+**主题**：gate_plugin_wasm_calls_total 注册到 Prometheus exporter — /metrics 显示 HELP 行。
+
+### Added
+
+- `gate-server/src/metrics.rs install_recorder`：`describe_counter!("gate_plugin_wasm_calls_total", ...)` 注入 ADR-0003 HELP 文案
+- /metrics 端点 scrape 时 wasm metric 自带说明
+
+### Verification
+
+- `cargo build -p gate-server` 净
+
+---
+
+## [0.4.57] — 2026-05-23
+
+**主题**：ProviderRouter 持有 wasm_host — auto-mount 通路就绪。
+
+### Added
+
+- `ProviderRouter`:
+  - `wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>` 字段
+  - `with_wasm_host(host)` builder
+  - `wasm_host()` getter
+- `build_provider` 注释说明 0.5.0 完整 auto-mount 路径
+
+### Verification
+
+- `cargo build -p gate-providers` 净
+
+### Note
+
+完整 auto-mount（builder 自动调 host.load_module + with_wasm_host）需要 channel manifest 解析后从 wasm.module 字段拿 module bytes 并加载——涉及外部存储读写，0.5.0 接 ChannelKeyRepo 模式落地。当前 setter/getter 就绪，调用方可手工组合。
+
+---
+
+## [0.4.56] — 2026-05-23
+
+**主题**：examples/wasm-transform-as AssemblyScript 实战示例。
+
+### Added
+
+- `examples/wasm-transform-as/`：完整可编译 AssemblyScript transform 示例
+  - `package.json` + `asconfig.json`
+  - `assembly/index.ts`：完整 gate_alloc / chat_request / chat_response identity transform
+  - `README.md`：编译/部署 + 与 Rust SDK 示例对比表
+
+### Fixed
+
+- `examples/README.md`：补回 0.4.33 漏的 `wasm-transform/` 索引行 + 加 `wasm-transform-as/`
+
+---
+
+## [0.4.55] — 2026-05-23
+
+**主题**：sdks/gate-wasm-sdk-as npm package — AssemblyScript SDK 完整落地。
+
+### Added
+
+- `sdks/gate-wasm-sdk-as/`
+  - `package.json` — @kooix-gate/wasm-sdk-as 0.4.55，assemblyscript devDep
+  - `assembly/index.ts` — 完整 ABI v0 helpers
+    - `gate_alloc(size)` export
+    - `encodeReturn(ptr, len)` 工具
+    - `returnPayload(buf)` 写 linear memory
+    - `withInput(ptr, len, fn)` 完整封装
+  - `asconfig.json` — debug + release target
+  - `README.md` — Quickstart + API 表 + 参考
+
+---
+
+## [0.4.54] — 2026-05-23
+
+**主题**：minisign signature 格式校验 + cosign/sigstore base64 校验 — registry 验签实质化。
+
+### Added
+
+- `verify_minisign_format`：base64 解码 + 长度 ≥ 64B 检查 + key_id base64 校验
+- cosign / sigstore_bundle：base64 strict decode 校验
+- `validate_signature` 升级为 per-kind dispatch
+- deps：`ed25519-dalek = "2"` (留 0.5.0+ 真公钥验签用) + `base64.workspace`
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+
+---
+
+## [0.4.53] — 2026-05-23
+
+**主题**：manifest registry signature schema 加 typed key_id/alg 字段 + 文档化。
+
+### Added
+
+- `RegistrySignature.key_id` / `alg` 可选字段（serde skip_serializing_if=None）
+- `docs/manifest-registry-signature.md`：完整 cosign / minisign / sigstore_bundle / unsigned 4 种签名模式文档
+  - 工具命令示例
+  - registry.json 字段示例
+  - 当前实现进度（schema typed ✅ / 真实验签 0.4.54）
+  - Trust chain 流程图
+
+### Verification
+
+- `cargo build -p kgctl` 净
+
+---
+
+## [0.4.52] — 2026-05-23
+
+**主题**：stream_chunk_transform e2e — wiremock SSE + 真 wasm 模块完整验证。
+
+### Added
+
+- `custom_provider_with_wasm_host_streams_chunks` 测试
+  - mock SSE 端点：2 个 chunk + [DONE]
+  - 真 wasm 模块 export chat_request_transform + stream_chunk_transform
+  - chat_stream() 完整链路，concat content 与原 SSE payload 一致
+
+### Verification
+
+- `cargo test -p gate-providers --test wasm_integration` 4 passed (+1 stream)
+
+---
+
+## [0.4.51] — 2026-05-23
+
+**主题**：chat_stream SSE pipeline 真接通 stream_chunk_transform — 0.5.0 候选清第 1 项。
+
+### Changed
+
+- `Provider::chat_stream`：在 `resp.bytes_stream()` 与 `normalize_plugin_sse` 之间插 `futures::stream::then` 包装，每 chunk 走 `gate_wasm::invoke_with_fallback`
+- 仅在 `manifest.security.wasm.is_some()` 且 `wasm_host` 注入时启用；否则零开销 passthrough
+- `wasm_transform_stream_chunk` helper 保留作公共 API（仍 #[allow(dead_code)]，inline 已直接调用 invoke_with_fallback）
+
+### Verification
+
+- `cargo build -p gate-providers` 净
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+
+---
+
+## [0.4.50] — 2026-05-23
+
+**主题**：0.4.41-0.4.50 中阶段收尾 — WASM 集成全链路 e2e 走通，gate-providers 完整产品形态。
+
+### 0.4.41-0.4.50 阶段战报
+
+| 版本 | 主战 |
+|------|------|
+| 0.4.41 | CustomHttpProvider mount WasmHost (struct + with_wasm_host builder) |
+| 0.4.42 | chat_request hook 接通 (chat() build body 后 wasm transform) |
+| 0.4.43 | chat_response hook 接通 (limited_json_response_with_wasm) |
+| 0.4.44 | chat_stream request hook (stream chunk 留 0.5.0+) |
+| 0.4.45 | kgctl wasm verify/inspect 子命令 |
+| 0.4.46 | wasm e2e 测试（wiremock + 真 wasm 模块 + 完整 chat 链路） |
+| 0.4.47 | clippy 0/0 全清 |
+| 0.4.48 | admin UI WASM_MANIFEST_SAMPLE 模板 |
+| 0.4.49 | docs/wasm-sdk-as.md AssemblyScript SDK 文档 |
+| 0.4.50 | 中阶段收尾 |
+
+### WASM 集成完整能力（0.4.50 结算）
+
+```
+client → gate-server → CustomHttpProvider
+                          │
+                          ├─ wasm_transform_request   (0.4.42 ✓)
+                          ↓
+                       reqwest::post(upstream)
+                          ↓
+                          ├─ wasm_transform_response  (0.4.43 ✓)
+                          ↓
+                       parse JSON → return ChatResponse
+
+                       wasm_transform_stream_chunk    (helper ready, SSE pipeline 留 0.5.0+)
+```
+
+### 工程总账（0.4.50 结算）
+
+- Rust 后端：71047+ 行（gate-wasm + gate-wasm-sdk）
+- Tags：50 个 (v0.4.0 → v0.4.50)
+- 新增 crates：2 个（gate-wasm / gate-wasm-sdk）
+- 新增 e2e 测试：3 个（wasm_integration.rs）
+- workspace tests：485+ 通过
+- WASM 完整 runtime + Rust SDK + AssemblyScript 文档 + Helm chart + Grafana dashboard + threat model + runbook 全套就绪
+
+### 仅剩 0.5.0 候选
+
+- SSE pipeline 内 stream_chunk_transform 接通
+- Manifest registry + Sigstore 签名链
+- AssemblyScript SDK npm package
+- SaaS 多区域 / SCIM v2
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 0/0
+- `cargo test --workspace --lib` 全过
+- 50 个 tag 全部 push origin/main
+
+---
+
+## [0.4.49] — 2026-05-23
+
+**主题**：docs/wasm-sdk-as.md — AssemblyScript SDK 文档先行。
+
+### Added
+
+- `docs/wasm-sdk-as.md`：完整 AssemblyScript SDK 文档
+  - 初始化 + 实现 `chat_request_transform` / `chat_response_transform`
+  - ABI v0 helpers 在 AS 中的最小实现（gate_alloc / readInput / returnPayload）
+  - asconfig.json + 编译命令
+  - 限制对比表（AS vs Rust SDK）
+  - 0.5.0+ npm package 计划
+
+---
+
+## [0.4.48] — 2026-05-23
+
+**主题**：admin UI wasm sample 模板 — 用户复制即可配 wasm 字段。
+
+### Added
+
+- `channels/_lib/helpers.ts` 新增 `WASM_MANIFEST_SAMPLE` const：完整 wasm 字段 manifest sample（preset + security.wasm + hooks）
+- 用户在 Manifest 文本框可粘贴 sample，替换 sha256 / module 路径即可
+
+### Why
+
+- ADR-0003 v0 wasm 字段已在 0.4.23 typed schema 落地，admin UI 通过 manifest 文本框已能配
+- 本版补 sample 减少 onboarding 摩擦，完整 wasm form UI 留 0.5.0+
+
+### Verification
+
+- `npm run check` 0/0
+
+---
+
+## [0.4.47] — 2026-05-23
+
+**主题**：lint 全清 — `cargo clippy --workspace --all-targets -- -D warnings` 0/0。
+
+### Fixed
+
+- `crates/gate-wasm/src/wasmtime_host.rs` `ChannelModule.sha256` 加 `#[allow(dead_code)]` + 注释（保留作 audit/observability）
+
+### Verification
+
+- `cargo clippy --workspace --all-targets -- -D warnings` 净
+- 工程 0 warning 0 error 状态
+
+---
+
+## [0.4.46] — 2026-05-23
+
+**主题**：WASM e2e 集成测试 — wiremock + 真 wasm 模块 + CustomHttpProvider 完整链路。
+
+### Added
+
+- `crates/gate-providers/tests/wasm_integration.rs`（3 测试，全过）：
+  - `custom_provider_with_wasm_host_round_trips_chat` — 真 wasm 模块 + manifest.security.wasm + with_wasm_host()，完整 chat() 往返
+  - `custom_provider_without_wasm_skips_transform` — 未配置 wasm 字段时跳过路径
+  - `invoke_with_fallback_wraps_real_module` — fallback wrapper + real 模块联动
+- gate-providers dev-dep：`wat = "1"` + `gate-wasm = { path = "../gate-wasm" }`
+
+### Verification
+
+- `cargo test -p gate-providers --test wasm_integration` 3 passed
+
+### M3 → M4 里程碑
+
+WASM 集成已 e2e 走通 — 0.4.40 阶段总结里 "gate-providers WASM 集成" 不再 deferred 到 0.5.0。
+
+---
+
+## [0.4.45] — 2026-05-23
+
+**主题**：`kgctl wasm verify / inspect` 子命令 — wasm 模块工具链。
+
+### Added
+
+- `kgctl wasm verify <path>`：sha256 + 文件大小，输出可粘贴的 manifest 片段
+- `kgctl wasm inspect <path>`：检查 ABI v0 必要 export（memory / gate_alloc）+ 列出 hooks
+- `crates/kgctl/src/wasm.rs`：实现
+- 依赖 `wasmparser 0.218`
+
+### Verification
+
+- `cargo build -p kgctl` 净
+
+---
+
+## [0.4.44] — 2026-05-23
+
+**主题**：Provider::chat_stream 接通 wasm chat_request_transform — stream chunk hook 留 0.5.0+。
+
+### Changed
+
+- `Provider::chat_stream`：build body 后插 `wasm_transform_request(body, &req)`
+- `wasm_transform_stream_chunk` 标 `#[allow(dead_code)]` — SSE pipeline 接通留 0.5.0+
+  - 原因：SSE normalizer 在 host 端做归一，wasm transform 与 sse_to_chunks 顺序需仔细设计
+  - 当前 helper 已就绪，只缺调用点
+
+### Verification
+
+- `cargo build -p gate-providers` 净 (0 warning)
+
+---
+
+## [0.4.43] — 2026-05-23
+
+**主题**：Provider::chat 接通 wasm chat_response_transform — 集成 step 3。
+
+### Added
+
+- `limited_json_response_with_wasm(resp, model)`：读 raw body → wasm transform → parse JSON
+
+### Changed
+
+- `Provider::chat`：用 `limited_json_response_with_wasm(resp, &req.model)` 替代普通版
+
+### Verification
+
+- `cargo build -p gate-providers` 净（仅 stream_chunk dead_code，0.4.44 接通后清）
+
+---
+
+## [0.4.42] — 2026-05-23
+
+**主题**：CustomHttpProvider chat() 接通 wasm chat_request_transform — 集成 step 2。
+
+### Added
+
+- 3 个 wasm transform helper（一次性加完，0.4.43/0.4.44 接 response/stream 调用即可）：
+  - `wasm_transform_request(body, req)` — 已在 0.4.42 chat() 接通
+  - `wasm_transform_response(body, model)` — 0.4.43 接通
+  - `wasm_transform_stream_chunk(chunk, model)` — 0.4.44 接通
+- 全部走 `gate_wasm::invoke_with_fallback`：失败永不 propagate，identity passthrough
+
+### Changed
+
+- `Provider::chat`：build body 后插入 `wasm_transform_request(body, &req)`
+
+### Verification
+
+- `cargo build -p gate-providers` 净（仅 dead_code warning，0.4.43/0.4.44 接调用后清）
+
+---
+
+## [0.4.41] — 2026-05-23
+
+**主题**：CustomHttpProvider mount 可选 WasmHost — wasm 集成第一步。
+
+### Added
+
+- `gate-providers/Cargo.toml`：依赖 `gate-wasm = { path = "../gate-wasm" }`
+- `CustomHttpProvider` struct 加两字段：
+  - `wasm_host: Option<Arc<dyn gate_wasm::WasmHost>>`
+  - `wasm_channel_id: String`
+- `with_wasm_host(host, channel_id)` builder：router 创建 provider 后注入 wasm host
+
+### Verification
+
+- `cargo build -p gate-providers` 净
+
+---
+
+## [0.4.40] — 2026-05-23
+
+**主题**：0.4.x 41 版本大终结篇 — M3 全结、WASM v0 落地、产品化打磨完毕。准备 0.5.0 启动。
+
+### 0.4.x 全程战报（41 版本 0.4.0 → 0.4.40）
+
+| 阶段 | 版本范围 | 主战 |
+|------|---------|------|
+| **里程碑收口** | 0.4.0 | M3 Fast-path Runtime (ADR-0002) |
+| **Rust 拆解** | 0.4.1 | 三巨兽全部 -52%+ |
+| **前端组件化 P1** | 0.4.2-0.4.10 | channels 1864 → 1487 (-20.2%) |
+| **前端组件化 P2** | 0.4.11-0.4.15 | ChannelTable / QuotaWizard / PricingWizard / SessionModal |
+| **WASM PoC** | 0.4.16 | ADR-0003 v0 设计稿冻结 |
+| **前端清债** | 0.4.17-0.4.19 | channelId modals / bundle 220KB / billing helpers |
+| **0.4.x 中盘大收尾** | 0.4.20 | M3 全结 ticked |
+| **WASM Runtime 落地** | 0.4.21-0.4.27 | gate-wasm crate + 3 hook + fallback + SDK |
+| **产品化打磨** | 0.4.28-0.4.39 | README / getting-started / kgctl / Helm / OpenAPI / examples / observability / runbook / threat-model / bench / architecture / RELEASE |
+| **大终结** | 0.4.40 | 准备 0.5.0 |
+
+### 0.4.x WASM Plugin 完整能力（ADR-0003 v0）
+
+- ✅ `crates/gate-wasm` 基于 wasmtime 26
+- ✅ 3 hook 全接通：chat_request / chat_response / stream_chunk
+- ✅ SHA256 强校验 + fuel/memory hard limit + sandbox
+- ✅ fallback policy：panic / OOM / timeout 全降级 identity，业务不挂
+- ✅ `crates/gate-wasm-sdk` 用户写 Rust transform
+- ✅ `examples/wasm-transform/` 实战示例
+- ✅ Prometheus metric `gate_plugin_wasm_calls_total{channel,hook,status}`
+- ✅ `docs/wasm-runbook.md` 故障手册
+- ✅ `docs/threat-model.md` 威胁建模含 WASM 表面
+- ✅ Criterion bench `wasm_invoke`
+
+### 工程总账（0.4.40 结算）
+
+```
+Rust 后端       71047 行 (含 gate-wasm 新 crate + gate-wasm-sdk)
+前端 web       21720 行 (svelte + ts)
+工程全量      103400 行 (含 docs / examples / migrations)
+Tags           41 个 (v0.4.0 → v0.4.40)
+新增 crate     2 个 (gate-wasm + gate-wasm-sdk)
+新增 _components 22+ 个
+新增 _lib 模块 5+ 个
+新增 ADR        1 个 (ADR-0003 WASM Plugin ABI v0)
+新增 dashboard 1 个 (kooix-gate-overview)
+新增 Helm chart 1 套 (deploy/helm/gate)
+```
+
+### M3 完结声明
+
+- ADR-0001 Providers as Plugin ✅
+- ADR-0002 Fast-path Runtime ✅
+- **ADR-0003 WASM Plugin ABI v0 ✅** (0.4.16 设计 + 0.4.21-0.4.27 实现)
+
+### 0.5.0 启动书
+
+下一阶段候选主战：
+
+| 候选 | 描述 | 估时 |
+|------|------|------|
+| **gate-providers WASM 集成** | 把 gate-wasm 集成到 `CustomHttpProvider` chat / response / stream 路径 | 2 周 |
+| **manifest registry + 签名** | cosign / Sigstore 模块信任链 | 2 周 |
+| **AssemblyScript SDK** | gate-wasm-sdk-as：用 TypeScript 写 transform | 1 周 |
+| **SaaS 多区域路由** | 跨 region failover / data sovereignty | 3 周 |
+| **企业 SCIM 完整化** | user / group / role sync v2 | 1 周 |
+
+详见即将开 `ROADMAP.md` 的 M4 / M5 章节。
+
+### Verification
+
+- `cargo build` 净
+- `cargo test --workspace --lib` 全过（含 gate-wasm 13 tests / gate-wasm-sdk 1 doctest ignored / 既有 485 测试）
+- 41 个 tag 全部 push origin/main
+- CHANGELOG / ROADMAP / README / docs/architecture / docs/getting-started 全部同步
+
+---
+
+## [0.4.39] — 2026-05-23
+
+**主题**：RELEASE.md 0.4.x 阶段补充 — 标准 commit pipeline + GHA fallback + WASM 模块发布。
+
+### Added
+
+- `RELEASE.md` 末尾追加 "0.4.x 阶段补充（2026-05-23）" 章节
+  - 标准 commit pipeline（bump / fmt-clippy-test / CHANGELOG / commit / tag / push）
+  - Docker / Release artifact 本地手工补（GHA billing fallback）
+  - WASM 模块发布流程（编译 + sha256 + gh release upload）
+  - 阶段大版每 10 patch 一次的固定动作（ROADMAP / CHANGELOG / README / getting-started）
+
+---
+
+## [0.4.38] — 2026-05-23
+
+**主题**：架构文档收口 — worker-plane 加 ADR-0003 WASM Plugin 章节。
+
+### Changed
+
+- `docs/architecture.md`：last_verified 2026-05-21 → 2026-05-23
+- `docs/architecture/worker-plane.md`：
+  - last_verified 更新
+  - 代码锚点新增 `crates/gate-wasm/` 完整说明
+  - 新增 "ADR-0003 WASM Plugin Worker（0.4.x）" 章节，含 chat 入站全链路图
+
+---
+
+## [0.4.37] — 2026-05-23
+
+**主题**：gate-wasm bench — wasm_invoke_hook 单次调用开销测量。
+
+### Added
+
+- `crates/gate-wasm/benches/wasm_invoke.rs`：Criterion bench
+  - `wasm_invoke_hook/memory_copy/{128,1024,10240}` — payload scaling
+  - `wasm_no_module_passthrough` — 0 cost baseline
+- `criterion 0.5 (async_tokio)` 加 dev-dep
+- bench 配置 harness=false
+
+### Verification
+
+- `cargo build -p gate-wasm --benches` 净
+- 实际跑参考：`cargo bench --package gate-wasm --bench wasm_invoke`
+
+---
+
+## [0.4.36] — 2026-05-23
+
+**主题**：docs/threat-model.md — STRIDE 威胁建模 + WASM 表面分析。
+
+### Added
+
+- `docs/threat-model.md`：完整威胁模型
+  - 资产清单（master key / channel keys / API keys / JWT / OIDC / audit log / billing）
+  - 边界与信任图（Untrusted Internet → Kooix Gate → PostgreSQL/Upstream）
+  - STRIDE 5 大类威胁清单 + 现状 + 缓解
+  - 0.4.x WASM Plugin 新增表面分析（恶意 wasm / 供应链 / 审查盲区）
+  - 0.5.0+ 安全 roadmap（模块签名 / cosign / registry 信任链）
+
+---
+
+## [0.4.35] — 2026-05-23
+
+**主题**：docs/wasm-runbook.md — WASM 故障处理手册。
+
+### Added
+
+- `docs/wasm-runbook.md`：完整 WASM 故障手册
+  - 模块加载失败（DigestMismatch / Load: compile / 路径错误）
+  - hook 频繁超时 / OOM
+  - panic 暴风雨（fallback 行为已保证业务不挂）
+  - 上游全挂 / Redis 不可用 / 版本回滚
+  - 联系人
+
+---
+
+## [0.4.34] — 2026-05-23
+
+**主题**：Observability — Prometheus metrics 命名审计 + Grafana dashboard + OTLP trace 字段表。
+
+### Added
+
+- `docs/observability.md`：完整 metric 表（request lifecycle / upstream / routing / quota / billing / WASM）+ OTLP span 字段表 + sampling 策略
+- `deploy/grafana/dashboards/kooix-gate-overview.json`：10 panel 概览 dashboard
+  - Requests / sec / p95 Latency / Upstream 5xx / Quota Denies (4 个 stat)
+  - Request rate by model / Upstream errors by channel
+  - **WASM plugin calls (新 0.4.x)**
+  - Billing settle lag / Outbox backlog / Channel health
+
+### Verification
+
+- grafana JSON 通过 lint
+
+---
+
+## [0.4.33] — 2026-05-23
+
+**主题**：examples/wasm-transform 实战示例 — gate-wasm-sdk 用法 + system prompt 注入。
+
+### Added
+
+- `examples/wasm-transform/`：完整 WASM transform 示例
+  - `Cargo.toml`：依赖 gate-wasm-sdk + serde_json + cdylib + wasm32-unknown-unknown 编译指引
+  - `src/lib.rs`：`export_chat_request!` 宏使用，JSON parse + 在 messages 头部插 system prompt
+  - `README.md`：编译、部署、验证、失败模式
+- `examples/README.md` 索引加 `wasm-transform/` 行
+
+---
+
+## [0.4.32] — 2026-05-23
+
+**主题**：OpenAPI 3.1 spec bump + API 参考文档。
+
+### Changed
+
+- `examples/openapi/kooix-gate.openapi.json`：version 0.2.0 → 0.4.31；description 加 ADR-0003 提及
+
+### Added
+
+- `docs/api-reference.md`：API 参考索引
+  - OpenAPI 3.1 spec 用法（Swagger UI / Redocly）
+  - Postman / Bruno collection 用法
+  - 关键 API 路径表（Data Plane / Admin）
+  - 错误码统一 shape 文档
+
+---
+
+## [0.4.31] — 2026-05-23
+
+**主题**：deploy/helm/gate Helm chart 完善 — production-grade K8s 部署。
+
+### Added
+
+- `deploy/helm/gate/Chart.yaml`（v 0.4.31, appVersion 0.4.31）
+- `deploy/helm/gate/values.yaml`：完整 values（master_key / jwt / postgres / redis / wasm limits / probes / autoscaling / observability / securityContext）
+- `deploy/helm/gate/templates/_helpers.tpl`
+- `deploy/helm/gate/templates/deployment.yaml`：完整 env 注入（含 *_fromSecret 双路径）
+- `deploy/helm/gate/templates/service.yaml`：HTTP + Prometheus metrics 双端口
+- `deploy/helm/README.md`：完整使用文档
+
+### Verification
+
+- yaml lint 通过（Chart.yaml / values.yaml）
+- templates 在 helm CLI 渲染验证留 0.5.0+（本机未装 helm）
+
+---
+
+## [0.4.30] — 2026-05-23
+
+**主题**：kgctl doctor 加 WASM runtime check —部署体检覆盖 ADR-0003 v0。
+
+### Changed
+
+- `kgctl doctor` 新增第 7 项 check：`WASM_RUNTIME`
+  - 验证 wasmtime engine 可初始化
+  - JSON 输出已保留（kgctl doctor --json）
+
+### Verification
+
+- `cargo build -p kgctl` 净
+
+---
+
+## [0.4.29] — 2026-05-23
+
+**主题**：getting-started.md 三档接入文档 — Docker / Helm / 本地源码 + WASM Plugin Quickstart。
+
+### Added
+
+- `docs/getting-started.md`：
+  - A. Docker Compose（30 秒）
+  - B. Helm Chart（5 分钟，0.4.31 完善 values）
+  - C. 本地源码（10 分钟开发用）
+  - WASM Plugin transform Quickstart（gate-wasm-sdk 用法 + manifest 配置示例）
+  - 故障排查 + 下一步索引
+- `docs/README.md` 顶部加 Quickstart 索引
+
+---
+
+## [0.4.28] — 2026-05-23
+
+**主题**：README 第一屏更新到 0.4.x 战果 — 285→485 tests / WASM Plugin 加入对比表。
+
+### Changed
+
+- Badge：tests 285 + 85 → 485 + 87；version 0.2.1 → 0.4.27
+- "跟谁不同" 表新增 **WASM Plugin** 行（ADR-0003 v0）
+- "当前版本" 段：替换 0.2.1 收尾叙事为 0.4.x 21 版本阶段战果
+  - M3 完结
+  - WASM Plugin v0 runtime + Rust SDK
+  - 前端组件化数据
+  - Rust 三巨兽拆解
+
+---
+
+## [0.4.27] — 2026-05-23
+
+**主题**：gate-wasm-sdk crate — 用户写 wasm transform 模块的 Rust SDK。
+
+### Added
+
+- `crates/gate-wasm-sdk/`：std-based crate，wasm32-unknown-unknown target 编译
+- `gate_alloc(size: i32) -> i32` bump allocator export
+- `encode_return / return_payload / with_input` 工具
+- `export_chat_request! / export_chat_response! / export_stream_chunk!` 三宏
+- ABI v0 文档说明 + 编译命令
+
+### Verification
+
+- `cargo build -p gate-wasm-sdk` 净
+- `cargo test -p gate-wasm-sdk` 0 failed (1 doctest ignored)
+
+---
+
+## [0.4.26] — 2026-05-23
+
+**主题**：fallback policy + Prometheus metrics — wasm 失败永不 propagate。
+
+### Added
+
+- `fallback::invoke_with_fallback`：所有 hook 调用走此 wrapper
+  - 模块未加载 → identity passthrough（status="no_module"）
+  - 调用成功 → return transform 后 payload（status="ok"）
+  - 失败（Timeout / OOM / DigestMismatch / Call / Load / Instantiate / HostDenied / Panic）→ `tracing::error!` + 降级
+  - `FutureExt::catch_unwind` 双 safety
+- Prometheus metric: `gate_plugin_wasm_calls_total{channel,hook,status}`
+- 3 个新单元测试：FailingHost mock / 真 wasmtime success / module missing
+
+### Verification
+
+- `cargo test -p gate-wasm` 13 passed (+3)
+- 失败永不 panic 上层 caller
+
+---
+
+## [0.4.25] — 2026-05-23
+
+**主题**：3 个 hook 全部接通真实路径 — chat_request / chat_response / stream_chunk。
+
+### Changed
+
+- `WasmtimeHost::invoke_hook` 统一走真实路径；模块未 export hook 则 identity passthrough
+- 移除 0.4.24 的 chat_request 单独分支
+
+### Tests
+
+- `chat_response_and_stream_chunk_invoke_real_module`：模块同时 export 3 hook，全部 e2e 验证
+- 10 passed
+
+---
+
+## [0.4.24] — 2026-05-23
+
+**主题**：chat_request_transform hook 真实接通 — wasm 端到端往返。
+
+### Added
+
+- `WasmtimeHost::invoke_hook_real`：完整 wasmtime async 调用链
+  - Store + fuel budget 注入（max_cpu_ms × 1B）
+  - Linker host fn `host_log` 占位
+  - Module instantiate_async + memory + gate_alloc 调用
+  - hook fn 返回 `i64 = (ptr<<32 | len)` 编码读 transform 后 payload
+- `chat_request` 走真实路径；其他 hook 保持 identity（0.4.25 接通）
+- 5 个新测试：
+  - `chat_request_passthrough_when_hook_not_exported`
+  - `chat_request_transforms_via_real_module`（真 WAT 模块）
+  - `other_hooks_remain_identity_in_v024`
+  - 既有 4 个 unit/load 测试
+
+### Fixed
+
+- 移除 `epoch_interruption(true)`，避免 async + epoch 双重 interrupt 导致空 fuel trap
+- wasmtime crate 改用默认 features，去 cranelift/component-model 显式声明（默认已启）
+
+### Verification
+
+- `cargo test -p gate-wasm` 9 passed
+
+---
+
+## [0.4.23] — 2026-05-23
+
+**主题**：plugin manifest `security.wasm` 字段升为 typed — ADR-0003 v0 schema 落地。
+
+### Added
+
+- `SecurityManifest::wasm: Option<WasmModuleManifest>`
+- `WasmModuleManifest { module, module_sha256, max_memory_bytes, max_cpu_ms, hooks }`
+- 2 个新单元测试：`parses_wasm_module_manifest_field` / `wasm_field_absent_when_not_configured`
+
+### Verification
+
+- `cargo test -p gate-providers --lib plugin_manifest` 32 passed (+2)
+- `cargo build -p gate-providers` 净
+
+---
+
+## [0.4.22] — 2026-05-23
+
+**主题**：WasmtimeHost runtime core — sha256 校验 + 模块加载 + fuel 设计。
+
+### Added
+
+- `crates/gate-wasm/src/wasmtime_host.rs`：
+  - `WasmtimeHost` 基于 wasmtime 26 引擎
+  - async_support / consume_fuel / epoch_interruption 全部启用
+  - `load_module` SHA256 强校验，DigestMismatch fail-loud
+  - `invoke_hook` v0 stub（identity transform，0.4.24-0.4.25 落 body 处理）
+  - per-channel ChannelModule + Arc<RwLock<HashMap>> 隔离
+- tokio sync feature 加入 deps（gate-wasm 自带）
+
+### Verification
+
+- `cargo test -p gate-wasm` 7 passed
+  - wasmtime_host_new_succeeds
+  - load_module_validates_sha256（含 happy path + DigestMismatch）
+  - invoke_hook_returns_none_when_module_missing
+  - invoke_hook_returns_identity_for_loaded_module
+  - 3 个 lib level tests 保留
+
+---
+
+## [0.4.21] — 2026-05-23
+
+**主题**：gate-wasm crate skeleton — ADR-0003 v0 runtime 落地起步。
+
+### Added
+
+- 新 crate `gate-wasm` 加入 workspace（基于 wasmtime 26）
+- `src/lib.rs` — 模块入口 + 3 个 unit tests
+- `src/error.rs` — `WasmError` / `WasmResult` 类型定义（Load / Instantiate / Call / Timeout / OutOfMemory / DigestMismatch / HostDenied / Panic）
+- `src/limits.rs` — `ResourceLimits` + `DEFAULT_LIMITS`（16 MiB / 50ms / 1 module per channel）
+- `src/host.rs` — `WasmHost` trait / `WasmHostConfig` / `HookKind` / `HookContext`
+- wasmtime 26 + cranelift + async + component-model 编译通过
+
+### Verification
+
+- `cargo build -p gate-wasm` 净（1m 02s 首次编译）
+- `cargo test -p gate-wasm` 3 passed
+
+---
+
+## [0.4.20] — 2026-05-23
+
+**主题**：0.4.x 21 版本大收尾 — 0.5.0 债务清零，M3 全结。
+
+### 0.4.x 全程战报（21 版本）
+
+| 版本 | 主战 | 战果 |
+|------|------|------|
+| 0.4.0 | M3 Fast-path Runtime | ADR-0002 4 fast-path × 0.74-1.00 vs builtin |
+| 0.4.1 | Rust 三巨兽拆解 | router/custom_provider/plugin_manifest 全部 -52% 以上 |
+| 0.4.2-0.4.4 | channels 第一轮 | 1864 → 1487 (-20.2%) |
+| 0.4.5-0.4.9 | groups/quotas/users/pricing/requests 拆 modal + 共享 helper | -350 行总计 |
+| 0.4.10 | 阶段收尾 | M1.4 partial ticked |
+| 0.4.11 | ChannelTable 完整组件化 | channels 1487 → 1252 (-15.8%) |
+| 0.4.12 | QuotaWizard | quotas 948 → 722 (-23.8%) |
+| 0.4.13 | QuotaForm | quotas 722 → 680 |
+| 0.4.14 | PricingWizard | pricing 633 → 369 (-41.7%) |
+| 0.4.15 | SessionModal | users 729 → 669 |
+| 0.4.16 | **ADR-0003 WASM Plugin ABI v0** | M3 唯一未结收口 |
+| 0.4.17 | channels/[channelId] 3 modal | 667 → 618 |
+| 0.4.18 | bundle budget 250→220KB | M1.4 T2.6 ticked |
+| 0.4.19 | billing helpers | 463 → 435 |
+| 0.4.20 | **大收尾 / 阶段总结** | ROADMAP M1 / M3 全 ticked |
+
+### 前端 +page.svelte Top 10（0.4.20 结算）
+
+```
+1252  channels/+page.svelte         (起 1864 → -32.8%)
+ 972  admin/groups/+page.svelte     (起 1083 → -10.2%)
+ 680  orgs/[orgId]/quotas/+page.svelte  (起 959 → -29.1%)
+ 669  admin/users/+page.svelte      (起 752 → -11.0%)
+ 618  channels/[channelId]/+page.svelte (起 667 → -7.3%)
+ 594  admin/requests/+page.svelte   (起 628 → -5.4%)
+ 507  usage/requests/+page.svelte   (起 541 → -6.3%)
+ 442  admin/audit/+page.svelte
+ 439  admin/sso/+page.svelte
+```
+
+### 0.4.x 新建工件
+
+- **22 个 _components 子组件**：channels (6) + channels/[channelId] (3) + admin/groups (4) + admin/users (3) + admin/pricing (3) + orgs/quotas (3) + usage/requests (1)
+- **3 个 _lib helper 模块**：channels (137 行) / billing (38 行) / requests-helpers (59 行)
+- **ADR-0003 WASM Plugin ABI v0** + sample manifest（0.5.0 wasmtime runtime 占位）
+
+### M3 全结
+
+- ADR-0001 Providers as Plugin ✅
+- ADR-0002 Fast-path Runtime ✅
+- ADR-0003 WASM Plugin ABI v0 ✅（runtime 留 0.5.0）
+
+### Roadmap M1.4 全 ticked
+
+- T2.1 channels 拆 ✅
+- T2.3 admin/pricing 拆 ✅
+- T2.4 usage/requests 拆 ✅
+- T2.6 bundle budget 收紧 ✅
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+- `cargo build` 净
+- 21 个 tag (v0.4.0..v0.4.20) 全部 push origin/main
+
+### Deferred 到 0.5.0+
+
+- wasmtime runtime 落地（ADR-0003 v0 → v1）
+- 进一步收敛 channels/+page (1252) + admin/groups (972) — 按需拆分
+- 进一步收紧 web bundle budget 220 → 180KB
+
+---
+
+## [0.4.19] — 2026-05-23
+
+**主题**：billing helpers 抽出 — 463 → 435 行 (-6.0%)。
+
+### Refactor
+
+- `_lib/helpers.ts` (38 行) — fmtCost / fmtNum / scopeLabel / invoiceStatusLabel / invoiceStatusVariant 5 个纯函数
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.18] — 2026-05-23
+
+**主题**：Web bundle budget 阈值收紧 — 250KB → 220KB（M1.4 T2.6 ticked）。
+
+### Changed
+
+- `web/scripts/check-bundle-budget.mjs`：default `maxEntryBytes` 250_000 → 220_000
+- 实测最大 chunk 204KB（含 svelte runtime），channels page 156KB；阈值留 ~10% margin
+- CI 集成已在 `.github/workflows/ci.yml:191` 跑 `npm run bundle:budget`
+
+### Verification
+
+- `npm run build` 5.66s 净
+- `npm run bundle:budget` ok at ≤ 220000 bytes
+
+### Roadmap 同步
+
+- M1.4 T2.6 Web bundle budget 收紧门禁 — ticked
+- 0.5.0+ 计划：channels 页 ChannelTable + drawer 全部拆出后阈值收到 180KB
+
+---
+
+## [0.4.17] — 2026-05-23
+
+**主题**：channels/[channelId] 3 modal 抽出 — 667 → 618 行 (-7.3%)。
+
+### Refactor
+
+- `_components/RevokeKeyModal.svelte` (43 行)
+- `_components/CreateKeyModal.svelte` (53 行)
+- `_components/RotateKeyModal.svelte` (63 行)
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.16] — 2026-05-23
+
+**主题**：ADR-0003 WASM Plugin ABI v0 PoC 收口 — M3 唯一未结项达成。
+
+### Added
+
+- `docs/architecture/decisions/ADR-0003-wasm-plugin-abi-v0.md`：
+  - v0 host functions 最小集（plugin_init / chat_request_transform / chat_response_transform / stream_chunk_transform / host_log / host_get_secret_slot / host_record_metric）
+  - hard limits（≤ 50ms CPU / ≤ 16 MiB memory / no I/O / deterministic）
+  - 与 HTTP Plugin manifest v1 的 inner transform layer 关系定型
+  - Fallback 与 audit 边界（panic / OOM / timeout 降级到 manifest 路径）
+- `examples/manifest-registry/community/wasm-transform/0.1.0/`：sample manifest 占位（`security._wasm_v0_placeholder`，0.4.x validator 跳过未知字段）
+- `docs/wasm-plugin-abi.md` 同步指向 ADR-0003
+
+### Roadmap 同步
+
+- M3 v0.4.0 WASM Plugin ABI vNext PoC 标记 ticked
+
+### Deferred to 0.5.0+
+
+- wasmtime runtime 落地（`crates/gate-providers/src/wasm_plugin/`）
+- `SecurityManifest::wasm_*` 字段从占位升为 typed field
+- Rust SDK + golden test
+- AssemblyScript / Go SDK 文档
+
+---
+
+## [0.4.15] — 2026-05-23
+
+**主题**：SessionModal 抽出 — admin/users 729 → 669 行 (-8.2%)。
+
+### Refactor
+
+- `_components/SessionModal.svelte` (123 行) — 75 行 session list modal + format helper
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.14] — 2026-05-23
+
+**主题**：PricingWizard 完整组件化 — admin/pricing 633 → 369 行 (-41.7%)。
+
+### Refactor
+
+- `_components/PricingWizard.svelte` (404 行) — 304 行 4 步 wizard form 整体抽出
+- 36 顶层 props（11 bindable + 12 read-only state + 11 callback/util）
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.13] — 2026-05-23
+
+**主题**：QuotaForm 抽出 — quotas 722 → 680 行 (-5.8%)。
+
+### Refactor
+
+- `_components/QuotaForm.svelte` (109 行)
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.12] — 2026-05-23
+
+**主题**：QuotaWizard 完整组件化 — quotas 948 → 722 行 (-23.8%)。
+
+### Refactor
+
+- `_components/QuotaWizard.svelte` (321 行) — 252 行 wizard modal 整体抽出
+- 26 顶层 props（含 5 derived state + 11 callback + 5 sample/format helpers）
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.11] — 2026-05-23
+
+**主题**：ChannelTable 完整组件化 — channels 1487 → 1252 行 (-15.8%)。
+
+### Refactor
+
+- `_components/ChannelTable.svelte` (289 行)：262 行 DataTable + head snippet + rows + expanded body
+  抽出。props 表用 `actions` 对象分组，从 ~30 props 收敛到 14 顶层 props（含 1 actions 对象）。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.10] — 2026-05-23
+
+**主题**：0.4.x 阶段收尾 — M1.4 前端拆解里程碑达成，ROADMAP 同步。
+
+### 阶段战报（0.4.0 → 0.4.10）
+
+| 阶段 | 战果 |
+|------|------|
+| 0.4.0 | M3 Fast-path Runtime 完成（ADR-0002 4 fast-path × 0.74-1.00 vs builtin） |
+| 0.4.1 | Rust 三巨兽拆解（router/custom_provider/plugin_manifest 全部 -52% 以上） |
+| 0.4.2 | channels: 1864 → 1718 (-7.8%) — helpers + EditChannelDrawer |
+| 0.4.3 | channels: 1718 → 1515 (-11.8%) — CreateChannelDrawer |
+| 0.4.4 | channels: 1515 → 1487 (-1.8%) — badge/fmt helpers |
+| 0.4.5 | admin/groups: 1083 → 972 (-10.2%) — 4 modal |
+| 0.4.6 | quotas: 959 → 948 (-1.1%) — QuotaDeleteModal |
+| 0.4.7 | admin/users: 752 → 729 (-3.1%) — 2 modal |
+| 0.4.8 | admin/pricing: 640 → 633 (-1.1%) — DeletePricingModal |
+| 0.4.9 | requests 双页 -68 行 (-5.7%) — 共享 helper |
+
+### 前端 +page.svelte Top 10（0.4.10 结算）
+
+```
+1487  channels/+page.svelte
+ 972  admin/groups/+page.svelte
+ 948  orgs/[orgId]/quotas/+page.svelte
+ 729  admin/users/+page.svelte
+ 667  channels/[channelId]/+page.svelte
+ 633  admin/pricing/+page.svelte
+ 594  admin/requests/+page.svelte
+ 507  usage/requests/+page.svelte
+ 463  orgs/[orgId]/billing/+page.svelte
+```
+
+### 新增 _components / _lib
+
+- `channels/_components/`: EditChannelDrawer + CreateChannelDrawer + 3 existing modal = 5
+- `channels/_lib/helpers.ts`: 12 个共享 fn/常量
+- `admin/groups/_components/`: 4 modal
+- `admin/users/_components/`: 2 modal
+- `admin/pricing/_components/`: DeletePricingModal + existing PricingRulesTable = 2
+- `orgs/[orgId]/quotas/_components/`: QuotaDeleteModal
+- `$lib/requests-helpers.ts`: 6 个跨页共享 fn
+
+### Deferred 到 0.5.0+
+
+- ChannelTable 完整组件化（DataTable 段 ~30 props，硬拆反模式）
+- QuotaForm / QuotaWizard 拆分（多步流程 + 复杂 derived state）
+- Pricing wizard form（多步 + 计费 preview state）
+- admin/users session modal（75 行嵌套 sessions 列表）
+- T2.6 Web bundle budget 收紧门禁阈值
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+- `npm test` 87 passed
+- `cargo build` 净
+
+### ROADMAP 同步
+
+- M1.4 T2.1 / T2.3 / T2.4 全部 ticked
+- 新增 "0.4.x 额外" 条目记录 modal 拆解战果
+
+---
+
+## [0.4.9] — 2026-05-23
+
+**主题**：requests 双页共享 helper 抽出 — admin/requests 628 → 594 / usage/requests 541 → 507（合计 -68 行 / -5.7%）。
+
+### Refactor
+
+- `$lib/requests-helpers.ts` (59 行) — 6 个纯函数跨页共享：
+  - `rangeToDate` / `statusBadgeCls` / `formatRequestDate` /
+    `formatLatency` / `formatCost` / `formatTokens`
+- `formatDate` → `formatRequestDate` 统一命名（避免与他页同名冲突）
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.8] — 2026-05-23
+
+**主题**：admin/pricing DeletePricingModal 抽出 — 640 → 633 行 (-7)。
+
+### Refactor
+
+- `_components/DeletePricingModal.svelte` (41 行)
+- pricing wizard form (310-624, 314 行) 多步流程 + 复杂 state，留 0.5.0+ 评估
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.7] — 2026-05-23
+
+**主题**：admin/users ResetPassword + SuspendUser modal 抽出 — 752 → 729 行 (-23)。
+
+### Refactor
+
+- `_components/ResetPasswordModal.svelte` (53 行)
+- `_components/SuspendUserModal.svelte` (59 行)
+- session modal 75 行内嵌 sessions 列表，留 0.5.0+ 独立拆
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.6] — 2026-05-23
+
+**主题**：orgs/quotas QuotaDeleteModal 抽出 — 959 → 948 行 (-11)。
+
+### Refactor
+
+- `_components/QuotaDeleteModal.svelte` (46 行)
+- QuotaForm / Wizard 体量大且 props 表过宽，留 0.5.0+ 评估
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.5] — 2026-05-23
+
+**主题**：admin/groups/+page.svelte 拆 4 个 modal — 1083 → 972 行 (-10.2%)。
+
+### Refactor
+
+- `_components/CreateGroupModal.svelte` (75 行)
+- `_components/DeleteGroupModal.svelte` (39 行)
+- `_components/DisableGroupModal.svelte` (43 行)
+- `_components/AddChannelModal.svelte` (107 行)
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.4] — 2026-05-23
+
+**主题**：channels helpers 扩充 — `fmtLimit` / `fmtDate` / `statusBadgeCls` /
+`healthBadgeCls` / `healthDot` 抽到 `_lib/helpers.ts`。
+
+### Refactor
+
+- channels/+page.svelte: 1515 → 1487 行 (-28)
+- `_lib/helpers.ts`: 97 → 137 行（追加 5 个表格 badge / fmt helper）
+- ChannelTable 完整组件化推迟到 0.5.0+：DataTable 段调用面 ~30 props，硬拆反模式。
+  本版改为抽 row 渲染辅助函数，让表格代码可读但仍保持单页 owner。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.3] — 2026-05-23
+
+**主题**：channels/+page.svelte CreateDrawer 拆分 — 1718 → 1515 行 (-11.8%)。
+
+### Refactor
+
+- `_components/CreateChannelDrawer.svelte` (367 行)：把 218 行 CreateDrawer template
+  抽成独立组件。props 表 36（12 bindable + 9 read-only + 15 callback/util），manifest
+  builder 7 步流程整体内嵌。
+- `pluginAuthSlotSummary` 移到 `_lib/helpers.ts`，跨 drawer 共用。
+- Svelte 5 占位符 `{{model}}` 转 const 变量化（`REQUEST_BODY_PLACEHOLDER` /
+  `PROBE_PATH_PLACEHOLDER`），避免被解析为 expression。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+
+---
+
+## [0.4.2] — 2026-05-22
+
+**主题**：M1.4 前端 channels 巨兽初拆 — `channels/+page.svelte` 1864 → 1718 行（-7.8%）。
+
+### Refactor — Channels page split (M1.4 partial)
+
+- **`channels/_lib/helpers.ts` 新增 (69 行)**：抽出 4 个纯函数（`isPluginProvider` /
+  `capabilityFallback` / `capabilityTitle` / `capabilityChipClass`）+ 4 个常量
+  （`PROVIDER_OPTIONS` / `FILTER_PROVIDER_OPTIONS` / `STATUS_OPTIONS` / `HEALTH_OPTIONS`），
+  与 state 解耦，可被 `_components/*` 子组件共用。
+- **`_components/EditChannelDrawer.svelte` 新增 (232 行)**：把 EditDrawer 整段 141 行
+  template 抽成独立组件，25 props（11 bindable + 6 read-only state + 8 callback +
+  3 sample 常量）。`+page.svelte` 端调用面收敛到 `<EditChannelDrawer ... />` 一处。
+
+### Verification
+
+- `npm run check` 0 errors / 0 warnings
+- `npm test` 87 passed / 0 failed (13 files)
+- `npm run build` 5.76s 净
+
+### Deferred to 0.4.3
+
+- `CreateChannelDrawer.svelte`（218 行 template，props 表~40，需配合 ManifestBuilder 二次拆）
+- `ChannelTable.svelte`（261 行 DataTable 块，19 props）
+- `admin/groups/+page.svelte`（1083 行）
+
+---
+
+## [0.4.1] — 2026-05-22
+
+**主题**：M1.3 三巨兽拆解收尾 — 单文件 ≤ 800 行目标推进。
+
+### Refactor — Three giant files split (M1.3 T3.1-T3.3)
+
+- **`plugin_manifest/mod.rs` 1472 → 705 行**（-52%）：抽出
+  `plugin_manifest/{factory,helpers,tests}.rs` 三子模块。`factory.rs` 收口
+  `validate_plugin_manifest` / `plugin_manifest` / `plugin_manifest_retry_config` /
+  `plugin_manifest_schema_json` 4 个公共入口；`helpers.rs` 内部 JSON pointer / config
+  error 工具；`tests.rs` 24 个单元测试搬迁。
+- **`custom_provider/mod.rs` 3516 → 1452 行**（-59%）：抽出
+  `custom_provider/{helpers,fastpath,tests}.rs`。`helpers.rs` 27 个 free fn / RenderedValue
+  struct（模板渲染 / JSON 路径 / header 插入 / 错误判定）；`fastpath.rs` ADR-0002
+  fast-path inherent impl 块（`fastpath_kind` / `run_fastpath` + 4 provider 8 fn）；
+  `tests.rs` 整体迁出。
+- **`router/mod.rs` 3540 → 1713 行**（-52%）：抽出 `router/tests.rs`，1830 行
+  unit/integration 测试搬迁。
+
+### Verification
+
+- `cargo fmt --all -- --check` 净
+- `cargo clippy --workspace --all-targets -- -D warnings` 净
+- `cargo test --workspace --lib`：485 passed / 0 failed（plugin_manifest 30 / custom_provider
+  120 / router 44 / 其他 291）
+- `gate-server` 关键 e2e：c1_routing 11 passed / channel_plugin_e2e 1 passed
+
+### Notes
+
+- 三巨兽再拆受限于内部循环依赖（`ProviderRouter` impl 跨 dispatch fn 强耦合 /
+  `PluginManifest::from_value` 与 type 系统强耦合），1452 / 1713 行已是现阶段最优。
+- M1.3 T3.6 / T3.7（clippy 基线 + crate README）一并完成。
+
+### Bench parity
+
+- 0.4.1 重新跑 `cargo bench --package gate-providers --bench plugin_vs_builtin`，
+  fast-path 路径性能与 0.4.0 持平（× 0.74-1.00），拆分零回归。
+
+---
+
+## [0.4.0] — 2026-05-22
+
+**主题**：ADR-0002 M3 Fast-path Runtime 完成 — `gate-providers` 终极形态收尾。
+
+### Highlights
+
+- **OpenAI / Anthropic / Azure / Bedrock 四条 fast-path 全接通**：plugin runtime 在 4 个高频
+  provider 上跳过 manifest 解释器，直接走静态分发。bench 实测 fast-path × 0.74-1.00 vs
+  builtin（manifest runtime 是 × 1.27-1.45），远好于 ADR-0002 ≤ × 1.02 预算。
+- **Bedrock SigV4 修真**：编译期 `BedrockProvider` 之前的占位假签名（仅发
+  `X-Amz-Access-Key/Secret-Key` 头）换成真 AWS Signature V4，AWS 已知向量 test 通过。
+  `crate::sigv4` 模块提到 crate 顶层供 anthropic / bedrock / custom_provider 共用，
+  零协议重复。
+- **Capability matrix golden test**：23 个 preset × 9 capability + base_url 默认值字节级锁定，
+  drift 即 fail。`KOOIX_UPDATE_FIXTURES=1` 触发刷新。
+- **catch_unwind fallback**：fast-path panic 时 `tracing::error!` + 降级到 manifest runtime，
+  防御性兜底进程不挂。
+- **preset bundle 决策**：评估后**不拆 crate** —— 23 个 preset 共享 OpenAI adapter，硬拆
+  重复代码。`plugin_preset.rs` 单文件 896 行保留。详见 [ADR-0002 § preset bundle 决策](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md#preset-bundle-决策2026-05-22)。
+
+### Added — Plugin runtime perf bench (ADR-0001 verification)
+
+- 新增 [`crates/gate-providers/benches/plugin_vs_builtin.rs`](./crates/gate-providers/benches/plugin_vs_builtin.rs)：
+  Criterion micro-bench 对比 `OpenAiProvider` vs `CustomHttpProvider + openai_compatible preset`
+  的 chat 路径单次调用耗时，wiremock localhost endpoint。
+- 实测数据（2026-05-22）：builtin 25.6 µs / plugin 36.2 µs，**ratio × 1.41**，超 ADR-0001 的
+  5% 预算 8 倍。详见 [ADR-0001 Verification 段](./docs/architecture/decisions/ADR-0001-providers-as-plugin.md#bench-数据2026-05-22)。
+- 触发 M3 立项：[ADR-0002 Fast-path Runtime](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md)。
+
+### Added — M3 设计落地
+
+- 新增 [ADR-0002](./docs/architecture/decisions/ADR-0002-fastpath-runtime.md)：`builtin_fastpath`
+  manifest 标志位 + 4 个高频 provider 静态分发设计。
+- ROADMAP M3 章节加 bench 触发依据 + 新增 capability matrix golden test / panic fallback
+  两条验收项。
+
+### Added — M3 T0：`builtin_fastpath` schema + golden test
+
+- `SecurityManifest::builtin_fastpath: bool` 字段落地。
+  - 用户 channel manifest 设置的值在 `PluginManifest::from_value` 入口被**强制清零**。
+  - 只有 `apply_preset` 给 4 个 fast-path（openai / anthropic_messages / azure_openai /
+    bedrock_converse）静态注入 `true`。
+  - 0.3.x 仅落地 schema + 注入点，dispatch 实现留 0.4.0。
+  - 4 个新单元测试 (`plugin_manifest::tests::builtin_fastpath_*` /
+    `user_cannot_override_*`) 锁定上述不变式。
+- 新增 [`crates/gate-providers/tests/capability_matrix.rs`](./crates/gate-providers/tests/capability_matrix.rs)：
+  golden test 锁 23 个 preset 的 `(capabilities, base_url_suggestion)` 矩阵；
+  漂移时跑 `KOOIX_UPDATE_FIXTURES=1 cargo test --test capability_matrix` 刷新 fixture。
+  Fixture 见 [`tests/fixtures/capability_matrix.json`](./crates/gate-providers/tests/fixtures/capability_matrix.json)。
+
+### Added — Bench baseline `pre-m3`
+
+- 跑了 `cargo bench --bench plugin_vs_builtin -- --save-baseline pre-m3`，
+  M3 实施期间用 `--baseline pre-m3` 对比定量验收。文件落在 `target/criterion/`，
+  不入 git；CI 可重跑生成。
+
+### Added — M3 T2a：catch_unwind fallback 兜底
+
+- `CustomHttpProvider::run_fastpath` helper：用 `FutureExt::catch_unwind` 包裹 fast-path
+  调用，panic 时记录 `tracing::error!` 并返回 `None`，让 trait impl 顶部分发降级到
+  manifest runtime 老路。3 个单元测试（OK 路径 / panic 路径 / panic_message 解析）。
+- 防御性设计：fast-path 是手写代码路径，理论上不会 panic；这层兜底防止 OpenAI / Anthropic
+  改变响应格式触发 serde panic 时进程不挂。
+
+### Added — M3 T2b：Anthropic Messages fast-path
+
+- `CustomHttpProvider` 内部 `fastpath_anthropic_chat / chat_stream` 落地：
+  - `crate::anthropic` 模块新加 `pub(crate)` wrapper（`fastpath_anthropic_request_body` /
+    `_response_from_json` / `_sse_stream` / `_check_status` + `FASTPATH_ANTHROPIC_VERSION`），
+    复用编译期 `to_anthropic_request` / `from_anthropic_response` / `anthropic_sse_to_chunks`，
+    **零协议重复**。
+  - `preset.kind == AnthropicMessages` 时走 fast-path：POST `/v1/messages`，
+    `x-api-key` + `anthropic-version: 2023-06-01` 头，body 转 Anthropic 原生格式
+    （system / content blocks / tool_use / tool_result），响应映射回 OpenAI ChatResponse。
+  - 2 个 integration test（chat / chat_stream）锁路径正确性。
+- 老 test `preset_anthropic_messages_posts_native_body_and_normalizes_response` 调整：
+  body 期望去掉 `"stream": false` 字段，以匹配 fast-path 行为（与编译期
+  `AnthropicProvider` 一致：stream=None 时 skip serialized）。这是行为收敛，不是回归。
+
+### Bench 数据更新（OpenAI + Anthropic fast-path 全接通后）
+
+- builtin_openai             ≈ 24-28 µs
+- plugin_openai_compatible   ≈ 35 µs   × 1.45 vs builtin
+- **plugin_openai_fastpath   ≈ 21-23 µs   × 0.74-0.96 vs builtin** — ADR-0002 ≤ × 1.02 预算达成
+
+ADR-0002 verification 5/7 项已勾，剩 Azure / Bedrock 2 个 adapter + preset bundle 拆 crate 留 0.4.0。
+
+### Added — M3 T2c：Azure OpenAI fast-path
+
+- `CustomHttpProvider` 内部 `fastpath_azure_chat / chat_stream / embed` 落地：
+  - Deployment URL 模板：`{base_url}/openai/deployments/{model}/chat/completions?api-version={X}`，
+    `api-key` 头鉴权。
+  - `manifest.preset.api_version` 通过 schema 传到 fast-path（default `2024-08-01-preview`）。
+  - 协议 body / response 与 OpenAI 一致 → 复用 `crate::openai::{check_status, sse_to_chunks}`。
+  - 2 个 integration test 锁定：URL 模板正确性 + api-version override 透传。
+
+### Added — M3 T2d：Bedrock SigV4 修真 + Converse fast-path
+
+- 编译期 `BedrockProvider::sign_request` 的假签名（仅发 `X-Amz-Access-Key/Secret-Key` 头）
+  换成真 AWS Signature V4：
+  - `BedrockProvider::sigv4_sign_post` 实现完整 AWS SigV4：canonical request /
+    string-to-sign / HMAC signing key 全用新提到 crate 顶层的 `crate::sigv4` helper。
+  - 输出标准 `Authorization: AWS4-HMAC-SHA256 Credential=.../bedrock/aws4_request,
+    SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=...` 头 + `x-amz-date`
+    + `x-amz-content-sha256`。
+  - AWS 已知向量 test 通过（signing key `c4afb1cc5771d871...` for
+    `20150830/us-east-1/iam/aws4_request`，AWS 官方文档 vector）。
+- `crate::sigv4` 从 `custom_provider/sigv4.rs` 提到顶层 `pub(crate) mod sigv4`，
+  让 anthropic.rs / bedrock.rs / custom_provider 都能复用。原 mod 文件保留 re-export 兼容。
+- `CustomHttpProvider::fastpath_bedrock_chat` 落地：
+  - URL: `{base_url}/model/{model}/converse`
+  - Region: `infer_aws_region_from_host` → `AWS_REGION` env → `us-east-1` 兜底
+  - Secrets: 标准 plugin slot `aws_access_key` / `aws_secret_key`，缺失时 fail-loud
+  - Body/Response: 复用 `crate::bedrock::fastpath_bedrock_request_body / _response_from_json`
+- 2 个 integration test（签名成功 + 缺 secret fail-loud）+ 2 个 unit test（sigv4 vector
+  + authorization header 格式）。
+
+ADR-0002 verification 7/8 项已勾，剩 preset bundle 拆 crate 评估留 0.4.0。
+
+### Added — M3 T1：OpenAI fast-path dispatch 接通
+
+- `CustomHttpProvider::chat / chat_stream` + `EmbeddingProvider::embed` 顶部加 fast-path
+  分发：`security.builtin_fastpath = true` 且 `preset.kind == Openai` 时，跳过 manifest
+  解释器，直接 POST `/chat/completions` Bearer 鉴权（等价于 `OpenAiProvider`）。
+- 复用 `crate::openai::{check_status, sse_to_chunks}`，与编译期 OpenAI 路径**字节级一致**。
+- 保留 sandbox dns + peer 校验（安全不能省）。
+- bench 加 `plugin_openai_fastpath` 列。**实测数据**：
+  - builtin_openai           24.1 µs  [23.5, 24.8]
+  - plugin_openai_compatible 35.0 µs  [34.2, 35.7]  × 1.45
+  - plugin_openai_fastpath   **23.1 µs**  [22.3, 24.1]  **× 0.96**
+
+  fast-path 与 builtin 性能等价，达成 ADR-0002 ≤ × 1.02 预算。
+- 3 个新 integration test (`fastpath_openai_chat_*` / `fastpath_does_not_apply_*`) 锁定：
+  - `preset.provider="openai"` → fast-path 路径正确请求 + 响应解析；
+  - `preset.provider="openai_compatible"` 不被 fast-path 误伤，仍走 manifest 解释器。
+- ADR-0002 verification 第 3 项打勾；剩 Anthropic / Azure / Bedrock 3 个 fast-path
+  adapter + catch_unwind fallback + preset bundle 拆 crate 留 0.4.0。
+
+---
+

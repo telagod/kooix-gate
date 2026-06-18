@@ -50,7 +50,7 @@
 - [x] **K5** backlog 设计稿挪位
 - [x] **K1** Playground 整段砍（认知瘦身王牌 + 340KB bundle）
 - [x] **K15** ADR 状态重排（ADR-0002/0003 标 Superseded · ADR-0004 转 Accepted）
-- [ ] **K14** CHANGELOG 0.4.x 流水账折叠
+- [x] **K14** CHANGELOG 0.4.x 流水账折叠
 - [ ] **K8** `api.ts` 按域拆分（先抽 `core.ts` 共享 apiFetch/ApiError）
 - [ ] **K2** Provider preset 55 → 12（保留 4 个 fast-path + 8 个核心；存量 channel 走只读降级）
 - [ ] **K6** examples 收敛（先迁 WASM fixture）
