@@ -69,9 +69,8 @@ node ../scripts/audit-page-templates.mjs --json
 ## 构建 warning 约束
 
 - Markdown 渲染只注册少量 `highlight.js/lib/core` 语言，且 `MarkdownRenderer` 通过 dynamic import 按需加载 `marked` / `highlight.js` 语言包，避免普通控制台路由静态带上 highlighter。
-- Playground route 只保留轻量加载壳，`@xyflow/svelte` 与节点编辑器集中在 `FlowEditor` dynamic chunk；`npm run bundle:budget` 会验证 route-level splitting、Flow editor lazy load 与 markdown highlighter lazy load。
+- `npm run bundle:budget` 验证 route-level splitting 与 markdown highlighter lazy load。
 - `build.rolldownOptions.checks.pluginTimings=false` 仅关闭 Rolldown 插件耗时提示，不关闭类型或 Svelte 诊断。
-- `@xyflow/system` 显式列为 production dependency，使 adapter-node 在最终 server bundle 阶段外部化该包，避免把其 d3 依赖重新内联并打印已知 circular dependency warnings。
 
 ## 页面说明
 

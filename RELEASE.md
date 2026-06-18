@@ -23,7 +23,7 @@
 - [ ] gitleaks 双扫通过：Git 历史 / 当前工作树 + no-git 打包快照。
 - [ ] 涉及 migration 时先备份 DB，并跑 `kgctl migrate --dry-run` → `kgctl migrate` → `kgctl doctor`。
 - [ ] `examples/demo/quickstart.sh` 在 demo 环境跑通：compose up、setup/login、provider channel、chat、usage / billing。
-- [ ] `docs/release-assets.md` 的 Dashboard、Channel wizard、Pricing rules、Request logs、Playground 素材已复核且无 secret。
+- [ ] `docs/release-assets.md` 的 Dashboard、Channel wizard、Pricing rules、Request logs 素材已复核且无 secret。
 - [ ] GitHub Actions CI / Docker / Release workflow 全绿，GHCR tag 和 GitHub Release 页面可见。
 
 ## 发布前检查
@@ -152,7 +152,6 @@ examples/demo/quickstart.sh
 - Channel wizard。
 - Pricing rules。
 - Request logs / audit detail。
-- Playground。
 
 ## 回滚策略
 
