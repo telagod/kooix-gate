@@ -17,6 +17,17 @@
 //! - **Hysteresis**：边界 ±0.05 防抖
 //! - **Auto-cooldown**：连续失败 ≥ 5 次 或 score < degraded → 指数退避 Cooldown
 //! - **Banned**：终态。`banned_signal == 1.0` 转入，仅人工解封
+//!
+//! ## 子模块（M5.1 N1.5+）
+//!
+//! - [`cache`] —— [`HealthScoreCache`]：路由热路径 in-memory TTL cache
+//! - [`flusher`] —— [`ScoreFlusher`]：异步 batched OutcomeEvent 处理 worker
+
+pub mod cache;
+pub mod flusher;
+
+pub use cache::{DEFAULT_CACHE_TTL, HealthScoreCache, cached_get_many};
+pub use flusher::{OutcomeEvent, ScoreFlusher, ScoreFlusherConfig, ScoreFlusherHandle};
 
 use chrono::{DateTime, Duration, Utc};
 use gate_storage::{ChannelHealthScore, HealthState, ScoreUpdate};

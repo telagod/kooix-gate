@@ -141,6 +141,10 @@ pub struct ProviderRouter {
     /// `Some(repo)` + `channel_groups.use_health_score = TRUE` → 5 策略消费 score。
     /// `None` 或 group flag false → v0.4.x 路径完全不变。
     health_score_repo: Option<Arc<dyn ChannelHealthScoreRepo>>,
+    /// ADR-0007 / M5.1 N1.5：路由热路径的 in-memory TTL cache。
+    /// 注入后 `health_view_for_group` 优先读 cache，miss 才回 PG。
+    /// `None` 时退化为 N1.4 行为（每请求一次 PG round-trip）。
+    health_score_cache: Option<crate::health_score::HealthScoreCache>,
 }
 
 impl ProviderRouter {
@@ -165,6 +169,7 @@ impl ProviderRouter {
             wasm_host: None,
             wasm_blob_store: None,
             health_score_repo: None,
+            health_score_cache: None,
         }
     }
 
@@ -174,6 +179,14 @@ impl ProviderRouter {
     /// 即使注入了 repo，未启用的 group 路由行为完全等同 v0.4.x。
     pub fn with_health_score_repo(mut self, repo: Arc<dyn ChannelHealthScoreRepo>) -> Self {
         self.health_score_repo = Some(repo);
+        self
+    }
+
+    /// ADR-0007 / M5.1 N1.5：注入 in-memory health score cache。
+    /// 推荐与 `with_health_score_repo` 一并配置：`ScoreFlusher` 写 cache 后
+    /// 路由热路径无需再 PG round-trip。
+    pub fn with_health_score_cache(mut self, cache: crate::health_score::HealthScoreCache) -> Self {
+        self.health_score_cache = Some(cache);
         self
     }
 
@@ -191,7 +204,12 @@ impl ProviderRouter {
             return Some(selection::HealthView::new());
         }
         let ids: Vec<ChannelId> = compatible.iter().map(|c| c.channel.channel_id).collect();
-        match repo.get_many(&ids).await {
+        // N1.5：cache 注入时优先读 cache，cache miss 回 PG（并自动回填 cache）。
+        let map_result = match self.health_score_cache.as_ref() {
+            Some(cache) => crate::health_score::cached_get_many(cache, repo.as_ref(), &ids).await,
+            None => repo.get_many(&ids).await,
+        };
+        match map_result {
             Ok(map) => Some(
                 map.into_iter()
                     .map(|(id, s)| (id, (s.state, s.score)))
