@@ -1,6 +1,6 @@
 # ADR-0007: Channel Health Score —— 号池中台护城河（v0.5.0 M5.1）
 
-- Status: **Proposed (2026-06-19)**
+- Status: **Accepted (2026-06-19)** — N1.1 schema + repo + 13 PG integration tests + 11 unit tests 全绿；N1.2-N1.6 实装中
 - Deciders: telagod
 - Affected: `crates/gate-storage/migrations/20260619000001_channel_health_score.sql`（新增）, `crates/gate-storage/src/repo/channel.rs`, `crates/gate-providers/src/router/{mod.rs,selection.rs,helpers.rs,builder.rs}`, `crates/gate-server/src/health_check.rs`, `crates/gate-server/src/routes/admin/channels.rs`, control plane 「号池健康仪表盘」UI
 - 关联：实现 [ROADMAP M5.1](../../../ROADMAP.md#m51-channelhealthscore核心)；扩展 [ADR-0005 Native Provider Plane](./ADR-0005-native-provider-plane.md) 三档渠道分级里的「重渠道」健康判定；与 [ADR-0001 Plugin Manifest](./ADR-0001-providers-as-plugin.md) probe / health 字段对接

@@ -22,6 +22,10 @@ pub use repo::channel::{
     ChannelStatus, CreateChannel, InMemoryChannelGroupRepo, InMemoryChannelRepo, ListChannelsQuery,
     PaginatedChannels, PgChannelGroupRepo, PgChannelRepo, UpdateChannel, UpdateChannelBinding,
 };
+pub use repo::channel_health_score::{
+    ChannelHealthScore, ChannelHealthScoreRepo, HealthState, InMemoryChannelHealthScoreRepo,
+    OutcomeObservation, PgChannelHealthScoreRepo, ScoreUpdate,
+};
 pub use repo::channel_key::{
     ChannelKeyRecord, ChannelKeyRepo, InMemoryChannelKeyRepo, PgChannelKeyRepo,
 };
