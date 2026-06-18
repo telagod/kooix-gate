@@ -238,7 +238,7 @@ shared PostgreSQL + Redis
 | 单体 vs 微服务 | single binary + runtime modes | 降低运维复杂度，同时让热路径和后台任务可拆。 | gateway/control/worker 需要独立发布、独立限权或独立语言栈。 |
 | SQL vs NoSQL | PostgreSQL + optional TimescaleDB | 强一致、RLS、ledger、迁移可审计。 | request log / usage 分析写入量超过普通 PG 分区承载。 |
 | Cache / counter | Redis | rate/quota 热计数需要低延迟原子 Lua。 | 需要跨区域强一致或 Redis 成本成为主瓶颈。 |
-| Provider 扩展 | compile-time provider + HTTP Plugin manifest + WASM transform（ADR-0003 v0） | 主流渠道强类型，私有渠道靠 manifest 快速接入；deterministic transform 走 WASM v0（0.4.x 实装）。 | ABI v1 / wit-bindgen / 多语言 SDK 等扩展见 product-gaps。 |
+| Provider 扩展 | compile-time provider + HTTP Plugin manifest + WASM transform（ADR-0003 v0；Superseded by ADR-0006 in dual-run window） | 主流渠道强类型，私有渠道靠 manifest 快速接入；deterministic transform v0 baseline 实装（0.4.x），新功能走 ADR-0006 component-model v1。 | ABI v1 / wit-bindgen / 多语言 SDK 等扩展见 product-gaps。 |
 | Billing | outbox + ledger + projections | 热路径不直接做重 projection，计费可重放可对账。 | 需要跨账期复杂金融账本时引入独立 accounting service。 |
 
 ## 10. 文档边界

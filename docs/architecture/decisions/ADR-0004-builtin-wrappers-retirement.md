@@ -1,6 +1,6 @@
 # ADR-0004: 4 大编译期 wrapper 退役（v0.5.0-rc2）
 
-- Status: **Proposed (2026-05-28)** — 收 ADR-0001 最后一条 verification、ADR-0002 fastpath 在产
+- Status: **Accepted (2026-05-28)** — 收 [ADR-0001](./ADR-0001-providers-as-plugin.md) 最后一条 verification、[ADR-0002](./ADR-0002-fastpath-runtime.md) fastpath 收敛；migration 20260528000001 就位；4 个 wrapper 物理删除留 v0.5.x 执行（详见 [ROADMAP](../../../ROADMAP.md)）
 - Deciders: telagod
 - Affected: `crates/gate-providers/src/{openai,anthropic,azure,bedrock}.rs`, `crates/gate-providers/src/router/builder.rs`, `crates/gate-server/src/{health_check.rs, routes/admin/{probe,channels,mod}.rs}`, channels DB migration
 
