@@ -38,7 +38,7 @@
 
 ### M5.3 ADR-0007 落地
 
-- [ ] **N3.1** ADR-0007 `ChannelHealthScore` Accepted（设计稿先于实装）。
+- [x] **N3.1** ADR-0007 `ChannelHealthScore` 设计稿（[docs/architecture/decisions/ADR-0007-channel-health-score.md](./docs/architecture/decisions/ADR-0007-channel-health-score.md)，Proposed → 待 review 转 Accepted）。
 - [ ] **N3.2** `health_check.rs` 1019 行 god file 按 health-score 边界重写（与 N1.1/N1.2 合并）。
 
 ### M5.4 v0.5.0 砍单 Wave 1-3（瘦身闭环）

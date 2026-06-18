@@ -61,7 +61,7 @@ Architecture / Design:
 
 - [DESIGN.md](./DESIGN.md) — Domain model, runtime boundaries, data flow
 - [docs/architecture.md](./docs/architecture.md) — C4 overview (control / data / worker plane)
-- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADRs — ADR-0001/0004/0005 Accepted · ADR-0002/0003 Superseded · ADR-0006 Proposed
+- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADRs — ADR-0001/0004/0005 Accepted · ADR-0002/0003 Superseded · ADR-0006/0007 Proposed
 
 Extension:
 
