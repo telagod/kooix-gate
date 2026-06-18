@@ -13,6 +13,7 @@ pub mod api_key;
 pub mod audit;
 pub mod billing;
 pub mod channel;
+pub mod channel_health_score;
 pub mod channel_key;
 pub mod channel_latency;
 pub mod identity;

@@ -60,7 +60,7 @@ open http://localhost:8080                # 控制台（SvelteKit）
 
 - [DESIGN.md](./DESIGN.md) — 领域模型、运行时边界、数据流
 - [docs/architecture.md](./docs/architecture.md) — C4 架构总览（control / data / worker plane）
-- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADR（架构决议）：ADR-0001/0004/0005 Accepted · ADR-0002/0003 Superseded · ADR-0006/0007 Proposed
+- [docs/architecture/decisions/](./docs/architecture/decisions/) — ADR（架构决议）：ADR-0001/0004/0005/0007 Accepted · ADR-0002/0003 Superseded · ADR-0006 Proposed
 
 扩展面：
 

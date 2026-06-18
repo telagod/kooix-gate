@@ -22,7 +22,7 @@
 
 ### M5.1 ChannelHealthScore（核心）
 
-- [ ] **N1.1** 健康度评分模型：`success_rate / latency_p99 / banned_signal / quota_remaining / consecutive_5xx`，输出归一 0-1 分。
+- [x] **N1.1** Schema + Repo：migration 20260619000001 + `ChannelHealthScoreRepo` trait + Pg/InMemory impl + 24 测试（11 unit + 13 PG integration）。评分计算/状态机/封号 detector 在 N1.2-N1.3 上。
 - [ ] **N1.2** 状态机：`Healthy → Degraded → Cooldown → Banned → Recovering`，转移规则文档化。
 - [ ] **N1.3** 路由策略消费 score：`priority / weighted_random / least_conn / least_latency` 全部接受 health 权重。
 - [ ] **N1.4** 自动 cooldown：检测到 401/403/429 模式后指数退避，可配置最大 cooldown 时长。
@@ -38,7 +38,7 @@
 
 ### M5.3 ADR-0007 落地
 
-- [x] **N3.1** ADR-0007 `ChannelHealthScore` 设计稿（[docs/architecture/decisions/ADR-0007-channel-health-score.md](./docs/architecture/decisions/ADR-0007-channel-health-score.md)，Proposed → 待 review 转 Accepted）。
+- [x] **N3.1** ADR-0007 `ChannelHealthScore` Accepted（[docs/architecture/decisions/ADR-0007-channel-health-score.md](./docs/architecture/decisions/ADR-0007-channel-health-score.md)）。
 - [ ] **N3.2** `health_check.rs` 1019 行 god file 按 health-score 边界重写（与 N1.1/N1.2 合并）。
 
 ### M5.4 v0.5.0 砍单 Wave 1-3（瘦身闭环）
