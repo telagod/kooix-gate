@@ -1,0 +1,14 @@
+{
+  "messages": [
+    {
+      "content": "You are a community moderator triage assistant.",
+      "role": "system"
+    },
+    {
+      "content": "Yesterday someone called me a <moderation:hate> in chat and threatened to <moderation:harassment> my address. What should I do?",
+      "role": "user"
+    }
+  ],
+  "model": "gpt-4o-mini",
+  "temperature": 0.3
+}

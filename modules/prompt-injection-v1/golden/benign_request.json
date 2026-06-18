@@ -1,0 +1,14 @@
+{
+  "messages": [
+    {
+      "content": "You are a senior engineer reviewing code.",
+      "role": "system"
+    },
+    {
+      "content": "In the IDE we switched to developer mode for verbose logs. This function calculates the square root. Could you repeat the question please?",
+      "role": "user"
+    }
+  ],
+  "model": "gpt-4o-mini",
+  "temperature": 0.2
+}

@@ -34,6 +34,32 @@ Kooix Gate 第一条护城河 v1 WASM transform 模块 —— **PII Redaction**�
 - **当前 baseline**：单元测试 `typical_4kb_payload_under_5ms` 在 debug build 下 < 5ms（release 通常 < 1ms）
 - **热路径优化**：所有正则在 `once_cell::Lazy` 中编译一次；每次 transform 仅 N 次 `captures_iter`，无额外分配
 
+## Bench
+
+Host-side Criterion benchmark（详见 [`benches/redact.rs`](benches/redact.rs)）：
+
+```bash
+cd modules/pii-redact-v1
+cargo bench --bench redact            # 完整跑
+cargo bench --bench redact -- --quick # smoke / 编译验证
+```
+
+链路 / 阈值：
+
+| group | 输入 | 路径 | 目标 (release) |
+|-------|------|------|----------------|
+| `typical_4kb_payload` | chat_request fixture 扩展至 ~4KB | `redact_json` | p99 < 1ms / p50 < 500us |
+| `single_email_string` | `"contact alice@example.com please"` | `redact_text` | p99 < 10us |
+| `sse_chunk` | `fixtures/sse_chunk.txt` | `redact_text` | 回归 baseline |
+
+典型 4KB chat payload host-side release p99 < 1ms。
+
+> ⚠ 跟 `autotests = false` 同源的限制：`cargo bench` 走 host link 会触
+> 发 wit-bindgen 生成的 `cabi_post_kooix:plugin/...` symbol 写入 lld
+> version script 报错。语法/类型校验请用 `cargo check --benches`；
+> 真正想跑 bench 需要先临时把 `[lib] crate-type` 切到 `["rlib"]`
+> （或单独建一个不带 wit `export!` 的 bench harness crate）。
+
 ## 构建
 
 ```bash
