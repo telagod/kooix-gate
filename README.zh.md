@@ -12,7 +12,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-556%2B%20Rust%20%2B%20127%20web-brightgreen)](#测试)
 [![Rust](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.4.181-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0--rc2-blue)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 
 ## 是什么
@@ -87,61 +87,25 @@ API / 接入：
 - [ROADMAP.md](./ROADMAP.md) — 四里程碑路线（M1/M2/M3 已交付，M4 候选）
 - [docs/product-gaps.md](./docs/product-gaps.md) — v0.4.60 → v0.5.0 产品化缺口对账
 
-## 当前版本：v0.4.181 — product-review 四刀全收口
+## 当前版本：v0.5.0-rc2
 
-0.4.65-0.4.181（2026-05-26 → 2026-05-27，**117 个 patch**）—— 经历四轮自审打磨 + 阶段小版收口，主线 main 已合入：
+> 0.4.x 系列（188 个 patch · 四刀 product-review + 阶段小版收口）已折叠归档。
+> 完整路线请按下面顺序：
+>
+> - 主线 changelog 汇总 → [CHANGELOG.md § 0.4.x](./CHANGELOG.md#04x--2026-05-22-至-2026-05-28--refactor--product-gaps-closure-188-patches)
+> - 完整 0.4.NNN 流水 → [docs/archive/changelog/CHANGELOG-0.4.x-patch-log.md](./docs/archive/changelog/CHANGELOG-0.4.x-patch-log.md)
+> - 四刀自审历史 → [docs/archive/2026-05-product-reviews/](./docs/archive/2026-05-product-reviews/)
+> - 旧 ROADMAP 完整快照 → [docs/archive/roadmap/ROADMAP-pre-0.5.0.md](./docs/archive/roadmap/ROADMAP-pre-0.5.0.md)
 
-### 第一刀（[archived product-review-2026-05-26](./docs/archive/2026-05-product-reviews/product-review-2026-05-26.md)，0.4.65-0.4.101，37 patch）
+v0.5.0 的路线已切换为号池中台叙事（健康度自愈 / 合规过滤模块库 / 难接入渠道标杆），详见 [ROADMAP.md](./ROADMAP.md) § M5/M6/M7。
 
-性能 / 可观测 / 渠道一致性 / 安全 / WASM / 前端 / 重构 / 文档全面铺开。
-
-### 第二刀（[archived product-review-followup-2026-05-26](./docs/archive/2026-05-product-reviews/product-review-followup-2026-05-26.md)，0.4.102-0.4.118，17 patch · 自我批判）
-
-第一刀完成后自审揭出 6 类粉饰：**假 step 命名 / 占位 env 算实装 / 漏网项 / 内联 mod 假拆 / 文档残留 / 幽灵 API**。按 P0/P1/P2 修真改 runtime 5 项 + 真画图 3 项 + bug 修复 1 项 + 测试/重构/文档 7 项。
-
-### 第三刀（0.4.121-0.4.150，30 patch · 真还债）
-
-第二刀诚实评列的真实债务在第三刀落到 runtime：admin.rs god file 物理拆 8 patch / channels page 拆分 / DataTable virtualize 设计 / G-003 host_get_secret_slot 真实装 / chat e2e bench / G-002 WASM blob store / playground capability frontend / chaos test fixture。
-
-### 第四刀（0.4.151-0.4.171，21 patch · 5 项真还）
-
-第三刀诚实评推 v0.5.x 的 5 项第四刀全部真还：admin/shared.rs 物理拆 + DataTable virtualize 真接 + playground capability gating + chaos test toxiproxy 真启 + WASM blob store auto-mount。
-
-### 阶段小版（0.4.176-0.4.181，6 patch · 工作区清零）
-
-- CI 暂停（GH Free private repo Actions 额度耗尽）
-- 240G `target/` 事故复盘 + build-hygiene-runbook
-- admin/users +page.svelte 650 → 597 行（3 子组件抽出 189 行）
-
-详见 [docs/product-gaps.md § 已收口](./docs/product-gaps.md)。
-
-### 测试基线（0.4.181 实测）
+### 测试基线
 
 | 维度 | 数量 |
 |------|-----|
-| Rust workspace | 556+ tests（src 286 + integ 270） |
-| Web vitest | 127 cases（21 files） |
+| Rust workspace | 556+ tests |
+| Web vitest | 111 cases（19 files，0.5.0 K1 砍 Playground 后）|
 | Migrations | 35 SQL files |
-
-### v0.5.0 启动候选
-
-第四刀 5 项「推 v0.5.x」均**诚实摊明**，非粉饰：DataTable 变高 row virtualize / Svelte 5 + jsdom UI 测试 / Capability audio_in/audio_out 拆 / chaos PG/Redis 真接 / WASM auto-mount gate-server caller。
-
-v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
-
-- **P0 信任链与运行时**（必交付）：G-001 真实签名验签 / G-002 已交付 / G-003 已交付 / G-004 SSE event-by-event transform
-- **P1 DX 与生态**（推荐交付）：G-101 AssemblyScript SDK npm publish / G-102 WASM 表单 UI / G-103 wit-bindgen / G-104 编译产物持久化缓存 / G-105 SCIM v2 / G-106 bundle 220 → 180 KB
-- **P2 企业 / SaaS**（后续筛选）：SAML / OTel log export / 多区域路由 / cost forecasting / Stripe
-
-### 0.4.60 — 完整产品形态（基线）
-
-- **M3 完结**：ADR-0001 / ADR-0002 / ADR-0003 全部 ✅
-- **WASM Plugin v0 完整产品**：wasmtime 26 + 3 hook 含 SSE + Rust SDK + AssemblyScript SDK npm pkg + e2e 测试 + kgctl wasm 工具 + manifest 验签 schema + Grafana dashboard
-- **gate-providers WASM 集成**：CustomHttpProvider chat / chat_stream 全链路 wiremock e2e 通过
-- **产品化**：Helm chart / Grafana dashboard / OpenAPI / 三档 quickstart / 5 runbook / threat model / Criterion bench
-- **前端深度组件化**：channels 1864 → 1199（含 0.4.76 拆分）
-- **Rust 拆解**：router / custom_provider / plugin_manifest 全部 -52%+
-- **clippy 0/0**：workspace 全 lint 净
 
 ## 核心能力
 
