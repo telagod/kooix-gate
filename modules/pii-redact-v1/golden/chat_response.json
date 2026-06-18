@@ -1,0 +1,15 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "I can reach out via <redacted:email> or call <redacted:phone_cn>. <redacted:bearer_token> to verify.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "id": "chatcmpl-fixture",
+  "model": "gpt-4o-mini",
+  "object": "chat.completion"
+}

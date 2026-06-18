@@ -1,0 +1,14 @@
+{
+  "messages": [
+    {
+      "content": "You are a customer support assistant.",
+      "role": "system"
+    },
+    {
+      "content": "Hi, my email is <redacted:email> and phone <redacted:phone_cn>. ID <redacted:china_id_card>. Card <redacted:bank_card>. Server <redacted:ipv4>.",
+      "role": "user"
+    }
+  ],
+  "model": "gpt-4o-mini",
+  "temperature": 0.7
+}

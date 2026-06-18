@@ -15,6 +15,7 @@ members = [
 ]
 exclude = [
     "examples/wasm-transform-v1",
+    "modules/pii-redact-v1",
 ]
 
 [workspace.package]

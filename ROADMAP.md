@@ -81,7 +81,7 @@ cd web && npm run check && npm test && npm run build
 
 ### M6.1 三个官方 ref 模块
 
-- [ ] **`pii-redact-v1`**：正则 + 词典 + 上下文白名单；身份证 / 手机号 / 邮箱 / API key 模式 / 自定义词典。
+- [x] **`pii-redact-v1`**：正则 + 8 类常见 PII（身份证 / 手机 / 邮箱 / openai key / anthropic key / bearer / bank card / ipv4）+ JSON-level allowlist + 4KB payload < 5ms baseline。`modules/pii-redact-v1/`，22 单测 + 3 golden。
 - [ ] **`moderation-v1`**：本地关键词命中 + 可选 OpenAI moderation API 旁路；命中后动作可声明（拦截 / 脱敏 / 打标 / 降级）。
 - [ ] **`prompt-injection-v1`**：启发式 + 模式匹配（"忘记之前指令"、伪 system 标签、角色覆写词），输出风险分。
 
