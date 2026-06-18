@@ -107,6 +107,7 @@ fn repos_with_channels(
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     }
 }
 
@@ -331,6 +332,7 @@ async fn full_chain_api_key_to_upstream() {
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
@@ -479,6 +481,7 @@ async fn full_chain_rewrites_model_from_alias_and_channel_mapping() {
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
@@ -645,6 +648,7 @@ async fn plugin_manifest_channel_model_mapping_rewrites_deployment_path() {
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);
     let router = build_router(state);
@@ -791,6 +795,7 @@ async fn full_chain_plugin_channel_normalizes_private_sse() {
         inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
         sessions: Arc::new(gate_storage::InMemoryUserSessionRepo::new()),
         pg_pool: None,
+        channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
     };
 
     let state = AppState::new(jwt, loader, repos).with_provider_router(provider_router);

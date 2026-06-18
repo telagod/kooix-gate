@@ -10,10 +10,10 @@ use gate_cache::{QuotaCounter, RateLimiter};
 use gate_crypto::EnvelopeKms;
 use gate_providers::{AudioProvider, ImageProvider, Provider, ProviderRouter};
 use gate_storage::{
-    ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelKeyRepo, ChannelLatencyRepo,
-    ChannelRepo, IdentityProviderRepo, InFlightRepo, InvitationRepo, MembershipRepo,
-    ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, RequestLogRepo, UsageRepo,
-    UserIdentityRepo, UserRepo, UserSessionRepo,
+    ApiKeyRepo, AuditRepo, BillingRepo, ChannelGroupRepo, ChannelHealthScoreRepo, ChannelKeyRepo,
+    ChannelLatencyRepo, ChannelRepo, IdentityProviderRepo, InFlightRepo, InvitationRepo,
+    MembershipRepo, ModelAliasRepo, OidcStateRepo, OrgRepo, ProjectRepo, QuotaRepo, RequestLogRepo,
+    UsageRepo, UserIdentityRepo, UserRepo, UserSessionRepo,
 };
 use std::sync::Arc;
 
@@ -112,6 +112,9 @@ pub struct Repos {
     /// 请求日志（H1 追加）—— 逐条请求记录 + Dashboard 聚合。
     pub request_logs: Arc<dyn RequestLogRepo>,
     pub inflight: Arc<dyn InFlightRepo>,
+    /// Channel health score（ADR-0007 / M5.1）—— 路由策略、admin 仪表盘、
+    /// `ScoreFlusher` 写入端都从这里读写。
+    pub channel_health_score: Arc<dyn ChannelHealthScoreRepo>,
     #[doc(hidden)]
     pub pg_pool: Option<sqlx::PgPool>,
 }
@@ -148,6 +151,9 @@ impl Repos {
             billing: Arc::new(PgBillingRepo::new(pool.clone())),
             request_logs: Arc::new(PgRequestLogRepo::new(pool.clone())),
             inflight: Arc::new(gate_storage::PgInFlightRepo::new(pool.clone())),
+            channel_health_score: Arc::new(gate_storage::PgChannelHealthScoreRepo::new(
+                pool.clone(),
+            )),
             pg_pool: Some(pool),
         }
     }
@@ -184,6 +190,7 @@ impl Repos {
             billing: Arc::new(InMemoryBillingRepo::new()),
             request_logs: Arc::new(InMemoryRequestLogRepo::new()),
             inflight: Arc::new(gate_storage::InMemoryInFlightRepo::new()),
+            channel_health_score: Arc::new(gate_storage::InMemoryChannelHealthScoreRepo::new()),
             pg_pool: None,
         }
     }

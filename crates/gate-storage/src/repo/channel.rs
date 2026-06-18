@@ -639,6 +639,15 @@ pub trait ChannelGroupRepo: Send + Sync + 'static {
         fallback_group_id: Option<Option<ChannelGroupId>>,
         description: Option<&str>,
     ) -> DbResult<ChannelGroupRecord>;
+    /// ADR-0007 / M5.1 N1.6: 更新 health-score opt-in 与 per-group 权重覆写。
+    /// `use_health_score: None` = 保持当前；`weights: None` = 不动；
+    /// `weights: Some(None)` = 清空回退默认；`weights: Some(Some(value))` = 覆盖。
+    async fn update_health_config(
+        &self,
+        id: ChannelGroupId,
+        use_health_score: Option<bool>,
+        weights: Option<Option<serde_json::Value>>,
+    ) -> DbResult<()>;
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()>;
     async fn list_bindings(&self, group_id: ChannelGroupId) -> DbResult<Vec<ChannelBinding>>;
     async fn add_binding(
@@ -790,6 +799,34 @@ impl ChannelGroupRepo for PgChannelGroupRepo {
         .await?
         .ok_or(DbError::NotFound)?;
         row_to_group(&row)
+    }
+
+    async fn update_health_config(
+        &self,
+        id: ChannelGroupId,
+        use_health_score: Option<bool>,
+        weights: Option<Option<serde_json::Value>>,
+    ) -> DbResult<()> {
+        // 用 boolean 标志位表达「是否动 weights 字段」+ 实际 JSONB 值。
+        let change_weights = weights.is_some();
+        let weights_val: Option<serde_json::Value> = weights.flatten();
+        let res = sqlx::query(
+            "UPDATE channel_groups SET \
+             use_health_score = COALESCE($2, use_health_score), \
+             health_weights = CASE WHEN $3::boolean THEN $4 ELSE health_weights END, \
+             updated_at = now() \
+             WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .bind(use_health_score)
+        .bind(change_weights)
+        .bind(weights_val)
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
     }
 
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()> {
@@ -1398,6 +1435,24 @@ impl ChannelGroupRepo for InMemoryChannelGroupRepo {
         }
         g.updated_at = Utc::now();
         Ok(g.clone())
+    }
+
+    async fn update_health_config(
+        &self,
+        id: ChannelGroupId,
+        use_health_score: Option<bool>,
+        weights: Option<Option<serde_json::Value>>,
+    ) -> DbResult<()> {
+        let mut inner = self.inner.write();
+        let g = inner.groups.get_mut(&id).ok_or(DbError::NotFound)?;
+        if let Some(v) = use_health_score {
+            g.use_health_score = v;
+        }
+        if let Some(w) = weights {
+            g.health_weights = w;
+        }
+        g.updated_at = Utc::now();
+        Ok(())
     }
 
     async fn delete(&self, id: ChannelGroupId) -> DbResult<()> {

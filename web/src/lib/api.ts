@@ -1876,3 +1876,119 @@ export async function deletePricingRule(id: string, confirmation?: string): Prom
 		headers: confirmationHeaders(confirmation)
 	});
 }
+
+// ============================================================================
+// Channel Health Score (ADR-0007 / M5.1 N1.6)
+// ============================================================================
+
+export type HealthState =
+	| 'healthy'
+	| 'degraded'
+	| 'cooldown'
+	| 'recovering'
+	| 'banned';
+
+export interface ChannelHealthResponse {
+	channel_id: string;
+	channel_code: string;
+	state: HealthState;
+	score: number;
+	success_rate: number;
+	latency_p99_ms: number;
+	banned_signal: number;
+	quota_remaining_norm: number;
+	consecutive_failures: number;
+	cooldown_until: string | null;
+	banned_reason: string | null;
+	last_transition_at: string;
+	window_total: number;
+	window_success: number;
+	updated_at: string;
+}
+
+export interface HealthAlert {
+	channel_id: string;
+	channel_code: string;
+	severity: 'critical' | 'warn';
+	message: string;
+}
+
+export interface DashboardSummary {
+	by_state: Record<string, number>;
+	channels: ChannelHealthResponse[];
+	alerts: HealthAlert[];
+}
+
+export interface HealthWeights {
+	success_rate: number;
+	latency_p99: number;
+	banned_signal: number;
+	quota_remaining: number;
+}
+
+export interface GroupHealthConfig {
+	group_id: string;
+	group_name: string;
+	use_health_score: boolean;
+	weights: HealthWeights | null;
+}
+
+export interface UpdateGroupHealthConfig {
+	use_health_score?: boolean;
+	/** undefined = no change; null = clear (use default); object = override. */
+	weights?: HealthWeights | null;
+}
+
+export interface ForceCooldownRequest {
+	cooldown_secs?: number;
+	reason?: string;
+}
+
+export async function getHealthDashboard(): Promise<DashboardSummary> {
+	return apiFetch<DashboardSummary>('/v1/admin/health-dashboard');
+}
+
+export async function getChannelHealthScore(
+	channelId: string
+): Promise<ChannelHealthResponse> {
+	return apiFetch<ChannelHealthResponse>(
+		`/v1/admin/channels/${rawId(channelId)}/health-score`
+	);
+}
+
+export async function unbanChannel(
+	channelId: string
+): Promise<ChannelHealthResponse> {
+	return apiFetch<ChannelHealthResponse>(
+		`/v1/admin/channels/${rawId(channelId)}/health/unban`,
+		{ method: 'POST' }
+	);
+}
+
+export async function forceCooldownChannel(
+	channelId: string,
+	body: ForceCooldownRequest
+): Promise<ChannelHealthResponse> {
+	return apiFetch<ChannelHealthResponse>(
+		`/v1/admin/channels/${rawId(channelId)}/health/cooldown`,
+		{ method: 'POST', body: JSON.stringify(body) }
+	);
+}
+
+export async function getGroupHealthConfig(
+	groupId: string
+): Promise<GroupHealthConfig> {
+	return apiFetch<GroupHealthConfig>(
+		`/v1/admin/groups/${rawId(groupId)}/health-weights`
+	);
+}
+
+export async function updateGroupHealthConfig(
+	groupId: string,
+	body: UpdateGroupHealthConfig
+): Promise<GroupHealthConfig> {
+	return apiFetch<GroupHealthConfig>(
+		`/v1/admin/groups/${rawId(groupId)}/health-weights`,
+		{ method: 'PUT', body: JSON.stringify(body) }
+	);
+}
