@@ -23,7 +23,7 @@
 ### M5.1 ChannelHealthScore（核心）
 
 - [x] **N1.1** Schema + Repo：migration 20260619000001 + `ChannelHealthScoreRepo` trait + Pg/InMemory impl + 24 测试（11 unit + 13 PG integration）。评分计算/状态机/封号 detector 在 N1.2-N1.3 上。
-- [ ] **N1.2** 状态机：`Healthy → Degraded → Cooldown → Banned → Recovering`，转移规则文档化。
+- [x] **N1.2** ScoreEngine：4 维加权 + 5 状态机（含 hysteresis 0.05）+ 指数退避 cooldown + Banned 终态。`crates/gate-providers/src/health_score.rs` + 29 单元测试。N1.4 路由消费 / N1.5 异步落库下两刀接。
 - [ ] **N1.3** 路由策略消费 score：`priority / weighted_random / least_conn / least_latency` 全部接受 health 权重。
 - [ ] **N1.4** 自动 cooldown：检测到 401/403/429 模式后指数退避，可配置最大 cooldown 时长。
 - [ ] **N1.5** 封号检测器：基于响应特征（特定 error code / response body / 余额耗尽信号）触发状态转移。
