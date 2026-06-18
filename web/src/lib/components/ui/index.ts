@@ -6,7 +6,6 @@ export { default as DropdownMenu } from './DropdownMenu.svelte';
 export { default as Field } from './Field.svelte';
 export { default as FilterPills } from './FilterPills.svelte';
 export { default as Input } from './Input.svelte';
-export { default as MarkdownRenderer } from './MarkdownRenderer.svelte';
 export { default as ModalityBadge } from './ModalityBadge.svelte';
 export { default as ProviderSelect } from './ProviderSelect.svelte';
 export { default as Select } from './Select.svelte';

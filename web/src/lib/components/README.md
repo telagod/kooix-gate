@@ -11,8 +11,6 @@
 web/src/lib/components/
 ├── brand/              # 品牌资产
 ├── channels/           # /channels 页面专用
-├── flow/               # Playground / xyflow 节点
-├── playground/         # Playground 容器
 ├── templates/          # 页面级模板（PageShell / DataTable / 等）
 ├── ui/                 # 基础 UI 原子（Button / Input / Card / 等）
 ├── InvitationPanel.svelte
@@ -53,7 +51,6 @@ CLAUDE.md 强制：页面禁止复制基础按钮/输入框/卡片长 class。�
 | `Skeleton.svelte` | 加载占位 |
 | `DropdownMenu.svelte` | 下拉菜单 |
 | `FilterPills.svelte` | 筛选条 |
-| `MarkdownRenderer.svelte` | Markdown 渲染（lazy load `marked` + `highlight.js`） |
 | `ModalityBadge.svelte` | 多模态能力徽章（chat/image/audio/embedding/vision） |
 | `ProviderSelect.svelte` | Provider 选择（带 logo） |
 
@@ -63,41 +60,15 @@ CLAUDE.md 强制：页面禁止复制基础按钮/输入框/卡片长 class。�
 |------|------|
 | `PluginAuthEditor.svelte` | Plugin manifest auth 编辑器（9 种 strategy） |
 
-> ⚠ M1.4 计划：`channels/+page.svelte` (1949 行核弹) 拆为 `routes/channels/_components/{ChannelList,ChannelCreateDrawer,ManifestBuilder,SseReplayPreview,CapabilityChips}.svelte`。
+> Channels 页面的进一步组件化（ChannelList / ChannelCreateDrawer / ManifestBuilder / SseReplayPreview / CapabilityChips）见 v0.5.0 K7 计划。
 
-## 4. `flow/` — Playground 节点
-
-基于 `@xyflow/svelte`。每个节点是独立 Svelte 组件，input/output 通过 `Handle` 暴露。
-
-| 节点 | Capability | 用途 |
-|------|-----------|------|
-| `BaseNode.svelte` | — | 节点基类（标题 / icon / status） |
-| `TextInputNode.svelte` | — | 文本输入起点 |
-| `ImageUploadNode.svelte` | — | 图片上传起点 |
-| `AudioUploadNode.svelte` | — | 音频上传起点 |
-| `LLMChatNode.svelte` | `chat` | LLM 对话节点 |
-| `ImageGenNode.svelte` | `image` | 图像生成节点 |
-| `STTNode.svelte` | `audio` | 语音转文本节点 |
-| `TTSNode.svelte` | `audio` | 文本转语音节点 |
-| `PreviewNode.svelte` | — | 结果预览终点 |
-
-详见 `docs/playground.md`。
-
-## 5. `playground/` — Playground 容器
-
-| 组件 | 用途 |
-|------|------|
-| `FlowEditor.svelte` | 主编辑器容器（节点面板 / canvas / toolbar） |
-
-入口 `web/src/routes/playground/+page.svelte` 用动态 import 懒加载 `FlowEditor`。
-
-## 6. `brand/` — 品牌资产
+## 4. `brand/` — 品牌资产
 
 | 组件 | 用途 |
 |------|------|
 | `KooixLogo.svelte` | Kooix 空衍 Logo（SVG inline） |
 
-## 7. 顶层散件
+## 5. 顶层散件
 
 | 组件 | 用途 |
 |------|------|

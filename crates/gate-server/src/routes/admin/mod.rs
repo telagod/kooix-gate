@@ -233,9 +233,6 @@ pub fn router() -> Router<AppState> {
             "/plugin-manifest/replay",
             axum::routing::post(channels::plugin_manifest_replay),
         )
-        // 0.4.87（product-review B5）：暴露完整 provider capability 矩阵给前端。
-        // 让 playground 能根据当前 channel/provider 联动节点禁用状态。
-        .route("/providers/capabilities", get(list_provider_capabilities))
         .route(
             "/channels",
             get(channels::list_channels).post(channels::create_channel),
@@ -435,39 +432,6 @@ pub struct CreatedInvitationView {
 mod tests {
     use super::*;
 
-    // 0.4.88（B5 step 2）：list_provider_capabilities 不依赖 DB / state，
-    // 直接验证它返回 4 编译期 + 7 plugin preset 共 11 项，且每条字段齐全。
-    // 用 minimal AuthContext 绕过权限检查。
-    #[tokio::test]
-    async fn provider_capabilities_returns_full_matrix() {
-        // 模拟一个 system AuthContext —— Authed 仅做 deserialize-style
-        // 提取，不真校验权限（list_provider_capabilities 没用 require!）
-        let ctx = gate_auth::AuthContext::system();
-        let Json(rows) = list_provider_capabilities(crate::auth::Authed(ctx))
-            .await
-            .expect("call ok");
-        // 应该至少 4 编译期 + ≥1 plugin preset
-        assert!(rows.len() >= 5, "expected >= 5 entries, got {}", rows.len());
-
-        // 编译期 4 条都在
-        for p in ["openai", "anthropic", "azure", "bedrock"] {
-            assert!(
-                rows.iter().any(|r| r.id == p && r.kind == "compile_time"),
-                "missing compile_time provider: {p}"
-            );
-        }
-        // plugin preset 至少包含 openai_compatible
-        assert!(
-            rows.iter()
-                .any(|r| r.id == "plugin:openai_compatible" && r.kind == "plugin_preset"),
-            "missing plugin preset openai_compatible"
-        );
-
-        // capabilities 字段非空（compile-time provider 至少有 chat true）
-        let openai = rows.iter().find(|r| r.id == "openai").unwrap();
-        assert!(openai.capabilities.chat, "openai must support chat");
-    }
-
     #[test]
     fn channel_key_alias_validation_matches_plugin_secret_slots() {
         assert!(channels::validate_channel_key_alias("client_id").is_ok());
@@ -498,63 +462,6 @@ struct PricingRuleRow {
     effective_until: Option<DateTime<Utc>>,
     priority: i32,
     description: Option<String>,
-}
-
-// 0.4.87（product-review B5）：完整 provider capability 矩阵，前端 playground
-// / channel drawer 可一次拉到全部已知 provider + plugin preset 的能力清单。
-// 不依赖 channel 状态，所有 Authed 用户都能查（gate-providers 编译期静态）。
-#[derive(Serialize)]
-struct ProviderCapabilityEntry {
-    /// 标识符：编译期 provider 用 provider_type，plugin preset 用 `plugin:{preset_name}`。
-    id: String,
-    /// 人类可读 label。
-    name: String,
-    capabilities: gate_providers::ProviderCapabilities,
-    /// 推荐 base_url（None 即没有标准推荐，比如 plugin 自定义 endpoint）。
-    base_url_hint: Option<String>,
-    /// `compile_time` | `plugin_preset`。
-    kind: &'static str,
-}
-
-async fn list_provider_capabilities(
-    Authed(_ctx): Authed,
-) -> AppResult<Json<Vec<ProviderCapabilityEntry>>> {
-    // 编译期 provider（4 个 fast-path）
-    let compile_time = ["openai", "anthropic", "azure", "bedrock"];
-    // 已知 plugin preset
-    let plugin_presets = [
-        "openai_compatible",
-        "anthropic_messages",
-        "google_gemini",
-        "cohere",
-        "mistral",
-        "deepseek",
-        "ollama",
-    ];
-
-    let mut out = Vec::with_capacity(compile_time.len() + plugin_presets.len());
-    for p in compile_time {
-        out.push(ProviderCapabilityEntry {
-            id: p.to_string(),
-            name: p.to_string(),
-            capabilities: gate_providers::provider_capabilities(p),
-            base_url_hint: gate_providers::provider_base_url_suggestion(p).map(str::to_string),
-            kind: "compile_time",
-        });
-    }
-    for preset in plugin_presets {
-        if let Some(caps) = gate_providers::plugin_preset_capabilities(preset) {
-            out.push(ProviderCapabilityEntry {
-                id: format!("plugin:{preset}"),
-                name: preset.to_string(),
-                capabilities: caps,
-                base_url_hint: gate_providers::plugin_preset_base_url_suggestion(preset)
-                    .map(str::to_string),
-                kind: "plugin_preset",
-            });
-        }
-    }
-    Ok(Json(out))
 }
 
 // 0.4.122：pricing 块物理拆出到 admin/pricing.rs。

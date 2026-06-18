@@ -48,7 +48,7 @@
 - [x] **K13** ROADMAP 重写为号池叙事 — 本文件
 - [x] **K4** product-review 三刀归档
 - [x] **K5** backlog 设计稿挪位
-- [ ] **K1** Playground 整段砍（认知瘦身王牌 + 340KB bundle）
+- [x] **K1** Playground 整段砍（认知瘦身王牌 + 340KB bundle）
 - [ ] **K15** ADR 状态重排（ADR-0002/0003/0004 标 Superseded）
 - [ ] **K14** CHANGELOG 0.4.x 流水账折叠
 - [ ] **K8** `api.ts` 按域拆分（先抽 `core.ts` 共享 apiFetch/ApiError）

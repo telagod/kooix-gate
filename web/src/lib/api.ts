@@ -373,21 +373,6 @@ export async function createChannel(data: CreateChannelRequest): Promise<Channel
 	});
 }
 
-// 0.4.144（按 product-review B5 / playground M1.5）：拉 0.4.87 的
-// /v1/admin/providers/capabilities endpoint —— 一次返完整能力矩阵
-// （4 编译期 provider + 7 plugin preset）给 playground 节点联动。
-export interface ProviderCapabilityEntry {
-	id: string;
-	name: string;
-	capabilities: ProviderCapabilities;
-	base_url_hint: string | null;
-	kind: 'compile_time' | 'plugin_preset';
-}
-
-export async function listProviderCapabilities(): Promise<ProviderCapabilityEntry[]> {
-	return apiFetch<ProviderCapabilityEntry[]>('/v1/admin/providers/capabilities');
-}
-
 export async function updateChannel(id: string, data: UpdateChannelRequest): Promise<Channel> {
 	return apiFetch<Channel>(`/v1/admin/channels/${rawId(id)}`, {
 		method: 'PUT',

@@ -6,7 +6,7 @@ Last verified: 2026-05-20
 
 ## 目标
 
-发布资产必须让外部用户在 3 分钟内看懂：Kooix Gate 能接入 Provider、配置路由、定价计费、审计请求，并用 Playground 验证模型能力。
+发布资产必须让外部用户在 3 分钟内看懂：Kooix Gate 能接入 Provider、配置路由、定价计费、审计请求。
 
 ## 录制前准备
 
@@ -21,7 +21,7 @@ Last verified: 2026-05-20
 2. 使用专门的 demo Org / Project / API Key，不复用生产租户。
 3. 浏览器开启干净 profile，缩放 100%，窗口建议 `1440x960`。
 4. 遮挡或重建所有 secret：Project API key、Channel key、OIDC secret、JWT、refresh token。
-5. 检查 UI 使用中文主文案，保留 Provider / Channel / API Key / Playground 等术语。
+5. 检查 UI 使用中文主文案，保留 Provider / Channel / API Key 等术语。
 
 ## 必备截图
 
@@ -31,7 +31,6 @@ Last verified: 2026-05-20
 | Channel wizard | `/channels` 创建抽屉 | Provider preset、Auth strategy、Probe / Save 步骤 | 上游 API key 明文 |
 | Pricing rules | `/admin/pricing` | Model、dimension、rate、usage cost preview | 真实合同价或客户名 |
 | Request logs | `/admin/requests` 或 `/admin/audit` | request_id、status、latency、before/after audit detail | Authorization、API key、raw secret |
-| Playground | `/playground` | 节点编排、输入/输出预览、成功结果 | 私有 prompt、客户数据 |
 
 ## 短视频脚本
 
@@ -41,7 +40,7 @@ Last verified: 2026-05-20
 2. **10-25s**：Channel wizard 选择 OpenAI-compatible preset，填 base URL，展示 secret slot 不进入 manifest。
 3. **25-40s**：Probe 成功后保存 Channel，加入 Group / Project default route。
 4. **40-55s**：Pricing rules 增加 input/output tokens 规则，展示 usage cost preview。
-5. **55-75s**：用 Playground 或 curl 发一条 chat，切到 Request logs 看 request_id、latency、status。
+5. **55-75s**：用 curl / SDK 发一条 chat，切到 Request logs 看 request_id、latency、status。
 6. **75-90s**：打开 Billing / Usage，确认成本和 token 聚合出现。
 
 ## 文件命名
@@ -52,7 +51,6 @@ release-assets/
   vX.Y.Z-channel-wizard.png
   vX.Y.Z-pricing-rules.png
   vX.Y.Z-request-logs.png
-  vX.Y.Z-playground.png
   vX.Y.Z-demo.mp4
 ```
 

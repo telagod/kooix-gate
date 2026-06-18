@@ -19,7 +19,6 @@
 		Layers,
 		ClipboardList,
 		Users,
-		MessageSquare,
 		KeyRound,
 		Settings,
 		Sun,
@@ -51,7 +50,6 @@
 		if (pattern === '/orgs') return currentPath === '/orgs' || (currentPath.startsWith('/orgs/') && !currentPath.includes('/projects') && !currentPath.includes('/billing') && !currentPath.includes('/quotas'));
 		if (pattern === '/usage') return currentPath === '/usage';
 		if (pattern === '/usage/requests') return currentPath.startsWith('/usage/requests');
-		if (pattern === '/playground') return currentPath.startsWith('/playground');
 		if (pattern === '/settings') return currentPath.startsWith('/settings');
 		if (pattern === '/channels') return currentPath === '/channels' || currentPath.startsWith('/channels/');
 		if (pattern === '/admin/channels') return currentPath === '/admin/channels';
@@ -134,10 +132,6 @@
 			<a href="/usage/requests" class={linkCls('/usage/requests')} title={collapsed ? '请求记录' : ''}>
 				<ScrollText size={iconSize} />
 				{#if !collapsed}<span class="truncate">请求记录</span>{/if}
-			</a>
-			<a href="/playground" class={linkCls('/playground')} title={collapsed ? 'Playground' : ''}>
-				<MessageSquare size={iconSize} />
-				{#if !collapsed}<span class="truncate">Playground</span>{/if}
 			</a>
 		</div>
 

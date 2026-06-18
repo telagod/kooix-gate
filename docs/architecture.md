@@ -39,7 +39,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Web["web/ SvelteKit Console"]
-    Console["Admin Console\nchannel / quota / billing / request logs / playground"]
+    Console["Admin Console\nchannel / quota / billing / request logs"]
   end
 
   subgraph Server["gate-server binary"]

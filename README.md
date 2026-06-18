@@ -99,7 +99,7 @@ Roadmap / Gaps:
 | Billing | Multi-dimensional pricing + crash-safe pre-debit + ledger + invoice state machine |
 | Quotas | rpm / tpm / concurrent / daily / monthly / lifetime + dry-run / explain |
 | Identity | Argon2id + JWT + API Key SHA-256 + OIDC SSO + refresh session rotation |
-| Console | SvelteKit admin UI + Playground workflow editor |
+| Console | SvelteKit admin UI |
 | Ops | `kgctl` CLI + Docker Compose + Helm + Prometheus + OpenTelemetry |
 | Extensibility | WASM transform plugins (ADR-0003 v0) with Rust + AssemblyScript SDKs |
 
@@ -132,7 +132,7 @@ Ollama, vLLM, LM Studio, LocalAI, Xinference, Text Generation Inference (TGI), J
 |-------|--------|
 | Backend | Rust 2024 · Axum 0.7 · Tokio · sqlx 0.8 (compile-time checked) |
 | Storage | PostgreSQL 15+ (optional TimescaleDB) · Redis (fred) |
-| Frontend | SvelteKit 2 · Svelte 5 · TypeScript · Tailwind v4 · @xyflow/svelte |
+| Frontend | SvelteKit 2 · Svelte 5 · TypeScript · Tailwind v4 |
 | Auth | Argon2id + JWT (HS256) + API Key (SHA-256) + OIDC |
 | Crypto | AES-256-GCM envelope encryption + KMS abstraction |
 | Observability | tracing + OpenTelemetry + Prometheus |

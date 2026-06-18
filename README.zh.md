@@ -131,7 +131,7 @@ v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
 
 - **P0 信任链与运行时**（必交付）：G-001 真实签名验签 / G-002 已交付 / G-003 已交付 / G-004 SSE event-by-event transform
 - **P1 DX 与生态**（推荐交付）：G-101 AssemblyScript SDK npm publish / G-102 WASM 表单 UI / G-103 wit-bindgen / G-104 编译产物持久化缓存 / G-105 SCIM v2 / G-106 bundle 220 → 180 KB
-- **P2 企业 / SaaS**（后续筛选）：SAML / OTel log export / 多区域路由 / cost forecasting / Stripe / Playground 收尾
+- **P2 企业 / SaaS**（后续筛选）：SAML / OTel log export / 多区域路由 / cost forecasting / Stripe
 
 ### 0.4.60 — 完整产品形态（基线）
 
@@ -150,7 +150,6 @@ v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
 - [docs/architecture.md](./docs/architecture.md) — C4 架构总览（control / data / worker plane）
 - [DESIGN.md](./DESIGN.md) — 领域模型、数据流、关键决议
 - [ROADMAP.md](./ROADMAP.md) — 当前基线与三里程碑路线
-- [docs/playground.md](./docs/playground.md) — 工作流编辑器
 
 一句话按层：
 
@@ -163,7 +162,7 @@ v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
 | 计费 | 多维度定价 + LiteLLM 自动同步 + crash-safe pre-debit + ledger + invoice 状态机 |
 | 配额 | rpm / tpm / concurrent / daily / monthly / lifetime + dry-run / explain |
 | 身份 | Argon2id + JWT + API Key SHA-256 + OIDC SSO + refresh session 轮转 |
-| 可视化 | SvelteKit 控制台 + Playground 工作流编辑器 |
+| 可视化 | SvelteKit 控制台 |
 | 运维 | `kgctl` CLI + Docker Compose + Prometheus + OpenTelemetry + incident UI |
 
 ## 技术栈
@@ -172,7 +171,7 @@ v0.5.0 核心交付候选见 [docs/product-gaps.md](./docs/product-gaps.md)：
 |---|---|
 | Backend | Rust 2024 · Axum 0.7 · Tokio · sqlx 0.8 |
 | Storage | PostgreSQL 15+（可选 TimescaleDB）· Redis (fred) |
-| Frontend | SvelteKit 2 · Svelte 5 · TypeScript · Tailwind v4 · @xyflow/svelte |
+| Frontend | SvelteKit 2 · Svelte 5 · TypeScript · Tailwind v4 |
 | Auth | Argon2id + JWT (HS256) + API Key (SHA-256) + OIDC |
 | Crypto | AES-256-GCM envelope encryption + KMS 抽象 |
 | Observability | tracing + OpenTelemetry + Prometheus |
