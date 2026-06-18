@@ -1,6 +1,6 @@
 # ADR-0003: WASM Plugin ABI v0（M3 收口 / 0.4.16 → 0.4.60 实装）
 
-- Status: **Implemented (0.4.16 PoC → 0.4.60 完整产品形态)** — host hook 设计 + sample manifest（0.4.16） + wasmtime runtime + Rust SDK + AssemblyScript SDK + 3 hook 含 SSE + ProviderRouter 集成 + e2e + Prometheus + Grafana + runbook + signature schema 全栈落地（0.4.21-0.4.60）
+- Status: **Superseded (by [ADR-0006](./ADR-0006-wasm-abi-v1-component-model.md); was Implemented 0.4.16 PoC → 0.4.60 完整产品形态)** — v0 ABI 作为 dual-run window 兼容基线保留，新功能走 ADR-0006 component-model v1。原 v0 全栈落地内容（host hook + sample manifest + wasmtime runtime + Rust SDK + AssemblyScript SDK + 3 hook 含 SSE + ProviderRouter 集成 + e2e + Prometheus + Grafana + runbook + signature schema，0.4.16-0.4.60）保留为 v1 迁移期对照。
 - Deciders: telagod
 - Affected: `crates/gate-wasm/`, `crates/gate-wasm-sdk/`, `sdks/gate-wasm-sdk-as/`, `crates/gate-providers/src/{custom_provider,plugin_manifest,router}/`, `crates/kgctl/src/{wasm,plugin}.rs`, `docs/wasm-plugin-abi.md`, `docs/wasm-runbook.md`, `docs/wasm-sdk-as.md`, `docs/manifest-registry-signature.md`
 

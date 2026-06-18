@@ -1,6 +1,6 @@
 # ADR-0002: Plugin Runtime Fast-path（M3 v0.4.0）
 
-- Status: **Accepted (M3 shipped 2026-05-22)** — 4 个 fast-path adapter 全接通，sigv4 修真，preset bundle 决策不拆
+- Status: **Superseded (by [ADR-0004](./ADR-0004-builtin-wrappers-retirement.md); was Accepted M3 shipped 2026-05-22)** — fastpath 4 adapter 全接通的产物在 v0.5.0 由 ADR-0004 收敛到 plugin runtime，本 ADR 作为已交付的中间态保留为历史决议
 - Deciders: telagod
 - Affected: `crates/gate-providers/src/custom_provider/`, `crates/gate-providers/src/plugin_manifest/`, `crates/gate-providers/src/plugin_preset/`, `examples/manifest-registry/`
 
