@@ -1,0 +1,14 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a community moderator triage assistant."
+    },
+    {
+      "role": "user",
+      "content": "Yesterday someone called me a faggot in chat and threatened to doxx my address. What should I do?"
+    }
+  ],
+  "temperature": 0.3
+}

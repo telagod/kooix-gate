@@ -69,6 +69,7 @@ Extension:
 - [docs/wasm-plugin-abi.md](./docs/wasm-plugin-abi.md) — WASM Plugin ABI v0 full design
 - [docs/wasm-sdk-as.md](./docs/wasm-sdk-as.md) — AssemblyScript SDK guide
 - [docs/manifest-registry-signature.md](./docs/manifest-registry-signature.md) — Registry signature schema
+- [modules/](./modules/) — Official compliance-filter reference modules (M6.1): `pii-redact-v1`, `moderation-v1`, `prompt-injection-v1`
 
 API / Integration:
 

@@ -67,6 +67,7 @@ open http://localhost:8080                # 控制台（SvelteKit）
 - [docs/plugin-manifest.md](./docs/plugin-manifest.md) — HTTP Plugin manifest 规范与示例
 - [docs/wasm-plugin-abi.md](./docs/wasm-plugin-abi.md) — WASM Plugin ABI v0 完整设计与实装对账
 - [docs/wasm-sdk-as.md](./docs/wasm-sdk-as.md) — AssemblyScript SDK 用法
+- [modules/](./modules/) — 官方合规过滤参考模块（M6.1）：`pii-redact-v1` / `moderation-v1` / `prompt-injection-v1`
 - [docs/manifest-registry-signature.md](./docs/manifest-registry-signature.md) — Registry 签名 schema
 
 API / 接入：

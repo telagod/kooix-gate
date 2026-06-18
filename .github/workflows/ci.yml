@@ -194,3 +194,43 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run bundle:budget
+
+  modules-wasm-build:
+    name: Modules · wasm32-wasip2 build
+    runs-on: ${{ fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - pii-redact-v1
+          - moderation-v1
+          - prompt-injection-v1
+    defaults:
+      run:
+        working-directory: modules/${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-wasip2
+      - name: Use preinstalled Rust toolchain (self-hosted)
+        if: ${{ contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        run: |
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add wasm32-wasip2
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ !contains(fromJSON(vars.KOOIX_CI_RUNNER || '["ubuntu-latest"]'), 'self-hosted') }}
+        with:
+          workspaces: modules/${{ matrix.module }}
+      # Host-side: lib unit tests + golden + perf-baseline + plugin smoke.
+      # No tests/ dir — wit-bindgen `cabi_post_kooix:plugin/...` symbols trip the
+      # host linker name parser; see Cargo.toml [package].autotests = false.
+      - run: cargo test --lib
+      # Production target: component-model wasm32-wasip2 release build.
+      - run: cargo build --release --target wasm32-wasip2
+      - name: Show wasm artifact size
+        run: |
+          ls -lh target/wasm32-wasip2/release/*.wasm || true
