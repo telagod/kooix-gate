@@ -18,7 +18,7 @@
 
 ## 已收口（0.4.65-0.4.117，product-review 双刀）
 
-> 关联：[product-review-2026-05-26.md](./product-review-2026-05-26.md) 第一刀 + [product-review-followup-2026-05-26.md](./product-review-followup-2026-05-26.md) 第二刀（自我批判）。
+> 关联：[archived product-review-2026-05-26.md](./archive/2026-05-product-reviews/product-review-2026-05-26.md) 第一刀 + [archived product-review-followup-2026-05-26.md](./archive/2026-05-product-reviews/product-review-followup-2026-05-26.md) 第二刀（自我批判）。
 > 总计 53 个 patch（0.4.65-0.4.117），主线 main 已合入。
 
 ### 第一刀（0.4.65-0.4.101，37 patch）

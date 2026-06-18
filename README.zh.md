@@ -91,11 +91,11 @@ API / 接入：
 
 0.4.65-0.4.181（2026-05-26 → 2026-05-27，**117 个 patch**）—— 经历四轮自审打磨 + 阶段小版收口，主线 main 已合入：
 
-### 第一刀（[product-review-2026-05-26](./docs/product-review-2026-05-26.md)，0.4.65-0.4.101，37 patch）
+### 第一刀（[archived product-review-2026-05-26](./docs/archive/2026-05-product-reviews/product-review-2026-05-26.md)，0.4.65-0.4.101，37 patch）
 
 性能 / 可观测 / 渠道一致性 / 安全 / WASM / 前端 / 重构 / 文档全面铺开。
 
-### 第二刀（[product-review-followup-2026-05-26](./docs/product-review-followup-2026-05-26.md)，0.4.102-0.4.118，17 patch · 自我批判）
+### 第二刀（[archived product-review-followup-2026-05-26](./docs/archive/2026-05-product-reviews/product-review-followup-2026-05-26.md)，0.4.102-0.4.118，17 patch · 自我批判）
 
 第一刀完成后自审揭出 6 类粉饰：**假 step 命名 / 占位 env 算实装 / 漏网项 / 内联 mod 假拆 / 文档残留 / 幽灵 API**。按 P0/P1/P2 修真改 runtime 5 项 + 真画图 3 项 + bug 修复 1 项 + 测试/重构/文档 7 项。
 

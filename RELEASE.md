@@ -289,7 +289,7 @@ gh release upload v0.4.X \
 
 ---
 
-## v0.5.0-rc1 准备清单（基于 product-review-2026-05-26）
+## v0.5.0-rc1 准备清单（基于 [archived product-review 2026-05](./docs/archive/2026-05-product-reviews/product-review-2026-05-26.md)）
 
 > 第一刀（A1-A5 + Retry + Pool + admin step1 + docs）已在 0.4.65-0.4.75 合 main。
 > 0.4.76-0.4.99 持续打磨；0.4.100 触发 rc1 候选评估。

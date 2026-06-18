@@ -2,7 +2,7 @@
 
 > Status: **设计稿（0.4.99 占位 → 0.5.x 实装）**
 >
-> 来源：[product-review-2026-05-26 §5.2](./product-review-2026-05-26.md) — "chaos test 缺：限流挂掉 / Redis 闪断 / 上游 503 风暴 / pool 耗尽，没有 deterministic 复现 case"。
+> 来源：[archived product-review §5.2](./archive/2026-05-product-reviews/product-review-2026-05-26.md) — "chaos test 缺：限流挂掉 / Redis 闪断 / 上游 503 风暴 / pool 耗尽，没有 deterministic 复现 case"。
 
 ## 目标
 
